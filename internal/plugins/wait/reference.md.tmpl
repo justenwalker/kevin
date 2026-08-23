@@ -1,0 +1,63 @@
+---
+title: "⏳ wait"
+weight: 6
+---
+
+[[template "banner"]]
+
+# `builtin:wait`
+
+Blocks a step's dependents until a check succeeds: a TCP dial, an HTTP(S)
+probe, a `kubectl wait`/`rollout status`, a command retried until it exits
+zero, or a fixed `duration` sleep. Useful after a
+[`kubectl`]({{< relref "/docs/reference/kubectl" >}})
+or [`helm`]({{< relref "/docs/reference/helm" >}}) step applies a manifest,
+to gate a dependent step on the workload actually being ready. See
+[Deploying workloads]({{< relref "/docs/guides/deploying-workloads" >}}).
+
+A `tcp` check's `address` may be a plain `host:port`, or the
+`socks5://<relay>/<host:port>` form a `builtin:kind` step's `expose` entries
+publish as a `needs.<step>.system.expose_<name>` value, to reach a service
+inside a kind cluster through its relay. `system` is a sub-namespace kept
+separate from `out` (a step's own outputs); see
+[Cross-step values]({{< relref "/docs/configuring-an-environment#cross-step-values" >}}):
+
+```cue
+postgres_ready: {
+    uses: "builtin:wait"
+    needs: ["cluster", "postgres"]
+    with: {
+        timeout: "2m"
+        tcp: address: "${needs.cluster.system.expose_postgres}"
+    }
+}
+```
+
+[[template "table" .Definitions.Config]]
+
+Exactly one of `tcp`, `http`, `kubectl`, `exec`, `duration` must be set.
+`Up` rejects a `with` block that sets zero or more than one.
+
+## `#TCP`
+
+[[template "table" .Definitions.TCP]]
+
+## `#HTTP`
+
+[[template "table" .Definitions.HTTP]]
+
+## `#Kubectl`
+
+[[template "table" .Definitions.Kubectl]]
+
+Exactly one of `for`, `rollout` must be set.
+
+## `#Exec`
+
+[[template "table" .Definitions.Exec]]
+
+**Kind: probe.** A wait step creates no resource to clean up, so it has
+no `Down` and does nothing on teardown.
+
+Idempotent: a wait step creates nothing, so it's safe to rerun, directly,
+or swept into a cascading rerun of a step it depends on.

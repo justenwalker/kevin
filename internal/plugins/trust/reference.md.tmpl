@@ -1,0 +1,24 @@
+---
+title: "🔒 trust"
+weight: 3
+---
+
+[[template "banner"]]
+
+# `builtin:trust`
+
+Installs or removes the kevin CA in the trust stores of the machine. Used
+in the `setup` scope. See
+[CA and trust store]({{< relref "/docs/guides/ca-and-trust" >}}).
+
+```cue
+setup: ca: {
+    uses: "builtin:trust"
+    with: {
+        system:  false
+        firefox: true
+    }
+}
+```
+
+[[template "table" .Definitions.Config]]

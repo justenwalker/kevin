@@ -1,0 +1,15 @@
+[[- define "type" -]]
+[[-   if .Enum -]]
+[[-     enum .Enum -]]
+[[-   else ]]
+[[-     backtick .Type -]]
+[[-   end ]]
+[[- end -]]
+[[- define "description" -]]
+[[-   if .Required ]]**Required.** [[ end ]][[ .Doc ]]
+[[- end -]]
+| Field | Type | Default | Description |
+|:------|:----:|:-------:|:------------|
+[[- range $i, $f := .Fields]]
+| `[[$f.Name]]` | [[ template "type" $f ]] | [[ backtick $f.Default ]] | [[ template "description" $f ]] |
+[[- end ]]

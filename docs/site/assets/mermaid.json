@@ -1,0 +1,16 @@
+{
+  "flowchart": {
+    "useMaxWidth": true
+  },
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#0d3b66",
+    "primaryBorderColor": "#7ec8e3",
+    "primaryTextColor": "#f5e9d3",
+    "textColor": "#f5e9d3",
+    "lineColor": "#7ec8e3",
+    "background": "#0d3b66",
+    "edgeLabelBackground": "#0d3b66",
+    "fontFamily": "SFMono-Regular, Menlo, Consolas, monospace"
+  }
+}

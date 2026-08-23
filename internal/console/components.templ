@@ -1,0 +1,659 @@
+package console
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/justenwalker/kevin/internal/browser"
+	"github.com/justenwalker/kevin/internal/proxy"
+)
+
+// Page is the whole console. It renders the state that the server holds now,
+// then opens one event stream that keeps every region up to date.
+templ Page(v View) {
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>kevin: { v.Project }</title>
+			<script src="/static/htmx.min.js"></script>
+			<script src="/static/hx-sse.min.js"></script>
+			@styles()
+			@scripts()
+		</head>
+		<body>
+			<header>
+				<h1>kevin</h1>
+				<dl>
+					<dt>project</dt>
+					<dd>{ v.Project }</dd>
+					<dt>proxy</dt>
+					<dd><code>{ v.ProxyAddr }</code></dd>
+					<dt>mcp</dt>
+					<dd><code>{ v.McpURL }</code></dd>
+					<dt>network</dt>
+					<dd><code>{ v.Network }</code></dd>
+				</dl>
+			</header>
+			<!-- One connection feeds every region. Each message is an out of
+			     band fragment that names its own target. -->
+			<div hx-sse:connect="/events" hx-swap="none" hidden></div>
+			<div class="layout">
+				<aside id="sidebar">
+					<h2>Steps</h2>
+					<svg id="dep-lines" aria-hidden="true">
+						<defs>
+							<marker id="dep-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+								<path d="M0,0 L10,5 L0,10 z" style="fill:context-stroke"></path>
+							</marker>
+						</defs>
+						<g id="dep-edges"></g>
+					</svg>
+					<ul id="steps">
+						for _, s := range v.Steps {
+							@StepItem(s)
+						}
+					</ul>
+				</aside>
+				<main>
+					<div class="tabbar">
+						<label for="tab-services">Services</label>
+						<label for="tab-logs">Logs</label>
+						<label for="tab-proxy">Proxy</label>
+						<label for="tab-mcp">MCP</label>
+					</div>
+					<input type="radio" name="maintab" id="tab-services" class="tabinput" checked/>
+					<section id="panel-services" class="panel">
+						<div id="cards" class="cards">
+							for _, s := range v.Steps {
+								@StepCard(s)
+							}
+						</div>
+					</section>
+					<input type="radio" name="maintab" id="tab-logs" class="tabinput"/>
+					<section id="panel-logs" class="panel">
+						<div class="tabbar subtabbar">
+							<label for="logtab-all">All</label>
+							for _, s := range v.Steps {
+								<label for={ "logtab-" + s.Name }>{ s.Name }</label>
+							}
+						</div>
+						<input type="radio" name="logtab" id="logtab-all" class="logtabinput" checked/>
+						<div id="log-all" class="logpanel scroll">
+							for _, l := range v.Logs {
+								@LogLine(l)
+							}
+						</div>
+						for _, s := range v.Steps {
+							<input type="radio" name="logtab" id={ "logtab-" + s.Name } class="logtabinput"/>
+							<div id={ "log-" + s.Name } class="logpanel scroll">
+								for _, l := range v.StepLogs[s.Name] {
+									@LogLine(l)
+								}
+							</div>
+						}
+					</section>
+					<input type="radio" name="maintab" id="tab-proxy" class="tabinput"/>
+					<section id="panel-proxy" class="panel">
+						@proxySetup(v)
+						<table>
+							<thead>
+								<tr><th>status</th><th>method</th><th>host</th><th>path</th><th>ms</th></tr>
+							</thead>
+							<tbody id="traffic">
+								for _, r := range v.Requests {
+									@TrafficRow(r)
+								}
+							</tbody>
+						</table>
+					</section>
+					<input type="radio" name="maintab" id="tab-mcp" class="tabinput"/>
+					<section id="panel-mcp" class="panel">
+						@mcpSetup(v)
+					</section>
+				</main>
+			</div>
+		</body>
+	</html>
+}
+
+// proxySetup shows how to point a shell or a browser at the proxy: the PAC
+// URL and the http_proxy/https_proxy export line every tool understands,
+// plus instructions targeted at the browser viewing the page (env vars
+// don't configure a browser's own proxy settings).
+templ proxySetup(v View) {
+	<div class="card exposed">
+		<h3>Using the proxy</h3>
+		<div class="detail">
+			<span class="detail-label">shell</span>
+			<div class="detail-value">
+				<code>{ exportLine(v.ProxyAddr) }</code>
+				<button type="button" class="copy-btn" data-copy={ exportLine(v.ProxyAddr) } onclick="copyAddr(this)" title="copy">⧉</button>
+			</div>
+		</div>
+		<div class="detail">
+			<span class="detail-label">PAC URL</span>
+			<div class="detail-value">
+				<code>{ pacURL(v.ProxyAddr) }</code>
+				<button type="button" class="copy-btn" data-copy={ pacURL(v.ProxyAddr) } onclick="copyAddr(this)" title="copy">⧉</button>
+			</div>
+		</div>
+		<p class="hint">
+			switch v.Browser {
+				case browser.Firefox:
+					Firefox keeps its own proxy settings, separate from the OS: paste the PAC URL into Settings → General → Network Settings → Automatic proxy configuration URL. Firefox also keeps its own certificate store - run <code>kevin setup</code> to trust the CA there. Or use a <a href={ firefoxAddonsURL } target="_blank" rel="noopener noreferrer">proxy extension</a> instead.
+				case browser.Chrome:
+					Chrome follows the OS's network proxy settings: point them at the PAC URL, or launch Chrome with <code>--proxy-pac-url={ pacURL(v.ProxyAddr) }</code>, which applies only to that one launch. Or use a <a href={ chromeWebStoreURL } target="_blank" rel="noopener noreferrer">proxy extension</a> instead.
+				case browser.Safari:
+					Safari follows macOS's network proxy settings (System Settings → Network → Details → Proxies): point them at the PAC URL.
+				default:
+					Point your browser's proxy settings at the PAC URL above.
+			}
+		</p>
+	</div>
+}
+
+// exportLine is the http_proxy/https_proxy export line for proxyAddr, the
+// form every shell and most CLI tools understand.
+func exportLine(proxyAddr string) string {
+	return fmt.Sprintf("export HTTP_PROXY=http://%s HTTPS_PROXY=http://%s", proxyAddr, proxyAddr)
+}
+
+// mcpSetup shows how to register the MCP server with a coding agent: the
+// Claude Code CLI command, and the raw URL for any other MCP client that
+// speaks Streamable HTTP.
+templ mcpSetup(v View) {
+	<div class="card exposed">
+		<h3>Using the MCP server</h3>
+		<div class="detail">
+			<span class="detail-label">Claude Code</span>
+			<div class="detail-value">
+				<code>{ claudeMcpAddCmd(v.McpURL) }</code>
+				<button type="button" class="copy-btn" data-copy={ claudeMcpAddCmd(v.McpURL) } onclick="copyAddr(this)" title="copy">⧉</button>
+			</div>
+		</div>
+		<div class="detail">
+			<span class="detail-label">URL</span>
+			<div class="detail-value">
+				<code>{ v.McpURL }</code>
+				<button type="button" class="copy-btn" data-copy={ v.McpURL } onclick="copyAddr(this)" title="copy">⧉</button>
+			</div>
+		</div>
+		<p class="hint">
+			Any MCP client that speaks Streamable HTTP can connect at the URL above. It offers five tools: <code>list_steps</code>, <code>get_step</code>, <code>rerun_step</code>, <code>export_step</code>, <code>get_proxy_info</code>.
+		</p>
+	</div>
+}
+
+// claudeMcpAddCmd is the Claude Code CLI command that registers the MCP
+// server at mcpURL.
+func claudeMcpAddCmd(mcpURL string) string {
+	return fmt.Sprintf("claude mcp add --transport http kevin %s", mcpURL)
+}
+
+// chromeWebStoreURL and firefoxAddonsURL point at a search for proxy
+// extensions, offered as an alternative to PAC/OS proxy configuration.
+const (
+	chromeWebStoreURL = "https://chromewebstore.google.com/search/proxy"
+	firefoxAddonsURL  = "https://addons.mozilla.org/en-US/firefox/search/?q=proxy"
+)
+
+// pacURL is the proxy's auto-config URL for proxyAddr - what a browser
+// (which doesn't read http_proxy/https_proxy) needs instead.
+func pacURL(proxyAddr string) string {
+	return "http://" + proxyAddr + proxy.PACPath
+}
+
+// kindIcon returns the icon that marks a step's kind, or "" for none.
+func kindIcon(kind string) string {
+	switch kind {
+	case "resource":
+		return "📦"
+	case "action":
+		return "⚡"
+	case "probe":
+		return "🔍"
+	default:
+		return ""
+	}
+}
+
+// pluginIcon marks which plugin backs a step: its own icon when it gave
+// one, alt text carrying the plugin name. builtin never gets a puzzle
+// piece - that placeholder means "third-party plugin, no icon given";
+// builtin isn't a plugin missing an icon, it's the thing everything
+// else is being distinguished from.
+templ pluginIcon(s Step) {
+	if len(s.Icon) > 0 {
+		<img class="plugin-icon" src={ iconDataURI(s.Icon) } alt={ s.Provider }/>
+	} else if s.Provider != "builtin" {
+		<span class="plugin-icon plugin-icon-default" title={ s.Provider }>🧩</span>
+	}
+}
+
+// StepItem is one step in the sidebar. It replaces itself out of band, thus
+// one message updates one entry. A compact step (a gate for some other
+// resource/action - a probe, or builtin:route) collapses to a single muted
+// line instead of the full card, so the resource/action steps that do the
+// real work keep the visual weight.
+templ StepItem(s Step) {
+	if s.Compact {
+		@compactStepItem(s)
+	} else {
+		@fullStepItem(s)
+	}
+}
+
+templ fullStepItem(s Step) {
+	<li id={ "step-" + s.Name } hx-swap-oob="true" class={ "state-" + string(s.State) } data-needs={ strings.Join(s.Needs, ",") }>
+		<span class="name">
+			@pluginIcon(s)
+			{ s.Label }
+		</span>
+		if s.Kind != "" {
+			<span class={ "pill", "kind-" + s.Kind }>{ kindIcon(s.Kind) } { s.Kind }</span>
+		}
+		@idempotentBadge(s)
+		<span class="pill">{ string(s.State) }</span>
+		if s.Progress > 0 && (s.State == Running || s.State == Removing) {
+			<div class="bar"><div class="bar-fill" style={ fmt.Sprintf("width:%.0f%%", s.Progress*100) }></div></div>
+		}
+		if s.Message != "" {
+			<span class="msg">{ s.Message }</span>
+		}
+		@rerunActions(s)
+	</li>
+}
+
+templ compactStepItem(s Step) {
+	<li id={ "step-" + s.Name } hx-swap-oob="true" class={ "compact", "state-" + string(s.State) } data-needs={ strings.Join(s.Needs, ",") }>
+		<span class="name">
+			@pluginIcon(s)
+			{ s.Label }
+		</span>
+		<span class="pill">{ string(s.State) }</span>
+		if s.Message != "" {
+			<span class="msg">{ s.Message }</span>
+		}
+		@rerunActions(s)
+	</li>
+}
+
+// idempotentBadge marks a step whose type is safe to call Up on again - it
+// may be swept into a cascading rerun of a step it depends on, not just
+// rerun directly.
+templ idempotentBadge(s Step) {
+	if s.Idempotent {
+		<span class="badge-idempotent" title="idempotent - safe to include in a cascading rerun of a step this depends on">♻</span>
+	}
+}
+
+// rerunActions is a step's rerun controls: icon buttons with a hover
+// tooltip, shown in the sidebar so they stay visible even for a step with
+// no exposed details. A Failed step gets one button that always cascades -
+// it has nothing of its own to preserve, only skipped dependents to fill
+// in. A Ready step gets a choice: just itself, or itself plus its
+// idempotent dependents. Any other state has nothing to rerun yet.
+templ rerunActions(s Step) {
+	if s.State == Failed {
+		<div class="rerun-actions">
+			<button type="button" class="rerun-btn rerun-btn-cascade" hx-post={ "/steps/" + s.Name + "/rerun" } hx-vals="{&#34;cascade&#34;:&#34;true&#34;}" hx-swap="none" title="rerun - also retries the steps this failure skipped">⇶</button>
+		</div>
+	} else if s.State == Ready {
+		<div class="rerun-actions">
+			<button type="button" class="rerun-btn rerun-btn-single" hx-post={ "/steps/" + s.Name + "/rerun" } hx-vals="{&#34;cascade&#34;:&#34;false&#34;}" hx-swap="none" title="rerun just this step">↻</button>
+			<button type="button" class="rerun-btn rerun-btn-cascade" hx-post={ "/steps/" + s.Name + "/rerun" } hx-vals="{&#34;cascade&#34;:&#34;true&#34;}" hx-swap="none" title="rerun this step and its idempotent dependents">⇶</button>
+		</div>
+	}
+}
+
+// StepCard is one step's card in the Services tab. A step with no route yet
+// still gets a card - the "exposed" class just keeps it hidden until one
+// exists - so a later out of band update always has a target to land on.
+templ StepCard(s Step) {
+	<div id={ "card-" + s.Name } hx-swap-oob="true" class={ "card", templ.KV("exposed", len(s.Details) > 0) }>
+		<h3>
+			@pluginIcon(s)
+			{ s.Label }
+		</h3>
+		if s.Kind != "" {
+			<span class={ "pill", "kind-" + s.Kind }>{ kindIcon(s.Kind) } { s.Kind }</span>
+		}
+		@idempotentBadge(s)
+		<span class="pill">{ string(s.State) }</span>
+		for _, d := range s.Details {
+			<div class="detail">
+				if d.Label != "" {
+					<span class="detail-label">{ d.Label }</span>
+				}
+				<div class="detail-value">
+					if d.Sensitive {
+						<code class="detail-sensitive" title="sensitive value, hidden">••••••••</code>
+					} else if d.Href != "" {
+						<a href={ templ.URL(d.Href) } target="_blank" rel="noreferrer" title={ d.Value }>{ d.Value }</a>
+					} else {
+						<code title={ d.Value }>{ d.Value }</code>
+					}
+					if d.Copyable {
+						<button type="button" class="copy-btn" data-copy={ d.Value } onclick="copyAddr(this)" title="copy">⧉</button>
+					}
+				</div>
+			</div>
+		}
+	</div>
+}
+
+// StepUpdate is everything that changes about a step: its sidebar entry and
+// its card. Every mutator publishes this, one call per event, so the two
+// regions never drift out of sync.
+templ StepUpdate(s Step) {
+	@StepItem(s)
+	@StepCard(s)
+}
+
+// LogLine is one line from a step.
+templ LogLine(l Line) {
+	<div class={ "line", "stream-" + l.Stream }>
+		<span class="step">{ l.Step }</span>
+		<span class="text">{ l.Text }</span>
+	</div>
+}
+
+// TrafficRow is one request that passed through the proxy.
+templ TrafficRow(r Request) {
+	<tr class={ statusClass(r.Status), routedClass(r.Routed), templ.KV("denied", r.Denied) }>
+		<td>
+			if r.Status > 0 {
+				{ strconv.Itoa(r.Status) }
+			} else {
+				{ "-" }
+			}
+		</td>
+		<td>{ r.Method }</td>
+		<td>{ r.Host }</td>
+		<td class="path">{ r.Path }</td>
+		<td>{ strconv.FormatInt(r.Millis, 10) }</td>
+	</tr>
+}
+
+// oobLog wraps a line so that it appends to the "All" log panel.
+templ oobLog(l Line) {
+	<hx-partial hx-target="#log-all" hx-swap="beforeend">
+		@LogLine(l)
+	</hx-partial>
+}
+
+// oobStepLog wraps a line so that it appends to that step's own log panel.
+templ oobStepLog(l Line) {
+	<hx-partial hx-target={ "#log-" + l.Step } hx-swap="beforeend">
+		@LogLine(l)
+	</hx-partial>
+}
+
+// oobTraffic wraps a request so that it goes to the top of the table.
+templ oobTraffic(r Request) {
+	<hx-partial hx-target="#traffic" hx-swap="afterbegin">
+		@TrafficRow(r)
+	</hx-partial>
+}
+
+templ styles() {
+	<style>
+		:root {
+			color-scheme: light dark;
+			--bg: #fff; --fg: #111; --muted: #666; --line: #e3e3e3; --pill: #eee;
+			--ok: #1a7f37; --warn: #9a6700; --err: #cf222e; --run: #0969da;
+			--k-resource: #6639ba; --k-probe: #0f7b6c;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #0d1117; --fg: #e6edf3; --muted: #8b949e; --line: #30363d; --pill: #21262d;
+				--ok: #3fb950; --warn: #d29922; --err: #f85149; --run: #58a6ff;
+				--k-resource: #a371f7; --k-probe: #39c5bf;
+			}
+		}
+		* { box-sizing: border-box; }
+		body {
+			margin: 0; padding: 1.5rem;
+			background: var(--bg); color: var(--fg);
+			font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+		}
+		h1 { font-size: 1.1rem; margin: 0 0 .5rem; letter-spacing: .04em; }
+		h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
+		     color: var(--muted); margin: 0 0 .75rem; font-weight: 600; }
+		header dl { display: flex; gap: 1.5rem; margin: 0; flex-wrap: wrap; }
+		header dt { color: var(--muted); display: inline; }
+		header dd { display: inline; margin: 0 0 0 .4rem; }
+		table { width: 100%; border-collapse: collapse; }
+		th { text-align: left; font-weight: 600; color: var(--muted);
+		     font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
+		th, td { padding: .3rem .6rem .3rem 0; border-bottom: 1px solid var(--line); }
+		td.path { color: var(--muted); }
+		.pill { padding: .05rem .5rem; border-radius: 999px; background: var(--pill); }
+		.bar { height: 4px; background: var(--pill); border-radius: 2px; margin: .3rem 0; overflow: hidden; }
+		.bar-fill { height: 100%; background: var(--run); transition: width .3s linear; }
+		.state-running .pill { color: var(--run); }
+		.state-ready .pill { color: var(--ok); }
+		.state-failed .pill { color: var(--err); }
+		.state-removing .pill, .state-removed .pill { color: var(--muted); }
+		.state-skipped .pill { color: var(--warn); }
+		.rerun-actions { display: inline-flex; gap: .25rem; margin-left: .4rem; }
+		.rerun-btn {
+			border: none; background: none; color: var(--muted); cursor: pointer;
+			font-size: 1.15rem; line-height: 1; padding: .15rem .3rem; border-radius: 4px;
+		}
+		.rerun-btn-single:hover { color: var(--run); background: var(--pill); }
+		.rerun-btn-cascade { color: var(--warn); }
+		.rerun-btn-cascade:hover { color: var(--warn); background: var(--pill); }
+		.kind-resource { color: var(--k-resource); }
+		.kind-action { color: var(--warn); }
+		.kind-probe { color: var(--k-probe); }
+		.badge-idempotent { color: var(--ok); font-size: .85rem; margin: 0 .3rem; cursor: default; }
+		.scroll { max-height: 22rem; overflow-y: auto; border: 1px solid var(--line);
+		          border-radius: 6px; padding: .5rem; }
+		.line { display: flex; gap: .75rem; white-space: pre-wrap; word-break: break-word; }
+		.line .step { color: var(--muted); min-width: 9rem; }
+		.stream-stderr .text { color: var(--warn); }
+		.status-2 td:first-child { color: var(--ok); }
+		.status-4 td:first-child, .status-5 td:first-child { color: var(--err); }
+		.direct td { opacity: .65; }
+		.denied td { color: var(--err); opacity: 1; }
+		a { color: var(--run); }
+
+		/* Layout: a sidebar of steps beside a tabbed main area. */
+		.layout { display: flex; align-items: flex-start; gap: 1.5rem; margin-top: 1.5rem; }
+		#sidebar { flex: 0 0 14rem; position: relative; }
+		#sidebar ul { list-style: none; margin: 0 0 0 1.1rem; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+		#sidebar li { border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; }
+		/* Compact: a gate step (probe, route) - one muted line, no card. */
+		#sidebar li.compact {
+			border: none; border-radius: 0; padding: .15rem 0;
+			display: flex; align-items: baseline; gap: .4rem;
+			color: var(--muted); font-size: .85em;
+		}
+		#sidebar li.compact .name { font-weight: 400; }
+		#sidebar li.compact .pill { padding: 0; background: none; }
+		#dep-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+		.dep-edge { fill: none; stroke: var(--muted); stroke-width: 1.5; opacity: .55; }
+		#dep-arrow path { fill: var(--muted); }
+		#sidebar .name { display: block; font-weight: 600; }
+		.plugin-icon { width: 16px; height: 16px; vertical-align: middle; margin-right: .3rem; border-radius: 3px; }
+		.plugin-icon-default { display: inline-block; font-size: .8rem; line-height: 16px; }
+		#sidebar .msg { display: block; color: var(--muted); font-size: .8rem; margin-top: .2rem; }
+		main { flex: 1 1 auto; min-width: 0; }
+
+		/* CSS-only tabs: a hidden radio immediately followed by its panel.
+		   Works for a dynamic, per-step set of panels with no per-name rule
+		   and no JS, since the selector never names an id. */
+		.tabbar { display: flex; gap: .4rem; margin-bottom: .75rem; flex-wrap: wrap; }
+		.tabbar label {
+			cursor: pointer; padding: .3rem .8rem; border-radius: 6px;
+			background: var(--pill); color: var(--muted);
+			font-size: .75rem; text-transform: uppercase; letter-spacing: .06em;
+		}
+		.subtabbar label { font-size: .7rem; padding: .2rem .6rem; text-transform: none; letter-spacing: normal; }
+		.tabinput, .logtabinput { position: absolute; opacity: 0; pointer-events: none; }
+		.panel, .logpanel { display: none; }
+		.tabinput:checked + .panel, .logtabinput:checked + .logpanel { display: block; }
+
+		/* Services: a card per step, hidden until it has a route. */
+		.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: .75rem; }
+		.card { display: none; border: 1px solid var(--line); border-radius: 8px; padding: .75rem; }
+		.card.exposed { display: block; }
+		.card h3 { margin: 0 0 .4rem; font-size: .95rem; }
+		.card .detail { margin-top: .5rem; color: var(--muted); }
+		.card .detail-label {
+			display: block; text-transform: uppercase; font-size: .7rem;
+			letter-spacing: .04em; margin-bottom: .15rem;
+		}
+		.card .detail-value { display: flex; align-items: center; gap: .3rem; min-width: 0; }
+		.card .detail-value > a, .card .detail-value > code {
+			flex: 1 1 auto; min-width: 0; overflow: hidden;
+			white-space: nowrap; text-overflow: ellipsis;
+		}
+		.copy-btn {
+			border: none; background: none; color: var(--muted); cursor: pointer;
+			font-size: .85rem; line-height: 1; padding: 0 .2rem; flex: none;
+		}
+		.copy-btn:hover { color: var(--fg); }
+		.copy-btn:disabled { color: var(--ok); cursor: default; }
+	</style>
+}
+
+// scripts holds the page's client-side behavior beyond what htmx covers -
+// currently just the copy-to-clipboard button on a card's addresses.
+templ scripts() {
+	<script>
+		function copyAddr(btn) {
+			var val = btn.getAttribute('data-copy');
+			navigator.clipboard.writeText(val).then(function() {
+				var orig = btn.textContent;
+				btn.textContent = '✓';
+				btn.disabled = true;
+				setTimeout(function() {
+					btn.textContent = orig;
+					btn.disabled = false;
+				}, 1000);
+			});
+		}
+
+		// colorFor picks a color for a step by its position in the sidebar,
+		// so every arrow leaving that step reads as the same color wherever
+		// it lands. Stepping by the golden angle (~137.5deg) spreads however
+		// many steps there are around the whole hue circle with no two
+		// adjacent indices landing near each other - unlike hashing the
+		// name, which can clash by chance for a small, arbitrary set of
+		// names (it did: three short names once landed within a few tens of
+		// degrees of each other, all reading as "reddish").
+		function colorFor(index) {
+			return 'hsl(' + ((index * 137.508) % 360) + ', 70%, 55%)';
+		}
+
+		// laneOf assigns each edge the lowest lane number whose last edge
+		// already ended above this one's start, so only edges whose y-spans
+		// actually overlap end up in different lanes (classic greedy
+		// interval-graph coloring, same idea as a calendar laying out
+		// overlapping events side by side) - except a lane already carrying
+		// the same source stays available regardless of overlap: same
+		// source means same color, so several edges fanning out of one step
+		// (e.g. a cluster step that a handful of others all need) share one
+		// trunk and read as one line splitting, rather than each claiming
+		// its own lane just because they all start at the same point.
+		function laneOf(edges) {
+			var laneEnds = [];
+			var laneSources = [];
+			edges.sort(function (a, b) { return a.lo - b.lo || a.hi - b.hi; });
+			edges.forEach(function (e) {
+				var lane = 0;
+				while (lane < laneEnds.length && laneEnds[lane] > e.lo + 2 && laneSources[lane] !== e.source) lane++;
+				e.lane = lane;
+				laneEnds[lane] = Math.max(laneEnds[lane] || 0, e.hi);
+				laneSources[lane] = e.source;
+			});
+			return laneEnds.length;
+		}
+
+		function drawDepLines() {
+			var g = document.getElementById('dep-edges');
+			var sidebar = document.getElementById('sidebar');
+			var steps = document.getElementById('steps');
+			if (!g || !sidebar || !steps) return;
+			var sbRect = sidebar.getBoundingClientRect();
+			g.innerHTML = '';
+
+			var order = {};
+			document.querySelectorAll('#steps > li').forEach(function (li, i) {
+				order[li.id.slice('step-'.length)] = i;
+			});
+
+			var edges = [];
+			document.querySelectorAll('#steps > li[data-needs]').forEach(function (li) {
+				var needs = li.getAttribute('data-needs');
+				if (!needs) return;
+				var tRect = li.getBoundingClientRect();
+				var ty = tRect.top - sbRect.top + tRect.height / 2;
+				needs.split(',').forEach(function (name) {
+					if (!name) return;
+					var src = document.getElementById('step-' + name);
+					if (!src) return;
+					var sRect = src.getBoundingClientRect();
+					var sy = sRect.top - sbRect.top + sRect.height / 2;
+					edges.push({ sy: sy, ty: ty, lo: Math.min(sy, ty), hi: Math.max(sy, ty), source: order[name] });
+				});
+			});
+
+			var baseDepth = 8, laneGap = 7;
+			var laneCount = laneOf(edges);
+			var gutter = baseDepth + Math.max(0, laneCount - 1) * laneGap + 8;
+			steps.style.marginLeft = gutter + 'px';
+
+			edges.forEach(function (e) {
+				// depth is constant per lane - every edge in lane N sits at
+				// the same x, whatever its own span, so a lane reads as one
+				// straight track rather than wobbling in from edge to edge.
+				var depth = baseDepth + e.lane * laneGap;
+				var x = gutter - depth;
+				var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+				path.setAttribute('class', 'dep-edge');
+				path.setAttribute('marker-end', 'url(#dep-arrow)');
+				path.style.stroke = colorFor(e.source);
+				path.setAttribute('d', 'M' + gutter + ',' + e.sy +
+					' L' + x + ',' + (e.sy + depth) +
+					' L' + x + ',' + (e.ty - depth) +
+					' L' + gutter + ',' + e.ty);
+				g.appendChild(path);
+			});
+		}
+		document.addEventListener('DOMContentLoaded', drawDepLines);
+		window.addEventListener('resize', drawDepLines);
+		document.addEventListener('DOMContentLoaded', function () {
+			new MutationObserver(drawDepLines).observe(document.getElementById('steps'), { childList: true, subtree: true });
+		});
+	</script>
+}
+
+// Snapshot repaints every region. A client receives it as soon as it
+// connects, thus a reconnect after a drop is self healing.
+templ Snapshot(v View) {
+	for _, s := range v.Steps {
+		@StepUpdate(s)
+	}
+	<hx-partial hx-target="#log-all" hx-swap="innerHTML">
+		for _, l := range v.Logs {
+			@LogLine(l)
+		}
+	</hx-partial>
+	for _, s := range v.Steps {
+		<hx-partial hx-target={ "#log-" + s.Name } hx-swap="innerHTML">
+			for _, l := range v.StepLogs[s.Name] {
+				@LogLine(l)
+			}
+		</hx-partial>
+	}
+	<hx-partial hx-target="#traffic" hx-swap="innerHTML">
+		for _, r := range v.Requests {
+			@TrafficRow(r)
+		}
+	</hx-partial>
+}

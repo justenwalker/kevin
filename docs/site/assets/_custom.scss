@@ -1,0 +1,274 @@
+// Colors closer to the Home Alone (1990) poster/box art: a vivid poster
+// red, bubble-letter kelly green, warm sweater gold, and a wood-brown
+// accent. Overrides hugo-book's theme mixins - see _defaults.scss
+// upstream for the variables this redefines.
+
+@import url("https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&family=Baloo+2:wght@600;700&family=PT+Serif:wght@700&display=swap");
+
+// Regenerate with: hugo gen chromastyles --style=dracula > assets/_chroma-dracula.scss
+@import "chroma-dracula";
+
+@mixin theme-light {
+  --body-background: #fbf3e3;
+  --body-background-tint: none;
+  --body-font-color: #2b1b12;
+
+  --color-link: #d2232a;
+  --color-visited-link: #7a4a2b;
+
+  --icon-filter: none;
+
+  --gray-100: #f3e7ce;
+  --gray-200: #e7d6ae;
+  --gray-500: #a98f62;
+
+  @include accent("default", #e8a33d);
+  @include accent("note", #2f6fa5);
+  @include accent("tip", #2e8b47);
+  @include accent("important", #7a1f2b);
+  @include accent("warning", #d99a2b);
+  @include accent("caution", #d2232a);
+
+  @include accent("info", #2f6fa5);
+  @include accent("success", #2e8b47);
+  @include accent("danger", #d2232a);
+}
+
+@mixin theme-dark {
+  // A darker "Home Alone blue" than the poster's night sky - better
+  // contrast for text and for the mermaid diagram fix above.
+  --body-background: #052b49;
+  --body-background-tint: none;
+  --body-font-color: #f5e9d3;
+
+  // Same yellow as the KEVIn logo (.book-brand, #efdc06).
+  --color-link: #efdc06;
+  --color-visited-link: #e39a6b;
+
+  --icon-filter: brightness(0) invert(1);
+
+  --gray-100: #114f80;
+  --gray-200: #1a5a8e;
+  --gray-500: #9db8d4;
+
+  // Pushed toward orange (hue ~30°, was ~40°) so it doesn't sit only 15°
+  // from --color-link's yellow (~55°) on the wheel.
+  @include accent("default", #f09d4a);
+  @include accent("note", #6fa8dc);
+  // Saturation bumped (~68%, was ~39%) to match the punch of the red/amber
+  // accents around it, closer to the "kelly green" this file's own intro
+  // comment describes.
+  @include accent("tip", #28d34d);
+  @include accent("important", #b5566a);
+  @include accent("warning", #f09d4a);
+  @include accent("caution", #e2454b);
+
+  @include accent("info", #6fa8dc);
+  @include accent("success", #28d34d);
+  @include accent("danger", #e2454b);
+}
+
+@mixin theme-auto {
+  @include theme-light;
+
+  @media (prefers-color-scheme: dark) {
+    @include theme-dark;
+  }
+}
+
+// Body copy: a clean, warm, highly readable sans - the actual reading
+// experience matters more than the theming, so this stays plain.
+body {
+  font-family: "Nunito", system-ui, sans-serif;
+}
+
+// A bold, rounded, kid-like face for headings and emphasis - playful but
+// still clearly legible at both heading and inline sizes, unlike a script
+// or cursive face would be.
+h1,
+h2,
+h3,
+strong,
+b {
+  font-family: "Baloo 2", system-ui, sans-serif;
+}
+
+// An outlined title logo, like the movie poster's - Century-family book
+// serif, condensed a little, in the poster's yellow, a dark outline, and a
+// red badge behind it.
+.book-brand {
+  display: inline-block;
+  padding: 0.15em 0.6em;
+  background: var(--color-accent-caution);
+  border-radius: 0.4em;
+  transform: rotate(-2deg) scaleX(0.9);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.3);
+
+  font-family: "PT Serif", "Baloo 2", serif;
+  font-weight: 700;
+  font-size: 2em;
+  letter-spacing: 0.02em;
+  color: #efdc06;
+  -webkit-text-stroke: 2px #1b1206;
+  paint-order: stroke fill;
+
+  // The link inside is `display: flex` (theme's own .flex utility class),
+  // a block-level box - a ::before on the h2 itself would land on its own
+  // line above it instead of inline. Putting it on the link makes it the
+  // link's own first flex item, in the same row as the text.
+  a::before {
+    content: "🏠 ";
+    -webkit-text-stroke: 0;
+  }
+}
+
+// The lowercase "n" leans back against the "I" before it, like the
+// poster's logo treatment. The font's own case distinction carries the
+// size difference - no extra scaling needed.
+.book-brand-n {
+  display: inline-block;
+  transform: rotate(-14deg) translateY(0.08em);
+  margin-left: -0.02em;
+}
+
+// Chunkier, more retro-computer edges on boxed elements. Also a bump to the
+// base font size - the theme's default (16px, with the TOC/menu sizes
+// scaled down further from there) read too small, especially the
+// right-hand table-of-contents anchors.
+:root {
+  --border-radius: 0.375rem;
+  --font-size: 18px;
+  --font-size-smaller: 1rem;
+  --font-size-smallest: 0.9rem;
+}
+
+// A hand-drawn wobble instead of a neat rectangle, like a kid taped up a
+// warning sign. The text inside stays in the normal font - only the box
+// shape gets the crayon treatment.
+.book-hint {
+  border-width: 2px;
+  border-radius: 255px 15px 225px 15px/15px 225px 15px 255px;
+  transform: rotate(-0.6deg);
+}
+
+// Code blocks styled as one of Kevin's trap blueprints: a technical-drawing
+// blue, a grid, a border, and a corner registration mark - all in the same
+// light-blue linework color a real blueprint uses, not the amber accent.
+// The grid line opacity is bumped up from the original 7%: at that
+// strength it read as a plain solid background, not a visible grid.
+//
+// Prefixed with .markdown, matching the specificity of the theme's own
+// .markdown pre rule (_markdown.scss) - a bare `pre` selector lost to it,
+// and that rule's shorthand `background` property resets background-image
+// to none, which is why the grid never showed and a plain gray-200 border
+// won over this one.
+//
+// The styling lives only on pre, not on its .highlight wrapper: pre sits
+// inside .highlight with no padding between them, so giving both the same
+// border/background painted two nested frames instead of one.
+.markdown pre {
+  position: relative;
+  background-color: #0d3b66 !important;
+  background-image: linear-gradient(rgba(126, 200, 227, 0.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(126, 200, 227, 0.18) 1px, transparent 1px);
+  background-size: 16px 16px;
+  border: 2px dashed rgba(126, 200, 227, 0.6);
+  border-radius: var(--border-radius);
+  transform: rotate(-0.3deg);
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    width: 10px;
+    height: 10px;
+    border: solid #7ec8e3;
+    border-width: 2px 0 0 2px;
+  }
+}
+
+.markdown .highlight {
+  background: none;
+  border: none;
+}
+
+// Dracula's comment color (#6272a4) is a muted blue-gray, too close in
+// luminance to the #0d3b66 navy code-block background above to read well.
+// Lightened for legibility, kept in the same blue family so it still
+// reads as de-emphasized next to the brighter token colors around it.
+.markdown pre .c,
+.markdown pre .ch,
+.markdown pre .cm,
+.markdown pre .c1,
+.markdown pre .cs {
+  color: #a9c1e0 !important;
+}
+
+// assets/mermaid.json now initializes with theme: "base" and blueprint
+// themeVariables (navy fill, #7ec8e3 line/border, #f5e9d3 text), so a
+// diagram already renders on the same navy panel as a code block above,
+// in both light and dark site mode alike. These !important overrides are
+// a safety net for the handful of SVG classes theme variables don't
+// reliably reach in every mermaid version (arrowhead markers, the
+// cluster/subgraph box, sequence-diagram actors), pinned to the same
+// fixed blueprint palette rather than the old --body-font-color, which
+// went invisible against this permanently-navy panel in light mode.
+.mermaid {
+  .edgePath .path,
+  .flowchart-link {
+    stroke: #7ec8e3 !important;
+    stroke-width: 1.5px !important;
+  }
+
+  .marker,
+  .arrowheadPath {
+    fill: #7ec8e3 !important;
+    stroke: #7ec8e3 !important;
+  }
+
+  // e.g. the "gRPC" text on a connecting line.
+  .edgeLabel,
+  .edgeLabel p,
+  .edgeLabel rect,
+  .labelBkg {
+    background-color: rgba(245, 233, 211, 0.9) !important;
+    fill: rgba(245, 233, 211, 0.9) !important;
+  }
+
+  .edgeLabel text,
+  .edgeLabel span,
+  .edgeLabel p {
+    fill: #1a1a1a !important;
+    color: #1a1a1a !important;
+  }
+
+  .cluster rect {
+    fill: rgba(245, 233, 211, 0.08) !important;
+    stroke: #7ec8e3 !important;
+  }
+
+  .cluster-label text,
+  .cluster-label span {
+    fill: #f5e9d3 !important;
+    color: #f5e9d3 !important;
+  }
+
+  // No sequenceDiagram exists in the docs yet, but these keep it readable
+  // the day one shows up.
+  .actor {
+    fill: #ececff !important;
+    stroke: #7ec8e3 !important;
+  }
+
+  .actor-line,
+  .messageLine0,
+  .messageLine1 {
+    stroke: #7ec8e3 !important;
+  }
+
+  .messageText {
+    fill: #f5e9d3 !important;
+    stroke: none !important;
+  }
+}

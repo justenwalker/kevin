@@ -1,0 +1,33 @@
+baseURL = "https://justenwalker.github.io/kevin/"
+locale = "en-us"
+title = "kevin"
+
+[module]
+  [[module.imports]]
+    path = "github.com/alex-shpak/hugo-book"
+
+[markup]
+  [markup.goldmark]
+    [markup.goldmark.renderer]
+      unsafe = true
+  [markup.highlight]
+    # A dark, blue-leaning style - reads well against the blueprint-blue
+    # code block background in assets/_custom.scss. noClasses is off so
+    # token colors come from vendored assets/_chroma-dracula.scss as real
+    # CSS classes instead of inline styles - inline styles can't be
+    # targeted to fix a low-contrast token color, e.g. comments.
+    style = "dracula"
+    noClasses = false
+
+[params]
+  BookTheme = "auto"
+  BookSearch = true
+  BookSection = "docs"
+  BookRepo = "https://github.com/justenwalker/kevin"
+  BookEditPath = "edit/main/docs/site/content"
+  BookFavicon = "favicon.svg"
+
+[[menu.after]]
+  name = "GitHub"
+  url = "https://github.com/justenwalker/kevin"
+  weight = 10

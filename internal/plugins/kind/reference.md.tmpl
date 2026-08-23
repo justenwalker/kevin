@@ -1,0 +1,45 @@
+---
+title: "☸️ kind"
+weight: 2
+---
+
+[[template "banner"]]
+
+# `builtin:kind`
+
+Runs a local Kubernetes cluster with [kind](https://kind.sigs.k8s.io/),
+using the host `kind` binary.
+
+```cue
+cluster: {
+    uses: "builtin:kind"
+    with: {
+        workers: 1
+        egress: ["docker.io", "*.docker.io", "*.docker.com"]
+    }
+}
+```
+
+[[template "table" .Definitions.Config]]
+
+## `#Expose`
+
+[[template "table" .Definitions.Expose]]
+
+## Publishes
+
+`Outputs`, read as `needs.<step>.out.<key>`: `name`, `kubeconfig` (an
+absolute path), `context` (always `"kind-"+name`), `nodes` (a
+comma-separated list), and `relay_addr` (a plain host:port loopback
+address) whenever the relay is up (see `relay` above), for a
+[`builtin:route`]({{< relref "/docs/reference/route" >}}) step to dial
+through. Implements `Export`, reporting `KUBECONFIG` for `kevin connect`.
+
+`system`, read as `needs.<step>.system.<key>`, is a sub-namespace kept
+separate from `out` so it can never collide with one of the above (see
+[Cross-step values]({{< relref "/docs/configuring-an-environment#cross-step-values" >}})):
+one `expose_<name>` per `expose` entry, its relay address, for a downstream
+step such as [`builtin:wait`]({{< relref "/docs/reference/wait" >}}), and
+one `forward_<name>` per `expose` entry, a plain `127.0.0.1:<port>` address
+the engine forwards to the relay on a client's behalf, so a tool with
+no SOCKS5 awareness (`psql`, `curl`, ...) can dial it directly.

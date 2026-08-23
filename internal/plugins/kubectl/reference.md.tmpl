@@ -1,0 +1,32 @@
+---
+title: "🎮 kubectl"
+weight: 4
+---
+
+[[template "banner"]]
+
+# `builtin:kubectl`
+
+**Idempotent**
+
+Applies a manifest, a manifest directory, or a kustomization to an
+existing Kubernetes cluster, using the host `kubectl` binary. See
+[Deploying workloads]({{< relref "/docs/guides/deploying-workloads" >}}).
+
+```cue
+app: {
+    uses: "builtin:kubectl"
+    needs: ["cluster"]
+    with: {
+        kubeconfig: "${needs.cluster.out.kubeconfig}"
+        context:    "${needs.cluster.out.context}"
+        manifest:   "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: demo\n"
+    }
+}
+```
+
+[[template "table" .Definitions.Config]]
+
+
+> [!CAUTION]
+> Exactly one of `manifest`, `path`, `kustomize` must be set.

@@ -1,0 +1,38 @@
+---
+title: "🚢 helm"
+weight: 5
+---
+
+[[template "banner"]]
+
+# `builtin:helm`
+
+**Idempotent**
+
+Installs or upgrades a Helm release on an existing Kubernetes cluster,
+using the host `helm` binary.
+
+See [Deploying workloads]({{< relref "/docs/guides/deploying-workloads" >}}).
+
+```cue
+app: {
+    uses: "builtin:helm"
+    needs: ["cluster"]
+    with: {
+        kubeconfig:   "${needs.cluster.out.kubeconfig}"
+        context:      "${needs.cluster.out.context}"
+        release:      "demo"
+        chart:        "charts/demo"
+        namespace:    "demo"
+        values_files: ["values-prod.yaml"]
+    }
+}
+```
+
+[[template "table" .Definitions.Config]]
+
+> [!NOTE]
+> `post_renderer` is a path to the renderer executable, resolved via
+> `$PATH` if it has no separator, otherwise relative to the current
+> directory. This argument is different between Helm 3 and Helm 4.
+> See Also: [Helm Documentation](https://helm.sh/docs/topics/advanced/)

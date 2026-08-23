@@ -1,0 +1,13 @@
+version: v2
+modules:
+  - path: protos
+    name: buf.build/justenwalker/kevin
+lint:
+  use:
+    - DEFAULT
+  except:
+    - PACKAGE_DIRECTORY_MATCH
+breaking:
+  use:
+    - WIRE_JSON
+    - RPC_NO_DELETE

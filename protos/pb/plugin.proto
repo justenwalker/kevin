@@ -1,0 +1,323 @@
+syntax = "proto3";
+
+package kevin.plugin.v1;
+
+option go_package = "github.com/justenwalker/kevin/protos/pb;pb";
+
+// Plugin is the service that every kevin provider implements. A plugin
+// exports one or more steps.
+service Plugin {
+  // Info reports the provider identity and the step types it offers.
+  rpc Info(InfoRequest) returns (InfoResponse);
+
+  // Configure sends the config block of the provider.
+  // The supervisor calls Configure once, before any step runs.
+  rpc Configure(ConfigureRequest) returns (ConfigureResponse);
+
+  // Up runs the action of the step.
+  // The stream carries log lines and progress. A final Result ends the stream.
+  rpc Up(UpRequest) returns (stream Event);
+
+  // Down destroys the resources of the step.
+  // The stream carries log lines and progress. But it sends no final Result.
+  // A step that does not destroy anything does not implement Down.
+  rpc Down(DownRequest) returns (stream Event);
+
+  // Export reports the environment variables that let an external command
+  // reach what a step created.
+  //
+  // A step that has nothing to export does not implement Export.
+  rpc Export(ExportRequest) returns (ExportResponse);
+}
+
+message InfoRequest {}
+
+message InfoResponse {
+  // Name identifies the provider. Name must match the key in the CUE
+  // plugins block.
+  string name = 1;
+
+  // Version is the provider version. Version appears in diagnostics only.
+  string version = 2;
+
+  // ConfigSchema declares #Config for the config block of this plugin. It is
+  // empty when the plugin takes no configuration.
+  bytes config_schema = 3;
+
+  // Steps are the step types that this provider offers.
+  repeated StepType steps = 4;
+
+  // Icon is a small PNG image that represents the provider. The console
+  // shows Icon next to the step types of the provider. Icon is optional.
+  // A provider that gives no Icon shows no icon. The maximum size of Icon
+  // is 48x48 pixels. The console always displays Icon at one small fixed
+  // size, regardless of the size of the source image.
+  bytes icon = 5;
+}
+
+// StepKind classifies what a step type is, for documentation and the
+// console. It is descriptive metadata and does not change
+// engine behavior.
+enum StepKind {
+  // StepKindUnspecified is the zero value: no kind was reported.
+  STEP_KIND_UNSPECIFIED = 0;
+  // StepKindResource creates and destroys something.
+  STEP_KIND_RESOURCE = 1;
+  // StepKindAction mutates state that another system owns. StepKindAction
+  // has no lifecycle of its own. It only applies changes.
+  STEP_KIND_ACTION = 2;
+  // StepKindProbe creates nothing. StepKindProbe only checks that something
+  // else is ready.
+  STEP_KIND_PROBE = 3;
+}
+
+// StepType is one step type that a provider offers.
+message StepType {
+  // Name identifies the step type inside its provider.
+  string name = 1;
+
+  // CueSchema declares #Config for the with block of this step type.
+  bytes cue_schema = 2;
+
+  // Export is true when this step type implements Export.
+  bool export = 3;
+
+  // Down is true when this step type implements Down.
+  bool down = 4;
+
+  // Kind classifies what this step type is.
+  StepKind kind = 5;
+
+  // Idempotent is true when this step type implements IdempotentStep and
+  // indicates that the supervisor can call Up on it again safely.
+  bool idempotent = 6;
+}
+
+message ConfigureRequest {
+  // Config is the config block of the plugin, in JSON form.
+  bytes config = 1;
+
+  Environment env = 2;
+}
+
+message ConfigureResponse {}
+
+// Environment is everything that the supervisor knows and a plugin can need.
+// Environment is the same for every step in a session.
+message Environment {
+  // Project names the environment, and comes from the project directory.
+  // Project is the prefix of every resource that kevin creates.
+  string project = 1;
+
+  // Workspace is the absolute path to the .kevin state directory.
+  string workspace = 2;
+
+  // Network is the shared network that all workloads join.
+  string network = 3;
+
+  // CaPath is the host path to the kevin root CA certificate file. Empty
+  // means no CA is available.
+  string ca_path = 4;
+
+  // HttpProxyAddr is the host:port of the kevin HTTP(S) proxy.
+  string http_proxy_addr = 5;
+
+  // ConsoleAddr is the host:port of the web console.
+  string console_addr = 6;
+
+  // ProxyEnv holds the proxy environment variables for a plugin to add to a workload.
+  map<string, string> proxy_env = 7;
+
+  // Domain is the base name of the environment, such as "kevin.home".
+  string domain = 8;
+
+  // Relay is the address of the in-network relay. A workload uses it for DNS.
+  string relay = 9;
+
+  // ProjectDir is the absolute path of the directory that holds kevin.cue.
+  string project_dir = 10;
+
+  // Engine names the container runtime that a plugin should use, such as
+  // "docker" or "podman". Empty means "docker", the only engine kevin
+  // ships today.
+  string engine = 11;
+
+  // EngineConfig is the marshaled bytes of the config message for Engine,
+  // such as DockerEngineConfig. Engine says which message to unmarshal
+  // into.
+  bytes engine_config = 12;
+}
+
+// DockerEngineConfig is the engine_config message for the "docker" engine.
+// It carries no fields today: the docker CLI wrapper needs nothing beyond
+// Network. Add fields here as real Docker-specific settings arise, such as
+// a non-default socket path.
+message DockerEngineConfig {}
+
+// Value is one output value - a step's published output, an upstream
+// dependency's value, or a console Detail's content.
+message Value {
+  oneof kind {
+    string string_value = 1;
+  }
+
+  // Sensitive marks this value as secret: it must never be logged or
+  // displayed in full. It sits outside "kind" - sensitivity is a property
+  // of any value, not a kind of value.
+  bool sensitive = 10;
+}
+
+// Outputs are the values that a step publishes for its dependents.
+message Outputs {
+  map<string, Value> values = 1;
+}
+
+message UpRequest {
+  // Step is the name of the step to run.
+  string step = 1;
+
+  // Type is the step type that this node uses.
+  string type = 2;
+
+  Environment env = 3;
+
+  // Config is the with block of the step, in JSON form.
+  bytes config = 4;
+
+  // Deps maps the name of each upstream step to the outputs of that step.
+  map<string, Outputs> deps = 5;
+}
+
+message DownRequest {
+  // Step is the name of the step to destroy.
+  string step = 1;
+
+  // Type is the step type that this node uses.
+  string type = 2;
+
+  Environment env = 3;
+
+  // Config is the with block of the step, in JSON form.
+  bytes config = 4;
+
+  // Deps maps the name of each upstream step to the outputs of that step.
+  map<string, Outputs> deps = 5;
+
+  // Outputs is what Up published for this step.
+  // Outputs are used by other steps as inputs to chain together more complex setup operations.
+  // These are passed to other steps using its Config.
+  Outputs outputs = 6;
+}
+
+message Event {
+  oneof event {
+    LogLine log = 1;
+    Progress progress = 2;
+    Result result = 3;
+  }
+}
+
+message LogLine {
+  // Stream is "stdout" or "stderr".
+  string stream = 1;
+  string text = 2;
+  int64 unix_nano = 3;
+}
+
+message Progress {
+  string label = 1;
+  int64 current = 2;
+  int64 total = 3;
+}
+
+// Result ends an Up stream.
+message Result {
+  Outputs outputs = 1;
+
+  // Routes are the hostnames that this step serves.
+  repeated Route routes = 2;
+
+  // EgressAllow lists the external hosts that this step can reach.
+  repeated string egress_allow = 3;
+
+  // ExposedPorts are raw TCP or UDP endpoints that this step publishes directly to the host.
+  // ExposedPorts do not go through the HTTP proxy.
+  repeated ExposedPort exposed_ports = 4;
+
+  // Details are the rows that this step shows on its web console card.
+  repeated Detail details = 5;
+}
+
+// ExposedPort is a raw TCP or UDP endpoint that a step publishes directly to
+// the host.
+message ExposedPort {
+  string name = 1;
+
+  // Protocol is "tcp" or "udp".
+  string protocol = 2;
+
+  // Upstream is the host-reachable address, such as "127.0.0.1:54321".
+  string upstream = 3;
+}
+
+// Detail is one extra piece of information that a step shows on its
+// console card. Detail is purely descriptive. Unlike Route or ExposedPort,
+// Detail drives no proxy or DAG behavior.
+message Detail {
+  string label = 1;
+  Value value = 2;
+
+  // Copyable shows a copy-to-clipboard button next to value.
+  bool copyable = 3;
+
+  // Href, when set, renders value as a link to this URL instead of plain
+  // text.
+  string href = 4;
+}
+
+message ExportRequest {
+  // Step is the name of the step to export.
+  string step = 1;
+
+  // Type is the step type that this node uses.
+  string type = 2;
+
+  Environment env = 3;
+
+  // Config is the with block of the step, in JSON form.
+  bytes config = 4;
+}
+
+message ExportResponse {
+  // Env holds the environment variables that let an external command reach
+  // what the step created.
+  map<string, string> env = 1;
+}
+
+message Route {
+  // Host is the hostname that clients use.
+  string host = 1;
+
+  // Upstream is the address to forward to. The address must be reachable on the docker network.
+  string upstream = 2;
+
+  // Tls is true when the upstream itself speaks TLS.
+  bool tls = 3;
+}
+
+// UserMessage carries a human-facing error message as a detail on the gRPC
+// status of a failed Configure, Up, Down, or Export call. A plugin attaches
+// one when its step wraps an error with a message meant for a human, so the
+// supervisor can show that instead of the raw error chain.
+message UserMessage {
+  // Key is the format string the message was built from, with %s verbs -
+  // a stable candidate key for a future translation catalog. The
+  // supervisor renders it with Args today (fmt.Sprintf(Key, Args...)); a
+  // translation catalog later looks Key up and renders Args into a
+  // localized template instead.
+  string key = 1;
+
+  // Args are the format arguments, each in its plain text form, in the
+  // order Key's verbs expect them.
+  repeated string args = 2;
+}

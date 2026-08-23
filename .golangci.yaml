@@ -1,0 +1,157 @@
+version: "2"
+
+run:
+  modules-download-mode: readonly
+  build-tags:
+    - integration
+    - e2e
+
+linters:
+  # Enable everything, then subtract. New linters are opt-out, not opt-in.
+  default: all
+  disable:
+    # Constant sentinel errors (type Error string) are the house style.
+    - err113
+    # Partially initialized structs are normal and readable.
+    - exhaustruct
+    - exhaustruct_v5
+    # Length is not complexity.
+    - funlen
+    # Bare numbers are fine when the meaning is local and obvious.
+    - mnd
+    # gofmt does not wrap, and neither do we.
+    - lll
+    # Blank-line-before-return dogma.
+    - nlreturn
+    - wsl
+    - wsl_v5
+    # `if err := f(); err != nil` is idiomatic Go.
+    - noinlineerr
+    # A helper reads better next to its caller than in an exported/unexported
+    # block.
+    - funcorder
+    # Short names are fine in short scopes.
+    - varnamelen
+    # t.Parallel everywhere is not a goal.
+    - paralleltest
+    # Internal test packages are allowed where they earn their keep.
+    - testpackage
+    # Dependencies are reviewed by hand, not by a wall of config.
+    - depguard
+    - gomodguard
+    # Package-level loggers, sentinels, and handshake configs are the house
+    # style, and this linter cannot tell them from mutable state.
+    - gochecknoglobals
+
+  settings:
+    cyclop:
+      # Graph and scheduling code branches more than average.
+      max-complexity: 15
+      skip-tests: true
+    errcheck:
+      check-type-assertions: true
+    goconst:
+      # A docker subcommand or flag is not a magic constant.
+      ignore-string-values: '^(-|run$|inspect$|network$)'
+      # A literal repeated in a table-driven test is the test data.
+      ignore-tests: true
+    govet:
+      enable-all: true
+      disable:
+        # Struct field alignment is not worth the churn.
+        - fieldalignment
+    revive:
+      rules:
+        - name: exported
+          arguments:
+            - disableStutteringCheck
+    usetesting:
+      # context-background and context-todo default to false even under
+      # "enable all" - a test uses t.Context(), not context.Background(),
+      # unless the context must outlive the test itself.
+      context-background: true
+      context-todo: true
+    tagliatelle:
+      case:
+        rules:
+          # Plugin with-block config mirrors kevin.cue, which is snake_case.
+          # internal/docker's inspectResult carries no json tags at all: its
+          # field names already match the Docker API's PascalCase exactly,
+          # or case-insensitively (ID/"Id"), which encoding/json matches
+          # without a tag.
+          json: snake
+    wrapcheck:
+      # wrapcheck's notion of "external" is any other Go package, which
+      # means every internal/* sibling call counts unless excluded here.
+      # GO-002 already governs wrapping between our own packages; wrapcheck
+      # is left to police genuinely opaque third-party/stdlib errors.
+      ignore-package-globs:
+        - github.com/justenwalker/kevin/*
+
+  exclusions:
+    generated: lax
+    rules:
+      # Generated protobuf code is not ours to lint.
+      - path: 'protos/pb/'
+        linters:
+          - all
+      # inspectResult carries no json tags at all: encoding/json matches its
+      # field names against Docker's inspect JSON exactly, or
+      # case-insensitively (ID/"Id"), with no tag needed.
+      - path: 'internal/docker/'
+        linters:
+          - musttag
+      # Generated templ code is not ours to lint.
+      - path: '_templ\.go'
+        linters:
+          - all
+      # templ writes a version comment above the package clause of every file
+      # it generates, which godoclint counts as a second package doc for the
+      # whole package - including console.go, which is not itself generated.
+      - path: 'internal/console/'
+        linters:
+          - godoclint
+      # console.go's render() deliberately renders with context.Background():
+      # it broadcasts one component to every subscribed SSE client, so no
+      # single request context owns the call. engine.go's view.* calls
+      # (AddStep, SetStep, ...) and closeRelay->Relay.Close() (also a
+      # deliberate context.Background(), so cleanup outlives an already
+      # canceled ctx) both chain into it.
+      - path: 'internal/console/console\.go'
+        linters:
+          - contextcheck
+      - path: 'internal/engine/engine\.go'
+        linters:
+          - contextcheck
+      # cobra injects ctx via ExecuteContextC at Execute time; every RunE
+      # closure already calls cmd.Context() correctly, but the factory
+      # functions building the command tree take no ctx param, so
+      # contextcheck can't trace it through.
+      - path: 'internal/cmd/cmd\.go'
+        linters:
+          - contextcheck
+      # Tests may use globals, sleep, and assertions freely.
+      - path: '_test\.go'
+        linters:
+          - gochecknoglobals
+          - gosec
+          - dupl
+          - forcetypeassert
+          - goconst
+          - wrapcheck
+          # A helper closes the body with t.Cleanup, which the linter cannot
+          # follow.
+          - bodyclose
+
+formatters:
+  enable:
+    - gofumpt
+    - gci
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/justenwalker/kevin)
+  exclusions:
+    generated: lax

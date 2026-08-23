@@ -1,0 +1,40 @@
+---
+title: "🐳 container"
+weight: 1
+---
+
+[[template "banner"]]
+
+# `builtin:container`
+
+Runs a Docker container.
+
+```cue
+web: {
+    uses: "builtin:container"
+    with: {
+        image:  "nginx:alpine"
+        ports:  ["8080:80"]
+        expose: [{port: 80}]
+    }
+}
+```
+
+[[template "table" .Definitions.Config]]
+
+## `#Expose`
+
+[[template "table" .Definitions.Expose]]
+
+## Publishes
+
+`Outputs`, read as `needs.<step>.out.<key>`: `id`, `name`, `ip` (on the
+shared docker network, when it has one), and one `host_80`-style key per
+published port (from `ports` and `expose` alike, named after the
+container port). Each is a host-reachable address, already accepting
+connections by the time `Up` returns for a TCP `expose` entry.
+
+A container step never puts itself on the environment domain. Pair a
+published port's address output with a
+[`builtin:route`]({{< relref "/docs/reference/route" >}}) step to do
+that.

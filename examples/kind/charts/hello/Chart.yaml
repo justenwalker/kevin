@@ -1,0 +1,4 @@
+apiVersion: v2
+name: hello
+description: A trivial Deployment, for the examples/kind builtin:helm + builtin:wait demo.
+version: 0.1.0
