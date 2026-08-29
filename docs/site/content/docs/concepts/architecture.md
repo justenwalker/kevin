@@ -79,11 +79,10 @@ State for one project lives in a `.kevin/` folder, or `.kevin/<name>/` for a nam
 
 A plugin is a provider. A provider offers one or more step types, and a step names one with `uses: "<plugin>:<step>"`. Both parts are required: the plugin that offers the step type, and the step type itself.
 
-`builtin` is the provider that kevin supplies. It is never declared in a `plugins:` block. It offers seven step types:
+`builtin` is the provider that kevin supplies. It is never declared in a `plugins:` block. It offers six step types:
 
 - `container`
 - `kind`
-- `trust`
 - `kubectl`
 - `helm`
 - `wait`
@@ -105,7 +104,7 @@ Only a plugin that a step references starts. A `plugins:` entry that no step nam
 
 ## Plugin protocol
 
-Every step type speaks the same protocol over gRPC. The engine has no privileged path for a step type that ships in this repository. `container`, `kind`, `trust`, `kubectl`, `helm`, `wait`, and `route` compile into the kevin binary, and the engine starts each one as `kevin plugin run <name>`. A third party writes a separate binary and gets the same protocol. One process serves every step type that its provider offers.
+Every step type speaks the same protocol over gRPC. The engine has no privileged path for a step type that ships in this repository. `container`, `kind`, `kubectl`, `helm`, `wait`, and `route` compile into the kevin binary, and the engine starts each one as `kevin plugin run <name>`. A third party writes a separate binary and gets the same protocol. One process serves every step type that its provider offers.
 
 The service has five methods:
 
@@ -237,15 +236,13 @@ The certificate file of a project holds the chain: the authority of the project,
 
 `LoadOrGenerateIntermediate` checks the signature of the authority of the project against the root. A user who deletes the home directory gets a new root, and the stale authority of the project is replaced rather than served.
 
-The trust plugin receives the CA certificate only. `internal/trust` installs it into the keychain of macOS, the anchor directory of Linux, and the NSS database of each Firefox profile.
+`kevin ca install`/`uninstall` manage the trust store directly, outside the DAG entirely - the root names no project, so there's no per-project `setup`/`teardown` scope for it to live in. `internal/trust` installs the root certificate into the keychain of macOS, the anchor directory of Linux, and the NSS database of each Firefox profile.
 
-A store that this machine does not have is a skip, not a failure. A machine without `certutil` reports that Firefox will not trust the authority, and the run continues.
+A store that this machine does not have is a skip, not a failure. A machine without `certutil` reports that Firefox will not trust the authority, and the command continues.
 
-The default is the trust store of the **user**, which needs no root. macOS still asks the user to confirm the change to the trust settings. A step that sets `system: true` writes the machine-wide store, which needs root. The plugin never asks for a password itself: it reports the exact command, and the user runs it.
+The default is the trust store of the **user**, which needs no root. macOS still asks the user to confirm the change to the trust settings. `--system` writes the machine-wide store, which needs root. `kevin ca install` never asks for a password itself: it reports the exact command, and the user runs it.
 
-`kevin teardown` walks the setup scope in reverse and calls Down for every step. There is no state file, thus a Down must be idempotent and must derive what it removes from the environment. The trust plugin matches on the subject of the authority, which carries the project name.
-
-The trust store holds the root, whose subject names no project. `kevin setup` in any project installs it, and `kevin teardown` removes it for the machine.
+There is no state file, thus `kevin ca uninstall` must be idempotent and must derive what it removes from the trust stores themselves. It matches on `ca.RootCommonName`, a constant - not a per-project subject the way a DAG step's `Down` would need to derive from the environment - so a second call is naturally a no-op rather than a duplicate-removal error.
 
 ## Docker
 

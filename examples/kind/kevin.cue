@@ -1,7 +1,7 @@
 // A full kevin environment: a Kubernetes cluster, a workload deployed into
 // it with builtin:kubectl and another with builtin:helm, and builtin:wait
 // gating each of them plus a plain HTTP/TCP readiness check - exercising
-// every builtin step type but trust's env-scope counterpart, container.
+// every builtin step type except container.
 //
 //	kevin -C examples/kind run
 //
@@ -34,26 +34,13 @@
 // way a browser would reach any other step, no kubectl port-forward
 // needed.
 //
-// setup/ca installs the kevin root into the trust store of this machine,
-// independently of the env DAG above (setup and env are two separate
-// scopes - see the architecture doc):
-//
-//	kevin -C examples/kind setup       # install
-//	kevin -C examples/kind teardown    # remove
+// Run `kevin ca install` once for the machine to trust the kevin root CA -
+// see the quickstart's "Trust the CA" section.
 
 project: "kind-example"
 
 proxy: listen: "127.0.0.1:18080"
 console: listen: "127.0.0.1:18081"
-
-setup: ca: {
-	uses:  "builtin:trust"
-	label: "Install CA"
-	with: {
-		system:  false
-		firefox: true
-	}
-}
 
 env: {
 	registry: {

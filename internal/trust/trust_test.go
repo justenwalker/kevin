@@ -3,6 +3,7 @@ package trust
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -220,7 +221,11 @@ func TestNSSCheck(t *testing.T) {
 
 	if skip != "" {
 		assert.Empty(t, dirs)
-		assert.Contains(t, skip, "certutil", "the reason must name what is missing")
+		// check has two legitimate skip reasons: certutil is missing, or
+		// certutil is present but this machine has no Firefox/fork profile.
+		assert.True(t,
+			strings.Contains(skip, "certutil") || strings.Contains(skip, "no Firefox profile"),
+			"the reason must name what is missing, got %q", skip)
 		return
 	}
 	assert.NotEmpty(t, dirs, "a store that is not skipped must have a profile")

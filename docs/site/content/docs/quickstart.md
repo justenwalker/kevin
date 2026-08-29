@@ -69,11 +69,11 @@ Running in an actual terminal, `kevin run`/`teardown` draw a live, redrawing lis
 
 ## Trust the CA
 
-To drop the `--cacert` flag, install the kevin root into the trust stores of the machine, once, for every project:
+To drop the `--cacert` flag, install the kevin root into the trust stores of the machine. This needs no project - do it once for the machine, any time, even before `kevin.cue` exists:
 
 ```sh
-kevin -C examples/trust setup       # install
-kevin -C examples/trust teardown    # remove
+kevin ca install       # install
+kevin ca uninstall     # remove
 ```
 
 See [CA and trust store]({{< relref "guides/ca-and-trust" >}}) for what this installs and why it's safe to run once for the machine rather than once per project.

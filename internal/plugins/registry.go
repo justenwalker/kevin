@@ -12,7 +12,6 @@ import (
 	"github.com/justenwalker/kevin/internal/plugins/kind"
 	"github.com/justenwalker/kevin/internal/plugins/kubectl"
 	"github.com/justenwalker/kevin/internal/plugins/route"
-	"github.com/justenwalker/kevin/internal/plugins/trust"
 	"github.com/justenwalker/kevin/internal/plugins/wait"
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -29,7 +28,6 @@ var version = "dev"
 var steps = map[string]plugin.Step{
 	"container": container.New(),
 	"kind":      kind.New(),
-	"trust":     trust.New(),
 	"kubectl":   kubectl.New(),
 	"helm":      helm.New(),
 	"wait":      wait.New(),
@@ -37,7 +35,7 @@ var steps = map[string]plugin.Step{
 }
 
 // Provider returns the plugin that kevin supplies. It offers container,
-// kind, trust, kubectl, helm, wait, and route.
+// kind, kubectl, helm, wait, and route.
 func Provider() plugin.Plugin {
 	return plugin.Plugin{Name: Name, Version: version, Steps: steps}
 }

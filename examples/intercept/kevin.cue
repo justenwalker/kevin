@@ -18,26 +18,18 @@
 //
 //	curl --proxy http://127.0.0.1:18080 https://s3.us-east-1.amazonaws.com/
 //
-// Before setup runs, curl needs the authority of the project:
+// Without the CA trusted, curl needs the authority of the project directly:
 //
 //	curl --proxy http://127.0.0.1:18080 \
 //	     --cacert .kevin/ca.crt https://s3.us-east-1.amazonaws.com/
+//
+// Run `kevin ca install` once for the machine to drop the --cacert flag -
+// see the quickstart's "Trust the CA" section.
 
 project: "intercept-example"
 
 proxy:   listen: "127.0.0.1:18080"
 console: listen: "127.0.0.1:18081"
-
-// setup steps persist across runs. Install the authority of this project once:
-//
-//	kevin -C examples/intercept setup
-//
-// curl then needs no --cacert flag. `kevin -C examples/intercept teardown`
-// removes the authority again.
-setup: ca: {
-	uses:  "builtin:trust"
-	label: "Install CA"
-}
 
 env: {
 	fake_s3: {

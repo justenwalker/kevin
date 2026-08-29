@@ -97,6 +97,7 @@ func Run(ctx context.Context, args []string) error {
 		validateCommand(opts),
 		pluginCommand(opts),
 		connectCommand(opts),
+		caCommand(opts),
 	)
 
 	root.SetArgs(args)
@@ -184,8 +185,8 @@ func setupCommand(opts *options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "setup",
 		Short: "Create the setup steps, which persist across runs",
-		Long: "setup runs the setup DAG. These steps outlive one run, such as the " +
-			"installation of the kevin CA into the trust stores.",
+		Long: "setup runs the setup DAG. These steps outlive one run, such as a " +
+			"shared kind cluster reused by many \"kevin run\"s.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
@@ -205,8 +206,8 @@ func teardownCommand(opts *options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "teardown",
 		Short: "Remove what setup installed",
-		Long: "teardown runs the setup DAG in reverse, such as the removal of " +
-			"the kevin CA from the trust stores.",
+		Long: "teardown runs the setup DAG in reverse, such as tearing down a " +
+			"shared kind cluster once no run needs it anymore.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true

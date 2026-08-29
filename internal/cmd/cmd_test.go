@@ -137,7 +137,6 @@ func TestRun(t *testing.T) {
 
 		assert.Contains(t, out, "builtin:container")
 		assert.Contains(t, out, "builtin:kind")
-		assert.Contains(t, out, "builtin:trust")
 	})
 
 	t.Run("plugin run reports an unknown plugin", func(t *testing.T) {

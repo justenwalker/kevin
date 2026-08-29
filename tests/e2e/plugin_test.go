@@ -158,7 +158,7 @@ func (s *PluginSuite) TestPluginListPrintsEveryBuiltinType() {
 	out, code := s.runToCompletion(dir, "plugin", "list")
 	s.Equal(0, code, "output:\n%s", out)
 	for _, name := range []string{
-		"builtin:container", "builtin:kind", "builtin:trust",
+		"builtin:container", "builtin:kind",
 		"builtin:kubectl", "builtin:helm", "builtin:wait", "builtin:route",
 	} {
 		s.Contains(out, name+"\n")

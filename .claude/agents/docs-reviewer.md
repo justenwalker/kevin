@@ -44,16 +44,16 @@ matches the code. You do not edit files, report findings only.
   streaming behavior) in `architecture.md` and `development/plugin-protocol.md`
   against `protos/pb` and wherever the service is defined. A fourth RPC or
   changed signature invalidates the doc's claim.
-- **Builtin plugin list** (`container`, `kind`, `trust`) against
-  `internal/plugins/*` directories. A new or removed builtin plugin
-  directory means every doc enumerating builtins is stale.
+- **Builtin plugin list** (`container`, `kind`, `kubectl`, `helm`, `wait`,
+  `route`) against `internal/plugins/*` directories. A new or removed
+  builtin plugin directory means every doc enumerating builtins is stale.
 - **`docs/GO_CONVENTIONS.md`** against `.golangci.yaml`'s exclusion
   comments, same cross-check `go-reviewer` does. A GO-### rule whose linter
   backing changed needs its doc rule reworded.
 - **`build` targets table** (AGENTS.md, README) against
   `build/gnob -help` output or `build/main.go` target definitions.
 - **Example environments** named in docs (`examples/web`, `examples/echo`,
-  `examples/kind`, `examples/trust`) against the `examples/` directory
+  `examples/kind`, `examples/intercept`) against the `examples/` directory
   actually existing and containing a `kevin.cue`.
 
 ## Hugo templates (`docs/site/layouts`)

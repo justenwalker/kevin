@@ -9,9 +9,9 @@ environment from a DAG of steps (`kevin.cue`), exposes a web console, an
 MCP server for coding agents (mounted on the console's own listener at
 `/_mcp`), and an HTTP/HTTPS proxy with TLS termination and default-deny
 egress, tears down on exit. Every step type is a plugin speaking gRPC -
-`container`, `kind`,
-`trust`, `kubectl`, `helm`, `wait`, `route` ship as builtins inside the
-`kevin` binary; third-party plugins are separate binaries. Full design
+`container`, `kind`, `kubectl`, `helm`, `wait`, `route` ship as builtins
+inside the `kevin` binary; third-party plugins are separate binaries. Full
+design
 rationale:
 [docs/site/content/docs/concepts/architecture.md](docs/site/content/docs/concepts/architecture.md)
 - read it before touching the DAG engine, the proxy, the CA, or the plugin
@@ -87,9 +87,10 @@ leaves no tag or GitHub release behind.
   ```
   Other example environments: `examples/echo` (provider with no real
   resource, demonstrates DAG fan-out/fan-in and failure propagation),
-  `examples/kind` (Kubernetes cluster), `examples/trust` (CA trust store
-  install/remove), `examples/intercept` (a `route` step's `external: true`
-  fakes out a real-world hostname with a local container).
+  `examples/kind` (Kubernetes cluster), `examples/intercept` (a `route`
+  step's `external: true` fakes out a real-world hostname with a local
+  container). `kevin ca install`/`uninstall` manages the CA trust store;
+  it needs no project (see the quickstart's "Trust the CA" section).
 
 ## Linting
 
@@ -114,7 +115,7 @@ Key model to hold in your head when changing any of this:
 - **Provider model**: a plugin process is a *provider* that offers one or
   more step types. A step's `uses: "<plugin>:<step>"` names both parts.
   `builtin` (never declared in `plugins:`) offers `container`, `kind`,
-  `trust`, `kubectl`, `helm`, `wait`, `route`. One process serves every step type it offers and must be safe for
+  `kubectl`, `helm`, `wait`, `route`. One process serves every step type it offers and must be safe for
   concurrent `Up`/`Down` calls - the DAG can create several steps of the same
   type at once.
 - **Two independent DAG scopes** sharing one engine/protocol: `setup`
@@ -140,7 +141,9 @@ Key model to hold in your head when changing any of this:
   `kevin.step` labels; `Down` must be derived from live state and be
   idempotent (survives a crash mid-run). Same principle for CA
   (`LoadOrGenerateIntermediate` re-derives/replaces a stale intermediate) and
-  for the trust store (`teardown` matches on CA subject, not a saved list).
+  for the trust store (`kevin ca uninstall` matches on the root's constant
+  `CommonName`, not a saved list - it lives outside the DAG/setup scope
+  entirely, since the root names no project).
 - **The proxy runs on the host process**, not in a container - so it can't
   resolve a container network alias and (on macOS) can't reach a container
   address directly. A route must be something the host can dial; the

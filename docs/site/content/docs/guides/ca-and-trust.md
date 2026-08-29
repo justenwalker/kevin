@@ -19,25 +19,19 @@ Only the root ever reaches a trust store, and it's installed there once for the 
 To drop `--cacert` from every `curl` and have your browser trust the environment automatically, install the root into the trust stores of the machine:
 
 ```sh
-kevin -C <project> setup       # install
-kevin -C <project> teardown    # remove
+kevin ca install      # install
+kevin ca uninstall    # remove
 ```
 
-Run this once for the machine; you don't need to repeat it per project. Use [`builtin:trust`]({{< relref "/docs/reference/trust" >}}) as a `setup` step to do this (see [`examples/trust`](https://github.com/justenwalker/kevin/tree/main/examples/trust)):
+Run this once for the machine, with no project involved at all - the root names no project, so there's nothing to repeat per project. `kevin ca install` generates the root the first time it runs, then adds it to the trust stores of this machine:
 
-```cue
-setup: ca: {
-    uses: "builtin:trust"
-    with: {
-        system:  false  // the user's trust store; true needs root
-        firefox: true   // also install into Firefox's own certificate database
-    }
-}
+```sh
+kevin ca install --system=false --firefox   # the defaults
 ```
 
-The default installs into the trust store of the **user**, which needs no root; macOS still asks you to confirm the change. Setting `system: true` writes the machine-wide store, which needs root. kevin never asks for a password itself; it prints the exact command to run under `sudo`.
+The default installs into the trust store of the **user**, which needs no root; macOS still asks you to confirm the change. Passing `--system` writes the machine-wide store instead, which needs root. kevin never asks for a password itself; it prints the exact command to run under `sudo`.
 
-Firefox keeps its own certificate database separate from the OS. That needs `certutil` from the `nss` package, which does not ship with Firefox itself. If it's absent, kevin reports a skip for Firefox rather than failing the whole step. Install it with:
+Firefox keeps its own certificate database separate from the OS. That needs `certutil` from the `nss` package, which does not ship with Firefox itself. If it's absent, kevin reports a skip for Firefox rather than failing. Install it with:
 
 ```sh
 brew install nss                  # macOS; certutil lands under $(brew --prefix nss)/bin, not on PATH by default
@@ -45,4 +39,4 @@ sudo apt install libnss3-tools    # Debian/Ubuntu
 sudo dnf install nss-tools        # Fedora
 ```
 
-`kevin teardown` removes what `setup` installed, and is safe to run without also caring whether `setup` actually ran. It's always safe to call.
+`kevin ca uninstall` removes what `install` added, and is safe to call whether or not `install` ever ran - the second run of either command reports a skip, not an error.

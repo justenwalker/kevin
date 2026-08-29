@@ -11,8 +11,9 @@ import (
 	"strings"
 )
 
-// nss is the certificate database of Firefox. Firefox ignores the trust store
-// of the operating system and keeps its own database for each profile.
+// nss is the certificate database of Firefox and its forks (e.g. Zen,
+// Librewolf, Waterfox), which keep the same per-profile NSS database layout
+// and ignore the operating system trust store.
 type nss struct{}
 
 // CertutilBinary edits an NSS database. It ships with the nss package, and a
@@ -21,7 +22,7 @@ const CertutilBinary = "certutil"
 
 func (nss) name() string { return "firefox" }
 
-// profileGlobs are the places where Firefox keeps a profile.
+// profileGlobs are the places where Firefox and its forks keep a profile.
 func profileGlobs() []string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -31,16 +32,22 @@ func profileGlobs() []string {
 	case "darwin":
 		return []string{
 			filepath.Join(home, "Library", "Application Support", "Firefox", "Profiles", "*"),
+			filepath.Join(home, "Library", "Application Support", "zen", "Profiles", "*"),
+			filepath.Join(home, "Library", "Application Support", "librewolf", "Profiles", "*"),
+			filepath.Join(home, "Library", "Application Support", "Waterfox", "Profiles", "*"),
 		}
 	default:
 		return []string{
 			filepath.Join(home, ".mozilla", "firefox", "*"),
 			filepath.Join(home, "snap", "firefox", "common", ".mozilla", "firefox", "*"),
+			filepath.Join(home, ".zen", "*"),
+			filepath.Join(home, ".librewolf", "*"),
+			filepath.Join(home, ".waterfox", "*"),
 		}
 	}
 }
 
-// profiles returns every Firefox profile that holds a certificate database.
+// profiles returns every Firefox (or fork) profile that holds a certificate database.
 func profiles() []string {
 	var found []string
 	for _, glob := range profileGlobs() {

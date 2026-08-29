@@ -130,31 +130,32 @@ level.
 
 Revert the edit before moving on.
 
-## 4. CA and trust store (`examples/trust`)
+## 4. CA and trust store (`kevin ca`)
 
 ```sh
-kevin -C examples/trust setup
+kevin ca install
 ```
 
+- [ ] Works with no `kevin.cue` in the cwd - no project needed.
 - [ ] Installs into the user's trust store (no root needed); on macOS,
       prompts for confirmation of the trust settings change.
 - [ ] If `certutil` (nss) is present, also installs into Firefox's own DB; if
       absent, prints a skip for Firefox rather than failing.
 
 ```sh
-kevin -C examples/trust teardown
+kevin ca uninstall
 ```
 
-- [ ] Removes what setup installed; safe to run again immediately
+- [ ] Removes what install added; safe to run again immediately
       (idempotent - run it twice in a row, second run is a no-op, not an
       error).
 
-Combine with `examples/web`: run `kevin -C examples/web setup`, then
-`kevin -C examples/web run`, then hit `https://web.kevin.home/` with a plain
-`curl --proxy http://127.0.0.1:18080` (no `--cacert`).
+Combine with `examples/web`: run `kevin ca install`, then `kevin -C
+examples/web run`, then hit `https://web.kevin.home/` with a plain `curl
+--proxy http://127.0.0.1:18080` (no `--cacert`).
 
 - [ ] Succeeds with no cert flag, since the root is now trusted machine-wide.
-      `kevin -C examples/web teardown` afterward removes it again.
+      `kevin ca uninstall` afterward removes it again.
 
 ## 5. Console
 
@@ -227,9 +228,9 @@ kevin -C examples/kind run
 - [ ] A pod in the cluster can pull `nginx:alpine`/other public images
       through the proxy (cluster's own `egress: ["docker.io", ...]` opens
       that without touching the environment-wide allow list).
-- [ ] `kevin -C examples/kind teardown` (installed `setup: ca` with
-      `system: false, firefox: true`) removes the trust entries; `Ctrl-C` on
-      `run` removes the cluster and containers.
+- [ ] `Ctrl-C` on `run` removes the cluster and containers. (No `setup`
+      steps remain in this example - `kevin ca uninstall` manages CA trust
+      separately, see section 4.)
 
 ## 8. `builtin:route` with `external: true` (`examples/intercept`)
 
@@ -449,7 +450,7 @@ kevin plugin list
 ```
 
 - [ ] Prints every builtin step type as `builtin:<name>` (`builtin:container`,
-      `builtin:kind`, `builtin:trust`, `builtin:kubectl`, `builtin:helm`,
+      `builtin:kind`, `builtin:kubectl`, `builtin:helm`,
       `builtin:wait`, `builtin:route`), one per line.
 
 ## 14. Reserved plugin namespace
@@ -482,7 +483,7 @@ export`) and confirm each runs identically:
 ## 16. Crash resilience / idempotent teardown
 
 _The crash-resilience part is automated by `gnob e2e`
-(`tests/e2e/lifecycle_test.go`). The `setup`/`teardown` idempotency check
+(`tests/e2e/lifecycle_test.go`). The `kevin ca install` idempotency check
 below installs into the machine's trust store, so it stays manual along
 with the rest of section 4._
 
@@ -505,9 +506,9 @@ kevin -C examples/web run
       no port/name collision error).
 
 ```sh
-kevin -C examples/trust setup && kevin -C examples/trust setup
+kevin ca install && kevin ca install
 ```
 
-- [ ] Running `setup` twice in a row is a no-op the second time, not a
+- [ ] Running `install` twice in a row is a no-op the second time, not a
       duplicate-install error (CA re-derivation, not a saved list).
 
