@@ -168,13 +168,13 @@ func stepExports(info pluginhost.Info, name string) bool {
 
 func execStep(ctx context.Context, plugins map[string]*pluginhost.Client, env *pb.Environment, c candidate, target []string) error {
 	client := plugins[c.ref.Plugin]
-	vars, err := client.Export(ctx, &pb.ExportRequest{
+	resp, err := client.Export(ctx, &pb.ExportRequest{
 		Step: c.name, Type: c.ref.Step, Env: env, Config: c.step.With,
 	})
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
-	return execWith(vars, target)
+	return execWith(resp.GetEnv(), target)
 }
 
 // execWith execs target with vars added to the environment, replacing the

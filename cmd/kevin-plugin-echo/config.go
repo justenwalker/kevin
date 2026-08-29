@@ -34,11 +34,13 @@ func demoIcon() []byte {
 
 // config is the decoded with block of one step.
 type config struct {
-	Message string            `json:"message"`
-	Delay   string            `json:"delay"`
-	Fail    bool              `json:"fail"`
-	Outputs map[string]string `json:"outputs"`
-	Details []detailConfig    `json:"details"`
+	Message         string            `json:"message"`
+	Delay           string            `json:"delay"`
+	Fail            bool              `json:"fail"`
+	Outputs         map[string]string `json:"outputs"`
+	Details         []detailConfig    `json:"details"`
+	Export          map[string]string `json:"export"`
+	ExportSensitive []string          `json:"export_sensitive"`
 }
 
 // detailConfig is one entry of an echo step's with-block "details" list -

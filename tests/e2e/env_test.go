@@ -171,3 +171,49 @@ func (s *EnvSuite) TestHasFallbackForUnsetVar() {
 	s.Require().NoError(err)
 	s.Contains(string(logs), "value is localhost:5000")
 }
+
+// TestCrossScopeNeedsSurvivesSeparateProcesses covers docs/MANUAL_TESTING.md
+// section 12's setup/env cross-scope case: "kevin setup" runs and exits in
+// its own process - its plugin process is gone by the time a wholly
+// separate "kevin run" process starts - and that later process still
+// resolves needs: ["setup.<name>"] correctly, via a fresh Export call, not
+// anything cached or persisted from the first process.
+func (s *EnvSuite) TestCrossScopeNeedsSurvivesSeparateProcesses() {
+	project := "kevin-e2e-cross-scope-needs"
+	dir := s.T().TempDir()
+	s.cleanupProject(project)
+
+	src := fmt.Sprintf(`project: %s
+
+plugins: echo: cmd: %s
+
+setup: cluster: {
+	uses: "echo:echo"
+	with: {
+		export:           {greeting: "from-setup", password: "hunter2"}
+		export_sensitive: ["password"]
+	}
+}
+env: app: {
+	uses:  "echo:echo"
+	needs: ["setup.cluster"]
+	with:  message: "${setup.cluster.out.greeting}"
+}
+`, strconv.Quote(project), strconv.Quote(s.echoPluginBin()))
+	s.writeCUE(dir, src)
+
+	out, code := s.runToCompletion(dir, "-C", dir, "setup")
+	s.Equal(0, code, "kevin setup output:\n%s", out)
+	s.Contains(out, stepLine("cluster", "ready"))
+
+	out, code = s.runUntil(dir, stepLine("app", "ready"), "-C", dir, "run")
+	s.Equal(0, code, "kevin run output:\n%s", out)
+
+	logs, err := os.ReadFile(filepath.Join(dir, ".kevin", "logs.ndjson"))
+	s.Require().NoError(err)
+	logStr := string(logs)
+	s.Contains(logStr, "from-setup", "the CEL-rendered with block must carry the setup step's exported value")
+	s.Contains(logStr, "saw setup.cluster:", "the wire Deps key must be the \"setup.\"-prefixed name")
+	s.Contains(logStr, "password:[REDACTED]", "export_sensitive must keep its Sensitive flag crossing both scopes and processes")
+	s.NotContains(logStr, "hunter2", "a Sensitive value must never appear in its raw form in the log")
+}

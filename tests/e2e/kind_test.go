@@ -242,13 +242,26 @@ func (s *KindSuite) TestConnectWithNoNameDefaultsToTheOnlyExportableStep() {
 	s.Contains(out, "Ready")
 }
 
+// noExportStepCUE is a minimal single-step DAG using "echo:probe" - unlike
+// "echo:echo", the probe step type implements no Export, so it never shows
+// up as a connect candidate.
+const noExportStepCUE = `project: "%s"
+
+plugins: echo: cmd: %s
+
+env: a: {
+	uses:  "echo:probe"
+	label: "A"
+}
+`
+
 // TestConnectErrorsCleanlyWithNoConnectableStep covers "kevin connect"
 // against an environment where no step supports connect - errors cleanly,
-// not a crash. A fresh, separate plain project: echo:echo implements no
+// not a crash. A fresh, separate plain project: echo:probe implements no
 // Export.
 func (s *KindSuite) TestConnectErrorsCleanlyWithNoConnectableStep() {
 	dir := s.T().TempDir()
-	src := fmt.Sprintf(oneStepCUE, "kevin-e2e-kind-noconnect", strconv.Quote(s.echoPluginBin()), strconv.Quote("hi"))
+	src := fmt.Sprintf(noExportStepCUE, "kevin-e2e-kind-noconnect", strconv.Quote(s.echoPluginBin()))
 	s.writeCUE(dir, src)
 
 	out, code := s.runToCompletion(dir, "-C", dir, "connect")

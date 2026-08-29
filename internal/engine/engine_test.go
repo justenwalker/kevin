@@ -525,6 +525,74 @@ env: {
 	})
 }
 
+// TestRunCrossScopeNeeds covers an env step's needs naming a setup-scope
+// step via the "setup.<name>" prefix, resolved through Export rather than
+// Up - and each way that resolution can fail.
+func TestRunCrossScopeNeeds(t *testing.T) {
+	t.Run("resolves a setup step's Export into needs and Deps", func(t *testing.T) {
+		requireDocker(t)
+		dir := project(t, `
+setup: cluster: {uses: "echo:echo", with: {export: {greeting: "from-setup", password: "hunter2"}, export_sensitive: ["password"]}}
+env:   app:     {uses: "echo:echo", needs: ["setup.cluster"], with: message: "${setup.cluster.out.greeting}"}
+`)
+		w, err := runUntil(t, dir, fmt.Sprintf("%-16s %s", "app", "ready"))
+		require.NoError(t, err)
+		assert.Contains(t, w.String(), fmt.Sprintf("%-16s %s", "app", "ready"))
+
+		logs, err := os.ReadFile(filepath.Join(dir, WorkspaceDir, LogsFile))
+		require.NoError(t, err)
+		out := string(logs)
+		assert.Contains(t, out, "from-setup", "the CEL-rendered with block must carry the setup step's exported value")
+		assert.Contains(t, out, "saw setup.cluster:", "the wire Deps key must be the \"setup.\"-prefixed name")
+		// echo logs req.Deps with %v, and plugin.Sensitive's String() redacts
+		// to "[REDACTED]" - proving the Sensitive flag reached the plugin
+		// (not just that the raw value did) exactly as export_sensitive named it.
+		assert.Contains(t, out, "password:[REDACTED]", "export_sensitive must keep its Sensitive flag crossing scopes via Deps")
+		assert.NotContains(t, out, "hunter2", "a Sensitive value must never appear in its raw form in the log")
+		assert.Contains(t, out, "greeting:from-setup", "a non-sensitive value must appear in the clear")
+	})
+
+	t.Run("an unknown same-scope name fails", func(t *testing.T) {
+		dir := project(t, `
+env: app: {uses: "echo:echo", needs: ["missing"]}
+`)
+		err := runEnv(t, dir)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `app: needs "missing": no such step in scope "env"`)
+	})
+
+	t.Run("an unknown setup-scope name fails", func(t *testing.T) {
+		dir := project(t, `
+env: app: {uses: "echo:echo", needs: ["setup.missing"]}
+`)
+		err := runEnv(t, dir)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `app: needs "setup.missing": no such step in scope "setup"`)
+	})
+
+	t.Run("a setup step with no Exporter fails", func(t *testing.T) {
+		dir := project(t, `
+setup: cluster: {uses: "echo:probe"}
+env:   app:     {uses: "echo:echo", needs: ["setup.cluster"]}
+`)
+		w, err := runUntil(t, dir, fmt.Sprintf("%-16s %s", "app", "failed:"))
+		require.Error(t, err)
+		assert.Contains(t, w.String(), "does not implement export")
+	})
+
+	t.Run("the setup prefix is rejected outside the env scope", func(t *testing.T) {
+		dir := project(t, `
+setup: {
+	a: {uses: "echo:echo", needs: ["setup.b"]}
+	b: {uses: "echo:echo"}
+}
+`)
+		err := Run(t.Context(), Options{Dir: dir, Scope: config.ScopeSetup})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `a: needs "setup.b": only an env step can use a "setup." dependency`)
+	})
+}
+
 // TestRunRejectsInvalidConfiguration covers every way Run must fail before it
 // ever launches a plugin or touches docker: a bad reference, a schema
 // violation, a reserved namespace, a filesystem problem. None of these needs

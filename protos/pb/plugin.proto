@@ -290,8 +290,15 @@ message ExportRequest {
 
 message ExportResponse {
   // Env holds the environment variables that let an external command reach
-  // what the step created.
+  // what the step created - what "kevin connect" injects into the exec'd
+  // shell.
   map<string, string> env = 1;
+
+  // Out holds the same step's outputs in structured form - the same Value
+  // shape Outputs uses, each value optionally marked sensitive. A
+  // cross-scope "needs: [\"setup.<name>\"]" reference resolves against
+  // this, never against env.
+  Outputs out = 2;
 }
 
 message Route {

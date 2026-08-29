@@ -152,10 +152,13 @@ type ExportRequest struct {
 	Config []byte
 }
 
-// ExportResult carries the environment variables that let an external
-// command reach what a step created.
+// ExportResult carries what a step exports: Env, the environment variables
+// an external command needs to reach it (what "kevin connect" uses), and
+// Out, the same outputs in structured form for another step's cross-scope
+// needs to consume - the same Value shape Outputs uses.
 type ExportResult struct {
 	Env map[string]string
+	Out map[string]Value
 }
 
 // Route is a hostname that a step serves. A Route in a [Result] joins the

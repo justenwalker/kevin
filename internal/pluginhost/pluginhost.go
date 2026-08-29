@@ -221,12 +221,12 @@ func (c *Client) Up(ctx context.Context, req *pb.UpRequest, onEvent func(*pb.Eve
 }
 
 // Export asks a step how to reach what it created.
-func (c *Client) Export(ctx context.Context, req *pb.ExportRequest) (map[string]string, error) {
+func (c *Client) Export(ctx context.Context, req *pb.ExportRequest) (*pb.ExportResponse, error) {
 	resp, err := c.api.Export(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("pluginhost: %q Export %q: %w", c.name, req.GetStep(), wrapRPCErr(err))
 	}
-	return resp.GetEnv(), nil
+	return resp, nil
 }
 
 // Down removes a step. Down calls onEvent for every log line and every

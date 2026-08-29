@@ -85,3 +85,22 @@ func (echo) Down(_ context.Context, req *plugin.DownRequest, out plugin.Emitter)
 	}
 	return nil
 }
+
+// echo must keep satisfying plugin.Exporter.
+var _ plugin.Exporter = echo{}
+
+// Export reports cfg.Export, with any key named in cfg.ExportSensitive
+// wrapped plugin.Sensitive.
+func (echo) Export(_ context.Context, req *plugin.ExportRequest) (*plugin.ExportResult, error) {
+	cfg, err := decode(req.Config)
+	if err != nil {
+		return nil, err
+	}
+	out := plugin.StringMap(cfg.Export)
+	for _, k := range cfg.ExportSensitive {
+		if v, ok := out[k]; ok {
+			out[k] = plugin.Sensitive{Value: v}
+		}
+	}
+	return &plugin.ExportResult{Out: out}, nil
+}

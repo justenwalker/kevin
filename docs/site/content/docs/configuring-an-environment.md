@@ -207,6 +207,23 @@ The same `${...}` expression can also read `env.<VAR>`, kevin's own environment 
 
 A plugin can mark one of its own outputs sensitive - a generated password, for example - which keeps the engine from ever writing it to a log or the console card in full. A `${needs.<step>.out.<key>}` expression still reads a sensitive value's content, since it's substituted into a downstream step's own `with` block, not displayed; that downstream step must mark it sensitive again itself if it echoes the value back out as one of its own outputs or console details.
 
+### Reading a `setup` step's value
+
+`needs` normally only reaches a step in the *same* scope. An `env` step can additionally name a `setup` step, prefixed `setup.`, since `kevin setup` typically provisions something once that many later `kevin run`s want to reuse - a kind cluster, say:
+
+```cue
+setup: cluster: uses: "builtin:kind"
+env: app: {
+    uses:  "builtin:kubectl"
+    needs: ["setup.cluster"]
+    with:  kubeconfig: "${setup.cluster.out.KUBECONFIG}"
+}
+```
+
+Two things differ from a same-scope reference. First, the `needs` entry itself carries the `setup.` prefix - only a bare, unprefixed name ever means "a step in my own scope." Second, reading the value back in a `with` block uses a separate `setup` variable, not `needs.setup...` - `${setup.cluster.out.KUBECONFIG}`, no prefix inside the expression itself.
+
+This only works for a step type that implements `Export` (`Info` reports which ones do), and only from `env` toward `setup` - never the reverse, since `setup` is provisioned independently of any `env` run. A plain `kevin run` never brings the `setup` scope up in that process, so kevin calls the setup step's `Export` RPC to resolve the value instead of walking it as a normal dependency.
+
 ## Validation
 
 Each step's `with` block is validated against a schema published by the plugin that implements it, so a misconfigured environment fails before it creates anything.

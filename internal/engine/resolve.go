@@ -188,6 +188,9 @@ func LoadAndLaunch(ctx context.Context, dir, name string) (*config.Config, map[s
 	if err != nil {
 		return nil, plugins, nil, err
 	}
+	if err = validateNeeds(cfg); err != nil {
+		return nil, plugins, nil, err
+	}
 	return cfg, plugins, caps, nil
 }
 

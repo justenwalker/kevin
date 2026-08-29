@@ -266,7 +266,10 @@ func (Step) Export(_ context.Context, req *plugin.ExportRequest) (*plugin.Export
 		return nil, fmt.Errorf("kind: cluster %q has no kubeconfig yet, run `kevin run` or `kevin setup` first: %w", name, err)
 	}
 
-	return &plugin.ExportResult{Env: map[string]string{"KUBECONFIG": kubeconfig}}, nil
+	return &plugin.ExportResult{
+		Env: map[string]string{"KUBECONFIG": kubeconfig},
+		Out: plugin.StringMap(map[string]string{"KUBECONFIG": kubeconfig}),
+	}, nil
 }
 
 // clusterName builds the name of the cluster. kind prefixes every container

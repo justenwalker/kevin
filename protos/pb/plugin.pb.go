@@ -1386,8 +1386,14 @@ func (x *ExportRequest) GetConfig() []byte {
 type ExportResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Env holds the environment variables that let an external command reach
-	// what the step created.
-	Env           map[string]string `protobuf:"bytes,1,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// what the step created - what "kevin connect" injects into the exec'd
+	// shell.
+	Env map[string]string `protobuf:"bytes,1,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Out holds the same step's outputs in structured form - the same Value
+	// shape Outputs uses, each value optionally marked sensitive. A
+	// cross-scope "needs: [\"setup.<name>\"]" reference resolves against
+	// this, never against env.
+	Out           *Outputs `protobuf:"bytes,2,opt,name=out,proto3" json:"out,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1425,6 +1431,13 @@ func (*ExportResponse) Descriptor() ([]byte, []int) {
 func (x *ExportResponse) GetEnv() map[string]string {
 	if x != nil {
 		return x.Env
+	}
+	return nil
+}
+
+func (x *ExportResponse) GetOut() *Outputs {
+	if x != nil {
+		return x.Out
 	}
 	return nil
 }
@@ -1661,9 +1674,10 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x04step\x18\x01 \x01(\tR\x04step\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12.\n" +
 	"\x03env\x18\x03 \x01(\v2\x1c.kevin.plugin.v1.EnvironmentR\x03env\x12\x16\n" +
-	"\x06config\x18\x04 \x01(\fR\x06config\"\x84\x01\n" +
+	"\x06config\x18\x04 \x01(\fR\x06config\"\xb0\x01\n" +
 	"\x0eExportResponse\x12:\n" +
-	"\x03env\x18\x01 \x03(\v2(.kevin.plugin.v1.ExportResponse.EnvEntryR\x03env\x1a6\n" +
+	"\x03env\x18\x01 \x03(\v2(.kevin.plugin.v1.ExportResponse.EnvEntryR\x03env\x12*\n" +
+	"\x03out\x18\x02 \x01(\v2\x18.kevin.plugin.v1.OutputsR\x03out\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"I\n" +
@@ -1750,24 +1764,25 @@ var file_pb_plugin_proto_depIdxs = []int32{
 	8,  // 17: kevin.plugin.v1.Detail.value:type_name -> kevin.plugin.v1.Value
 	6,  // 18: kevin.plugin.v1.ExportRequest.env:type_name -> kevin.plugin.v1.Environment
 	26, // 19: kevin.plugin.v1.ExportResponse.env:type_name -> kevin.plugin.v1.ExportResponse.EnvEntry
-	8,  // 20: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
-	9,  // 21: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	9,  // 22: kevin.plugin.v1.DownRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	1,  // 23: kevin.plugin.v1.Plugin.Info:input_type -> kevin.plugin.v1.InfoRequest
-	4,  // 24: kevin.plugin.v1.Plugin.Configure:input_type -> kevin.plugin.v1.ConfigureRequest
-	10, // 25: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
-	11, // 26: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
-	18, // 27: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
-	2,  // 28: kevin.plugin.v1.Plugin.Info:output_type -> kevin.plugin.v1.InfoResponse
-	5,  // 29: kevin.plugin.v1.Plugin.Configure:output_type -> kevin.plugin.v1.ConfigureResponse
-	12, // 30: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
-	12, // 31: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
-	19, // 32: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
-	28, // [28:33] is the sub-list for method output_type
-	23, // [23:28] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	9,  // 20: kevin.plugin.v1.ExportResponse.out:type_name -> kevin.plugin.v1.Outputs
+	8,  // 21: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
+	9,  // 22: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	9,  // 23: kevin.plugin.v1.DownRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	1,  // 24: kevin.plugin.v1.Plugin.Info:input_type -> kevin.plugin.v1.InfoRequest
+	4,  // 25: kevin.plugin.v1.Plugin.Configure:input_type -> kevin.plugin.v1.ConfigureRequest
+	10, // 26: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
+	11, // 27: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
+	18, // 28: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
+	2,  // 29: kevin.plugin.v1.Plugin.Info:output_type -> kevin.plugin.v1.InfoResponse
+	5,  // 30: kevin.plugin.v1.Plugin.Configure:output_type -> kevin.plugin.v1.ConfigureResponse
+	12, // 31: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
+	12, // 32: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
+	19, // 33: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
+	29, // [29:34] is the sub-list for method output_type
+	24, // [24:29] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_pb_plugin_proto_init() }

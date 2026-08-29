@@ -71,7 +71,7 @@ The environment file holds two independent DAGs, and each DAG is a scope.
 | `setup` | Pesists across runs. | `kevin setup`, `kevin teardown` |
 | `env`   | Ephemeral.           | `kevin run`                     |
 
-The two scopes use one engine and one protocol.
+The two scopes use one engine and one protocol. An `env` step's `needs` may additionally name a `setup` step, prefixed `setup.` (`needs: ["setup.<name>"]`) - resolved through `Export`, not `Up`, since a plain `kevin run` never brings the setup scope up in that process. See [Cross-step values](#cross-step-values) below.
 
 State for one project lives in a `.kevin/` folder, or `.kevin/<name>/` for a named environment selected with `-e`/`--env` (see [Environment file]({{< relref "/docs/configuring-an-environment#file-name-and-format" >}})). Two projects, or two named environments in one project directory, can run at the same time, because kevin prefixes every resource with the project name.
 
@@ -112,7 +112,7 @@ The service has five methods:
 2. `Configure` delivers the provider's own `config` block, once, before any step of that provider runs.
 3. `Up` creates one step and returns the outputs of that step. The request carries the step type beside the node name, so one process can dispatch to the right step type.
 4. `Down` removes one step. The request also carries the step type.
-5. `Export` reports the environment variables that let an external command reach what a step created, such as `KUBECONFIG` for a Kubernetes cluster. A step type implements `Export` only when there is something to export, and `Info` reports, per step type, whether it does. A caller never finds out by calling `Export` and seeing what happens. `kevin connect` is the CLI surface for this.
+5. `Export` reports what a step created, in two forms: `env`, the environment variables that let an external command reach it (such as `KUBECONFIG` for a Kubernetes cluster - this is what `kevin connect` injects into the shell it execs), and `out`, the same information in structured, `Value`-typed form (the same shape `Up`'s outputs use, so a value can be marked sensitive). A step type implements `Export` only when there is something to export, and `Info` reports, per step type, whether it does. A caller never finds out by calling `Export` and seeing what happens. `kevin connect` is the CLI surface for `env`; an env step's `needs: ["setup.<name>"]` is the automatic caller of `out` (see [Cross-step values](#cross-step-values)).
 
 `Up` and `Down` stream from the server. One call carries the log lines, the progress reports, and the final result. Thus the protocol needs no separate progress service.
 
@@ -125,7 +125,7 @@ The protocol has no callback service and no `GRPCBroker`. Everything that a plug
 3. Call `Info` on each plugin and collect the CUE schemas.
 4. Unify the `with` block of each step with the plugin's schema for that step.
 5. Call `Configure` on each plugin that declares a `config` block, once, before any step of that plugin runs.
-6. Walk the DAG and call `Up` for each step.
+6. Walk the DAG and call `Up` for each step. A step whose `needs` names a `setup` step (`setup.<name>`) calls that setup step's `Export` instead - it is never walked or `Up`'d as part of this DAG.
 
 A step runs only after step 4 succeeds. A bad environment file fails before the plugin creates a resource.
 
@@ -140,6 +140,16 @@ A step publishes outputs. Every step that declares a `needs` edge on that step r
 A step's own plugin code always gets every upstream output through the wire request. The engine passes it beside the `with` block, not through it. But a `with` value itself can also reference one, using `${cel-expression}`: any string in the `with` block, at any depth, that contains `${...}` gets that expression evaluated, against a `needs` variable shaped `map[string]map[string]map[string]string`, keyed by upstream step name, then by `out` (that step's own plugin-authored outputs) or `system` (values kevin computes itself, kept apart so a kevin-computed key can never collide with one a plugin chose for its own output). The same expression can also read `env.<VAR>`, the kevin process's own environment variables; referencing an unset one errors, so `has(env.VAR) ? env.VAR : "default"` is the idiom for an optional one. The result is spliced back into the surrounding text before the plugin ever sees it. A step whose `with` block never uses `${` pays no cost; there is no other change to what the plugin receives.
 
 `internal/expr` implements this, using [CEL](https://github.com/google/cel-go). `internal/engine`'s DAG walk calls it once per step, right where the upstream outputs for that step are already assembled, so this needs no separate resolution phase and no reordering of validate-then-walk: CUE unification of the `with` block still happens once, globally, before the walk starts, and only ever sees the `${...}` placeholder as a plain string. The kubectl and helm steps (see [Deploying workloads](#deploying-workloads)) are the two builtin consumers today; the mechanism itself is generic, so any plugin's `with` block can use it. See [CEL expressions]({{< relref "/docs/cel-expressions" >}}) for the full syntax reference.
+
+#### Crossing scopes with `needs`
+
+An `env` step's `needs` may name a `setup` step, one-way only - never the reverse, since `setup` is provisioned independently of any `env` run. The entry carries a literal `setup.` prefix, e.g. `needs: ["setup.cluster"]`: a bare name always means same-scope, so there is never a fallback search into the other scope and never any ambiguity if the same name happens to exist in both.
+
+Because a plain `kevin run` never brings the setup scope up in that process, this dependency can't be satisfied by walking the DAG the way a same-scope one is. It's resolved by calling the setup step's plugin `Export` RPC instead - the setup step's plugin is already running (`LoadAndLaunch` starts every plugin either scope references, regardless of which one is executing), so no extra process launch is needed, and `Export` is specced as a cheap, side-effect-free, always-live query, so kevin calls it fresh every time a dependent step runs rather than caching it.
+
+Reading the resolved value back uses a separate top-level `setup` CEL variable, not a nested `needs.setup...` path: `${setup.<name>.out.<key>}`. This is deliberate, not cosmetic - `needs`'s CEL type is a uniform three-level map (step name → `out`/`system` → key), and a cross-scope reference needs one more level (the setup step's own name) that can't coexist with that uniform shape in the same variable without losing static typing. A sibling `setup` variable, with the exact same type as `needs`, sidesteps that entirely and, as a side effect, means a same-scope step literally named `setup` stays reachable at the ordinary `needs.setup.out.x` with zero ambiguity against the new `setup.<name>.out.x`.
+
+`Export`'s `out` field uses the same `Value` type `Up`'s outputs do, so a plugin can mark an exported value `Sensitive` - a generated password from a `setup` step, say - and it keeps that flag over the wire `Deps` field of the step that named it in `needs`, the same as a same-scope `Sensitive` output would. CEL rendering itself still discards sensitivity either way (a value substituted into a rendered `with` string has no way to carry a flag); the wire `Deps` field is what preserves it end to end.
 
 ### Crash recovery
 

@@ -355,6 +355,20 @@ Already exercised structurally in sections 6-8 (`${needs.cluster.out.kubeconfig}
 - [ ] Set `REGISTRY_HOST` and rerun - the value is spliced in correctly.
 - [ ] `${has(env.REGISTRY_HOST) ? env.REGISTRY_HOST : "localhost:5000"}` with
       the var unset falls back to `localhost:5000` instead of erroring.
+- [ ] An `env` step's `needs: ["setup.<name>"]` reads a `setup` step's
+      `Export` output via `${setup.<name>.out.<key>}`, resolved correctly
+      even when `kevin setup` already ran and exited in a wholly separate
+      process before `kevin run` starts (`tests/e2e/env_test.go`'s
+      `TestCrossScopeNeedsSurvivesSeparateProcesses`). A value the setup
+      step's `Export` marks sensitive keeps that flag crossing scopes and
+      processes, into the receiving step's own `Deps`.
+- [ ] `needs: ["setup.missing"]` (unknown setup step), `needs: ["missing"]`
+      (unknown same-scope step), and a `setup`-scope step naming
+      `needs: ["setup.x"]` (the prefix used outside the `env` scope) each
+      fail `kevin run`/`kevin setup` with a clear error before any step
+      runs, not a generic "unknown step" message. (Automated at the unit
+      level, not `gnob e2e` - `internal/engine/engine_test.go`'s
+      `TestRunCrossScopeNeeds`.)
 
 ## 13. Plugin packaging: pack / push / trust / signed
 

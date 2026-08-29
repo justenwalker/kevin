@@ -199,11 +199,29 @@ func TestExport(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(client.Close)
 
-	// The echo step type does not implement Exporter, so the plugin itself
-	// - not pluginhost - reports the failure.
-	_, err = client.Export(t.Context(), &pb.ExportRequest{Step: "api", Type: "echo"})
-	require.Error(t, err)
-	assert.Equal(t, codes.Unimplemented, status.Code(err))
+	t.Run("reports Env and Out separately", func(t *testing.T) {
+		resp, exportErr := client.Export(t.Context(), &pb.ExportRequest{
+			Step: "api", Type: "echo",
+			Config: []byte(`{"export":{"greeting":"hi","password":"hunter2"},"export_sensitive":["password"]}`),
+		})
+		require.NoError(t, exportErr)
+		assert.Empty(t, resp.GetEnv(), "echo's Export only ever populates Out, never Env")
+		values := resp.GetOut().GetValues()
+		require.Contains(t, values, "greeting")
+		assert.Equal(t, "hi", values["greeting"].GetStringValue())
+		assert.False(t, values["greeting"].GetSensitive())
+		require.Contains(t, values, "password")
+		assert.Equal(t, "hunter2", values["password"].GetStringValue())
+		assert.True(t, values["password"].GetSensitive(), "export_sensitive must mark the value Sensitive")
+	})
+
+	t.Run("a step type with no Exporter fails at the plugin, not pluginhost", func(t *testing.T) {
+		// The probe step type does not implement Exporter, so the plugin
+		// itself - not pluginhost - reports the failure.
+		_, exportErr := client.Export(t.Context(), &pb.ExportRequest{Step: "api", Type: "probe"})
+		require.Error(t, exportErr)
+		assert.Equal(t, codes.Unimplemented, status.Code(exportErr))
+	})
 }
 
 func TestDown(t *testing.T) {

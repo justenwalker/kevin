@@ -854,10 +854,59 @@ func (r *run) closeForwards() error {
 	return errors.Join(errs...)
 }
 
+// setupPrefix marks a needs entry as naming a setup-scope step instead of
+// one in the running scope. Only meaningful on an env-scope needs entry.
+const setupPrefix = "setup."
+
+// validateNeeds checks every needs entry of both of cfg's scopes. Called
+// once from LoadAndLaunch, before graph() or docker is touched. A
+// same-scope name is left for dag.Validate to check later. An env step's
+// needs may additionally name a step prefixed "setup.", resolved in the
+// setup scope via Export instead of Up; a setup step accepts no such
+// prefix.
+func validateNeeds(cfg *config.Config) error {
+	for _, scope := range []string{config.ScopeSetup, config.ScopeEnv} {
+		steps := cfg.Steps(scope)
+		names := make([]string, 0, len(steps))
+		for name := range steps {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+
+		for _, name := range names {
+			for _, dep := range steps[name].Needs {
+				if setupName, ok := strings.CutPrefix(dep, setupPrefix); ok {
+					if scope != config.ScopeEnv {
+						return fmt.Errorf("%s: needs %q: only an env step can use a %q dependency", name, dep, setupPrefix)
+					}
+					if _, ok := cfg.Setup[setupName]; !ok {
+						return fmt.Errorf("%s: needs %q: no such step in scope %q", name, dep, config.ScopeSetup)
+					}
+					continue
+				}
+				if _, ok := steps[dep]; !ok {
+					return fmt.Errorf("%s: needs %q: no such step in scope %q", name, dep, scope)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// graph builds the DAG for r's own scope, keeping only needs entries that
+// name a step in this scope's own step map. A "setup."-prefixed
+// cross-scope entry is dropped here and resolved separately by
+// crossScopeDeps.
 func (r *run) graph() *dag.Graph {
 	needs := make(map[string][]string, len(r.steps))
 	for name, step := range r.steps {
-		needs[name] = step.Needs
+		filtered := make([]string, 0, len(step.Needs))
+		for _, dep := range step.Needs {
+			if _, ok := r.steps[dep]; ok {
+				filtered = append(filtered, dep)
+			}
+		}
+		needs[name] = filtered
 	}
 	return dag.New(needs)
 }
@@ -895,8 +944,9 @@ func (r *run) trackProgress(ctx context.Context, name string, estimate time.Dura
 }
 
 // renderWith resolves name's `with` block against deps and the recorded
-// system outputs of those deps, for either an Up or a Down request.
-func (r *run) renderWith(name string, step config.Step, deps map[string]dag.Outputs) (json.RawMessage, error) {
+// system outputs of those deps, plus setupDeps for any cross-scope
+// "setup.<name>" needs entry, for either an Up or a Down request.
+func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[string]dag.Outputs) (json.RawMessage, error) {
 	r.systemMu.Lock()
 	system := make(map[string]dag.Outputs, len(deps))
 	for dep := range deps {
@@ -906,7 +956,7 @@ func (r *run) renderWith(name string, step config.Step, deps map[string]dag.Outp
 	}
 	r.systemMu.Unlock()
 
-	with, err := expr.Render(step.With, name, deps, system)
+	with, err := expr.Render(step.With, name, deps, system, setupDeps)
 	if err != nil {
 		return nil, fmt.Errorf("%s: with: %w", name, err)
 	}
@@ -945,7 +995,13 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	}
 	client := r.plugins[ref.Plugin]
 
-	with, err := r.renderWith(name, step, deps)
+	setupDeps, err := r.crossScopeDeps(ctx, name)
+	if err != nil {
+		r.reportUpFailure(ctx, name, err)
+		return nil, err
+	}
+
+	with, err := r.renderWith(name, step, deps, setupDeps)
 	if err != nil {
 		r.reportUpFailure(ctx, name, err)
 		return nil, err
@@ -956,7 +1012,7 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 		Type:   ref.Step,
 		Env:    r.env,
 		Config: with,
-		Deps:   depsToProto(deps),
+		Deps:   depsToProto(depsWithSetup(deps, setupDeps)),
 	}
 
 	estimate, _ := r.timings.EstimateUp(name, ref.String())
@@ -1088,13 +1144,13 @@ func (r *run) exportStep(ctx context.Context, name string) (map[string]string, e
 	if !ok {
 		return nil, fmt.Errorf("mcpserver: plugin %q not loaded", ref.Plugin)
 	}
-	vars, err := client.Export(ctx, &pb.ExportRequest{
+	resp, err := client.Export(ctx, &pb.ExportRequest{
 		Step: name, Type: ref.Step, Env: r.env, Config: step.With,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("mcpserver: export %s: %w", name, err)
 	}
-	return vars, nil
+	return resp.GetEnv(), nil
 }
 
 // idempotent reports whether step's step type declares itself safe to call
@@ -1163,7 +1219,11 @@ func (r *run) down(ctx context.Context) error {
 		for _, dep := range needs[name] {
 			deps[dep] = completed[dep]
 		}
-		with, renderErr := r.renderWith(name, step, deps)
+		setupDeps, err := r.crossScopeDeps(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		with, renderErr := r.renderWith(name, step, deps, setupDeps)
 		if renderErr != nil {
 			return nil, renderErr
 		}
@@ -1255,6 +1315,82 @@ func outputsToProto(values dag.Outputs) *pb.Outputs {
 	for k, v := range values {
 		val, _ := v.(output.Value)
 		out.Values[k] = &pb.Value{Kind: &pb.Value_StringValue{StringValue: val.String}, Sensitive: val.Sensitive}
+	}
+	return out
+}
+
+// stepExports reports whether info's step type name implements Export.
+func stepExports(info pluginhost.Info, name string) bool {
+	for _, st := range info.Steps {
+		if st.Name == name {
+			return st.Export
+		}
+	}
+	return false
+}
+
+// exportCrossScopeStep asks a setup-scope step's plugin how to reach what
+// it created - the same request kevin connect and exportStep make against
+// this session's already-running plugin, sent with the setup step's own
+// unrendered with block, the same as exportStep. setupName is the name
+// with the "setup." prefix already stripped.
+func (r *run) exportCrossScopeStep(ctx context.Context, setupName string) (dag.Outputs, error) {
+	step := r.cfg.Setup[setupName]
+	ref, err := config.ParseStepRef(step.Uses)
+	if err != nil {
+		return nil, err
+	}
+	client, ok := r.plugins[ref.Plugin]
+	if !ok {
+		return nil, fmt.Errorf("plugin %q not loaded", ref.Plugin)
+	}
+	if !stepExports(r.caps[ref.Plugin], ref.Step) {
+		return nil, fmt.Errorf("setup step %q (%s) does not implement export", setupName, ref)
+	}
+	resp, err := client.Export(ctx, &pb.ExportRequest{
+		Step: setupName, Type: ref.Step, Env: r.env, Config: step.With,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("export setup step %q: %w", setupName, err)
+	}
+	return outputsFromProto(resp.GetOut()), nil
+}
+
+// crossScopeDeps resolves every "setup."-prefixed entry in name's own
+// needs list via Export, keyed by the unprefixed setup-step name - the
+// shape both the "setup" CEL variable and the step's wire Deps use. A name
+// with no such entry returns (nil, nil) - the common case, most steps use
+// only same-scope needs.
+func (r *run) crossScopeDeps(ctx context.Context, name string) (map[string]dag.Outputs, error) {
+	var out map[string]dag.Outputs
+	for _, dep := range r.steps[name].Needs {
+		setupName, ok := strings.CutPrefix(dep, setupPrefix)
+		if !ok {
+			continue // same-scope, resolved by the dag walk already.
+		}
+		vals, err := r.exportCrossScopeStep(ctx, setupName)
+		if err != nil {
+			return nil, fmt.Errorf("%s: needs %q: %w", name, dep, err)
+		}
+		if out == nil {
+			out = make(map[string]dag.Outputs)
+		}
+		out[setupName] = vals
+	}
+	return out, nil
+}
+
+// depsWithSetup folds setupDeps into deps for the wire Deps field, each
+// entry keyed "setup.<name>". This is the one channel that still carries
+// a value's Sensitive flag once it crosses scopes.
+func depsWithSetup(deps, setupDeps map[string]dag.Outputs) map[string]dag.Outputs {
+	if len(setupDeps) == 0 {
+		return deps
+	}
+	out := make(map[string]dag.Outputs, len(deps)+len(setupDeps))
+	maps.Copy(out, deps)
+	for name, vals := range setupDeps {
+		out[setupPrefix+name] = vals
 	}
 	return out
 }

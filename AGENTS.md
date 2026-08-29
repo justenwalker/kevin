@@ -137,6 +137,12 @@ Key model to hold in your head when changing any of this:
   anything is created.
 - **Cross-step values**: a step's `Result.Outputs` are handed to every step
   with a `needs` edge on it (e.g. a registry endpoint, a kubeconfig path).
+  An `env` step's `needs` may additionally name a `setup` step as
+  `setup.<name>` (one-way only) - resolved via that step's `Export` RPC
+  instead of `Up`, since a plain `kevin run` never brings the setup scope
+  up. `${setup.<name>.out.<key>}` reads it back, a CEL variable separate
+  from `needs` (not `needs.setup...`) so a same-scope step literally named
+  `setup` stays unambiguous.
 - **No state file, anywhere.** Docker resources carry `kevin.project`/
   `kevin.step` labels; `Down` must be derived from live state and be
   idempotent (survives a crash mid-run). Same principle for CA

@@ -9,7 +9,7 @@ Any string in a step's `with` block, at any depth, that contains `${...}`
 gets the text inside the braces evaluated as a
 [CEL](https://cel.dev) (Common Expression Language) expression, and the
 result spliced back into the surrounding text. A string with no `${` is
-never touched. This page documents the two variables kevin exposes to that
+never touched. This page documents the three variables kevin exposes to that
 expression; for the CEL language itself (operators, `has()`, ternary `? :`,
 string/list/map methods), see the
 [CEL language definition](https://github.com/google/cel-spec/blob/master/doc/langdef.md).
@@ -29,6 +29,7 @@ and spliced in independently, left to right.
 | Name | Type | Description |
 |:-----|:-----|:-------------|
 | `needs` | `map[string]map[string]map[string]string` | Keyed by upstream step name (must be listed in this step's `needs`), then by sub-namespace (`out` or `system`), then by key. |
+| `setup` | `map[string]map[string]map[string]string` | Same shape as `needs`, but for a cross-scope `needs: ["setup.<name>"]` reference - keyed by the setup step's name, with no `setup.` prefix. Empty when rendering a `setup`-scope step itself. |
 | `env` | `map[string]string` | The kevin process's own environment variables, keyed by name. |
 
 ### `needs.<step>.out.<key>`
@@ -52,6 +53,29 @@ entries. See
 ```cue
 tcp: address: "${needs.cluster.system.expose_postgres}"
 ```
+
+### `setup.<name>.out.<key>`
+
+A value from a `setup`-scope step's `Export` result, for an `env` step
+whose `needs` names it as `setup.<name>`. Unlike `needs.<step>.out.<key>`,
+this isn't a same-process `Up` result - a plain `kevin run` never brings
+the `setup` scope up, so kevin calls the setup step's `Export` RPC to get
+it, fresh every time. Only `env`-scope steps can use this; `setup` steps
+can't depend on `env`. See
+[Cross-step values]({{< relref "/docs/concepts/architecture#cross-step-values" >}}).
+
+```cue
+setup: cluster: {uses: "builtin:kind"}
+env: deploy: {
+    uses:  "builtin:kubectl"
+    needs: ["setup.cluster"]
+    with:  kubeconfig: "${setup.cluster.out.KUBECONFIG}"
+}
+```
+
+A same-scope step literally named `setup` is unaffected - it stays
+reachable at `needs.setup.out.<key>`, a different variable entirely from
+the top-level `setup.<name>.out.<key>` above.
 
 ### `env.<VAR>`
 

@@ -15,6 +15,13 @@
 	// read.
 	outputs?: [string]: string
 
+	// export are the values Export reports for this step, for a
+	// cross-scope "needs" reference or "kevin connect" to read.
+	export?: [string]: string
+
+	// export_sensitive lists which keys of export must be marked sensitive.
+	export_sensitive?: [...string]
+
 	// details are extra rows the step publishes for its console card.
 	details?: [...{
 		label:     string | *""
