@@ -1,0 +1,58 @@
+---
+title: "🧩 plugin"
+weight: 7
+---
+
+[[template "banner"]]
+
+# `kevin plugin`
+
+Works with the plugins that ship inside `kevin`, and with the plugin
+package format used by `plugins:` entries in `kevin.cue` (see
+[Configuring an environment]({{< relref "/docs/configuring-an-environment" >}})).
+
+## `kevin plugin pack <dir>`
+
+Builds a plugin package (a gzip-compressed tar) from `dir`: a
+`manifest.json` plus the entrypoint binary and any files it needs
+alongside it. `dir` may already hold a `manifest.json`; the override flags
+below fill in or replace its fields, and must fully supply the manifest
+when `dir` has none.
+
+```sh
+kevin plugin pack ./my-plugin -o my-plugin.tar.gz
+```
+
+[[template "flags" .Commands.pack]]
+
+## `kevin plugin push <tar.gz> <oci-ref>`
+
+Uploads the plugin package at `tar.gz` to `oci-ref` (e.g.
+`ghcr.io/acme/plugin:v1`), reusing whatever credentials `docker login`
+already wrote. If `tar.gz.minisig` exists (`minisign -Sm tar.gz`'s default
+output), push uploads it too, for consumers with `signed: true` and the
+signing key in their trust store (see `kevin plugin trust` below).
+
+```sh
+kevin plugin push my-plugin.tar.gz ghcr.io/acme/plugin:v1
+```
+
+## `kevin plugin trust`
+
+Manages the local minisign trust store (`~/.kevin/trusted-keys`) that a
+`plugins.<name>` entry's `signed: true` verifies against. See
+[the CA and trust guide]({{< relref "/docs/guides/ca-and-trust" >}}) for
+the machine trust store this is not - `kevin plugin trust` is a separate,
+per-key store used only for plugin package signatures.
+
+### `kevin plugin trust add <pubkey-file>`
+
+Adds a minisign public key to the trust store.
+
+### `kevin plugin trust list`
+
+Lists the keys in the trust store.
+
+### `kevin plugin trust remove <key-id>`
+
+Removes a key from the trust store.

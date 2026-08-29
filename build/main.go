@@ -98,8 +98,9 @@ var Generate = GnobMakeTarget{
 	Name: "generate",
 	Desc: "run code generators",
 	LongDesc: "Regenerates protos/pb from the proto, the templ components from the\n" +
-		"templ files, and each builtin plugin's reference doc page from its\n" +
-		"schema.cue and reference.md.tmpl.",
+		"templ files, each builtin plugin's reference doc page from its\n" +
+		"schema.cue and reference.md.tmpl, and each command's reference doc\n" +
+		"page from its cobra definition and reference.md.tmpl.",
 	Body: func(ctx context.Context, _ *GnobMakefile) error {
 		// buf finds protoc-gen-go and protoc-gen-go-grpc on PATH. Thus the
 		// pinned versions must be on PATH.
@@ -122,7 +123,11 @@ var Generate = GnobMakeTarget{
 			return err
 		}
 
-		return goRun(ctx, "run", "./cmd/gen-reference-docs")
+		if err = goRun(ctx, "run", "./cmd/gen-reference-docs"); err != nil {
+			return err
+		}
+
+		return goRun(ctx, "run", "./cmd/gen-command-docs")
 	},
 }
 

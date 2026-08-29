@@ -1,0 +1,21 @@
+---
+title: "🚀 run"
+weight: 1
+---
+
+[[template "banner"]]
+
+# `kevin run`
+
+Creates the environment's `env` steps in dependency order, then blocks until
+an interrupt. On Ctrl-C, `run` removes the steps in reverse order.
+
+```sh
+kevin run
+kevin run --keep --open
+```
+
+[[template "flags" .]]
+
+See [Configuring an environment]({{< relref "/docs/configuring-an-environment" >}})
+for what an `env` step is.

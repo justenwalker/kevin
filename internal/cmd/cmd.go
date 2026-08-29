@@ -60,6 +60,28 @@ type options struct {
 // Run runs the command line and returns the error. On a usage error the error
 // is a [CommandError], and the caller prints the usage text.
 func Run(ctx context.Context, args []string) error {
+	root, opts := NewRootCommand()
+	root.SetArgs(args)
+
+	cmd, err := root.ExecuteContextC(ctx)
+	switch {
+	case err == nil:
+		return nil
+	case opts.ran:
+		// cobra reports a usage error and a command failure the same way.
+		// opts.ran separates them. The RunE body already wrapped its own
+		// error with its own context; wrapping again here would double it.
+		return err //nolint:wrapcheck // deliberate passthrough, see comment above
+	default:
+		return &CommandError{Err: err, Cmd: cmd}
+	}
+}
+
+// NewRootCommand builds the kevin command tree without running it.
+// cmd/gen-command-docs walks the result for Use/Short/Long/flags. The
+// *options return value is Run's own bookkeeping, not meant for a caller
+// outside this package to use.
+func NewRootCommand() (*cobra.Command, *options) {
 	opts := &options{}
 
 	root := &cobra.Command{
@@ -100,20 +122,7 @@ func Run(ctx context.Context, args []string) error {
 		caCommand(opts),
 	)
 
-	root.SetArgs(args)
-
-	cmd, err := root.ExecuteContextC(ctx)
-	switch {
-	case err == nil:
-		return nil
-	case opts.ran:
-		// cobra reports a usage error and a command failure the same way.
-		// opts.ran separates them. The RunE body already wrapped its own
-		// error with its own context; wrapping again here would double it.
-		return err //nolint:wrapcheck // deliberate passthrough, see comment above
-	default:
-		return &CommandError{Err: err, Cmd: cmd}
-	}
+	return root, opts
 }
 
 // printEnvironmentInfo prints the console, proxy, and MCP addresses, how to
@@ -398,9 +407,10 @@ func pushSignatureIfPresent(cmd *cobra.Command, ref, tarPath string) error {
 // with block.
 func pluginListCommand(opts *options) *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
-		Short: "List the step types that ship inside kevin",
-		Args:  cobra.NoArgs,
+		Use:    "list",
+		Short:  "List the step types that ship inside kevin",
+		Hidden: true,
+		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
 			w := cmd.OutOrStdout()

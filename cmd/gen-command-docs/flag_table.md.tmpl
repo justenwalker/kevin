@@ -1,0 +1,7 @@
+[[- if .Flags -]]
+| Flag | Type | Default | Description |
+|:-----|:----:|:-------:|:------------|
+[[- range .Flags]]
+| [[flagName .]] | `[[.Type]]` | [[backtick .Default]] | [[if .Required]]**Required.** [[end]][[.Doc]] |
+[[- end ]]
+[[- end -]]

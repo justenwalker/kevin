@@ -1,0 +1,19 @@
+---
+title: "✅ validate"
+weight: 6
+---
+
+[[template "banner"]]
+
+# `kevin validate`
+
+Loads the environment file, starts its declared plugins, and unifies every
+step's `with` block against its plugin's schema: everything `run` and
+`setup` do before touching Docker. It creates nothing and needs no Docker
+daemon.
+
+```sh
+kevin validate
+```
+
+Prints the project name and the setup/env step counts on success.
