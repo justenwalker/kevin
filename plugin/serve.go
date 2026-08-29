@@ -239,6 +239,7 @@ func envFromProto(e *pb.Environment) Env {
 		Domain:        e.GetDomain(),
 		Relay:         e.GetRelay(),
 		ProjectDir:    e.GetProjectDir(),
+		Scope:         e.GetScope(),
 	}
 }
 

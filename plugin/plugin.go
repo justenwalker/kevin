@@ -104,6 +104,11 @@ type Env struct {
 	// ProjectDir is the absolute path of the directory that holds kevin.cue.
 	// A step resolves a relative with-block path against this.
 	ProjectDir string
+
+	// Scope is which DAG this step belongs to: "setup" or "env". A plugin
+	// should carry it as the "kevin.scope" label alongside
+	// "kevin.project"/"kevin.urn".
+	Scope string
 }
 
 // UpRequest asks the plugin to create one step.

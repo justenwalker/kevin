@@ -74,3 +74,89 @@ func TestReapSkipsTheRelay(t *testing.T) {
 
 	assert.NoError(t, dockerClient.Remove(context.WithoutCancel(t.Context()), relayName))
 }
+
+// TestReapKeepsTheOtherScopeAlive proves that reap, run from an env-scope
+// shutdown, leaves a still-running setup-scope container - and the network
+// both scopes share - in place. Without this, "kevin run"'s own exit would
+// treat a setup step's container as an orphan and remove the project
+// network out from under a setup scope meant to persist across runs.
+func TestReapKeepsTheOtherScopeAlive(t *testing.T) {
+	requireDocker(t)
+
+	project := "kevin-reap-scope-test"
+	network := NetworkName(project)
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, map[string]string{
+		cri.LabelProject: project,
+	}))
+	t.Cleanup(func() {
+		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
+	})
+
+	dbName := "kevin-" + project + "-db"
+	orphanName := "kevin-" + project + "-orphan"
+	for _, name := range []string{dbName, orphanName} {
+		t.Cleanup(func() { _ = dockerClient.Remove(context.WithoutCancel(t.Context()), name) })
+	}
+
+	_, err := dockerClient.Run(t.Context(), cri.RunSpec{
+		Image: "busybox:stable",
+		Name:  dbName,
+		Cmd:   []string{"sleep", "300"},
+		Labels: map[string]string{
+			cri.LabelProject: project,
+			cri.LabelScope:   cri.ScopeLabel(project, config.ScopeSetup),
+			cri.LabelURN:     cri.URNLabel(project, config.ScopeSetup, "db"),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = dockerClient.Run(t.Context(), cri.RunSpec{
+		Image: "busybox:stable",
+		Name:  orphanName,
+		Cmd:   []string{"sleep", "300"},
+		Labels: map[string]string{
+			cri.LabelProject: project,
+			cri.LabelScope:   cri.ScopeLabel(project, config.ScopeEnv),
+			cri.LabelURN:     cri.URNLabel(project, config.ScopeEnv, "orphan"),
+		},
+	})
+	require.NoError(t, err)
+
+	cfg := &config.Config{Project: project}
+	r := &run{cfg: cfg, scope: config.ScopeEnv, events: io.Discard}
+	require.NoError(t, r.reap(t.Context()))
+
+	_, err = dockerClient.Inspect(t.Context(), dbName)
+	require.NoError(t, err, "reap must leave a live setup-scope container in place")
+
+	_, err = dockerClient.Inspect(t.Context(), orphanName)
+	require.ErrorIs(t, err, cri.ErrNotFound, "reap must still remove an orphan of its own scope")
+
+	_, gwErr := dockerClient.NetworkGateway(t.Context(), network)
+	require.NoError(t, gwErr, "reap must leave the network in place while setup is still live")
+
+	assert.NoError(t, dockerClient.Remove(context.WithoutCancel(t.Context()), dbName))
+}
+
+// TestReapRemovesNetworkWhenOtherScopeNeverRan proves that with no
+// container carrying the other scope's label, the network does not get
+// pinned in place forever - only a live container of that scope counts.
+func TestReapRemovesNetworkWhenOtherScopeNeverRan(t *testing.T) {
+	requireDocker(t)
+
+	project := "kevin-reap-scope-unused-test"
+	network := NetworkName(project)
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, map[string]string{
+		cri.LabelProject: project,
+	}))
+	t.Cleanup(func() {
+		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
+	})
+
+	cfg := &config.Config{Project: project}
+	r := &run{cfg: cfg, scope: config.ScopeEnv, events: io.Discard}
+	require.NoError(t, r.reap(t.Context()))
+
+	_, gwErr := dockerClient.NetworkGateway(t.Context(), network)
+	require.ErrorIs(t, gwErr, cri.ErrNotFound, "reap must remove the network when the setup scope was never brought up")
+}

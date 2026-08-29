@@ -111,7 +111,8 @@ func (Container) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitt
 		Volumes:    cfg.Volumes,
 		Labels: map[string]string{
 			cri.LabelProject: req.Env.Project,
-			cri.LabelStep:    req.Step,
+			cri.LabelScope:   cri.ScopeLabel(req.Env.Project, req.Env.Scope),
+			cri.LabelURN:     cri.URNLabel(req.Env.Project, req.Env.Scope, req.Step),
 		},
 		Env: buildEnv(cfg, req),
 	}

@@ -115,6 +115,11 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 	outputs := clusterOutputs(name, kubeconfig, nodeList)
 	if useRelay {
 		outputs["relay_addr"] = relayAddress
+		if err = os.WriteFile(relayAddrFile(kubeconfig), []byte(relayAddress), 0o600); err != nil {
+			return nil, fmt.Errorf("kind: write the relay address for %q: %w", name, err)
+		}
+	} else if err = os.Remove(relayAddrFile(kubeconfig)); err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("kind: remove the stale relay address for %q: %w", name, err)
 	}
 
 	return &plugin.Result{
@@ -228,6 +233,10 @@ func clusterOutputs(name, kubeconfig string, nodeList []string) map[string]strin
 	}
 }
 
+// relayAddrFile is where Up persists the relay's host:port, alongside
+// kubeconfig.
+func relayAddrFile(kubeconfig string) string { return kubeconfig + ".relay-addr" }
+
 // Down removes the cluster.
 func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitter) error {
 	cfg, err := decode(req.Config)
@@ -248,12 +257,16 @@ func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitte
 	if err = os.Remove(kubeconfig); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("kind: remove %s: %w", kubeconfig, err)
 	}
+	if err = os.Remove(relayAddrFile(kubeconfig)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("kind: remove %s: %w", relayAddrFile(kubeconfig), err)
+	}
 	return nil
 }
 
-// Export reports the kubeconfig path that Up writes for this cluster.
-// Export does not touch Docker or Kubernetes; it fails only when the
-// cluster has never come up.
+// Export reports the kubeconfig path, name, context, and relay_addr (read
+// back from relayAddrFile) for this cluster. It touches neither Docker nor
+// Kubernetes, so it can't report nodes, and fails only when the cluster
+// has never come up.
 func (Step) Export(_ context.Context, req *plugin.ExportRequest) (*plugin.ExportResult, error) {
 	cfg, err := decode(req.Config)
 	if err != nil {
@@ -266,9 +279,20 @@ func (Step) Export(_ context.Context, req *plugin.ExportRequest) (*plugin.Export
 		return nil, fmt.Errorf("kind: cluster %q has no kubeconfig yet, run `kevin run` or `kevin setup` first: %w", name, err)
 	}
 
+	out := map[string]string{
+		"name":       name,
+		"kubeconfig": kubeconfig,
+		"context":    "kind-" + name,
+	}
+	if relayAddress, err := os.ReadFile(relayAddrFile(kubeconfig)); err == nil {
+		out["relay_addr"] = string(relayAddress)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("kind: read the relay address for %q: %w", name, err)
+	}
+
 	return &plugin.ExportResult{
 		Env: map[string]string{"KUBECONFIG": kubeconfig},
-		Out: plugin.StringMap(map[string]string{"KUBECONFIG": kubeconfig}),
+		Out: plugin.StringMap(out),
 	}, nil
 }
 

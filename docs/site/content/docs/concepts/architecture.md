@@ -260,7 +260,7 @@ kevin runs the `docker` command and parses the JSON output. kevin does not impor
 
 The reason is the size of the dependency. `github.com/docker/docker` pulls in a large tree for a small number of calls. The cost of the choice is the parse of the command output, and a runtime dependency on the `docker` binary.
 
-Every container carries a `kevin.project` label and a `kevin.step` label. The engine lists the containers of the project after it removes the steps, and deletes whatever is left. There is no state file: a label survives a crash, and a file can go stale.
+Every container carries three labels at increasing granularity - a materialized path, each value holding every segment up to its own tier: `kevin.project` (`"<project>"`), `kevin.scope` (`"<project>:<scope>"`), and `kevin.urn` (`"<project>:<scope>:<step>"`). Docker's label filter is exact-match only, with no prefix or wildcard, so each tier is its own label: `kevin.project` finds every resource of a project in one query, `kevin.scope` finds every resource of one scope in one query, without a "setup" step and an "env" step of the same name being confused for each other. The engine lists the containers of the project after it removes the steps, and deletes whatever is left - except a container whose `kevin.scope` names the other scope and is still live, since setup and env share one project network. There is no state file: a label survives a crash, and a file can go stale.
 
 The engine creates the shared network before the DAG runs and removes it after. A container joins that network with a network alias equal to the step name, thus one step reaches another by step name.
 
@@ -304,6 +304,12 @@ The relay is a container on the shared docker network. It answers DNS queries fo
 
 The relay carries no routing table and no egress policy. The proxy remains the single place that holds both. A workload that resolves a step through the relay still reaches the proxy, and the proxy routes the request by the Host header, the same as it routes every other request.
 
+### Lifecycle
+
+The relay container's name is deterministic (`kevin-<project>-relay`), and `Start` reuses one already running rather than recreating it - a persisted `setup`-scope resource (a `kind` cluster's CoreDNS patch, say) that baked in the relay's address at `Up` time needs that address to survive the process that created it exiting. `kevin setup` leaves its relay running; `kevin run` afterward reuses it; `kevin teardown` is what finally removes it, once neither scope still needs it.
+
+A reused container must still forward to a live proxy, and the proxy's gateway listener binds an OS-assigned port fresh each process by default - so `Start` compares the running container's recorded domain/proxy address against what this process would use, and replaces it on a mismatch rather than reusing a relay that would silently forward nowhere. The gateway listener tries the port a previous process in the same workspace recorded first, which keeps that address (and therefore the relay) stable across most process boundaries; the replace-on-mismatch path only fires when that port could not be reused, or the domain changed.
+
 ### Pod routing
 
 The kind plugin patches the CoreDNS Corefile of the cluster after the nodes join the shared network. The patch adds a forward zone for the environment domain that points at the relay. The plugin restarts CoreDNS to load the change.
@@ -314,7 +320,7 @@ A pod reaches a step across two hops on the host. The pod resolves the name thro
 
 ### Gateway bind
 
-The proxy binds a second listener on the gateway address of the shared network. A container reaches the proxy there directly.
+The proxy binds a second listener on the gateway address of the shared network. A container reaches the proxy there directly. `proxy.gateway_port` in `kevin.cue` pins that listener's port instead of the default persist-and-reuse behavior described above.
 
 Docker Desktop on macOS and on Windows runs the daemon inside a virtual machine. The gateway address exists only inside that machine. A bind from the host fails with `EADDRNOTAVAIL`. The relay then reaches the proxy through `host.docker.internal` instead.
 

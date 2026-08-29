@@ -593,6 +593,27 @@ setup: {
 	})
 }
 
+// TestTeardownResolvesSameScopeNeeds proves Teardown backfills a setup
+// step's Export into another setup step's completed outputs, so a
+// same-scope "needs.<name>.out.*" reference in the second step's with
+// block still renders during its own Down - Teardown never calls Up, so
+// nothing else would populate it.
+func TestTeardownResolvesSameScopeNeeds(t *testing.T) {
+	dir := project(t, `
+setup: {
+	cluster: {uses: "echo:echo", with: {outputs: greeting: "from-cluster", export: greeting: "from-cluster"}}
+	app:     {uses: "echo:echo", needs: ["cluster"], with: message: "${needs.cluster.out.greeting}"}
+}
+`)
+	require.NoError(t, Run(t.Context(), Options{Dir: dir, Scope: config.ScopeSetup, Keep: true, NoWait: true}))
+	require.NoError(t, Teardown(t.Context(), Options{Dir: dir}))
+
+	logs, err := os.ReadFile(filepath.Join(dir, WorkspaceDir, LogsFile))
+	require.NoError(t, err)
+	assert.Contains(t, string(logs), "from-cluster",
+		"app's Down must render needs.cluster.out.greeting, not fail or see it empty")
+}
+
 // TestRunRejectsInvalidConfiguration covers every way Run must fail before it
 // ever launches a plugin or touches docker: a bad reference, a schema
 // violation, a reserved namespace, a filesystem problem. None of these needs
@@ -874,7 +895,7 @@ env: {}
 		Cmd:   []string{"sleep", "300"},
 		Labels: map[string]string{
 			cri.LabelProject: "kevin-reap-test",
-			cri.LabelStep:    "orphan",
+			cri.LabelURN:     cri.URNLabel("kevin-reap-test", config.ScopeEnv, "orphan"),
 		},
 	})
 	require.NoError(t, err)

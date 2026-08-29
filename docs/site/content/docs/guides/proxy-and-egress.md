@@ -15,6 +15,8 @@ The environment has a base domain, `kevin.home` by default; set `domain:` in `ke
 
 The proxy listens on `127.0.0.1:0` (a free port) by default; set `proxy: listen:` in `kevin.cue` to pin it to a fixed address instead. The web console has the same knob, `console: listen:`.
 
+The proxy also binds a second listener, on the docker network's gateway address, for the relay to reach it from inside the network - that one picks a free port too, but kevin persists and reuses whichever port gets picked across processes on its own, so a relay left running by `kevin setup` keeps working once `kevin run` starts. Set `proxy: gateway_port:` only to pin that port to a specific value instead (a firewall rule, tooling that expects it) - 0, the default, keeps the persist-and-reuse behavior.
+
 `NO_PROXY` lists the step names too, so a client that honors it reaches another step directly over the docker network. Not every client does (busybox `wget` ignores `NO_PROXY`, for example), so a step is always also reachable through the proxy under its full `<step>.<domain>` name.
 
 The proxy terminates TLS for you: it mints a leaf certificate for the requested host and signs it with the kevin CA (see [CA and trust store]({{< relref "ca-and-trust" >}})), so `curl --cacert` or a machine that already trusts the kevin root just works. The proxy negotiates both HTTP/1.1 and HTTP/2 with the client over that connection.

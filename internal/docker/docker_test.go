@@ -79,7 +79,7 @@ func TestRunArgs(t *testing.T) {
 			Network:  "kevin-demo",
 			Alias:    "api",
 			Pull:     true,
-			Labels:   map[string]string{cri.LabelStep: "api", cri.LabelProject: "demo"},
+			Labels:   map[string]string{cri.LabelURN: "demo:env:api", cri.LabelProject: "demo"},
 			Env:      map[string]string{"B": "2", "A": "1"},
 			Ports:    []string{"8080:80"},
 			Volumes:  []string{"/ca:/etc/ssl/kevin:ro"},
@@ -94,7 +94,7 @@ func TestRunArgs(t *testing.T) {
 			"--network-alias", "api",
 			"--pull", "always",
 			"--label", "kevin.project=demo",
-			"--label", "kevin.step=api",
+			"--label", "kevin.urn=demo:env:api",
 			"--env", "A=1",
 			"--env", "B=2",
 			"--publish", "8080:80",
@@ -302,6 +302,40 @@ func TestNetworkConnect(t *testing.T) {
 	info, err := c.Inspect(t.Context(), name)
 	require.NoError(t, err)
 	assert.Contains(t, info.IPs, network, "the container must carry an address on the connected network")
+}
+
+// TestNetworkRemoveToleratesActiveEndpoints proves NetworkRemove leaves a
+// network in place, instead of erroring, when a container is still on it -
+// a container docker itself created outside kevin's own tracking, such as a
+// builtin:kind node joined directly through the "kind" CLI.
+func TestNetworkRemoveToleratesActiveEndpoints(t *testing.T) {
+	requireDocker(t)
+	c := Client{}
+
+	network := "kevin-docker-network-remove-in-use-test"
+	require.NoError(t, c.NetworkCreate(t.Context(), network, nil))
+	t.Cleanup(func() { _ = c.NetworkRemove(context.WithoutCancel(t.Context()), network) })
+
+	name := "kevin-docker-network-remove-in-use-test-container"
+	_, err := c.Run(t.Context(), cri.RunSpec{
+		Image:   "busybox:stable",
+		Name:    name,
+		Network: network,
+		Cmd:     []string{"sh", "-c", "sleep 300"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Remove(context.WithoutCancel(t.Context()), name) })
+
+	require.NoError(t, c.NetworkRemove(t.Context(), network), "a network still in use must not be an error")
+
+	_, err = c.NetworkGateway(t.Context(), network)
+	require.NoError(t, err, "the network must still exist")
+
+	require.NoError(t, c.Remove(t.Context(), name))
+	require.NoError(t, c.NetworkRemove(t.Context(), network))
+
+	_, err = c.NetworkGateway(t.Context(), network)
+	assert.ErrorIs(t, err, cri.ErrNotFound, "the network must be gone once nothing is left on it")
 }
 
 func TestNewClient(t *testing.T) {

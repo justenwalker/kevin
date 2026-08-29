@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -155,7 +156,15 @@ func Run(ctx context.Context, opts Options) error {
 
 	network := NetworkName(cfg.Project)
 
-	server, err := startProxy(ctx, authority, network, cfg.Proxy.Listen, cfg.Domain, cfg.Proxy.Egress.Allow, cfg.Proxy.Egress.Deny)
+	server, err := startProxy(ctx, authority, proxyOptions{
+		Network:     network,
+		Workspace:   workspace,
+		Listen:      cfg.Proxy.Listen,
+		GatewayPort: cfg.Proxy.GatewayPort,
+		Domain:      cfg.Domain,
+		Allow:       cfg.Proxy.Egress.Allow,
+		Deny:        cfg.Proxy.Egress.Deny,
+	})
 	if err != nil {
 		return err
 	}
@@ -163,7 +172,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	log.Ctx(ctx).Info("proxy listening", "addr", server.addr)
 
-	rl, err := startRelay(ctx, cfg, network, server.gatewayAddr)
+	rl, err := startRelay(ctx, cfg, network, server.gatewayAddr, opts.Scope)
 	if err != nil {
 		return err
 	}
@@ -245,6 +254,7 @@ func Run(ctx context.Context, opts Options) error {
 		Domain:        cfg.Domain,
 		Relay:         relayAddr(rl),
 		ProjectDir:    cfg.Dir,
+		Scope:         opts.Scope,
 	}
 	r.env = env
 	notifyEnvironment(opts, env)
@@ -296,9 +306,9 @@ func awaitDone(ctx context.Context, noWait bool) {
 	<-ctx.Done()
 }
 
-// shutdown removes the run's steps and stops rl. When keep is true it stops
-// the relay but removes nothing - the caller (opts.Keep, or opts.NoWait's
-// implied Keep) wants the environment's own resources left in place.
+// shutdown removes the run's steps. keep leaves everything, including the
+// relay, in place; otherwise the relay only stops if the other scope
+// isn't still live and sharing it.
 func (r *run) shutdown(ctx context.Context, rl *relay.Relay, keep bool) error {
 	// Removal needs a live context. Reaching this line usually means that the
 	// user pressed Ctrl-C, which already canceled ctx.
@@ -308,9 +318,17 @@ func (r *run) shutdown(ctx context.Context, rl *relay.Relay, keep bool) error {
 		downErr = r.down(downCtx)
 	}
 
-	// Stop the relay before reap removes the network: a container still
-	// joined to the network blocks the removal.
-	relayErr := closeRelay(rl)
+	var relayErr error
+	if !keep {
+		// Stop the relay before reap removes the network: a container still
+		// joined to the network blocks the removal.
+		_, otherScopeLive, liveErr := r.otherScopeLive(downCtx)
+		if liveErr != nil {
+			relayErr = liveErr
+		} else if !otherScopeLive {
+			relayErr = closeRelay(rl)
+		}
+	}
 	var reapErr error
 	if !keep {
 		reapErr = r.reap(downCtx)
@@ -332,7 +350,7 @@ func (r *run) finalStepErr() error {
 
 // startRelay starts the relay when cfg enables it. startRelay returns a nil
 // Relay, with no error, when the relay is disabled.
-func startRelay(ctx context.Context, cfg *config.Config, network, gatewayAddr string) (*relay.Relay, error) {
+func startRelay(ctx context.Context, cfg *config.Config, network, gatewayAddr, scope string) (*relay.Relay, error) {
 	if !cfg.Relay.Enabled {
 		return nil, nil //nolint:nilnil // a nil Relay with no error is the documented "relay disabled" result
 	}
@@ -343,6 +361,7 @@ func startRelay(ctx context.Context, cfg *config.Config, network, gatewayAddr st
 		Domain:    cfg.Domain,
 		ProxyAddr: HostGateway + ":" + portOf(gatewayAddr),
 		Image:     relay.Ref(cfg.Relay.Image),
+		Scope:     scope,
 	})
 	if err != nil {
 		return nil, err
@@ -465,38 +484,74 @@ type proxyServer struct {
 	err  error
 }
 
+// proxyOptions configures [startProxy].
+type proxyOptions struct {
+	// Network is the shared docker network. The gateway listener binds its
+	// gateway address.
+	Network string
+
+	// Workspace is the absolute path of the .kevin state directory, where
+	// the gateway listener's port is persisted across processes.
+	Workspace string
+
+	// Listen is the address of the primary, host-facing listener.
+	Listen string
+
+	// GatewayPort pins the gateway listener's port. 0 means "reuse or
+	// auto-assign" (see loadGatewayPort); nonzero is used as-is, no fallback.
+	GatewayPort int
+
+	Domain string
+	Allow  []string
+	Deny   bool
+}
+
 // startProxy binds the listener and serves on it. The listener binds before
 // the DAG runs, because kind copies the proxy address into its node containers
 // when it creates them, and the address must not change afterwards.
 //
-// startProxy also binds a second listener on the gateway address of network,
-// when the host can bind that address. A container on that network reaches
-// the proxy there. The proxy never binds 0.0.0.0: that would expose a
-// TLS-intercepting proxy on the LAN.
-func startProxy(ctx context.Context, authority *ca.CA, network, listen, domain string, allow []string, deny bool) (*proxyServer, error) {
-	p, err := proxy.New(authority, domain, allow, deny)
+// startProxy also binds a second listener on the gateway address of
+// opts.Network, when the host can bind that address. A container on that
+// network reaches the proxy there. The proxy never binds 0.0.0.0.
+func startProxy(ctx context.Context, authority *ca.CA, opts proxyOptions) (*proxyServer, error) {
+	p, err := proxy.New(authority, opts.Domain, opts.Allow, opts.Deny)
 	if err != nil {
 		return nil, err
 	}
 
 	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", listen)
+	ln, err := lc.Listen(ctx, "tcp", opts.Listen)
 	if err != nil {
-		return nil, fmt.Errorf("supervisor: listen on %s: %w", listen, err)
+		return nil, fmt.Errorf("supervisor: listen on %s: %w", opts.Listen, err)
 	}
 
-	gateway, err := dockerClient.NetworkGateway(ctx, network)
+	gateway, err := dockerClient.NetworkGateway(ctx, opts.Network)
 	if err != nil {
 		return nil, err
 	}
 
 	listeners := []net.Listener{ln}
 	gatewayAddr := ln.Addr().String()
-	gatewayLn, err := lc.Listen(ctx, "tcp", net.JoinHostPort(gateway.String(), "0"))
+	pinned := opts.GatewayPort != 0
+	port := opts.GatewayPort
+	if !pinned {
+		port = loadGatewayPort(opts.Workspace)
+	}
+	gatewayLn, err := lc.Listen(ctx, "tcp", net.JoinHostPort(gateway.String(), strconv.Itoa(port)))
+	if err != nil && !pinned {
+		// The recorded port may no longer be free - a stale reservation, or
+		// another project's process. Let the OS pick one instead.
+		gatewayLn, err = lc.Listen(ctx, "tcp", net.JoinHostPort(gateway.String(), "0"))
+	}
 	switch {
 	case err == nil:
 		listeners = append(listeners, gatewayLn)
 		gatewayAddr = gatewayLn.Addr().String()
+		if !pinned {
+			if tcpAddr, ok := gatewayLn.Addr().(*net.TCPAddr); ok {
+				saveGatewayPort(opts.Workspace, tcpAddr.Port)
+			}
+		}
 	case errors.Is(err, syscall.EADDRNOTAVAIL):
 		// Docker Desktop on macOS and Windows runs the daemon inside a VM.
 		// The gateway address exists only inside that VM, and the host
@@ -504,7 +559,7 @@ func startProxy(ctx context.Context, authority *ca.CA, network, listen, domain s
 		// listener on the host loopback, so the primary listener covers the
 		// relay too.
 	default:
-		return nil, fmt.Errorf("supervisor: listen on %s: %w", gateway, err)
+		return nil, fmt.Errorf("supervisor: listen on %s: %w", net.JoinHostPort(gateway.String(), strconv.Itoa(port)), err)
 	}
 
 	// The proxy must outlive an interrupt, because removal of a step can still
@@ -520,6 +575,31 @@ func startProxy(ctx context.Context, authority *ca.CA, network, listen, domain s
 		stop:        stop,
 		done:        done,
 	}, nil
+}
+
+// gatewayPortFile is the workspace file that records the gateway
+// listener's port.
+const gatewayPortFile = "gateway-port"
+
+// loadGatewayPort reports the gateway port a previous process recorded, or
+// 0 - "let the OS pick one" - when none is recorded or it doesn't parse.
+func loadGatewayPort(workspace string) int {
+	data, err := os.ReadFile(filepath.Join(workspace, gatewayPortFile)) //nolint:gosec // path is the project's own workspace file
+	if err != nil {
+		return 0
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || port <= 0 {
+		return 0
+	}
+	return port
+}
+
+// saveGatewayPort persists port for a later process to ask for by name.
+// Best effort: a write failure only costs a possible relay drift-repair
+// next time, not this process's own correctness.
+func saveGatewayPort(workspace string, port int) {
+	_ = os.WriteFile(filepath.Join(workspace, gatewayPortFile), []byte(strconv.Itoa(port)), 0o600)
 }
 
 // Close stops the proxy and reports how serving ended. Close is idempotent.
@@ -623,6 +703,7 @@ func Teardown(ctx context.Context, opts Options) error {
 		Project:   cfg.Project,
 		Workspace: workspace,
 		Network:   NetworkName(cfg.Project),
+		Scope:     config.ScopeSetup,
 	}
 	if err = ConfigureAll(ctx, cfg.Plugins, plugins, env); err != nil {
 		return err
@@ -651,8 +732,23 @@ func Teardown(ctx context.Context, opts Options) error {
 		// for removal, and Down carries no outputs.
 		completed: make(map[string]dag.Outputs, len(steps)),
 	}
-	for name := range steps {
+	for name, step := range steps {
 		r.completed[name] = nil
+
+		// Backfills a same-scope "needs.<name>.out.*" reference for Down's
+		// own rendering, the same way exportCrossScopeStep already does for
+		// a cross-scope one. Leaves nil - Down still runs - for a plugin
+		// with no Export, or one that never actually came up.
+		ref, refErr := config.ParseStepRef(step.Uses)
+		if refErr != nil {
+			return refErr
+		}
+		if !stepExports(caps[ref.Plugin], ref.Step) {
+			continue
+		}
+		if outputs, expErr := r.exportCrossScopeStep(ctx, name); expErr == nil {
+			r.completed[name] = outputs
+		}
 	}
 
 	for _, name := range r.graph().TopoSort() {
@@ -671,7 +767,35 @@ func Teardown(ctx context.Context, opts Options) error {
 		defer stop()
 	}
 
-	return r.down(ctx)
+	downErr := r.down(ctx)
+
+	// Teardown is the only place a setup-owned relay is ever removed for
+	// good - shutdown leaves it up while env is still live, reap always
+	// skips it. Stop it before reap removes the network, same as shutdown.
+	relayErr := r.closeSetupRelay(ctx, cfg)
+
+	// reap runs last: it sweeps any orphaned container behind, then the
+	// project network - but only once nothing in the env scope is still
+	// live and sharing that network with this project's setup scope.
+	return errors.Join(downErr, relayErr, r.reap(ctx))
+}
+
+// closeSetupRelay removes the project's relay container, if one exists and
+// the env scope isn't still live and sharing it. It does nothing when the
+// project never enables a relay.
+func (r *run) closeSetupRelay(ctx context.Context, cfg *config.Config) error {
+	if !cfg.Relay.Enabled {
+		return nil
+	}
+	_, otherScopeLive, err := r.otherScopeLive(ctx)
+	if err != nil || otherScopeLive {
+		return err
+	}
+	rl, err := relay.Lookup(ctx, cfg.Project, NetworkName(cfg.Project))
+	if err != nil || rl == nil {
+		return err
+	}
+	return rl.Close()
 }
 
 // ConfigureAll sends the config block of every plugin, once before any step

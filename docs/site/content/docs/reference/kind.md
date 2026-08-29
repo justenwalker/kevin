@@ -49,7 +49,10 @@ absolute path), `context` (always `"kind-"+name`), `nodes` (a
 comma-separated list), and `relay_addr` (a plain host:port loopback
 address) whenever the relay is up (see `relay` above), for a
 [`builtin:route`]({{< relref "/docs/reference/route" >}}) step to dial
-through. Implements `Export`, reporting `KUBECONFIG` for `kevin connect`.
+through. Implements `Export`, reporting `KUBECONFIG` for `kevin connect` and
+`name`/`kubeconfig`/`context`/`relay_addr` for a cross-scope `setup.<name>`
+need - `relay_addr` is read back from a file `Up` writes alongside
+`kubeconfig`. `nodes` needs Docker, so Export never reports it.
 
 `system`, read as `needs.<step>.system.<key>`, is a sub-namespace kept
 separate from `out` so it can never collide with one of the above (see

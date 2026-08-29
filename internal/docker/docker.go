@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"google.golang.org/protobuf/proto"
@@ -79,18 +80,35 @@ func (Client) NetworkCreate(ctx context.Context, name string, labels map[string]
 	return nil
 }
 
-// NetworkRemove implements [cri.Runtime] for docker.
+// NetworkRemove implements [cri.Runtime] for docker. A network that still
+// carries a live container is left in place rather than treated as an error.
 func (Client) NetworkRemove(ctx context.Context, name string) error {
 	if _, err := run(ctx, nil, "network", "rm", name); err != nil {
-		// docker's error text for a missing network is not a stable API
-		// across versions. Ask docker directly instead of guessing from the
-		// message.
+		// docker's error text for a missing network, or one still in use, is
+		// not a stable API across versions. Ask docker directly instead of
+		// guessing from the message.
 		if ok, existsErr := networkExists(ctx, name); existsErr == nil && !ok {
+			return nil
+		}
+		if inUse, inUseErr := networkInUse(ctx, name); inUseErr == nil && inUse {
 			return nil
 		}
 		return fmt.Errorf("docker: remove network %q: %w", name, err)
 	}
 	return nil
+}
+
+// networkInUse reports whether name still carries any attached container.
+func networkInUse(ctx context.Context, name string) (bool, error) {
+	out, err := run(ctx, nil, "network", "inspect", name, "--format", "{{len .Containers}}")
+	if err != nil {
+		return false, fmt.Errorf("docker: inspect network %q: %w", name, err)
+	}
+	count, convErr := strconv.Atoi(strings.TrimSpace(out))
+	if convErr != nil {
+		return false, fmt.Errorf("docker: parse network %q container count: %w", name, convErr)
+	}
+	return count > 0, nil
 }
 
 // networkExists asks docker for the network by exact name, rather than

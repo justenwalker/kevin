@@ -58,7 +58,9 @@ A step names this step type as `uses: "acme:widget"`, and a `plugins:` entry set
 
 ## Request data
 
-Every call carries a `plugin.Env`, the same for every step in a session: the project name, the `.kevin` workspace path, the shared docker network, the CA certificate, the proxy and console addresses, the proxy environment variables, the environment domain, the relay address, and the project directory (`ProjectDir`) that a step resolves a relative `with`-block path against.
+Every call carries a `plugin.Env`, the same for every step in a session: the project name, the `.kevin` workspace path, the shared docker network, the CA certificate, the proxy and console addresses, the proxy environment variables, the environment domain, the relay address, the project directory (`ProjectDir`) that a step resolves a relative `with`-block path against, and the scope this step belongs to (`Scope`, `"setup"` or `"env"`).
+
+A plugin that creates a docker resource should carry three labels, at increasing granularity - each value holding every segment up to its own tier, colon-separated: `kevin.project` (`Env.Project`), `kevin.scope` (`"<Env.Project>:<Env.Scope>"`), and `kevin.urn` (`"<Env.Project>:<Env.Scope>:<step name>"`). Docker's label filter is exact-match only, so each tier lets kevin's own reap query at that granularity in one call - `kevin.scope` in particular is what tells a "setup" step's resource apart from an "env" step's resource of the same name.
 
 `Up` also carries `Deps`: a `map[string]map[string]plugin.Value` keyed by the name of every step named in this step's `needs` list, each holding that step's published `Outputs`. This is the same data a `${...}` expression in the `with` block reads. See [Environment file: cross-step values]({{< relref "/docs/configuring-an-environment#cross-step-values" >}}). `Down` carries only this step's own prior `Outputs`, replayed from state, so `Down` is self-sufficient even if the engine restarted since `Up` ran.
 

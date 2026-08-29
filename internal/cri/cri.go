@@ -11,16 +11,26 @@ import (
 // LabelPrefix starts every label that kevin puts on a resource.
 const LabelPrefix = "kevin."
 
-// LabelProject and LabelStep name the owner of a resource. Pass them to
-// [Runtime.ListByLabel] to find the resources of one project or one step.
+// LabelProject, LabelScope, and LabelURN name a resource at increasing
+// granularity: "<project>", "<project>:<scope>", "<project>:<scope>:<step>".
+// [ScopeLabel] and [URNLabel] build the latter two; [Runtime.ListByLabel]
+// matches on exact value, so each tier is its own targeted query.
 //
 // LabelRole marks the purpose of a resource that no step owns, such as the
 // relay container.
 const (
 	LabelProject = LabelPrefix + "project"
-	LabelStep    = LabelPrefix + "step"
+	LabelScope   = LabelPrefix + "scope"
+	LabelURN     = LabelPrefix + "urn"
 	LabelRole    = LabelPrefix + "role"
 )
+
+// ScopeLabel builds the value of [LabelScope]: project qualified by scope.
+func ScopeLabel(project, scope string) string { return project + ":" + scope }
+
+// URNLabel builds the value of [LabelURN]: project qualified by scope and
+// step name - the full identity of one step's resource.
+func URNLabel(project, scope, step string) string { return project + ":" + scope + ":" + step }
 
 // RunSpec describes one container to create.
 type RunSpec struct {

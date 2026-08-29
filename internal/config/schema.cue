@@ -125,6 +125,14 @@ proxy: {
 	// listen is the proxy address. Port 0 selects a free port.
 	listen: string | *"127.0.0.1:0"
 
+	// gateway_port pins the port the proxy's gateway listener binds - the
+	// address the relay dials to reach the proxy from inside the docker
+	// network - instead of an OS-assigned one. kevin already persists
+	// whichever port gets picked and reuses it across processes on its
+	// own; set this only for a fixed, predictable port (a firewall rule,
+	// tooling that expects it). 0 selects a free port, as before.
+	gateway_port: int & >=0 & <=65535 | *0
+
 	egress: {
 		// allow lists the external hosts that every step can reach. The proxy
 		// denies egress by default. The proxy blocks a host that is absent

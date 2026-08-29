@@ -175,3 +175,128 @@ func TestStartAndClose(t *testing.T) {
 	// Close is idempotent.
 	require.NoError(t, r.Close())
 }
+
+func TestStartReusesRunningContainer(t *testing.T) {
+	requireDocker(t)
+	image := fixtureImage(t)
+
+	network := "kevin-relay-reuse-test"
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, map[string]string{
+		cri.LabelProject: "relay-reuse-test",
+	}))
+	t.Cleanup(func() {
+		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
+	})
+
+	name := "kevin-relay-reuse-test-relay"
+	t.Cleanup(func() { _ = dockerClient.Remove(context.WithoutCancel(t.Context()), name) })
+
+	opts := relay.Options{
+		Project:   "relay-reuse-test",
+		Network:   network,
+		Domain:    "kevin.home",
+		ProxyAddr: "host.docker.internal:18080",
+		Image:     image,
+	}
+
+	first, err := relay.Start(t.Context(), opts)
+	require.NoError(t, err)
+	firstID, err := dockerClient.Inspect(t.Context(), name)
+	require.NoError(t, err)
+
+	second, err := relay.Start(t.Context(), opts)
+	require.NoError(t, err)
+	assert.Equal(t, first.Addr(), second.Addr(), "a second Start must reuse the running container, not recreate it")
+
+	secondID, err := dockerClient.Inspect(t.Context(), name)
+	require.NoError(t, err)
+	assert.Equal(t, firstID.ID, secondID.ID, "the container must not have been recreated")
+
+	require.NoError(t, second.Close())
+}
+
+// TestStartReplacesADriftedContainer proves that Start does not reuse a
+// running relay whose recorded ProxyAddr no longer matches - the situation
+// a reused relay is in on every process after the one that created it,
+// since the host proxy's own address is an ephemeral port chosen fresh
+// each process.
+func TestStartReplacesADriftedContainer(t *testing.T) {
+	requireDocker(t)
+	image := fixtureImage(t)
+
+	network := "kevin-relay-drift-test"
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, map[string]string{
+		cri.LabelProject: "relay-drift-test",
+	}))
+	t.Cleanup(func() {
+		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
+	})
+
+	name := "kevin-relay-drift-test-relay"
+	t.Cleanup(func() { _ = dockerClient.Remove(context.WithoutCancel(t.Context()), name) })
+
+	_, err := relay.Start(t.Context(), relay.Options{
+		Project:   "relay-drift-test",
+		Network:   network,
+		Domain:    "kevin.home",
+		ProxyAddr: "host.docker.internal:18080",
+		Image:     image,
+	})
+	require.NoError(t, err)
+	firstID, err := dockerClient.Inspect(t.Context(), name)
+	require.NoError(t, err)
+
+	second, err := relay.Start(t.Context(), relay.Options{
+		Project:   "relay-drift-test",
+		Network:   network,
+		Domain:    "kevin.home",
+		ProxyAddr: "host.docker.internal:29090", // a different process's proxy port
+		Image:     image,
+	})
+	require.NoError(t, err)
+
+	secondID, err := dockerClient.Inspect(t.Context(), name)
+	require.NoError(t, err)
+	assert.NotEqual(t, firstID.ID, secondID.ID, "a drifted ProxyAddr must replace the container, not reuse it")
+
+	require.NoError(t, second.Close())
+}
+
+func TestLookup(t *testing.T) {
+	requireDocker(t)
+	image := fixtureImage(t)
+
+	network := "kevin-relay-lookup-test"
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, map[string]string{
+		cri.LabelProject: "relay-lookup-test",
+	}))
+	t.Cleanup(func() {
+		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
+	})
+
+	name := "kevin-relay-lookup-test-relay"
+	t.Cleanup(func() { _ = dockerClient.Remove(context.WithoutCancel(t.Context()), name) })
+
+	absent, err := relay.Lookup(t.Context(), "relay-lookup-test", network)
+	require.NoError(t, err)
+	assert.Nil(t, absent, "Lookup must report nil, nil when no relay is running")
+
+	started, err := relay.Start(t.Context(), relay.Options{
+		Project:   "relay-lookup-test",
+		Network:   network,
+		Domain:    "kevin.home",
+		ProxyAddr: "host.docker.internal:18080",
+		Image:     image,
+	})
+	require.NoError(t, err)
+
+	found, err := relay.Lookup(t.Context(), "relay-lookup-test", network)
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	assert.Equal(t, started.Addr(), found.Addr())
+
+	require.NoError(t, found.Close())
+	afterClose, err := relay.Lookup(t.Context(), "relay-lookup-test", network)
+	require.NoError(t, err)
+	assert.Nil(t, afterClose, "Lookup must report nil, nil once the container is removed")
+}

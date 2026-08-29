@@ -91,8 +91,9 @@ type PluginSchemas struct {
 
 // Proxy configures the kevin proxy.
 type Proxy struct {
-	Listen string      `json:"listen"`
-	Egress ProxyEgress `json:"egress"`
+	Listen      string      `json:"listen"`
+	GatewayPort int         `json:"gateway_port"`
+	Egress      ProxyEgress `json:"egress"`
 }
 
 // ProxyEgress configures which domains the proxy allows outbound traffic to.

@@ -146,6 +146,11 @@ message Environment {
   // such as DockerEngineConfig. Engine says which message to unmarshal
   // into.
   bytes engine_config = 12;
+
+  // Scope is which DAG this step belongs to: "setup" or "env". A plugin
+  // should carry it as the "kevin.scope" label alongside
+  // "kevin.project"/"kevin.urn".
+  string scope = 13;
 }
 
 // DockerEngineConfig is the engine_config message for the "docker" engine.
