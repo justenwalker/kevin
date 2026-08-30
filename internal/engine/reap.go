@@ -29,7 +29,7 @@ func (r *run) reap(ctx context.Context) error {
 		skip[name] = struct{}{}
 	}
 
-	otherLive, otherScopeLive, err := r.otherScopeLive(ctx)
+	otherLive, err := r.otherScopeLive(ctx)
 	if err != nil {
 		return err
 	}
@@ -47,15 +47,15 @@ func (r *run) reap(ctx context.Context) error {
 		}
 	}
 
-	if otherScopeLive {
+	if len(otherLive) > 0 {
 		return nil
 	}
 	return dockerClient.NetworkRemove(ctx, NetworkName(r.cfg.Project))
 }
 
 // otherScopeLive reports the container names of this project's other scope
-// (setup or env), and whether any exist.
-func (r *run) otherScopeLive(ctx context.Context) (map[string]struct{}, bool, error) {
+// (setup or env) that are still live.
+func (r *run) otherScopeLive(ctx context.Context) (map[string]struct{}, error) {
 	otherScope := config.ScopeSetup
 	if r.scope == config.ScopeSetup {
 		otherScope = config.ScopeEnv
@@ -63,12 +63,12 @@ func (r *run) otherScopeLive(ctx context.Context) (map[string]struct{}, bool, er
 
 	names, err := dockerClient.ListByLabel(ctx, cri.LabelScope, cri.ScopeLabel(r.cfg.Project, otherScope))
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	live := make(map[string]struct{}, len(names))
 	for _, name := range names {
 		live[name] = struct{}{}
 	}
-	return live, len(live) > 0, nil
+	return live, nil
 }

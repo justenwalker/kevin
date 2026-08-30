@@ -552,6 +552,36 @@ env:   app:     {uses: "echo:echo", needs: ["setup.cluster"], with: message: "${
 		assert.Contains(t, out, "greeting:from-setup", "a non-sensitive value must appear in the clear")
 	})
 
+	t.Run("memoizes Export across concurrent consumers of the same setup step", func(t *testing.T) {
+		requireDocker(t)
+		dir := project(t, `
+setup: cluster: {uses: "echo:echo", with: export: greeting: "from-setup"}
+env: {
+	app1: {uses: "echo:echo", needs: ["setup.cluster"], with: message: "calls=${setup.cluster.out.export_calls}"}
+	app2: {uses: "echo:echo", needs: ["setup.cluster"], with: message: "calls=${setup.cluster.out.export_calls}"}
+	join: {uses: "echo:echo", needs: ["app1", "app2"]}
+}
+`)
+		w, err := runUntil(t, dir, fmt.Sprintf("%-16s %s", "join", "ready"))
+		require.NoError(t, err)
+		assert.Contains(t, w.String(), fmt.Sprintf("%-16s %s", "join", "ready"))
+
+		logs, err := os.ReadFile(filepath.Join(dir, WorkspaceDir, LogsFile))
+		require.NoError(t, err)
+		out := string(logs)
+		// Up's two concurrent consumers share one call ("calls=1", seen
+		// twice); Down re-renders the same with block and, being a
+		// separate, later, non-concurrent phase, correctly triggers a
+		// fresh one ("calls=2", also seen twice, once per consumer) -
+		// singleflight dedupes concurrent callers, it does not cache
+		// across the whole run the way the previous sync.OnceValues did
+		// (that caching is what let a canceled request permanently poison
+		// a later, unrelated call - see TestExportCrossScopeStepRetriesAfterFailure).
+		assert.Equal(t, 2, strings.Count(out, "calls=1"), "up's two consumers must share one Export call")
+		assert.Equal(t, 2, strings.Count(out, "calls=2"), "down's two consumers must share their own one Export call")
+		assert.NotContains(t, out, "calls=3", "no more than one Export call per phase")
+	})
+
 	t.Run("an unknown same-scope name fails", func(t *testing.T) {
 		dir := project(t, `
 env: app: {uses: "echo:echo", needs: ["missing"]}
@@ -591,6 +621,56 @@ setup: {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), `a: needs "setup.b": only an env step can use a "setup." dependency`)
 	})
+}
+
+// TestRunLeavesTheRelayForAStillLiveOtherScope proves a "kevin setup"
+// process (Keep, NoWait) leaves its relay container running once it exits,
+// for a later "kevin run" to reuse - the entire point of persisting the
+// relay across processes. An unconditional defer that always closed it,
+// regardless of shutdown's own keep/otherScopeLive decision, would defeat
+// this on every exit path.
+func TestRunLeavesTheRelayForAStillLiveOtherScope(t *testing.T) {
+	requireDocker(t)
+	dir := project(t, `
+project: "engine-relay-persist-test"
+relay: enabled: true
+setup: cluster: {uses: "echo:echo"}
+`)
+	t.Cleanup(func() {
+		_ = dockerClient.Remove(context.WithoutCancel(t.Context()), "kevin-engine-relay-persist-test-relay")
+		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), NetworkName("engine-relay-persist-test"))
+	})
+
+	require.NoError(t, Run(t.Context(), Options{Dir: dir, Scope: config.ScopeSetup, Keep: true, NoWait: true}))
+
+	_, err := dockerClient.Inspect(t.Context(), "kevin-engine-relay-persist-test-relay")
+	require.NoError(t, err, "kevin setup's relay must survive once the setup process exits")
+}
+
+// TestExportCrossScopeStepRetriesAfterFailure proves a failed
+// exportCrossScopeStep call - such as one whose context a dropped
+// console/MCP rerun request canceled mid-flight - never poisons a later,
+// independent call for the same setup step. singleflight.Group forgets a
+// call once it completes, unlike the sync.OnceValues this once used, which
+// would have cached the failure for the rest of the run.
+func TestExportCrossScopeStepRetriesAfterFailure(t *testing.T) {
+	dir := project(t, `
+setup: cluster: {uses: "echo:echo", with: export: greeting: "from-setup"}
+`)
+	cfg, plugins, caps, err := LoadAndLaunch(t.Context(), dir, "")
+	require.NoError(t, err)
+	defer CloseAll(plugins)
+
+	r := &run{cfg: cfg, plugins: plugins, caps: caps, env: &pb.Environment{}}
+
+	canceledCtx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = r.exportCrossScopeStep(canceledCtx, "cluster")
+	require.Error(t, err, "a canceled context must fail the call")
+
+	outputs, err := r.exportCrossScopeStep(t.Context(), "cluster")
+	require.NoError(t, err, "a later call with a healthy context must not see the earlier failure")
+	assert.Equal(t, output.Value{String: "from-setup"}, outputs["greeting"])
 }
 
 // TestTeardownResolvesSameScopeNeeds proves Teardown backfills a setup

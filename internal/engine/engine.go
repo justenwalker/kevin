@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/mattn/go-isatty"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/justenwalker/kevin/internal/browser"
 	"github.com/justenwalker/kevin/internal/ca"
@@ -176,7 +177,10 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = closeRelay(rl) }()
+	// shutdown, below, decides whether the relay actually closes - keep or
+	// a still-live other scope leaves it running for a later process to
+	// reuse. An unconditional defer here would override that decision on
+	// every exit path, including the ones shutdown gets right.
 
 	store := session.NewStore()
 	store.SetProxyAddr(server.addr)
@@ -284,8 +288,8 @@ func Run(ctx context.Context, opts Options) error {
 	_ = r.up(ctx)
 	awaitDone(ctx, opts.NoWait)
 
-	// keep leaves the environment's own resources (containers, network, CA)
-	// in place - the relay and this process's own proxy/console still shut
+	// keep leaves the environment's own resources (containers, network,
+	// CA, relay) in place; this process's own proxy/console still shut
 	// down normally either way.
 	shutdownErr := r.shutdown(ctx, rl, opts.Keep || opts.NoWait)
 
@@ -322,10 +326,10 @@ func (r *run) shutdown(ctx context.Context, rl *relay.Relay, keep bool) error {
 	if !keep {
 		// Stop the relay before reap removes the network: a container still
 		// joined to the network blocks the removal.
-		_, otherScopeLive, liveErr := r.otherScopeLive(downCtx)
+		otherLive, liveErr := r.otherScopeLive(downCtx)
 		if liveErr != nil {
 			relayErr = liveErr
-		} else if !otherScopeLive {
+		} else if len(otherLive) == 0 {
 			relayErr = closeRelay(rl)
 		}
 	}
@@ -787,8 +791,8 @@ func (r *run) closeSetupRelay(ctx context.Context, cfg *config.Config) error {
 	if !cfg.Relay.Enabled {
 		return nil
 	}
-	_, otherScopeLive, err := r.otherScopeLive(ctx)
-	if err != nil || otherScopeLive {
+	otherLive, err := r.otherScopeLive(ctx)
+	if err != nil || len(otherLive) > 0 {
 		return err
 	}
 	rl, err := relay.Lookup(ctx, cfg.Project, NetworkName(cfg.Project))
@@ -912,6 +916,14 @@ type run struct {
 	// can run concurrently once a step reaches Ready or Failed.
 	completedMu sync.Mutex
 	completed   map[string]dag.Outputs
+
+	// exportGroup deduplicates concurrent exportCrossScopeStep calls for
+	// the same setup step name, so several consumers up at once share one
+	// Export call instead of each triggering their own. Unlike a plain
+	// cache, singleflight forgets a call once it completes - a failed
+	// call (e.g. a canceled console/MCP rerun request) never poisons a
+	// later, independent retry.
+	exportGroup singleflight.Group
 
 	// stepLocksMu guards stepLocks, one per-step mutex per step name.
 	// upStep holds a step's lock for the length of its call and rejects
@@ -1459,6 +1471,18 @@ func stepExports(info pluginhost.Info, name string) bool {
 // unrendered with block, the same as exportStep. setupName is the name
 // with the "setup." prefix already stripped.
 func (r *run) exportCrossScopeStep(ctx context.Context, setupName string) (dag.Outputs, error) {
+	v, err, _ := r.exportGroup.Do(setupName, func() (any, error) {
+		return r.doExportCrossScopeStep(ctx, setupName)
+	})
+	if err != nil {
+		return nil, err //nolint:wrapcheck // doExportCrossScopeStep already wraps its own errors; singleflight only relays them
+	}
+	outputs, _ := v.(dag.Outputs) // this Group's Do calls only ever return dag.Outputs
+	return outputs, nil
+}
+
+// doExportCrossScopeStep is exportCrossScopeStep's uncached call.
+func (r *run) doExportCrossScopeStep(ctx context.Context, setupName string) (dag.Outputs, error) {
 	step := r.cfg.Setup[setupName]
 	ref, err := config.ParseStepRef(step.Uses)
 	if err != nil {

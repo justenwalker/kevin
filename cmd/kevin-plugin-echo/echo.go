@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/justenwalker/kevin/plugin"
@@ -97,10 +99,19 @@ func (echo) Export(_ context.Context, req *plugin.ExportRequest) (*plugin.Export
 		return nil, err
 	}
 	out := plugin.StringMap(cfg.Export)
+	if out == nil {
+		out = make(map[string]plugin.Value, 1)
+	}
 	for _, k := range cfg.ExportSensitive {
 		if v, ok := out[k]; ok {
 			out[k] = plugin.Sensitive{Value: v}
 		}
 	}
+	// exportCalls lets a test prove a caller memoizes Export instead of
+	// calling it once per consumer.
+	out["export_calls"] = plugin.String(strconv.Itoa(int(exportCalls.Add(1))))
 	return &plugin.ExportResult{Out: out}, nil
 }
+
+// exportCalls counts every Export call this process has served.
+var exportCalls atomic.Int64

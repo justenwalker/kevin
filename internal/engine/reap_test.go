@@ -21,13 +21,10 @@ func requireDocker(t *testing.T) {
 	}
 }
 
-// TestReapSkipsTheRelay proves that reap leaves a running relay container in
-// place: reap runs after the caller stops the relay in the normal flow, but
-// it must not also treat a still-running relay as an orphan and remove it.
-func TestReapSkipsTheRelay(t *testing.T) {
-	requireDocker(t)
-
-	project := "kevin-reap-relay-test"
+// newTestNetwork creates a project's network, removed on cleanup, and
+// returns its name.
+func newTestNetwork(t *testing.T, project string) string {
+	t.Helper()
 	network := NetworkName(project)
 	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, map[string]string{
 		cri.LabelProject: project,
@@ -35,6 +32,17 @@ func TestReapSkipsTheRelay(t *testing.T) {
 	t.Cleanup(func() {
 		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
 	})
+	return network
+}
+
+// TestReapSkipsTheRelay proves that reap leaves a running relay container in
+// place: reap runs after the caller stops the relay in the normal flow, but
+// it must not also treat a still-running relay as an orphan and remove it.
+func TestReapSkipsTheRelay(t *testing.T) {
+	requireDocker(t)
+
+	project := "kevin-reap-relay-test"
+	newTestNetwork(t, project)
 
 	relayName := "kevin-" + project + "-relay"
 	orphanName := "kevin-" + project + "-orphan"
@@ -84,13 +92,7 @@ func TestReapKeepsTheOtherScopeAlive(t *testing.T) {
 	requireDocker(t)
 
 	project := "kevin-reap-scope-test"
-	network := NetworkName(project)
-	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, map[string]string{
-		cri.LabelProject: project,
-	}))
-	t.Cleanup(func() {
-		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
-	})
+	network := newTestNetwork(t, project)
 
 	dbName := "kevin-" + project + "-db"
 	orphanName := "kevin-" + project + "-orphan"
@@ -145,13 +147,7 @@ func TestReapRemovesNetworkWhenOtherScopeNeverRan(t *testing.T) {
 	requireDocker(t)
 
 	project := "kevin-reap-scope-unused-test"
-	network := NetworkName(project)
-	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, map[string]string{
-		cri.LabelProject: project,
-	}))
-	t.Cleanup(func() {
-		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
-	})
+	network := newTestNetwork(t, project)
 
 	cfg := &config.Config{Project: project}
 	r := &run{cfg: cfg, scope: config.ScopeEnv, events: io.Discard}
