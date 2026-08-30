@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app
+  template:
+    metadata:
+      labels:
+        app: app
+    spec:
+      # Puts this pod on the node's own network/DNS, so host.docker.internal
+      # resolves the way it already does for a builtin:container step.
+      hostNetwork: true
+      dnsPolicy: Default
+      volumes:
+        - name: kevin-ca
+          hostPath:
+            # written by kind's trust_ca step during "kevin setup"
+            path: /usr/local/share/ca-certificates/kevin-root.crt
+            type: File
+      containers:
+        - name: app
+          image: amazon/aws-cli
+          imagePullPolicy: IfNotPresent # already cached; avoid re-pull under :latest
+          command: ["sh", "-c"]
+          args:
+            - |
+              aws s3 mb s3://app-heartbeat || true
+              while true; do
+                date > /tmp/heartbeat.txt
+                aws s3 cp /tmp/heartbeat.txt s3://app-heartbeat/heartbeat.txt
+                echo "heartbeat:      $(aws s3 cp s3://app-heartbeat/heartbeat.txt -)"
+                echo "seeded at setup: $(aws s3 cp s3://site/index.html -)"
+                sleep 10
+              done
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              value: test
+            - name: AWS_SECRET_ACCESS_KEY
+              value: test
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: AWS_CA_BUNDLE
+              value: /etc/kevin/ca.crt
+            # nothing auto-injects proxy env for a plain pod; 18090 is this
+            # file's own proxy.listen port
+            - name: HTTP_PROXY
+              value: http://host.docker.internal:18090
+            - name: HTTPS_PROXY
+              value: http://host.docker.internal:18090
+            - name: NO_PROXY
+              value: localhost,127.0.0.1
+          volumeMounts:
+            - name: kevin-ca
+              mountPath: /etc/kevin/ca.crt
+              readOnly: true

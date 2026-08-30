@@ -1,0 +1,4 @@
+apiVersion: v2
+name: app
+description: A workload that talks to real AWS S3 hostnames, for the examples/s3-app builtin:route interception demo.
+version: 0.1.0
