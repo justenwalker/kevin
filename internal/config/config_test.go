@@ -532,7 +532,6 @@ env: a: uses: "echo:echo"
 		assert.Equal(t, "127.0.0.1:0", cfg.Proxy.Listen)
 		assert.Equal(t, "127.0.0.1:0", cfg.Console.Listen)
 		assert.Empty(t, cfg.Proxy.Egress.Allow)
-		assert.True(t, cfg.Relay.Enabled, "the relay runs unless a step opts out")
 		assert.Empty(t, cfg.Relay.Image)
 	})
 
@@ -540,10 +539,7 @@ env: a: uses: "echo:echo"
 		f := load(t, `
 project: "demo"
 plugins: echo: cmd: "echo"
-relay: {
-	image:   "kevin-relay:custom"
-	enabled: false
-}
+relay: image: "kevin-relay:custom"
 `)
 		require.NoError(t, f.Validate(nil))
 
@@ -551,7 +547,6 @@ relay: {
 		require.NoError(t, err)
 
 		assert.Equal(t, "kevin-relay:custom", cfg.Relay.Image)
-		assert.False(t, cfg.Relay.Enabled)
 	})
 
 	t.Run("names the project after the directory", func(t *testing.T) {

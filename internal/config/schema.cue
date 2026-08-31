@@ -153,8 +153,4 @@ console: {
 relay: {
 	// image is the relay image. KEVIN_RELAY_IMAGE overrides it.
 	image?: string
-
-	// enabled starts the relay. Set it to false for an environment that
-	// needs no in-network name resolution.
-	enabled: bool | *true
 }

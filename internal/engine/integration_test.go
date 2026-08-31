@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,11 +23,7 @@ import (
 	"github.com/justenwalker/kevin/protos/pb"
 )
 
-// relayImageTag matches RelayImageTag in build/main.go.
-const relayImageTag = "kevin-relay:dev"
-
-// RelaySuite runs a full engine.Run with the relay enabled, against a
-// real docker daemon.
+// RelaySuite runs a full engine.Run against a real docker daemon.
 type RelaySuite struct {
 	suite.Suite
 
@@ -42,8 +37,7 @@ func TestRelaySuite(t *testing.T) {
 // SetupSuite builds the echo plugin and makes sure the relay image exists.
 func (s *RelaySuite) SetupSuite() {
 	t := s.T()
-	requireDocker(t)
-	ensureRelayImage(t)
+	requireRelay(t)
 
 	bin, err := buildEchoPluginForIntegration(t)
 	s.Require().NoError(err)
@@ -70,23 +64,22 @@ func (w *integrationWatcher) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// writeRelayProject writes a kevin.cue that declares the echo plugin, one
-// step, and the relay enabled, and returns the project directory.
+// writeRelayProject writes a kevin.cue that declares the echo plugin and one
+// step, and returns the project directory.
 func (s *RelaySuite) writeRelayProject(project string) string {
 	t := s.T()
 	dir := t.TempDir()
 	src := `plugins: echo: cmd: ` + strconv.Quote(s.echoPlugin) + `
 project: ` + strconv.Quote(project) + `
-relay: enabled: true
 env: web: {uses: "echo:echo", with: message: "hi"}
 `
 	s.Require().NoError(os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(src), 0o600))
 	return dir
 }
 
-// TestRunStartsRelayAndCleansUpEveryResource proves that a run with the
-// relay enabled populates the environment with a relay address, and that
-// nothing of the project survives after the run ends.
+// TestRunStartsRelayAndCleansUpEveryResource proves that a run populates the
+// environment with a relay address, and that nothing of the project
+// survives after the run ends.
 func (s *RelaySuite) TestRunStartsRelayAndCleansUpEveryResource() {
 	t := s.T()
 	const project = "kevin-it-super"
@@ -108,7 +101,7 @@ func (s *RelaySuite) TestRunStartsRelayAndCleansUpEveryResource() {
 	s.Require().NoError(err)
 
 	s.Require().NotNil(env, "OnEnvironment must run before any step")
-	s.NotEmpty(env.GetRelay(), "the environment must carry the relay address when the relay is enabled")
+	s.NotEmpty(env.GetRelay(), "the environment must carry the relay address")
 
 	names, err := dockerClient.ListByLabel(context.Background(), cri.LabelProject, project)
 	s.Require().NoError(err)
@@ -182,37 +175,4 @@ func buildEchoPluginForIntegration(t *testing.T) (string, error) {
 		return "", fmt.Errorf("build echo plugin: %w: %s", err, out)
 	}
 	return bin, nil
-}
-
-// ensureRelayImage builds the relay image from source when it is absent, the
-// same way as the relay-image build target. It skips the suite when it
-// cannot build the image.
-func ensureRelayImage(t *testing.T) {
-	t.Helper()
-
-	check := exec.CommandContext(t.Context(), "docker", "image", "inspect", relayImageTag)
-	if check.Run() == nil {
-		return
-	}
-
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Skip("cannot locate the repository root to build the relay image")
-	}
-	root := filepath.Join(filepath.Dir(file), "..", "..")
-
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "kevin-relay")
-	build := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "./cmd/kevin-relay")
-	build.Dir = root
-	build.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+runtime.GOARCH, "CGO_ENABLED=0")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Skip("cannot build kevin-relay for the image:", err, string(out))
-	}
-
-	dockerBuild := exec.CommandContext(t.Context(), "docker", "build",
-		"-f", filepath.Join(root, "build", "relay.Dockerfile"), "-t", relayImageTag, dir)
-	if out, err := dockerBuild.CombinedOutput(); err != nil {
-		t.Skip("cannot build the relay image:", err, string(out))
-	}
 }

@@ -252,7 +252,7 @@ func Run(ctx context.Context, opts Options) error {
 		ConsoleAddr:   web.addr,
 		ProxyEnv:      ProxyEnv(server.addr, network, stepNames(cfg)),
 		Domain:        cfg.Domain,
-		Relay:         relayAddr(rl),
+		Relay:         rl.Addr(),
 		ProjectDir:    cfg.Dir,
 		Scope:         opts.Scope,
 	}
@@ -326,7 +326,7 @@ func (r *run) shutdown(ctx context.Context, rl *relay.Relay, keep bool) error {
 		if liveErr != nil {
 			relayErr = liveErr
 		} else if len(otherLive) == 0 {
-			relayErr = closeRelay(rl)
+			relayErr = rl.Close()
 		}
 	}
 	var reapErr error
@@ -348,13 +348,8 @@ func (r *run) finalStepErr() error {
 	return errors.Join(errs...)
 }
 
-// startRelay starts the relay when cfg enables it. startRelay returns a nil
-// Relay, with no error, when the relay is disabled.
+// startRelay starts the relay.
 func startRelay(ctx context.Context, cfg *config.Config, network, gatewayAddr, scope string) (*relay.Relay, error) {
-	if !cfg.Relay.Enabled {
-		return nil, nil //nolint:nilnil // a nil Relay with no error is the documented "relay disabled" result
-	}
-
 	rl, err := relay.Start(ctx, relay.Options{
 		Project:   cfg.Project,
 		Network:   network,
@@ -377,24 +372,6 @@ func notifyEnvironment(opts Options, env *pb.Environment) {
 	if opts.OnEnvironment != nil {
 		opts.OnEnvironment(env)
 	}
-}
-
-// relayAddr reports the address of rl, or the empty string when the relay is
-// disabled.
-func relayAddr(rl *relay.Relay) string {
-	if rl == nil {
-		return ""
-	}
-	return rl.Addr()
-}
-
-// closeRelay removes the relay container. closeRelay does nothing when the
-// relay is disabled.
-func closeRelay(rl *relay.Relay) error {
-	if rl == nil {
-		return nil
-	}
-	return rl.Close()
 }
 
 // portOf returns the port of addr, or addr itself when addr carries no
@@ -781,12 +758,8 @@ func Teardown(ctx context.Context, opts Options) error {
 }
 
 // closeSetupRelay removes the project's relay container, if one exists and
-// the env scope isn't still live and sharing it. It does nothing when the
-// project never enables a relay.
+// the env scope isn't still live and sharing it.
 func (r *run) closeSetupRelay(ctx context.Context, cfg *config.Config) error {
-	if !cfg.Relay.Enabled {
-		return nil
-	}
 	otherLive, err := r.otherScopeLive(ctx)
 	if err != nil || len(otherLive) > 0 {
 		return err

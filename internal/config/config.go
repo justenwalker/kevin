@@ -109,8 +109,7 @@ type Console struct {
 
 // Relay configures the in-network relay.
 type Relay struct {
-	Image   string `json:"image"`
-	Enabled bool   `json:"enabled"`
+	Image string `json:"image"`
 }
 
 // Config is a valid environment.

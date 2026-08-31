@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -120,21 +121,13 @@ func buildPackagedEchoPlugin() (string, error) {
 
 // project writes a kevin.cue into a temporary directory, and returns the
 // directory.
-//
-// project disables the relay unless body configures it. The relay needs a
-// built kevin-relay:dev image, and most tests here have nothing to do with
-// it.
 func project(t *testing.T, body string) string {
 	t.Helper()
 	bin, err := echoPlugin()
 	require.NoError(t, err)
 
 	dir := t.TempDir()
-	src := "plugins: echo: cmd: " + strconv.Quote(bin) + "\n"
-	if !strings.Contains(body, "relay:") {
-		src += "relay: enabled: false\n"
-	}
-	src += body
+	src := "plugins: echo: cmd: " + strconv.Quote(bin) + "\n" + body
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(src), 0o600))
 	return dir
 }
@@ -282,9 +275,53 @@ func runAsync(t *testing.T, ctx context.Context, dir string, w *watcher) <-chan 
 	return done
 }
 
+// relayImageTag matches RelayImageTag in build/main.go.
+const relayImageTag = "kevin-relay:dev"
+
+// requireRelay skips a test when Docker does not answer, then makes sure the
+// relay image exists - Run always starts the relay now.
+func requireRelay(t *testing.T) {
+	t.Helper()
+	requireDocker(t)
+	ensureRelayImage(t)
+}
+
+// ensureRelayImage builds the relay image from source when it is absent, the
+// same way as the relay-image build target. It skips the test when it
+// cannot build the image.
+func ensureRelayImage(t *testing.T) {
+	t.Helper()
+
+	check := exec.CommandContext(t.Context(), "docker", "image", "inspect", relayImageTag)
+	if check.Run() == nil {
+		return
+	}
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Skip("cannot locate the repository root to build the relay image")
+	}
+	root := filepath.Join(filepath.Dir(file), "..", "..")
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "kevin-relay")
+	build := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "./cmd/kevin-relay")
+	build.Dir = root
+	build.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+runtime.GOARCH, "CGO_ENABLED=0")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Skip("cannot build kevin-relay for the image:", err, string(out))
+	}
+
+	dockerBuild := exec.CommandContext(t.Context(), "docker", "build",
+		"-f", filepath.Join(root, "build", "relay.Dockerfile"), "-t", relayImageTag, dir)
+	if out, err := dockerBuild.CombinedOutput(); err != nil {
+		t.Skip("cannot build the relay image:", err, string(out))
+	}
+}
+
 func TestRun(t *testing.T) {
 	t.Run("brings up and tears down in dependency order", func(t *testing.T) {
-		requireDocker(t)
+		requireRelay(t)
 		dir := project(t, `
 env: {
 	a: {uses: "echo:echo", with: {message: "A", outputs: greeting: "hi"}}
@@ -322,7 +359,7 @@ env: {
 	// Down method, so if the skip didn't happen the plugin would return
 	// Unimplemented and Run would return a non-nil error.
 	t.Run("skips down for a step with no downer", func(t *testing.T) {
-		requireDocker(t)
+		requireRelay(t)
 		dir := project(t, `
 env: {
 	p: {uses: "echo:probe"}
@@ -341,7 +378,7 @@ env: {
 	// right before calling AddStepDetail, for every entry in the Up result's
 	// Details field.
 	t.Run("forwards plugin-declared details to the card", func(t *testing.T) {
-		requireDocker(t)
+		requireRelay(t)
 		dir := project(t, `
 env: {
 	a: {uses: "echo:echo", with: details: [{label: "admin password", value: "hunter2", copyable: true}]}
@@ -354,12 +391,11 @@ env: {
 	})
 
 	t.Run("starts a file-source plugin", func(t *testing.T) {
-		requireDocker(t)
+		requireRelay(t)
 		pkgPath, err := packagedEchoPlugin()
 		require.NoError(t, err)
 
 		dir := configDir(t, "plugins: echo: file: "+strconv.Quote(pkgPath)+"\n"+
-			"relay: enabled: false\n"+
 			`env: a: {uses: "echo:echo", with: message: "A"}`+"\n")
 
 		w, err := runUntil(t, dir, "a                ready")
@@ -371,7 +407,7 @@ env: {
 	})
 
 	t.Run("renders progress and carries the environment", func(t *testing.T) {
-		requireDocker(t)
+		requireRelay(t)
 		dir := project(t, `
 env: a: {uses: "echo:echo", with: {message: "A", delay: "10ms"}}
 `)
@@ -389,7 +425,7 @@ env: a: {uses: "echo:echo", with: {message: "A", delay: "10ms"}}
 	})
 
 	t.Run("uses the setup scope separately", func(t *testing.T) {
-		requireDocker(t)
+		requireRelay(t)
 		dir := project(t, `
 setup: trust: {uses: "echo:echo", with: message: "installing"}
 env:   api:   {uses: "echo:echo", with: message: "serving"}
@@ -411,7 +447,7 @@ env:   api:   {uses: "echo:echo", with: message: "serving"}
 	// An empty scope has no step to wait on, but Keep and NoWait together -
 	// exactly what setup uses - must still let Run return with none.
 	t.Run("accepts an empty scope", func(t *testing.T) {
-		requireDocker(t)
+		requireRelay(t)
 		dir := project(t, `env: {}`)
 		err := Run(t.Context(), Options{Dir: dir, Scope: config.ScopeEnv, Keep: true, NoWait: true})
 		require.NoError(t, err)
@@ -421,7 +457,7 @@ env:   api:   {uses: "echo:echo", with: message: "serving"}
 	// binding one of its own - this proves it actually answers a real MCP
 	// tool call there.
 	t.Run("serves the mcp server alongside the console", func(t *testing.T) {
-		requireDocker(t)
+		requireRelay(t)
 		dir := project(t, `env: {}`)
 
 		var callErr error
@@ -455,7 +491,7 @@ env:   api:   {uses: "echo:echo", with: message: "serving"}
 	// hang until the test times out. NoWait alone, with Keep unset, must
 	// still leave the step in place.
 	t.Run("returns immediately with NoWait", func(t *testing.T) {
-		requireDocker(t)
+		requireRelay(t)
 		dir := project(t, `
 env: a: {uses: "echo:echo", with: message: "A"}
 `)
@@ -472,7 +508,7 @@ env: a: {uses: "echo:echo", with: message: "A"}
 	// and it still removes what came up and never lets a skipped dependent
 	// run.
 	t.Run("tears down what came up when a step fails", func(t *testing.T) {
-		requireDocker(t)
+		requireRelay(t)
 		dir := project(t, `
 env: {
 	a:    {uses: "echo:echo", with: message: "A"}
@@ -491,7 +527,7 @@ env: {
 	})
 
 	t.Run("delivers the plugin config before any step runs", func(t *testing.T) {
-		requireDocker(t)
+		requireRelay(t)
 		dir := project(t, `
 plugins: echo: config: greeting: "hello"
 env: a: {uses: "echo:echo", with: message: "A"}
@@ -510,7 +546,7 @@ env: a: {uses: "echo:echo", with: message: "A"}
 	})
 
 	t.Run("routes two step types of one plugin to one process", func(t *testing.T) {
-		requireDocker(t)
+		requireRelay(t)
 		dir := project(t, `
 env: {
 	ok:   {uses: "echo:echo", with: message: "OK"}
@@ -533,7 +569,7 @@ env: {
 // Up - and each way that resolution can fail.
 func TestRunCrossScopeNeeds(t *testing.T) {
 	t.Run("resolves a setup step's Export into needs and Deps", func(t *testing.T) {
-		requireDocker(t)
+		requireRelay(t)
 		dir := project(t, `
 setup: cluster: {uses: "echo:echo", with: {export: {greeting: "from-setup", password: "hunter2"}, export_sensitive: ["password"]}}
 env:   app:     {uses: "echo:echo", needs: ["setup.cluster"], with: message: "${setup.cluster.out.greeting}"}
@@ -556,7 +592,7 @@ env:   app:     {uses: "echo:echo", needs: ["setup.cluster"], with: message: "${
 	})
 
 	t.Run("memoizes Export across concurrent consumers of the same setup step", func(t *testing.T) {
-		requireDocker(t)
+		requireRelay(t)
 		dir := project(t, `
 setup: cluster: {uses: "echo:echo", with: export: greeting: "from-setup"}
 env: {
@@ -633,10 +669,9 @@ setup: {
 // regardless of shutdown's own keep/otherScopeLive decision, would defeat
 // this on every exit path.
 func TestRunLeavesTheRelayForAStillLiveOtherScope(t *testing.T) {
-	requireDocker(t)
+	requireRelay(t)
 	dir := project(t, `
 project: "engine-relay-persist-test"
-relay: enabled: true
 setup: cluster: {uses: "echo:echo"}
 `)
 	t.Cleanup(func() {
@@ -791,7 +826,7 @@ env: a: uses: "nope:echo"
 // kevin.cue reaches the running proxy, and that the default-deny still
 // blocks everything else.
 func TestRunAppliesEgressFromConfigToTheProxy(t *testing.T) {
-	requireDocker(t)
+	requireRelay(t)
 
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "reachable")
@@ -854,7 +889,7 @@ env: a: {uses: "echo:echo", with: message: "A"}
 // block against upstream outputs exactly like up does, rather than sending
 // the plugin the raw "${needs...}" template string.
 func TestRunRendersNeedsTemplatesBeforeDown(t *testing.T) {
-	requireDocker(t)
+	requireRelay(t)
 	dir := project(t, `
 env: {
 	a: {uses: "echo:echo", with: {message: "A", outputs: greeting: "hi"}}
@@ -881,7 +916,7 @@ env: {
 // sweeps the skipped dependent back in, attempting it again rather than
 // leaving it stuck on the original failure.
 func TestRunRerunReExecutesAStepAndFillsInSkippedDependents(t *testing.T) {
-	requireDocker(t)
+	requireRelay(t)
 
 	consoleAddr := freeAddr(t)
 	dir := project(t, `
@@ -925,7 +960,7 @@ env: {
 // runs its target regardless of idempotence, so this needs no idempotent
 // step type to exercise.
 func TestRunRerunDoesNotDuplicateAStepsCardDetails(t *testing.T) {
-	requireDocker(t)
+	requireRelay(t)
 
 	consoleAddr := freeAddr(t)
 	dir := project(t, `
@@ -964,7 +999,7 @@ env: {
 // a crashed plugin left behind by its labels alone, and removes it along
 // with the project's network.
 func TestRunRemovesAnOrphanContainerAndTheNetwork(t *testing.T) {
-	requireDocker(t)
+	requireRelay(t)
 
 	dir := project(t, `
 project: "kevin-reap-test"
