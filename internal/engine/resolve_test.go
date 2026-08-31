@@ -267,9 +267,12 @@ func TestResolveSpec(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("signed via a local file", testResolveSpecSignedFile)
+	t.Run("signed via HTTP", testResolveSpecSignedHTTP)
 }
 
-func TestResolveSpecSignedFile(t *testing.T) {
+func testResolveSpecSignedFile(t *testing.T) {
 	t.Run("launches when the package is signed by a trusted key", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		dir := t.TempDir()
@@ -349,7 +352,7 @@ func TestResolveSpecSignedFile(t *testing.T) {
 	})
 }
 
-func TestResolveSpecSignedHTTP(t *testing.T) {
+func testResolveSpecSignedHTTP(t *testing.T) {
 	t.Run("launches when the package is signed by a trusted key", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		srcDir := t.TempDir()

@@ -143,17 +143,17 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	timings := loadTimings(ctx, filepath.Join(workspace, TimingsFile))
 
-	stepLog, stepLogFile, err := openStepLog(workspace)
+	stepLog, err := openNDJSONLog(workspace, LogsFile)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = stepLogFile.Close() }()
+	defer func() { _ = stepLog.Close() }()
 
-	traffic, trafficFile, err := openTrafficLog(workspace)
+	traffic, err := openNDJSONLog(workspace, TrafficFile)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = trafficFile.Close() }()
+	defer func() { _ = traffic.Close() }()
 
 	network := NetworkName(cfg.Project)
 
@@ -195,15 +195,11 @@ func Run(ctx context.Context, opts Options) error {
 			Routed: rec.Routed,
 			Denied: rec.Denied,
 		}
-		// onRecord runs on the request's own goroutine and must not block
-		// (proxy.go); store.Record's SSE fan-out and traffic.Record's file
-		// write both can, so they run off it.
-		// ponytail: one goroutine per request, a worker queue if proxied
-		// traffic volume ever makes that costly.
-		go func() {
-			store.Record(req)
-			traffic.Record(ctx, req)
-		}()
+		store.Record(req)
+		traffic.Info("request",
+			"request_time", req.Time, "method", req.Method, "host", req.Host, "path", req.Path,
+			"status", req.Status, "millis", req.Millis,
+			"routed", req.Routed, "denied", req.Denied)
 	})
 
 	r := &run{
@@ -216,7 +212,7 @@ func Run(ctx context.Context, opts Options) error {
 		caps:    caps,
 		events:  opts.Events,
 		timings: timings,
-		stepLog: stepLog,
+		stepLog: stepLog.Logger,
 	}
 	mcpServer := mcpserver.New(cfg.Project, cfg.Domain, store, server.proxy, r.RerunStep, r.exportStep)
 	view := console.New(console.Config{
@@ -713,11 +709,11 @@ func Teardown(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	stepLog, stepLogFile, err := openStepLog(workspace)
+	stepLog, err := openNDJSONLog(workspace, LogsFile)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = stepLogFile.Close() }()
+	defer func() { _ = stepLog.Close() }()
 
 	r := &run{
 		cfg:     cfg,
@@ -731,7 +727,7 @@ func Teardown(ctx context.Context, opts Options) error {
 		store:   session.NewStore(),
 		env:     env,
 		timings: loadTimings(ctx, filepath.Join(workspace, TimingsFile)),
-		stepLog: stepLog,
+		stepLog: stepLog.Logger,
 		// There is no state file for step outputs. Every step is a candidate
 		// for removal, and Down carries no outputs.
 		completed: make(map[string]dag.Outputs, len(steps)),

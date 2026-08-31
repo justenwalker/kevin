@@ -5,12 +5,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -18,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1095,4 +1098,135 @@ func TestProxyEnvKeepsInternalTrafficOffTheProxy(t *testing.T) {
 func TestNetworkNameCarriesTheProject(t *testing.T) {
 	assert.Equal(t, "kevin-demo", NetworkName("demo"))
 	assert.NotEqual(t, NetworkName("a"), NetworkName("b"))
+}
+
+// TestGatewayPort covers loadGatewayPort/saveGatewayPort's own persistence,
+// independent of startProxy - see TestStartProxyGatewayPort for how a
+// pinned port interacts with the running proxy.
+func TestGatewayPort(t *testing.T) {
+	t.Run("round trips through save and load", func(t *testing.T) {
+		workspace := t.TempDir()
+		assert.Equal(t, 0, loadGatewayPort(workspace), "an empty workspace has no recorded port")
+
+		saveGatewayPort(workspace, 54321)
+		assert.Equal(t, 54321, loadGatewayPort(workspace), "loadGatewayPort must report what saveGatewayPort wrote")
+	})
+
+	t.Run("ignores unparsable content", func(t *testing.T) {
+		workspace := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(workspace, gatewayPortFile), []byte("not-a-port"), 0o600))
+
+		assert.Equal(t, 0, loadGatewayPort(workspace), "unparsable content must report 0, not an error")
+	})
+}
+
+// TestStartProxyGatewayPort proves that a nonzero opts.GatewayPort is used
+// as-is for the gateway listener, instead of whatever loadGatewayPort would
+// otherwise report, and that a pinned port already in use fails outright
+// rather than silently falling back to a different one.
+func TestStartProxyGatewayPort(t *testing.T) {
+	t.Run("pins the requested port", func(t *testing.T) {
+		requireDocker(t)
+
+		cfg := &config.Config{Project: "kevin-gwport-pin-test", Dir: t.TempDir()}
+		workspace, authority, err := prepare(t.Context(), cfg)
+		require.NoError(t, err)
+		network := NetworkName(cfg.Project)
+		t.Cleanup(func() {
+			_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
+		})
+
+		gateway, err := dockerClient.NetworkGateway(t.Context(), network)
+		require.NoError(t, err)
+
+		// Reserve a free port on the gateway address, then free it again -
+		// startProxy is asked to pin exactly that port back.
+		probe := bindGatewayPort(t, gateway)
+		pinnedPort := mustPort(t, probe.Addr().String())
+		require.NoError(t, probe.Close())
+
+		server, err := startProxy(t.Context(), authority, proxyOptions{
+			Network:     network,
+			Workspace:   workspace,
+			Listen:      "127.0.0.1:0",
+			GatewayPort: pinnedPort,
+			Domain:      "kevin.test",
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = server.Close() })
+
+		assert.Equal(t, pinnedPort, mustPort(t, server.gatewayAddr))
+		assert.Equal(t, 0, loadGatewayPort(workspace), "a pinned port must not be persisted to the auto-reuse file")
+	})
+
+	t.Run("fails when the pinned port is already in use", func(t *testing.T) {
+		requireDocker(t)
+
+		cfg := &config.Config{Project: "kevin-gwport-conflict-test", Dir: t.TempDir()}
+		workspace, authority, err := prepare(t.Context(), cfg)
+		require.NoError(t, err)
+		network := NetworkName(cfg.Project)
+		t.Cleanup(func() {
+			_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
+		})
+
+		gateway, err := dockerClient.NetworkGateway(t.Context(), network)
+		require.NoError(t, err)
+
+		held := bindGatewayPort(t, gateway)
+		defer func() { _ = held.Close() }()
+		heldPort := mustPort(t, held.Addr().String())
+
+		_, err = startProxy(t.Context(), authority, proxyOptions{
+			Network:     network,
+			Workspace:   workspace,
+			Listen:      "127.0.0.1:0",
+			GatewayPort: heldPort,
+			Domain:      "kevin.test",
+		})
+		require.Error(t, err, "a pinned port already in use must fail, not fall back silently")
+	})
+}
+
+// bindGatewayPort reserves a free port on the gateway address and reports
+// it, or skips the test - Docker Desktop's VM on macOS/Windows makes the
+// gateway address unbindable from the host at all (EADDRNOTAVAIL), the
+// same case startProxy itself falls back on.
+func bindGatewayPort(t *testing.T, gateway netip.Addr) net.Listener {
+	t.Helper()
+	var lc net.ListenConfig
+	ln, err := lc.Listen(t.Context(), "tcp", net.JoinHostPort(gateway.String(), "0"))
+	if err != nil && errors.Is(err, syscall.EADDRNOTAVAIL) {
+		t.Skip("the gateway address is not bindable from the host here:", err)
+	}
+	require.NoError(t, err)
+	return ln
+}
+
+// mustPort parses the port out of addr, failing the test if it doesn't.
+func mustPort(t *testing.T, addr string) int {
+	t.Helper()
+	_, portStr, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+	return port
+}
+
+func TestEventsWriter(t *testing.T) {
+	t.Run("prefers a caller-supplied writer", func(t *testing.T) {
+		w := &os.File{}
+		assert.Same(t, w, eventsWriter(Options{Events: w}, true),
+			"a caller-supplied writer wins even when termui would otherwise own the terminal")
+		assert.Same(t, w, eventsWriter(Options{Events: w}, false))
+	})
+
+	t.Run("discards when live and unset", func(t *testing.T) {
+		assert.Equal(t, io.Discard, eventsWriter(Options{}, true),
+			"termui's live block already shows this information")
+	})
+
+	t.Run("falls back to stderr when not live", func(t *testing.T) {
+		assert.Equal(t, os.Stderr, eventsWriter(Options{}, false))
+	})
 }

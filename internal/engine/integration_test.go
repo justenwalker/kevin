@@ -170,7 +170,7 @@ func (s *RelaySuite) TestReapLeavesALiveRelayInPlace() {
 }
 
 // buildEchoPluginForIntegration builds the echo plugin binary, the same way
-// buildEchoPlugin in supervisor_test.go does.
+// buildEchoPlugin in engine_test.go does.
 func buildEchoPluginForIntegration(t *testing.T) (string, error) {
 	t.Helper()
 
