@@ -130,7 +130,7 @@ func pushBlobLayer(ctx context.Context, reg ociregistry.Interface, repo, path, m
 	if err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("ocipkg: hash %q: %w", path, err)
 	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
+	if _, err = f.Seek(0, io.SeekStart); err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("ocipkg: seek %q: %w", path, err)
 	}
 
