@@ -46,6 +46,20 @@ archives:
 checksum:
   name_template: checksums.txt
 
+signs:
+  - cmd: minisign
+    signature: "${artifact}.minisig"
+    args:
+      - "-S"
+      - "-s"
+      - "{{ .Env.MINISIGN_KEY }}"
+      - "-m"
+      - "${artifact}"
+      - "-x"
+      - "${signature}"
+    stdin: "{{ .Env.MINISIGN_PASSWORD }}"
+    artifacts: checksum
+
 dockers_v2:
   - ids:
       - kevin-relay
