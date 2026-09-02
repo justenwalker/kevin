@@ -161,6 +161,23 @@ looks for `staging.kevin.cue` (or `.staging.kevin.cue`, `staging.kevin.yaml`, ..
 
 `KEVIN_PROJECT_STATE_DIR` overrides that per-project workspace path outright (skipping the `.kevin`/`<name>` join). `KEVIN_USER_STATE_DIR` does the same for the user-wide state directory, `~/.kevin`, which holds the trust store and package cache described below.
 
+### Local overrides
+
+A project directory can also hold an optional `kevin.local.cue` (or `.kevin.local.cue`), for machine-specific tweaks that shouldn't go into source control - local plugin credentials, a locally-adjusted port, an extra egress host for your own workflow. Check `kevin.cue` in as usual, gitignore `kevin.local.cue` in your own project, and kevin unifies the two if the local file exists:
+
+```sh
+echo 'kevin.local.cue' >> .gitignore
+```
+
+```cue
+// kevin.local.cue
+plugins: registry: config: token: "local-dev-token"
+```
+
+A named environment's local file follows the same naming: `staging.kevin.local.cue` (or `.staging.kevin.local.cue`) overrides `staging.kevin.cue`.
+
+The merge is plain CUE unification, same as everything else the schema does: the local file can freely add fields the base file doesn't set, with no conflict. Two different concrete values for the same field is a hard error naming the field, not a silent override - to make a field intentionally overridable, give it a default in `kevin.cue` (`listen: *"127.0.0.1:8080" | _`), which lets a local file's concrete value win without contradicting it. Several core fields (`project`, `domain`, `proxy.listen`, `console.listen`) already carry a schema default, so they're overridable from a local file with no extra syntax in the base file.
+
 ## Scopes
 
 Steps live in one of two scopes. `setup` steps persist across runs and are managed by `kevin setup` and `kevin teardown`. `env` steps are ephemeral: `kevin run` brings them up and removes them again on exit. Pass `--keep` to leave them in place on exit instead, for example to inspect a container after a failure.

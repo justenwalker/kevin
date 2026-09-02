@@ -51,6 +51,17 @@ func candidateFiles(name string) []string {
 	return out
 }
 
+// candidateLocalFiles builds the ordered list of local override filenames
+// [Load] accepts for a given environment name, mirroring candidateFiles one
+// step further: a visible and a dotfile variant, CUE only.
+func candidateLocalFiles(name string) []string {
+	prefix := ""
+	if name != "" {
+		prefix = name + "."
+	}
+	return []string{prefix + "kevin.local.cue", "." + prefix + "kevin.local.cue"}
+}
+
 // Builtin is the plugin name that resolves to kevin's builtin step types.
 const Builtin = "builtin"
 
@@ -180,6 +191,12 @@ func mustCompileCoreSchema(ctx *cue.Context) cue.Value {
 // (<name>.kevin.<ext> or .<name>.kevin.<ext>) for each of CUE, YAML, and
 // JSON. Exactly one candidate may exist. The file must not declare a CUE
 // package clause.
+//
+// Load then looks for an optional local override file (kevin.local.cue or
+// .kevin.local.cue, prefixed with "<name>." when named) and unifies it onto
+// the result if present. A field the override should be able to replace
+// must be declared in the base file with a CUE default (field: *"x" | _);
+// unifying two different concrete values for the same field is an error.
 func Load(dir, name string) (*File, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -210,6 +227,25 @@ func Load(dir, name string) (*File, error) {
 		return nil, newValidationError(abs, fmt.Errorf("%w: %w", ErrInvalid, err))
 	}
 
+	localPath, err := findLocalFile(abs, name)
+	if err != nil {
+		return nil, err
+	}
+	if localPath != "" {
+		localSrc, err := os.ReadFile(localPath) //nolint:gosec // reading the project's own config file is the point
+		if err != nil {
+			return nil, fmt.Errorf("config: read %q: %w", localPath, err)
+		}
+		local := ctx.CompileBytes(localSrc, cue.Filename(localPath))
+		if err := local.Err(); err != nil {
+			return nil, newValidationError(abs, fmt.Errorf("%w: %w", ErrInvalid, err))
+		}
+		value = value.Unify(local)
+		if err := value.Err(); err != nil {
+			return nil, newValidationError(abs, fmt.Errorf("%w: %w", ErrInvalid, err))
+		}
+	}
+
 	return &File{ctx: ctx, value: value, dir: abs, name: name}, nil
 }
 
@@ -233,6 +269,29 @@ func findFile(abs, name string) (string, error) {
 	default:
 		return "", uerr.Wrap(fmt.Errorf("config: %s: found %s: %w", abs, strings.Join(found, ", "), ErrAmbiguous),
 			"multiple environment files found in %s (%s) - keep one, or pass -e to pick a named environment",
+			abs, strings.Join(found, ", "))
+	}
+}
+
+// findLocalFile locates the optional local override file for name in abs,
+// among candidateLocalFiles(name). It returns ("", nil) when none exist, and
+// [ErrAmbiguous] when more than one does.
+func findLocalFile(abs, name string) (string, error) {
+	var found []string
+	for _, candidate := range candidateLocalFiles(name) {
+		path := filepath.Join(abs, candidate)
+		if _, err := os.Stat(path); err == nil {
+			found = append(found, path)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return "", nil
+	case 1:
+		return found[0], nil
+	default:
+		return "", uerr.Wrap(fmt.Errorf("config: %s: found %s: %w", abs, strings.Join(found, ", "), ErrAmbiguous),
+			"multiple local override files found in %s (%s) - keep one",
 			abs, strings.Join(found, ", "))
 	}
 }

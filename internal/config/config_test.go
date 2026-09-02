@@ -89,6 +89,59 @@ plugins: echo: cmd: "echo"`)
 		require.ErrorIs(t, err, config.ErrAmbiguous)
 	})
 
+	t.Run("merges an optional local override file", func(t *testing.T) {
+		dir := write(t, `project: "base"
+plugins: echo: cmd: "echo"`)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.local.cue"), []byte(`domain: "local.test"
+plugins: extra: cmd: "extra"`), 0o600))
+
+		f, err := config.Load(dir, "")
+		require.NoError(t, err)
+		cfg, err := f.Config()
+		require.NoError(t, err)
+		assert.Equal(t, "base", cfg.Project)
+		assert.Equal(t, "local.test", cfg.Domain)
+		assert.Len(t, cfg.Plugins, 2)
+	})
+
+	t.Run("ignores a missing local override file", func(t *testing.T) {
+		dir := write(t, `project: "base"`)
+		f, err := config.Load(dir, "")
+		require.NoError(t, err)
+		cfg, err := f.Config()
+		require.NoError(t, err)
+		assert.Equal(t, "base", cfg.Project)
+	})
+
+	t.Run("rejects a local override that conflicts with a concrete base value", func(t *testing.T) {
+		dir := write(t, `project: "base"`)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.local.cue"), []byte(`project: "other"`), 0o600))
+
+		_, err := config.Load(dir, "")
+		require.ErrorIs(t, err, config.ErrInvalid)
+	})
+
+	t.Run("reports ambiguous local override candidates", func(t *testing.T) {
+		dir := write(t, `project: "base"`)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.local.cue"), []byte(`plugins: {}`), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".kevin.local.cue"), []byte(`plugins: {}`), 0o600))
+
+		_, err := config.Load(dir, "")
+		require.ErrorIs(t, err, config.ErrAmbiguous)
+	})
+
+	t.Run("resolves a named environment's local override file", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "staging.kevin.cue"), []byte(`project: "staging-env"`), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "staging.kevin.local.cue"), []byte(`domain: "local.test"`), 0o600))
+
+		f, err := config.Load(dir, "staging")
+		require.NoError(t, err)
+		cfg, err := f.Config()
+		require.NoError(t, err)
+		assert.Equal(t, "local.test", cfg.Domain)
+	})
+
 	t.Run("rejects invalid content", func(t *testing.T) {
 		tests := []struct {
 			name         string
