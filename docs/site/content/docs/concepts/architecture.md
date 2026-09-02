@@ -79,14 +79,9 @@ State for one project lives in a `.kevin/` folder, or `.kevin/<name>/` for a nam
 
 A plugin is a provider. A provider offers one or more step types, and a step names one with `uses: "<plugin>:<step>"`. Both parts are required: the plugin that offers the step type, and the step type itself.
 
-`builtin` is the provider that kevin supplies. It is never declared in a `plugins:` block. It offers six step types:
+`builtin` is the provider that kevin supplies. It is never declared in a `plugins:` block. See [Reference]({{< relref "/docs/reference" >}}) for the step types it currently offers.
 
-- `container`
-- `kind`
-- `kubectl`
-- `helm`
-- `wait`
-- `route`
+Nothing about the engine is specific to any one step type, builtin or third-party. A Kubernetes cluster, for instance, is a plugin like any other, not a special case: the first one uses [kind]({{< relref "/docs/guides/kubernetes" >}}), and a plugin for minikube or k3s would be a new binary needing no change to the engine.
 
 A `plugins:` entry names a source, not a namespace. A source says how kevin obtains the plugin binary. `cmd`, `file`, `oci`, and `http` are the sources that kevin implements. `file` names a tar package (`internal/pluginpkg`): a manifest, the plugin binary, and any supporting files, extracted into the project workspace and launched exactly like a `cmd` source. `oci` names the same package, fetched from an OCI registry (`internal/ocipkg`) with multi-arch image-index resolution. `http` names the same package again, fetched over a plain URL (`internal/httppkg`) with an optional `checksum` pin, since a URL carries no built-in digest addressing the way an OCI reference does. `oci` and `http` share one global, content-addressed cache (`internal/pkgcache`, under `~/.kevin/pkg-cache/`). The same sha256-named blob downloaded by either source is available to the other, before both hand the cached local file to the same `pluginpkg.Extract`.
 
@@ -104,7 +99,7 @@ Only a plugin that a step references starts. A `plugins:` entry that no step nam
 
 ## Plugin protocol
 
-Every step type speaks the same protocol over gRPC. The engine has no privileged path for a step type that ships in this repository. `container`, `kind`, `kubectl`, `helm`, `wait`, and `route` compile into the kevin binary, and the engine starts each one as `kevin plugin run <name>`. A third party writes a separate binary and gets the same protocol. One process serves every step type that its provider offers.
+Every step type speaks the same protocol over gRPC. The engine has no privileged path for a step type that ships in this repository: every builtin step type compiles into the kevin binary the same way, and the engine starts it as `kevin plugin run <name>`. A third party writes a separate binary and gets the same protocol. One process serves every step type that its provider offers.
 
 The service has five methods:
 
@@ -139,7 +134,7 @@ A step publishes outputs. Every step that declares a `needs` edge on that step r
 
 A step's own plugin code always gets every upstream output through the wire request. The engine passes it beside the `with` block, not through it. But a `with` value itself can also reference one, using `${cel-expression}`: any string in the `with` block, at any depth, that contains `${...}` gets that expression evaluated, against a `needs` variable shaped `map[string]map[string]map[string]string`, keyed by upstream step name, then by `out` (that step's own plugin-authored outputs) or `system` (values kevin computes itself, kept apart so a kevin-computed key can never collide with one a plugin chose for its own output). The same expression can also read `env.<VAR>`, the kevin process's own environment variables; referencing an unset one errors, so `has(env.VAR) ? env.VAR : "default"` is the idiom for an optional one. The result is spliced back into the surrounding text before the plugin ever sees it. A step whose `with` block never uses `${` pays no cost; there is no other change to what the plugin receives.
 
-`internal/expr` implements this, using [CEL](https://github.com/google/cel-go). `internal/engine`'s DAG walk calls it once per step, right where the upstream outputs for that step are already assembled, so this needs no separate resolution phase and no reordering of validate-then-walk: CUE unification of the `with` block still happens once, globally, before the walk starts, and only ever sees the `${...}` placeholder as a plain string. The kubectl and helm steps (see [Deploying workloads](#deploying-workloads)) are the two builtin consumers today; the mechanism itself is generic, so any plugin's `with` block can use it. See [CEL expressions]({{< relref "/docs/cel-expressions" >}}) for the full syntax reference.
+`internal/expr` implements this, using [CEL](https://github.com/google/cel-go). `internal/engine`'s DAG walk calls it once per step, right where the upstream outputs for that step are already assembled, so this needs no separate resolution phase and no reordering of validate-then-walk: CUE unification of the `with` block still happens once, globally, before the walk starts, and only ever sees the `${...}` placeholder as a plain string. The mechanism itself is generic: any step type's `with` block can use it, builtin or third-party. See [CEL expressions]({{< relref "/docs/cel-expressions" >}}) for the full syntax reference.
 
 #### Crossing scopes with `needs`
 
@@ -157,7 +152,7 @@ Any `Up`/`Down` RPC failure fails that step, the same whether the plugin returne
 
 A crash specifically surfaces as `pluginhost.ErrCrashed` in the error chain (a `codes.Unavailable` gRPC transport error, the same heuristic other go-plugin consumers such as Terraform use to recognize a dead process) rather than an opaque wrapped transport error, so the failure is recognizable for what it is.
 
-There's no restart-in-place: kevin doesn't try to relaunch the crashed plugin process and resume the walk mid-flight. The actual recovery path is re-running `kevin run`. Every builtin step's `Up` is idempotent on its deterministic `project`+`step` name (`kind` and `container` delete then create, `kubectl` and `helm` are apply-style by construction; see [Kubernetes](#kubernetes) and [Docker](#docker)), specifically so that a fresh run safely picks up wherever a crashed one left off, without kevin needing any state file or restart machinery to make that safe.
+There's no restart-in-place: kevin doesn't try to relaunch the crashed plugin process and resume the walk mid-flight. The actual recovery path is re-running `kevin run`. Every builtin step's `Up` is idempotent on its deterministic `project`+`step` name - some delete then create, others are apply-style by construction (see [Docker](#docker)) - specifically so that a fresh run safely picks up wherever a crashed one left off, without kevin needing any state file or restart machinery to make that safe.
 
 ## DAG engine
 
@@ -264,40 +259,6 @@ Every container carries three labels at increasing granularity - a materialized 
 
 The engine creates the shared network before the DAG runs and removes it after. A container joins that network with a network alias equal to the step name, thus one step reaches another by step name.
 
-## Kubernetes
-
-A Kubernetes cluster is a plugin, not a special case in the engine. The first plugin uses kind. A plugin for minikube or for k3s is a new binary and needs no change in the engine.
-
-The kind plugin shells out to the host `kind` binary, the same way `kubectl` and `helm` shell out to theirs (see [Deploying workloads](#deploying-workloads)).
-
-kind reads the proxy variables from its own process environment when it creates a cluster's nodes - there is no flag or config field for it. The plugin sets `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` on the `kind create cluster` child process's own environment (`exec.Cmd.Env`), not the plugin's own - each call gets its own scoped environment, so two clusters coming up at once in the same plugin process never race each other's proxy variables. kind merges its own entries into `NO_PROXY`: the pod and service networks, and the node names.
-
-Because kind copies the proxy address into the node containers at the time of creation, the proxy must bind before the DAG runs, and the address must stay the same for the whole session.
-
-kind puts its nodes on a network of its own. The plugin joins every node to the shared network as well, thus a container step and a pod reach each other by name.
-
-The plugin publishes the path of a kubeconfig. A tool on the host uses the cluster with `KUBECONFIG=<path> kubectl`.
-
-`Up` removes a cluster of the same name first. A crash can leave one behind, and `Create` on an existing name fails.
-
-### Node trust
-
-A pull that a pod triggers goes through the proxy, the same as any other request from a node. The proxy terminates TLS and presents a leaf signed by the kevin CA. A node that does not trust that authority rejects the certificate, and the pull fails.
-
-The kind plugin writes the kevin root certificate into every node at `/usr/local/share/ca-certificates/kevin-root.crt`, runs `update-ca-certificates`, and restarts containerd so that it reloads the trust store. The plugin waits for containerd to answer again before it reports the step ready, so that no pull races the restart.
-
-`trust_ca: false` in `kevin.cue` turns the install off. The plugin does not exempt a registry from the proxy with `NO_PROXY` instead, because that would remove the pull from the egress policy.
-
-## Deploying workloads
-
-kind brings up a cluster; it does not put anything inside one. The kubectl and helm steps close that gap, and are ordinary builtin steps like any other. Each shells out to the real `kubectl`/`helm` binary on the host, against a `needs` edge on a step that publishes a `kubeconfig` and a `context`, typically a kind step.
-
-A kubectl step's `with` block sets exactly one of `manifest` (inline YAML), `path` (a manifest file or directory), or `kustomize` (a directory, applied with `-k`). `Up` rejects a `with` block that sets zero or more than one. A helm step's `with` block names a `chart` (a local path, an `oci://` reference, or a name inside `repo`) and a `release`; `post_renderer` and `post_renderer_args` plumb straight through to `helm upgrade --install --post-renderer`, unchanged. kevin does not implement rendering itself, only passes the flag. `path`, `kustomize`, `chart`, and `values_files` resolve against the project directory (`Env.ProjectDir`, the directory that holds `kevin.cue`) when they are relative.
-
-Both steps read `kubeconfig`/`context` from `needs` through a `${...}` expression (see [Cross-step values](#cross-step-values)), such as `kubeconfig: "${needs.cluster.out.kubeconfig}"`.
-
-**`Down` does nothing for either step.** kevin did not create the cluster these steps target, and does not tear it down. Deleting a namespace or uninstalling a release would reach into state outside what kevin owns. What `kubectl apply` or `helm upgrade --install` leaves behind survives `kevin teardown` and Ctrl-C.
-
 ## Relay
 
 The relay is a container on the shared docker network. It answers DNS queries for the environment domain with its own address. It forwards HTTP and TLS traffic to the proxy on the host.
@@ -332,7 +293,7 @@ The relay's other job runs the opposite direction: `kevin-relay` also has a `-so
 
 This exists because a kind cluster's `extraPortMappings` are fixed at cluster creation, before `Up` has created anything, unlike a container step's port publish. One relay avoids needing a static port mapping per exposed service: `Up` picks one host port, bakes one `extraPortMappings` entry for it into the generated cluster config (pointed at the control-plane node), loads the `kevin-relay` image into that same node with `nodeutils.LoadImageArchive`, and applies the relay Pod with `kubectl apply` run inside the node, the same `docker exec`-wrapped `kubectl` mechanism the CoreDNS patch already uses, pinned to the same node `nodeutils.BootstrapControlPlaneNode` finds.
 
-A `builtin:kind` step's `Up` does not wait for an `expose` entry's address to become dialable, unlike a container step's `expose` waiting on its own port. kind doesn't own what an entry names. The target is usually deployed separately, by a manifest applied after the cluster is up, so `Up` only wires the relay and reports the address. `Result.ExposedPorts` itself never reaches a dependent step's wire request, so the engine mirrors each entry's relay address into the `needs` variable's `system` sub-namespace, as `needs.<step>.system.expose_<name>`, kept separate from `out` (a step's own `Outputs`) specifically so a kevin-computed key can never collide with one a plugin chose for its own output (see [Cross-step values]({{< relref "/docs/configuring-an-environment#cross-step-values" >}})). This mirroring is generic engine behavior, not kind-specific; it runs for any plugin's `ExposedPorts`. A `builtin:wait` step's `tcp` check reads `needs.<step>.system.expose_<name>` to close the readiness gap generically, dialing through the relay the same way [`kubectl` and `helm`](#deploying-workloads) apply a manifest into the same cluster.
+A `builtin:kind` step's `Up` does not wait for an `expose` entry's address to become dialable, unlike a container step's `expose` waiting on its own port. kind doesn't own what an entry names. The target is usually deployed separately, by a manifest applied after the cluster is up, so `Up` only wires the relay and reports the address. `Result.ExposedPorts` itself never reaches a dependent step's wire request, so the engine mirrors each entry's relay address into the `needs` variable's `system` sub-namespace, as `needs.<step>.system.expose_<name>`, kept separate from `out` (a step's own `Outputs`) specifically so a kevin-computed key can never collide with one a plugin chose for its own output (see [Cross-step values]({{< relref "/docs/configuring-an-environment#cross-step-values" >}})). This mirroring is generic engine behavior, not kind-specific; it runs for any plugin's `ExposedPorts`. A `builtin:wait` step's `tcp` check reads `needs.<step>.system.expose_<name>` to close the readiness gap generically, dialing through the relay the same way a [`kubectl` or `helm`]({{< relref "/docs/guides/deploying-workloads" >}}) step applies a manifest into the same cluster.
 
 An `expose` entry reports through the same `Result.ExposedPorts` a container step's `expose` already populates. No protocol or console change was needed. A plain `host:port` isn't enough information here, since a client must dial the relay and then ask it to reach the real target, so `Upstream` carries both as one string: `socks5://127.0.0.1:<relayPort>/<address>`, and `Protocol` reads `"socks5"` rather than `"tcp"`/`"udp"`, marking that it needs a SOCKS5-aware dial rather than a direct one.
 

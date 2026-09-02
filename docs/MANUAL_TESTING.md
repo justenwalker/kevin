@@ -242,6 +242,17 @@ kevin -C examples/kind run
       steps remain in this example - `kevin ca uninstall` manages CA trust
       separately, see section 4.)
 
+Put `cluster` in `setup` scope instead, and add an `env` step needing
+`setup.cluster` that applies a manifest with `keep: true`:
+
+- [ ] `kevin setup`, then `kevin run`, then `Ctrl-C`: the `keep: true`
+      step's `Down` still runs (it logs removing/keeping, same as any
+      other step), but the manifest it applied is still there afterward -
+      `kubectl get` against the still-live `setup` cluster shows it.
+      `helm`'s `keep` field behaves the same way for a release.
+- [ ] `kevin teardown` afterward removes the cluster (and the manifest
+      with it).
+
 ## 8. `builtin:route` with `external: true` (`examples/intercept`)
 
 _Automated by `gnob e2e` (`tests/e2e/intercept_test.go`)._

@@ -269,6 +269,89 @@ func (s *KindSuite) TestConnectErrorsCleanlyWithNoConnectableStep() {
 	s.Contains(out, "no step")
 }
 
+// keepCUE puts the cluster in the setup scope (kevin run's teardown never
+// touches it) and a kubectl step with keep: true in the env scope, so
+// "kevin run"'s own SIGINT teardown - which only ever touches the env
+// scope - is the thing under test: keeper's Down either deletes the
+// manifest or, because of keep, leaves it, and the still-live setup
+// cluster is what makes that observable afterward with no race against
+// the cluster's own removal.
+const keepCUE = `project: "%s"
+
+setup: cluster: {
+	uses:  "builtin:kind"
+	label: "Kind Cluster"
+	with: {
+		workers: 0
+		wait:    "5m"
+	}
+}
+env: keeper: {
+	uses:  "builtin:kubectl"
+	label: "Keeper"
+	needs: ["setup.cluster"]
+	with: {
+		kubeconfig: "${setup.cluster.out.kubeconfig}"
+		context:    "${setup.cluster.out.context}"
+		manifest:   "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: keepme\ndata: {x: \"1\"}\n"
+		keep:       true
+	}
+}
+`
+
+// KindKeepSuite covers docs/MANUAL_TESTING.md section 7's kubectl/helm
+// keep: field - its own suite, and its own setup-scope cluster, because
+// proving keep needs a real "kevin run" teardown to happen (KindSuite's
+// shared cluster never runs one mid-suite).
+type KindKeepSuite struct {
+	e2eSuite
+
+	dir     string
+	project string
+}
+
+func TestKindKeepSuite(t *testing.T) {
+	suite.Run(t, new(KindKeepSuite))
+}
+
+func (s *KindKeepSuite) SetupSuite() {
+	s.requireDocker()
+	if _, err := exec.LookPath("kubectl"); err != nil {
+		s.T().Skip("kubectl not found on PATH")
+	}
+
+	s.project = "kevin-e2e-kind-keep"
+	s.dir = s.T().TempDir()
+	s.writeCUE(s.dir, fmt.Sprintf(keepCUE, s.project))
+	s.cleanupProject(s.project)
+
+	out, code := s.runToCompletion(s.dir, "-C", s.dir, "setup")
+	s.Require().Equal(0, code, "kevin setup output:\n%s", out)
+	s.Require().Contains(out, stepLine("cluster", "ready"))
+}
+
+func (s *KindKeepSuite) TearDownSuite() {
+	if s.dir == "" {
+		return
+	}
+	out, code := s.runToCompletion(s.dir, "-C", s.dir, "teardown")
+	s.Equal(0, code, "kevin teardown output:\n%s", out)
+}
+
+// TestKubectlKeepLeavesTheManifestOnTeardown proves keep: true on a
+// kubectl step leaves what Up applied in place once "kevin run" tears
+// its own (env) scope down - Down still runs, it just skips the delete.
+func (s *KindKeepSuite) TestKubectlKeepLeavesTheManifestOnTeardown() {
+	out, code := s.runUntil(s.dir, stepLine("keeper", "ready"), "-C", s.dir, "run")
+	s.Require().Equal(0, code, "kevin run output:\n%s", out)
+	s.Contains(out, stepLine("keeper", "removed"), "Down must still run for a keep:true step")
+
+	kubeconfig := filepath.Join(s.dir, ".kevin", "kubeconfig", s.project+"-cluster")
+	got, err := exec.CommandContext(s.T().Context(), "kubectl", "--kubeconfig", kubeconfig, "get", "configmap", "keepme").CombinedOutput()
+	s.Require().NoError(err, "keep: true must leave the manifest in place, kubectl output:\n%s", got)
+	s.Contains(string(got), "keepme")
+}
+
 // fetchThroughProxyOnce is one probe attempt through the proxy, returning
 // whatever body it got (even an error page) for the caller to retry on.
 func (s *KindSuite) fetchThroughProxyOnce(proxyAddr, target string) string {

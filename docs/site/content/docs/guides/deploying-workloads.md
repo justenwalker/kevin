@@ -34,9 +34,9 @@ Name a `chart` (a local path, an `oci://` reference, or a chart name inside `rep
 
 `path`, `kustomize`, `chart`, and `values_files` all resolve against the project directory (the directory holding `kevin.cue`) when given as a relative path.
 
-## No teardown
+## Cleanup
 
-kevin didn't create the cluster these steps target, and doesn't tear it down. Deleting a namespace or uninstalling a release would reach into state outside what kevin owns. What `kubectl apply` or `helm upgrade --install` leaves behind survives `kevin teardown` and Ctrl-C.
+`Down` deletes or uninstalls by default: `kubectl`'s runs `kubectl delete` against the same manifest/path/kustomize `Up` applied, `helm`'s runs `helm uninstall`. kevin didn't create the cluster these steps target, and doesn't tear the cluster itself down here - only what was applied or installed inside it. Set `keep: true` on either step's `with` block to leave that in place instead; it then survives `kevin teardown` and Ctrl-C the same way the untouched cluster does.
 
 ## Readiness
 
