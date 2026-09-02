@@ -907,6 +907,26 @@ env: {
 		"Down must receive the rendered value, not the raw needs.* template")
 }
 
+// TestRunRendersProjectTemplates proves a with block can read the
+// project.* CEL scope (Commit 1 of the project.*/builtin:exec plan),
+// alongside needs.*, and that it resolves to the real host path kevin's
+// own ca.RootCertPath computes - not a stand-in or the literal template.
+func TestRunRendersProjectTemplates(t *testing.T) {
+	requireRelay(t)
+	dir := project(t, `
+env: {
+	a: {uses: "echo:echo", with: message: "cert=${project.root_cert}"}
+}
+`)
+	_, err := runUntil(t, dir, "a                ready")
+	require.NoError(t, err)
+
+	logs, err := os.ReadFile(filepath.Join(dir, WorkspaceDir, LogsFile))
+	require.NoError(t, err)
+	assert.Contains(t, string(logs), "cert="+ca.RootCertPath(),
+		"Up must receive the rendered value, not the raw project.* template")
+}
+
 // TestRunRerunReExecutesAStepAndFillsInSkippedDependents proves the
 // console's rerun endpoint reaches run.RerunStep end to end. A dependent
 // that a failure left skipped shows as skipped on the page; a direct rerun

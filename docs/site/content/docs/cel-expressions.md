@@ -9,7 +9,7 @@ Any string in a step's `with` block, at any depth, that contains `${...}`
 gets the text inside the braces evaluated as a
 [CEL](https://cel.dev) (Common Expression Language) expression, and the
 result spliced back into the surrounding text. A string with no `${` is
-never touched. This page documents the three variables kevin exposes to that
+never touched. This page documents the four variables kevin exposes to that
 expression; for the CEL language itself (operators, `has()`, ternary `? :`,
 string/list/map methods), see the
 [CEL language definition](https://github.com/google/cel-spec/blob/master/doc/langdef.md).
@@ -31,6 +31,7 @@ and spliced in independently, left to right.
 | `needs` | `map[string]map[string]map[string]string` | Keyed by upstream step name (must be listed in this step's `needs`), then by sub-namespace (`out` or `system`), then by key. |
 | `setup` | `map[string]map[string]map[string]string` | Same shape as `needs`, but for a cross-scope `needs: ["setup.<name>"]` reference - keyed by the setup step's name, with no `setup.` prefix. Empty when rendering a `setup`-scope step itself. |
 | `env` | `map[string]string` | The kevin process's own environment variables, keyed by name. |
+| `project` | `map[string]string` | Project-level constants kevin computes once per session, keyed by name. |
 
 ### `needs.<step>.out.<key>`
 
@@ -85,6 +86,29 @@ The named environment variable from kevin's own process environment.
 registry: "${env.REGISTRY_HOST}"
 ```
 
+### `project.<key>`
+
+A project-level constant kevin computes once per session, independent of
+any step. Unlike `env.<VAR>`, this is a small fixed set of keys:
+
+| Key | Value |
+|:----|:------|
+| `root_cert` | Host path of kevin's root CA certificate file. |
+| `ca_cert` | Host path of this project's intermediate CA certificate file. |
+| `ca_key` | Host path of this project's intermediate CA private key file. |
+| `http_proxy_addr` | `host:port` of kevin's own HTTP(S) proxy, reachable from the host. |
+
+Useful for a tool that only takes these as a command-line flag, not via
+`SSL_CERT_FILE`/`HTTP_PROXY`-style environment variables:
+
+```cue
+up: command: [
+    "curl", "--cacert", "${project.root_cert}",
+    "--proxy", "${project.http_proxy_addr}",
+    "https://internal.example.com",
+]
+```
+
 ## Errors
 
 Every error below fails the step's `Up`/`Down` before the plugin ever sees
@@ -94,6 +118,7 @@ the `with` block.
 |:------|:--------|:------------------|
 | `<step>` isn't listed in this step's `needs`, or has no such `out`/`system` key | `${needs.other.out.x}` | the step name |
 | `<VAR>` isn't set in kevin's environment | `${env.MISSING}` | the step name |
+| `<key>` isn't one of `project`'s known keys | `${project.no_such_key}` | the step name |
 | The expression doesn't evaluate to a string (CEL result must be `string`) | `${1 + 1}` | `must evaluate to a string` |
 | `${` with no matching `}` | `${needs.cluster.out.x` | the unbalanced marker |
 | The text inside `${...}` isn't valid CEL | `${needs.}` | the CEL compile error |

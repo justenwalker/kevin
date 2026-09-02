@@ -81,6 +81,18 @@ func RootCertPath() string {
 	return filepath.Join(state.UserStateDir(), RootCertFile)
 }
 
+// ProjectCertPath returns the host path of the project's intermediate CA
+// certificate file.
+func ProjectCertPath(cwd, name string) string {
+	return filepath.Join(state.ProjectStateDir(cwd, name), CertFile)
+}
+
+// ProjectKeyPath returns the host path of the project's intermediate CA
+// private key file.
+func ProjectKeyPath(cwd, name string) string {
+	return filepath.Join(state.ProjectStateDir(cwd, name), KeyFile)
+}
+
 // RootCommonName is the common name of the Root Certificate Authority.
 const RootCommonName = "Kevin Local Root CA"
 

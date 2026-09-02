@@ -26,6 +26,7 @@ func buildEnv() (*cel.Env, error) {
 		cel.Variable("needs", needsType),
 		cel.Variable("setup", needsType),
 		cel.Variable("env", cel.MapType(cel.StringType, cel.StringType)),
+		cel.Variable("project", cel.MapType(cel.StringType, cel.StringType)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("expr: build the CEL environment: %w", err)
@@ -33,8 +34,24 @@ func buildEnv() (*cel.Env, error) {
 	return env, nil
 }
 
+// Scopes bundles the caller-supplied values Render evaluates a with block's
+// "${...}" markers against. The zero value renders only `env` expressions.
+type Scopes struct {
+	// Needs supplies `needs.<step>.out.<key>`: each upstream step's own Result.Outputs.
+	Needs map[string]dag.Outputs
+
+	// System supplies `needs.<step>.system.<key>`: kevin-computed values for that step.
+	System map[string]dag.Outputs
+
+	// Setup supplies `setup.<name>.out.<key>`, for a cross-scope "setup.<name>" needs entry.
+	Setup map[string]dag.Outputs
+
+	// Project supplies `project.<key>`: project-level constants kevin computes once per session.
+	Project map[string]string
+}
+
 // Render walks a JSON value and replaces all the "${cel-expression}" markers found inside strings with the result it computes.
-// The value's strings are evaluated against three variables:
+// The value's strings are evaluated against four variables:
 //  1. `needs`: keyed by the upstream step's name, each with two sub-namespaces:
 //     `out` (the step's own outputs: `needs.<step>.out.<key>`) and `system`
 //     (kevin-computed values for that step: `needs.<step>.system.<key>`).
@@ -43,7 +60,9 @@ func buildEnv() (*cel.Env, error) {
 //     from needs. Always empty when rendering a setup-scope step itself.
 //  3. `env`: the kevin process's own environment variables, e.g. `env.HOME`.
 //     A reference to an unset variable errors; use `has(env.FOO) ? env.FOO : "default"` for a fallback.
-func Render(raw json.RawMessage, step string, deps, system, setupDeps map[string]dag.Outputs) (json.RawMessage, error) {
+//  4. `project`: project-level constants kevin computes once per session,
+//     such as `project.root_cert`, keyed by name, same map shape as `env`.
+func Render(raw json.RawMessage, step string, scopes Scopes) (json.RawMessage, error) {
 	// inexpensive early exit.
 	// If we have no '${' cel marker, then there is nothing to evaluate.
 	if !bytes.Contains(raw, []byte(marker)) {
@@ -55,10 +74,10 @@ func Render(raw json.RawMessage, step string, deps, system, setupDeps map[string
 		return nil, fmt.Errorf("expr: decode: %w", err)
 	}
 
-	needs := activation(deps, system)
-	setup := activation(setupDeps, nil)
+	needs := activation(scopes.Needs, scopes.System)
+	setup := activation(scopes.Setup, nil)
 	env := hostEnv()
-	rendered, err := renderValue(v, step, needs, setup, env)
+	rendered, err := renderValue(v, step, needs, setup, env, scopes.Project)
 	if err != nil {
 		return nil, err
 	}
@@ -74,13 +93,13 @@ func Render(raw json.RawMessage, step string, deps, system, setupDeps map[string
 // If the value `v` is a string, it tries to render any cel expression in the string.
 // If the value is a collection type, it will recursively try to evaluate each collection element.
 // Otherwise, it returns the value unchanged.
-func renderValue(v any, step string, needs, setup map[string]any, env map[string]string) (any, error) {
+func renderValue(v any, step string, needs, setup map[string]any, env, project map[string]string) (any, error) {
 	switch t := v.(type) {
 	case string:
-		return renderString(t, step, needs, setup, env)
+		return renderString(t, step, needs, setup, env, project)
 	case map[string]any:
 		for k, elem := range t {
-			rendered, err := renderValue(elem, step, needs, setup, env)
+			rendered, err := renderValue(elem, step, needs, setup, env, project)
 			if err != nil {
 				return nil, err
 			}
@@ -89,7 +108,7 @@ func renderValue(v any, step string, needs, setup map[string]any, env map[string
 		return t, nil
 	case []any:
 		for i, elem := range t {
-			rendered, err := renderValue(elem, step, needs, setup, env)
+			rendered, err := renderValue(elem, step, needs, setup, env, project)
 			if err != nil {
 				return nil, err
 			}
@@ -103,7 +122,7 @@ func renderValue(v any, step string, needs, setup map[string]any, env map[string
 
 // renderString splices the result of every "${...}" expression in s back
 // into the surrounding literal text. s with no marker returns unchanged.
-func renderString(s string, step string, needs, setup map[string]any, env map[string]string) (string, error) {
+func renderString(s string, step string, needs, setup map[string]any, env, project map[string]string) (string, error) {
 	if !strings.Contains(s, marker) {
 		return s, nil
 	}
@@ -124,7 +143,7 @@ func renderString(s string, step string, needs, setup map[string]any, env map[st
 			return "", fmt.Errorf("%w: %q", ErrUnbalanced, s)
 		}
 
-		result, err := eval(exprStr, step, needs, setup, env)
+		result, err := eval(exprStr, step, needs, setup, env, project)
 		if err != nil {
 			return "", err
 		}
@@ -133,9 +152,9 @@ func renderString(s string, step string, needs, setup map[string]any, env map[st
 	}
 }
 
-// eval compiles and evaluates one CEL expression against needs, setup and
-// env, and requires the result is a string.
-func eval(exprStr, step string, needs, setup map[string]any, env map[string]string) (string, error) {
+// eval compiles and evaluates one CEL expression against needs, setup, env
+// and project, and requires the result is a string.
+func eval(exprStr, step string, needs, setup map[string]any, env, project map[string]string) (string, error) {
 	cEnv, err := celEnv()
 	if err != nil {
 		return "", fmt.Errorf("expr: build the cel environment: %w", err)
@@ -150,7 +169,7 @@ func eval(exprStr, step string, needs, setup map[string]any, env map[string]stri
 		return "", fmt.Errorf("expr: %q: %w", exprStr, err)
 	}
 
-	out, _, err := prg.Eval(map[string]any{"needs": needs, "setup": setup, "env": env})
+	out, _, err := prg.Eval(map[string]any{"needs": needs, "setup": setup, "env": env, "project": project})
 	if err != nil {
 		return "", fmt.Errorf("expr: %q: %w (is the step it names listed in %q's needs, or the variable set in the environment?)", exprStr, err, step)
 	}

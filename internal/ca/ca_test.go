@@ -367,6 +367,16 @@ func TestCA_TLSCertificate(t *testing.T) {
 	})
 }
 
+func TestProjectCertPath(t *testing.T) {
+	got := ca.ProjectCertPath("/work/project", "demo")
+	assert.Equal(t, filepath.Join(state.ProjectStateDir("/work/project", "demo"), ca.CertFile), got)
+}
+
+func TestProjectKeyPath(t *testing.T) {
+	got := ca.ProjectKeyPath("/work/project", "demo")
+	assert.Equal(t, filepath.Join(state.ProjectStateDir("/work/project", "demo"), ca.KeyFile), got)
+}
+
 // freshDir returns a path to a directory that does not exist yet, inside a
 // fresh temporary directory. LoadOrGenerateRoot and LoadOrGenerateIntermediate
 // only set 0700 permissions when they create a directory themselves, so

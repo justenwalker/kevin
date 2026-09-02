@@ -257,6 +257,12 @@ func Run(ctx context.Context, opts Options) error {
 		Scope:         opts.Scope,
 	}
 	r.env = env
+	r.project = map[string]string{
+		"root_cert":       ca.RootCertPath(),
+		"ca_cert":         ca.ProjectCertPath(cfg.Dir, cfg.Name),
+		"ca_key":          ca.ProjectKeyPath(cfg.Dir, cfg.Name),
+		"http_proxy_addr": server.addr,
+	}
 	notifyEnvironment(opts, env)
 
 	if err := ConfigureAll(ctx, cfg.Plugins, plugins, env); err != nil {
@@ -701,8 +707,16 @@ func Teardown(ctx context.Context, opts Options) error {
 		events:  opts.Events,
 		// Teardown serves no page - just a store for r's step-mutation calls
 		// and, when live, the terminal UI to read.
-		store:   session.NewStore(),
-		env:     env,
+		store: session.NewStore(),
+		env:   env,
+		// No proxy runs during Teardown, so unlike Run, there's no
+		// http_proxy_addr to offer - the CA files still exist on disk
+		// regardless.
+		project: map[string]string{
+			"root_cert": ca.RootCertPath(),
+			"ca_cert":   ca.ProjectCertPath(cfg.Dir, cfg.Name),
+			"ca_key":    ca.ProjectKeyPath(cfg.Dir, cfg.Name),
+		},
 		timings: loadTimings(ctx, filepath.Join(workspace, TimingsFile)),
 		stepLog: stepLog.Logger,
 		// There is no state file for step outputs. Every step is a candidate
@@ -866,6 +880,7 @@ type run struct {
 	plugins map[string]*pluginhost.Client
 	caps    map[string]pluginhost.Info
 	env     *pb.Environment
+	project map[string]string
 	events  io.Writer
 	timings *timingStore
 	stepLog *slog.Logger
@@ -1061,7 +1076,7 @@ func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[stri
 	}
 	r.systemMu.Unlock()
 
-	with, err := expr.Render(step.With, name, deps, system, setupDeps)
+	with, err := expr.Render(step.With, name, expr.Scopes{Needs: deps, System: system, Setup: setupDeps, Project: r.project})
 	if err != nil {
 		return nil, fmt.Errorf("%s: with: %w", name, err)
 	}
