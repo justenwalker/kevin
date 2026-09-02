@@ -26,6 +26,21 @@ web_route: {
 }
 ```
 
+A leading `*.` on `host` registers a wildcard subdomain, matching any
+name under it but not the bare domain itself - this works the same way
+whether or not `external` is set:
+
+```cue
+tenant_route: {
+    uses:  "builtin:route"
+    needs: ["web"]
+    with: routes: [{host: "*.web", address: "${needs.web.out.host_80}"}]
+}
+```
+
+registers `*.web.<domain>`, matching `anything.web.<domain>` (but not the
+bare `web.<domain>`) into the same address.
+
 Or with a [`builtin:kind`]({{< relref "/docs/reference/kind" >}}) cluster's
 relay for a target the proxy can only reach through a SOCKS5 tunnel. Set
 `relay` to dial through it, with a CONNECT to each route's address:
@@ -49,10 +64,10 @@ step that publishes the relay address too). `Up` must run after both are
 ready.
 
 Set `external` on an entry to intercept a real-world hostname instead of
-registering a subdomain - `host` is then used exactly as given (a leading
-`*.` wildcard matches any subdomain, but not the bare domain), and traffic
+registering a subdomain - `host` is then used exactly as given, and traffic
 meant for that real service transparently lands on `address` instead, such
-as a local fake running behind a `container` step:
+as a local fake running behind a `container` step. The same `*.` wildcard
+rule above still applies to `host` here too:
 
 ```cue
 s3_fake: {uses: "builtin:container", with: {image: "ministackorg/ministack", expose: [{port: 4566}]}}
@@ -80,7 +95,7 @@ genuine (if unauthenticated) S3 API response.
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `host` | `string` | - | **Required.** The subdomain under the environment domain that serves this route, e.g. `"myapp"`. When external is true, host is instead a real-world hostname used exactly as given, e.g. `"s3.amazonaws.com"` - a leading `"*."` wildcard then matches any subdomain, e.g. `"*.s3.amazonaws.com"`, but not the bare domain itself. |
+| `host` | `string` | - | **Required.** The subdomain under the environment domain that serves this route, e.g. `"myapp"` registers `"myapp.<domain>"`. When external is true, host is instead a real-world hostname used exactly as given, e.g. `"s3.amazonaws.com"`. Either way, a leading `"*."` wildcard matches any subdomain but not the bare domain itself: `"*.myapp"` registers `"*.myapp.<domain>"`, matching `"anything.myapp.<domain>"` but not `"myapp.<domain>"` - same rule the proxy's route table applies to `"*.s3.amazonaws.com"` for an external entry. |
 | `address` | `string` | - | **Required.** The target: a Kubernetes Service DNS name and port when relay is set (`"myapp.default.svc.cluster.local:80"`), or a host-reachable address the proxy process can dial directly otherwise (`"127.0.0.1:8080"`). |
 | `tls` | `bool` | - | True when the target itself speaks TLS, such as a Service fronting HTTPS on its port. |
 | `external` | `bool` | - | True when host is a real-world hostname to intercept, rather than a subdomain of the environment domain - traffic meant for that real service transparently lands on address instead, such as a local fake running behind a container step. |

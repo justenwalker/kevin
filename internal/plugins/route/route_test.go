@@ -99,6 +99,30 @@ func TestUpWithExternalSkipsTheDomainSuffix(t *testing.T) {
 	}, result.Routes[1])
 }
 
+func TestUpWithAWildcardHostSuffixesTheDomainBeforeTheProxySeesIt(t *testing.T) {
+	// The proxy's route table treats any Route.Host with a leading "*." as
+	// a wildcard, regardless of external - it never sees "external" at
+	// all, only the final Host string. A non-external "*.foo" must still
+	// get the domain suffix appended after the wildcard marker, not
+	// instead of it, so "*.foo.kevin.home" reaches the table intact.
+	result, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+		Step: "tenant_route",
+		Env:  plugin.Env{Domain: "kevin.home"},
+		Config: []byte(`{
+			"routes": [
+				{"host": "*.foo", "address": "127.0.0.1:9090"}
+			]
+		}`),
+	}, &noopEmitter{})
+	require.NoError(t, err)
+
+	require.Len(t, result.Routes, 1)
+	assert.Equal(t, plugin.Route{
+		Host:     "*.foo.kevin.home",
+		Upstream: "127.0.0.1:9090",
+	}, result.Routes[0], "a wildcard host must keep its leading *. through the domain suffix, matching anything.foo.kevin.home")
+}
+
 type noopEmitter struct{}
 
 func (noopEmitter) Log(string, string)            {}

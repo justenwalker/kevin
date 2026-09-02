@@ -214,3 +214,64 @@ func (s *ProxySuite) testEgressPolicy(egressCUE, project string) {
 	s.Require().NoError(p.cmd.Process.Signal(syscall.SIGINT))
 	s.waitExit(p, defaultTimeout)
 }
+
+// TestRouteWildcardWithoutExternal covers a builtin:route host wildcard
+// with no external: true - the proxy's route table wildcard-matches any
+// Route.Host with a leading "*.", regardless of external, so "*.web"
+// (not "*.web.kevin.home" and not external) must already match
+// "anything.web.kevin.home" but not the bare "web.kevin.home". Its own
+// project, not the shared webCUE - that constant's own route stays a
+// plain, non-wildcard host for the other suites that depend on it.
+func (s *ProxySuite) TestRouteWildcardWithoutExternal() {
+	s.requireDocker()
+
+	const project = "kevin-e2e-route-wildcard"
+	dir := s.T().TempDir()
+	s.cleanupProject(project)
+	src := fmt.Sprintf(`project: %s
+
+env: {
+	web: {uses: "builtin:container", label: "Web", with: {image: "nginx:alpine", expose: [{port: 80}]}}
+	web_route: {
+		uses:  "builtin:route"
+		needs: ["web"]
+		with: routes: [{host: "*.web", address: "${needs.web.out.host_80}"}]
+	}
+}
+`, strconv.Quote(project))
+	s.writeCUE(dir, src)
+
+	p := s.startKevin(dir, "-C", dir, "run")
+	s.waitFor(p, stepLine("web_route", "ready"), defaultTimeout)
+	out := p.buf.String()
+	s.T().Cleanup(func() {
+		require := s.Require()
+		require.NoError(p.cmd.Process.Signal(syscall.SIGINT))
+		s.waitExit(p, defaultTimeout)
+	})
+
+	var proxyAddr string
+	for _, row := range addrRE.FindAllStringSubmatch(out, -1) {
+		if row[1] == "proxy" {
+			proxyAddr = row[2]
+		}
+	}
+	s.Require().NotEmpty(proxyAddr, "output:\n%s", out)
+
+	pem, err := os.ReadFile(filepath.Join(dir, ".kevin", "root.crt"))
+	s.Require().NoError(err)
+	rootCAs := x509.NewCertPool()
+	s.Require().True(rootCAs.AppendCertsFromPEM(pem))
+	client := proxyHTTPClient(proxyAddr, rootCAs)
+
+	resp := httpGet(s.T(), client, "https://anything.web.kevin.home/")
+	defer resp.Body.Close() //nolint:errcheck // read-only response body
+	body, err := io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+	s.Equal(http.StatusOK, resp.StatusCode)
+	s.Contains(string(body), "Welcome to nginx", "a wildcard host must match a subdomain with no external: true")
+
+	resp2 := httpGet(s.T(), client, "https://web.kevin.home/")
+	defer resp2.Body.Close() //nolint:errcheck // read-only response body
+	s.Equal(http.StatusForbidden, resp2.StatusCode, "a wildcard must not match the bare domain it's registered under")
+}

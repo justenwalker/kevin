@@ -12,10 +12,13 @@
 
 #Route: {
 	// host is the subdomain under the environment domain that serves this
-	// route, e.g. "myapp". When external is true, host is instead a
-	// real-world hostname used exactly as given, e.g. "s3.amazonaws.com" -
-	// a leading "*." wildcard then matches any subdomain, e.g.
-	// "*.s3.amazonaws.com", but not the bare domain itself.
+	// route, e.g. "myapp" registers "myapp.<domain>". When external is
+	// true, host is instead a real-world hostname used exactly as given,
+	// e.g. "s3.amazonaws.com". Either way, a leading "*." wildcard matches
+	// any subdomain but not the bare domain itself: "*.myapp" registers
+	// "*.myapp.<domain>", matching "anything.myapp.<domain>" but not
+	// "myapp.<domain>" - same rule the proxy's route table applies to
+	// "*.s3.amazonaws.com" for an external entry.
 	host!: string
 
 	// address is the target: a Kubernetes Service DNS name and port when

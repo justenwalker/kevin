@@ -100,6 +100,16 @@ instead of hitting the proxy's own endpoint directly.)
       `probe`'s logs - `noproxy` sets `proxy: false` and still reaches `web`
       by step name over the docker network, without any proxy env vars.
 
+Add a second entry to `web_route`'s `routes` list:
+`{host: "*.web", address: "${needs.web.out.host_80}"}` - no `external: true`.
+
+- [ ] `curl --proxy http://127.0.0.1:18080 --cacert examples/web/.kevin/root.crt https://anything.web.kevin.home/`
+      also reaches the nginx page - a host wildcard matches a subdomain
+      the same way with or without `external: true`.
+- [ ] The same request against the bare `web.kevin.home` (no subdomain) is
+      unaffected by the wildcard entry - it still only matches through the
+      plain `web` entry already there, not the `*.web` one.
+
 ## 3. Egress control
 
 _Automated by `gnob e2e` (`tests/e2e/proxy_test.go`)._
