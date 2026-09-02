@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/justenwalker/kevin/internal/plugins/container"
+	"github.com/justenwalker/kevin/internal/plugins/exec"
 	"github.com/justenwalker/kevin/internal/plugins/helm"
 	"github.com/justenwalker/kevin/internal/plugins/kind"
 	"github.com/justenwalker/kevin/internal/plugins/kubectl"
@@ -32,10 +33,11 @@ var steps = map[string]plugin.Step{
 	"helm":      helm.New(),
 	"wait":      wait.New(),
 	"route":     route.New(),
+	"exec":      exec.New(),
 }
 
 // Provider returns the plugin that kevin supplies. It offers container,
-// kind, kubectl, helm, wait, and route.
+// kind, kubectl, helm, wait, route, and exec.
 func Provider() plugin.Plugin {
 	return plugin.Plugin{Name: Name, Version: version, Steps: steps}
 }

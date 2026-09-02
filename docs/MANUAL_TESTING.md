@@ -465,7 +465,7 @@ kevin plugin list
 
 - [ ] Prints every builtin step type as `builtin:<name>` (`builtin:container`,
       `builtin:kind`, `builtin:kubectl`, `builtin:helm`,
-      `builtin:wait`, `builtin:route`), one per line.
+      `builtin:wait`, `builtin:route`, `builtin:exec`), one per line.
 
 ## 14. Reserved plugin namespace
 
@@ -525,4 +525,54 @@ kevin ca install && kevin ca install
 
 - [ ] Running `install` twice in a row is a no-op the second time, not a
       duplicate-install error (CA re-derivation, not a saved list).
+
+## 17. `builtin:exec`
+
+_Automated by `gnob e2e` (`tests/e2e/exec_test.go`)._
+
+No Docker - `exec` runs its command directly on the host.
+
+```cue
+env: {
+	a: {uses: "builtin:exec", with: up: command: ["sh", "-c", "echo hello-from-exec"]}
+	b: {
+		uses:  "builtin:exec"
+		needs: ["a"]
+		with: up: command: ["sh", "-c", "echo got: ${needs.a.out.stdout}"]
+	}
+}
+```
+
+- [ ] `b`'s log line reads `got: hello-from-exec` - a dependent step reads
+      an exec step's trimmed stdout as its `stdout` output, the same as
+      any other step's `Outputs`.
+
+Add a `down` command to `a`:
+
+```cue
+a: {
+	uses: "builtin:exec"
+	with: {
+		up:   command: ["sh", "-c", "echo up-ran"]
+		down: command: ["sh", "-c", "echo down-ran"]
+	}
+}
+```
+
+- [ ] `Ctrl-C` runs `down`'s command - `down-ran` appears in the log.
+      Remove `down` entirely and rerun - teardown logs nothing for `a`, no
+      command runs at all.
+
+```cue
+up: command: [
+    "curl", "--cacert", "${project.root_cert}",
+    "--proxy", "${project.http_proxy_addr}",
+    "https://internal.example.com",
+]
+```
+
+- [ ] `proxy: true` on the step adds `HTTP_PROXY`/`HTTPS_PROXY`/
+      `SSL_CERT_FILE` to `up`'s (and `down`'s) own environment, built from
+      the host-reachable proxy address - not the container-oriented one a
+      `builtin:container` step's `proxy: true` uses.
 

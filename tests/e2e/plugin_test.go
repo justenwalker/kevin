@@ -160,6 +160,7 @@ func (s *PluginSuite) TestPluginListPrintsEveryBuiltinType() {
 	for _, name := range []string{
 		"builtin:container", "builtin:kind",
 		"builtin:kubectl", "builtin:helm", "builtin:wait", "builtin:route",
+		"builtin:exec",
 	} {
 		s.Contains(out, name+"\n")
 	}

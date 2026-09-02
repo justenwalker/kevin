@@ -7,7 +7,7 @@ weight: 2
 
 An environment is a `kevin.cue` (or `.yaml`/`.yml`/`.json`, or a `.`-prefixed dotfile variant of any of those - see [File name and format](#file-name-and-format) below) in the project directory. It declares the steps that make up the environment, and the plugin binaries that a step outside kevin needs. A CUE file has no package clause.
 
-A plugin is a provider: it offers one or more step types under its own name. A step's `uses` field names a step type as `<plugin>:<step>`. `builtin` is the provider kevin supplies, and it needs no `plugins:` entry. It offers seven step types: `container`, `kind`, `trust`, `kubectl`, `helm`, `wait`, and `route`. See [Reference]({{< relref "/docs/reference" >}}) for each one's `with` block.
+A plugin is a provider: it offers one or more step types under its own name. A step's `uses` field names a step type as `<plugin>:<step>`. `builtin` is the provider kevin supplies, and it needs no `plugins:` entry. It offers seven step types: `container`, `kind`, `kubectl`, `helm`, `wait`, `route`, and `exec`. See [Reference]({{< relref "/docs/reference" >}}) for each one's `with` block.
 
 A step also takes an optional `label`, a friendly name for the console. The step's own key still names it everywhere else (`needs`, the domain, the event log).
 

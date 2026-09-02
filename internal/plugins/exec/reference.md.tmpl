@@ -1,0 +1,67 @@
+---
+title: "🏃 exec"
+weight: 8
+---
+
+[[template "banner"]]
+
+# `builtin:exec`
+
+Runs `up`'s command once on the host. A nonzero exit fails the step; its
+trimmed stdout becomes the step's `stdout` output, so a dependent can read
+it back with `${needs.<step>.out.stdout}`. `down`, if set, runs on
+teardown for cleanup - omitted, `Down` does nothing.
+
+```cue
+migrate: {
+    uses: "builtin:exec"
+    with: {
+        up:   {command: ["./scripts/migrate.sh", "up"]}
+        down: {command: ["./scripts/migrate.sh", "down"]}
+    }
+}
+```
+
+`up` and `down` each have their own `cwd`/`env`, since a cleanup command
+often wants a different working directory or environment than the command
+that created what it's cleaning up. `proxy`/`egress` apply to both, since
+they're about network posture, not about either command's own inputs:
+
+```cue
+fetch: {
+    uses: "builtin:exec"
+    with: {
+        up:     {command: ["curl", "-fsSL", "-o", "/tmp/asset.tar.gz", "https://example.com/asset.tar.gz"]}
+        proxy:  true
+        egress: ["example.com"]
+    }
+}
+```
+
+A tool that only takes a CA certificate or a proxy address as a flag, not
+via `SSL_CERT_FILE`/`HTTP_PROXY`-style environment variables, can read
+them directly out of the `project.*` CEL scope instead:
+
+```cue
+up: command: [
+    "curl", "--cacert", "${project.root_cert}",
+    "--proxy", "${project.http_proxy_addr}",
+    "https://internal.example.com",
+]
+```
+
+See [CEL expressions]({{< relref "/docs/cel-expressions" >}}).
+
+[[template "table" .Definitions.Config]]
+
+## `#Exec`
+
+[[template "table" .Definitions.Exec]]
+
+**Kind: action.** `Down` always runs (it's declared on the step type,
+same as `builtin:kubectl`), but does nothing when `down` is unset - same
+as `builtin:kubectl`'s `Down` doing nothing when `keep` is set.
+
+Not idempotent: kevin has no way to know whether rerunning an arbitrary
+command is safe, so a cascading rerun of a step this one depends on never
+sweeps this step back in automatically.

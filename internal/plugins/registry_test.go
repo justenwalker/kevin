@@ -21,6 +21,7 @@ func TestLookup(t *testing.T) {
 		{name: "helm is registered", find: "helm", want: true},
 		{name: "wait is registered", find: "wait", want: true},
 		{name: "route is registered", find: "route", want: true},
+		{name: "exec is registered", find: "exec", want: true},
 		{name: "unknown name is a miss", find: "nonsense", want: false},
 	}
 
@@ -36,7 +37,7 @@ func TestLookup(t *testing.T) {
 }
 
 func TestNames(t *testing.T) {
-	assert.Equal(t, []string{"container", "helm", "kind", "kubectl", "route", "wait"}, plugins.Names(),
+	assert.Equal(t, []string{"container", "exec", "helm", "kind", "kubectl", "route", "wait"}, plugins.Names(),
 		"Names must list every builtin step type, sorted")
 }
 
