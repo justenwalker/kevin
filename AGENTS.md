@@ -119,13 +119,24 @@ leaves no tag or GitHub release behind.
   container). `kevin ca install`/`uninstall` manages the CA trust store;
   it needs no project (see the quickstart's "Trust the CA" section).
 
-## Verification Before Done
+## Definition of Done
 
-A task is not complete until `go build ./...`, `go test ./...`, and the lint
-target all pass, and the docs affected by the change are updated in the same
-commit. Docs that must be checked on any behavior change: architecture/
-concepts pages, the feature index, comparison page, README, and generated
-reference docs.
+A task is not complete until all of the following hold:
+
+1. `go build ./...`, `go vet ./...`, `go test -race -cover ./...`, and
+   `./build/gnob lint` all pass.
+2. Docs affected by the change are updated in the same commit, for any
+   user-facing behavior change: architecture/concepts pages, the feature
+   index, comparison page, README, and generated reference docs.
+3. A fresh subagent with no implementation context reviews the diff alone,
+   with nothing beyond the diff itself as input. Ask it to find over-scoped
+   changes, unnecessary comments, violations of AGENTS.md/GO_CONVENTIONS.md,
+   and missing test coverage. Resolve each finding, or note why it doesn't
+   apply, before moving on.
+4. Work is committed as it goes, split by logical concern, never as one
+   monolithic commit at the end - see Commit Discipline above.
+5. Report to the user what the reviewer subagent flagged and how each item
+   was resolved (fixed, or why not), before calling the task done.
 
 ## Linting
 
