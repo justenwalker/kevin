@@ -292,50 +292,61 @@ kevin -C examples/intercept run
       also lands on the fake, confirming the interception isn't
       container-only.
 
-## 9. `kevin connect`
+## 9. `kevin do`
 
-_Automated by `gnob e2e` (`tests/e2e/kind_test.go`)._
+_Automated by `gnob e2e` (`tests/e2e/kind_test.go`, `tests/e2e/do_test.go`,
+`tests/e2e/env_test.go`)._
 
 With `examples/kind` up in another terminal:
 
 ```sh
-kevin -C examples/kind connect cluster
+kevin -C examples/kind do nodes
 ```
 
-- [ ] Execs `$SHELL` with `KUBECONFIG` (and any other exported vars) set;
-      `kubectl get nodes` works inside that shell with no extra flags.
+- [ ] Runs `kubectl get nodes` with `--kubeconfig` rendered from
+      `${needs.cluster.out.kubeconfig}` - the command's own defined argv,
+      no shell, no env var to set by hand.
 
 ```sh
-kevin -C examples/kind connect cluster -- kubectl get pods -A
+kevin -C examples/kind do nodes -- -o wide
 ```
 
-- [ ] Runs the given command directly instead of a shell, with the same env.
+- [ ] Extra args after `--` append to the command's `run` argv.
 
 ```sh
-kevin -C examples/kind connect
+kevin -C examples/kind do nope
 ```
 
-- [ ] Since only `cluster` supports `Export` in this environment, behaves the
-      same as naming it explicitly. (If more than one step supported
-      connect, this would list them and require a name instead.)
+- [ ] No command named `nope` - errors listing the available command names,
+      cleanly (not a crash).
+
+`kevin validate` rejects a `commands:` entry whose `needs` names a step
+that doesn't implement `Export`, or whose `run` references a step `needs`
+doesn't declare, before `kevin do` (or Docker) ever runs:
 
 ```sh
-kevin -C examples/web connect
+kevin -C examples/web validate
 ```
 
-- [ ] No step in `examples/web` supports connect - errors saying so, cleanly
-      (not a crash).
+- [ ] Add a `commands:` entry with `needs: ["web"]` to a copy of
+      `examples/web/kevin.cue` (the `container` step type implements
+      `Export`) but a `commands:` entry needing a step type that doesn't
+      (e.g. `builtin:exec`) fails validate, naming the step and "does not
+      implement export".
 
-`connect` renders a step's `with` block before calling `Export`, the same
-as `Up`/`Down` do - not just `${needs...}`, but `${env...}`/`${project...}`
-too, and `${setup.<name>.out.<key>}` even with no `kevin setup` ever having
-run first (`Export` is side-effect-free). Add a step with
-`with: registry: "${env.REGISTRY_HOST}"` (or `${project.root_cert}`, or a
-`setup:`/`env:` pair using `${setup.<name>.out.<key>}`) to a step that
-supports `Export`:
+`do` renders `run`'s `${needs...}`/`${setup...}` markers the same way a
+step's `with` block renders - not just against a command's own `needs`
+steps, but each needed step's own `with` block first gets
+`${env...}`/`${project...}`/`${setup.<name>.out.<key>}` rendered too, even
+with no `kevin setup` ever having run first (`Export` is side-effect-free).
+Add a step with `with: registry: "${env.REGISTRY_HOST}"` (or
+`${project.root_cert}`, or a `setup:`/`env:` pair using
+`${setup.<name>.out.<key>}`) to a step that supports `Export`, and a
+`commands:` entry whose `run` reads it back via
+`${needs.<step>.out.registry}`:
 
-- [ ] `REGISTRY_HOST=foo kevin connect <step> -- env` prints the real
-      value, not the literal `${env.REGISTRY_HOST}` template.
+- [ ] `REGISTRY_HOST=foo kevin do <name>` prints the real value, not the
+      literal `${env.REGISTRY_HOST}` template.
 - [ ] Same for `${project.root_cert}` - prints the real CA path.
 - [ ] Same for `${setup.<name>.out.<key>}`, with no `kevin setup` run
       first.

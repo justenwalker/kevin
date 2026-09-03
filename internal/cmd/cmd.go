@@ -118,7 +118,7 @@ func NewRootCommand() (*cobra.Command, *options) {
 		initCommand(opts),
 		validateCommand(opts),
 		pluginCommand(opts),
-		connectCommand(opts),
+		doCommand(opts),
 		caCommand(opts),
 	)
 

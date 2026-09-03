@@ -34,6 +34,10 @@
 // way a browser would reach any other step, no kubectl port-forward
 // needed.
 //
+// `kevin -C examples/kind do nodes` runs kubectl against the cluster with
+// no --kubeconfig flag to remember - the commands: block below renders it
+// from the cluster step's own Export output.
+//
 // Run `kevin ca install` once for the machine to trust the kevin root CA -
 // see the quickstart's "Trust the CA" section.
 
@@ -141,4 +145,9 @@ env: {
 			routes: [{host: "app", address: "app.default.svc.cluster.local:80"}]
 		}
 	}
+}
+
+commands: nodes: {
+	needs: ["cluster"]
+	run: ["kubectl", "--kubeconfig", "${needs.cluster.out.kubeconfig}", "get", "nodes"]
 }

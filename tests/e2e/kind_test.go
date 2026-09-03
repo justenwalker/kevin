@@ -127,10 +127,21 @@ env: {
 		}
 	}
 }
+
+commands: {
+	nodes: {
+		needs: ["cluster"]
+		run: ["kubectl", "--kubeconfig", "${needs.cluster.out.kubeconfig}", "get", "nodes"]
+	}
+	pods: {
+		needs: ["cluster"]
+		run: ["kubectl", "--kubeconfig", "${needs.cluster.out.kubeconfig}", "get", "pods", "-A"]
+	}
+}
 `
 
 // KindSuite covers docs/MANUAL_TESTING.md sections 7 (builtin:kind,
-// builtin:kubectl, builtin:helm, relay routing) and 9 (kevin connect).
+// builtin:kubectl, builtin:helm, relay routing) and 9 (kevin do).
 // SetupSuite brings up one cluster - by far the most expensive part of the
 // whole e2e run - and TearDownSuite tears it down once; merging the two
 // sections onto it avoids paying kind's slow bring-up twice.
@@ -218,33 +229,33 @@ func (s *KindSuite) TestAppRouteReachesTheServiceThroughTheRelay() {
 	}, 30*time.Second, time.Second, "must reach the nginx pod through the relay-routed Service, last body:\n%s", body)
 }
 
-// TestConnectExecsCommandWithExportedEnv covers "kevin connect cluster --
-// <cmd>": it runs the given command with KUBECONFIG (and any other
-// exported vars) set.
-func (s *KindSuite) TestConnectExecsCommandWithExportedEnv() {
+// TestDoExecsCommandWithExportedOutput covers "kevin do <name>": it renders
+// a commands: entry's run against the needed step's Export output and execs
+// it - see the "pods" entry kindCUE declares below app_route.
+func (s *KindSuite) TestDoExecsCommandWithExportedOutput() {
 	if _, err := exec.LookPath("kubectl"); err != nil {
 		s.T().Skip("kubectl not found on PATH")
 	}
-	out, code := s.runToCompletion(s.dir, "-C", s.dir, "connect", "cluster", "--", "kubectl", "get", "pods", "-A")
+	out, code := s.runToCompletion(s.dir, "-C", s.dir, "do", "pods")
 	s.Equal(0, code, "output:\n%s", out)
 	s.Contains(out, "kube-system")
 }
 
-// TestConnectWithNoNameDefaultsToTheOnlyExportableStep covers "kevin
-// connect" with no step named: since only cluster supports connect in this
-// environment, it behaves the same as naming it explicitly.
-func (s *KindSuite) TestConnectWithNoNameDefaultsToTheOnlyExportableStep() {
+// TestDoExtraArgsAppendToRun covers "kevin do <name> -- <extra args>":
+// args after -- append to the command's own run argv.
+func (s *KindSuite) TestDoExtraArgsAppendToRun() {
 	if _, err := exec.LookPath("kubectl"); err != nil {
 		s.T().Skip("kubectl not found on PATH")
 	}
-	out, code := s.runToCompletion(s.dir, "-C", s.dir, "connect", "--", "kubectl", "get", "nodes")
+	out, code := s.runToCompletion(s.dir, "-C", s.dir, "do", "nodes", "--", "-o", "wide")
 	s.Equal(0, code, "output:\n%s", out)
 	s.Contains(out, "Ready")
+	s.Contains(out, "INTERNAL-IP", "-o wide must have appended, adding columns get nodes alone doesn't print")
 }
 
 // noExportStepCUE is a minimal single-step DAG using "echo:probe" - unlike
-// "echo:echo", the probe step type implements no Export, so it never shows
-// up as a connect candidate.
+// "echo:echo", the probe step type implements no Export - plus a commands:
+// entry that needs it, which can never work.
 const noExportStepCUE = `project: "%s"
 
 plugins: echo: cmd: %s
@@ -253,20 +264,21 @@ env: a: {
 	uses:  "echo:probe"
 	label: "A"
 }
+
+commands: bad: {needs: ["a"], run: ["echo", "unreachable"]}
 `
 
-// TestConnectErrorsCleanlyWithNoConnectableStep covers "kevin connect"
-// against an environment where no step supports connect - errors cleanly,
-// not a crash. A fresh, separate plain project: echo:probe implements no
-// Export.
-func (s *KindSuite) TestConnectErrorsCleanlyWithNoConnectableStep() {
+// TestDoErrorsCleanlyWithoutExport covers a commands: entry whose needs
+// names a step that doesn't implement Export - kevin validate (and thus
+// kevin do) rejects it before anything runs, not a crash.
+func (s *KindSuite) TestDoErrorsCleanlyWithoutExport() {
 	dir := s.T().TempDir()
-	src := fmt.Sprintf(noExportStepCUE, "kevin-e2e-kind-noconnect", strconv.Quote(s.echoPluginBin()))
+	src := fmt.Sprintf(noExportStepCUE, "kevin-e2e-kind-noexport", strconv.Quote(s.echoPluginBin()))
 	s.writeCUE(dir, src)
 
-	out, code := s.runToCompletion(dir, "-C", dir, "connect")
+	out, code := s.runToCompletion(dir, "-C", dir, "do", "bad")
 	s.NotEqual(0, code, "output:\n%s", out)
-	s.Contains(out, "no step")
+	s.Contains(out, "does not implement export")
 }
 
 // keepCUE puts the cluster in the setup scope (kevin run's teardown never

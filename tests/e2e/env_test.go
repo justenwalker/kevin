@@ -172,50 +172,52 @@ func (s *EnvSuite) TestHasFallbackForUnsetVar() {
 	s.Contains(string(logs), "value is localhost:5000")
 }
 
-// TestConnectRendersEnvTemplate is the regression guard for kevin connect
-// sending a step's with block to Export completely unrendered: an
-// ${env.VAR} reference must splice the real value, not the literal
-// template, into what connect execs.
-func (s *EnvSuite) TestConnectRendersEnvTemplate() {
+// TestDoRendersEnvTemplate is the regression guard for kevin do sending a
+// needed step's with block to Export completely unrendered: an ${env.VAR}
+// reference must splice the real value, not the literal template, into
+// what do exports and then reads back into run via ${needs...}.
+func (s *EnvSuite) TestDoRendersEnvTemplate() {
 	dir := s.T().TempDir()
-	src := fmt.Sprintf(`project: "kevin-e2e-connect-env"
+	src := fmt.Sprintf(`project: "kevin-e2e-do-env"
 
 plugins: echo: cmd: %s
 
-env: a: {uses: "echo:echo", with: export: msg: "${env.KEVIN_E2E_CONNECT_ENV_VAR}"}
+env: a: {uses: "echo:echo", with: export: msg: "${env.KEVIN_E2E_DO_ENV_VAR}"}
+commands: check: {needs: ["a"], run: ["sh", "-c", "echo msg=${needs.a.out.msg}"]}
 `, strconv.Quote(s.echoPluginBin()))
 	s.writeCUE(dir, src)
 
-	out, code := s.runToCompletionWithEnv(dir, []string{"KEVIN_E2E_CONNECT_ENV_VAR=connect-value"}, "-C", dir, "connect", "a", "--", "env")
+	out, code := s.runToCompletionWithEnv(dir, []string{"KEVIN_E2E_DO_ENV_VAR=do-value"}, "-C", dir, "do", "check")
 	s.Equal(0, code, "output:\n%s", out)
-	s.Contains(out, "msg=connect-value")
+	s.Contains(out, "msg=do-value")
 }
 
-// TestConnectRendersProjectTemplate covers the same gap for
-// ${project.root_cert} - a value connect can compute with no live DAG
-// walk at all, unlike ${needs...}.
-func (s *EnvSuite) TestConnectRendersProjectTemplate() {
+// TestDoRendersProjectTemplate covers the same gap for ${project.root_cert}
+// - a value a needed step's Export can compute with no live DAG walk at
+// all, unlike ${needs...} inside that step's own with block.
+func (s *EnvSuite) TestDoRendersProjectTemplate() {
 	dir := s.T().TempDir()
-	src := fmt.Sprintf(`project: "kevin-e2e-connect-project"
+	src := fmt.Sprintf(`project: "kevin-e2e-do-project"
 
 plugins: echo: cmd: %s
 
 env: a: {uses: "echo:echo", with: export: msg: "${project.root_cert}"}
+commands: check: {needs: ["a"], run: ["sh", "-c", "echo msg=${needs.a.out.msg}"]}
 `, strconv.Quote(s.echoPluginBin()))
 	s.writeCUE(dir, src)
 
-	out, code := s.runToCompletion(dir, "-C", dir, "connect", "a", "--", "env")
+	out, code := s.runToCompletion(dir, "-C", dir, "do", "check")
 	s.Equal(0, code, "output:\n%s", out)
 	s.Contains(out, "root.crt", "must render to the real CA path, not the literal ${project.root_cert} template")
 	s.NotContains(out, "${project.root_cert}")
 }
 
-// TestConnectRendersSetupCrossScopeTemplate covers ${setup.<name>.out.<key>}
-// through kevin connect, with no "kevin setup" ever having run first -
-// Export is side-effect-free and needs no prior Up.
-func (s *EnvSuite) TestConnectRendersSetupCrossScopeTemplate() {
+// TestDoRendersSetupCrossScopeTemplate covers ${setup.<name>.out.<key>}
+// through kevin do, with no "kevin setup" ever having run first - Export
+// is side-effect-free and needs no prior Up.
+func (s *EnvSuite) TestDoRendersSetupCrossScopeTemplate() {
 	dir := s.T().TempDir()
-	src := fmt.Sprintf(`project: "kevin-e2e-connect-setup"
+	src := fmt.Sprintf(`project: "kevin-e2e-do-setup"
 
 plugins: echo: cmd: %s
 
@@ -225,10 +227,11 @@ env: a: {
 	needs: ["setup.base"]
 	with:  export: msg: "${setup.base.out.greeting}"
 }
+commands: check: {needs: ["a"], run: ["sh", "-c", "echo msg=${needs.a.out.msg}"]}
 `, strconv.Quote(s.echoPluginBin()))
 	s.writeCUE(dir, src)
 
-	out, code := s.runToCompletion(dir, "-C", dir, "connect", "a", "--", "env")
+	out, code := s.runToCompletion(dir, "-C", dir, "do", "check")
 	s.Equal(0, code, "output:\n%s", out)
 	s.Contains(out, "msg=from-setup")
 }

@@ -13,10 +13,17 @@ kevin -C examples/kind run
 KUBECONFIG=.kevin/kubeconfig/kind-example-cluster kubectl get nodes
 ```
 
-Or use `kevin connect`, which reads that path for you and execs a command (or drops you into `$SHELL`) with `KUBECONFIG` already set:
+Or declare a `commands:` entry that reads the path for you and execs `kubectl` with it, so you don't have to retype `--kubeconfig` every time:
+
+```cue
+commands: nodes: {
+    needs: ["cluster"]
+    run: ["kubectl", "--kubeconfig", "${needs.cluster.out.kubeconfig}", "get", "nodes"]
+}
+```
 
 ```sh
-kevin -C examples/kind connect -- kubectl get nodes
+kevin -C examples/kind do nodes
 ```
 
 `Up` recreates the cluster if one with the same name already exists (e.g. left over from a crash), so re-running `kevin run` is safe.
