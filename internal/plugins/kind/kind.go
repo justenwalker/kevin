@@ -9,8 +9,10 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -93,18 +95,15 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 		return nil, fmt.Errorf("kind: create the kubeconfig directory: %w", err)
 	}
 
-	// A relay's host port must be picked before cluster creation: unlike a
-	// container's port publish, kind's node port mappings are fixed at
-	// creation time.
 	useRelay := wantsRelay(cfg)
-	relayHostPort, relayAddress, err := prepareRelayPort(ctx, useRelay)
+
+	nodeList, relayHostPort, err := reuseOrCreateCluster(ctx, cfg, req, name, kubeconfig, wait, useRelay, out)
 	if err != nil {
 		return nil, err
 	}
-
-	nodeList, err := createCluster(ctx, cfg, req, name, kubeconfig, wait, relayHostPort, out)
-	if err != nil {
-		return nil, err
+	relayAddress := ""
+	if useRelay {
+		relayAddress = relayAddr(relayHostPort)
 	}
 
 	exposedPorts, err := finishClusterSetup(ctx, cfg, req, name, nodeList, relayAddress, useRelay, out)
@@ -130,25 +129,90 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 	}, nil
 }
 
-// prepareRelayPort picks the relay's host port before cluster creation, when
-// a relay is wanted. It reports a zero port and an empty address otherwise.
-func prepareRelayPort(ctx context.Context, useRelay bool) (int, string, error) {
-	if !useRelay {
-		return 0, "", nil
-	}
-	hostPort, err := findFreePort(ctx)
+// configMarkerFile is where reuseOrCreateCluster persists the kind config
+// text it last created name with, alongside kubeconfig - the fingerprint
+// clusterMatches compares against to decide whether a persistent cluster
+// can be reused as-is.
+func configMarkerFile(kubeconfig string) string { return kubeconfig + ".config" }
+
+// readRelayPort reads back the host port that a previous Up picked for
+// name's relay, from the relay address Up persists at relayAddrFile. It
+// reports ok false when no relay was set up last time, or the file does not
+// parse - either way, the caller must treat that as "no reusable port", not
+// an error: kind's node port mappings are fixed at cluster creation, so a
+// mismatched or missing port means the cluster cannot be reused unchanged.
+func readRelayPort(kubeconfig string) (int, bool) {
+	addr, err := os.ReadFile(relayAddrFile(kubeconfig))
 	if err != nil {
-		return 0, "", fmt.Errorf("kind: pick a port for the relay: %w", err)
+		return 0, false
 	}
-	return hostPort, relayAddr(hostPort), nil
+	_, portStr, err := net.SplitHostPort(strings.TrimSpace(string(addr)))
+	if err != nil {
+		return 0, false
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return 0, false
+	}
+	return port, true
+}
+
+// reuseOrCreateCluster reports the node list and relay host port (0 when
+// useRelay is false) for name, reusing an already-running cluster in place
+// when one exists and its config has not changed since the last Up - a
+// persistent setup-scope cluster must not be destroyed and rebuilt on every
+// "kevin setup", only when its own config actually changed. It falls back
+// to createCluster (delete, then create fresh) in every other case.
+func reuseOrCreateCluster(ctx context.Context, cfg config, req *plugin.UpRequest, name, kubeconfig string, wait time.Duration, useRelay bool, out plugin.Emitter) ([]string, int, error) {
+	existingNodes, err := kindcmd.GetNodes(ctx, name)
+	if err != nil {
+		return nil, 0, fmt.Errorf("kind: check for an existing cluster %q: %w", name, err)
+	}
+
+	// A relay port can only be reused, never freshly picked, without also
+	// invalidating the comparison below - the config text embeds whichever
+	// port relayHostPort holds, so a fresh, different port would never
+	// match a marker file written by the run that actually created the
+	// live cluster.
+	relayHostPort := 0
+	reusablePort := true
+	if useRelay {
+		relayHostPort, reusablePort = readRelayPort(kubeconfig)
+	}
+
+	if len(existingNodes) > 0 && reusablePort {
+		wantConfig := clusterConfig(cfg, relayHostPort)
+		if marker, readErr := os.ReadFile(configMarkerFile(kubeconfig)); readErr == nil && string(marker) == wantConfig {
+			if err = joinSharedNetwork(ctx, req.Env.Network, existingNodes); err != nil {
+				return nil, 0, err
+			}
+			out.Log("stdout", fmt.Sprintf("reusing cluster %s with %d node(s)", name, len(existingNodes)))
+			return existingNodes, relayHostPort, nil
+		}
+	}
+
+	if useRelay {
+		if relayHostPort, err = findFreePort(ctx); err != nil {
+			return nil, 0, fmt.Errorf("kind: pick a port for the relay: %w", err)
+		}
+	}
+	nodeList, err := createCluster(ctx, cfg, req, name, kubeconfig, wait, relayHostPort, out)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err = os.WriteFile(configMarkerFile(kubeconfig), []byte(clusterConfig(cfg, relayHostPort)), 0o600); err != nil {
+		return nil, 0, fmt.Errorf("kind: write the cluster config marker for %q: %w", name, err)
+	}
+	return nodeList, relayHostPort, nil
 }
 
 // createCluster removes a stale cluster of the same name, creates a fresh
 // one, and joins its nodes to the shared network.
 func createCluster(ctx context.Context, cfg config, req *plugin.UpRequest, name, kubeconfig string, wait time.Duration, relayHostPort int, out plugin.Emitter) ([]string, error) {
-	// A cluster of this name may survive a crash. Ensure it is deleted before
-	// we bring it up again - kind delete cluster is documented as idempotent,
-	// a no-op success when the cluster is already gone.
+	// A cluster of this name may survive a crash, or reuseOrCreateCluster may
+	// have found one whose config changed. Ensure it is deleted before we
+	// bring it up again - kind delete cluster is documented as idempotent, a
+	// no-op success when the cluster is already gone.
 	if err := kindcmd.Delete(ctx, kindcmd.DeleteSpec{Name: name, Kubeconfig: kubeconfig}, stderrWriter(out)); err != nil {
 		return nil, fmt.Errorf("kind: remove the previous cluster %q: %w", name, err)
 	}
@@ -259,6 +323,9 @@ func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitte
 	}
 	if err = os.Remove(relayAddrFile(kubeconfig)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("kind: remove %s: %w", relayAddrFile(kubeconfig), err)
+	}
+	if err = os.Remove(configMarkerFile(kubeconfig)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("kind: remove %s: %w", configMarkerFile(kubeconfig), err)
 	}
 	return nil
 }

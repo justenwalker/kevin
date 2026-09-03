@@ -301,12 +301,47 @@ func (s *KindSuite) TestWaitTCPReachesTheAPIServerThroughTheRelay() {
 	s.Require().NoError(err)
 }
 
+// TestUpReusesAnExistingClusterWithMatchingConfig proves a second Up against
+// an unchanged with block reuses the live cluster in place instead of
+// deleting and recreating it - the whole point of a persistent setup-scope
+// cluster is that it survives a second "kevin setup".
+func (s *KindSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
+	t := s.T()
+
+	before, err := kindcmd.GetNodes(t.Context(), s.clusterName)
+	s.Require().NoError(err)
+
+	out := &capture{}
+	res, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+		Step: kindStepName,
+		Env: plugin.Env{
+			Project:   kindProject,
+			Workspace: s.workspace,
+			Network:   s.network,
+			CAPath:    ca.RootCertPath(),
+			Domain:    kindDomain,
+			Relay:     s.relay.Addr(),
+		},
+		Config: []byte(`{"workers":0,"expose":[{"address":"kubernetes.default.svc:443","name":"apiserver"}]}`),
+	}, out)
+	s.Require().NoError(err)
+
+	after, err := kindcmd.GetNodes(t.Context(), s.clusterName)
+	s.Require().NoError(err)
+	s.ElementsMatch(before, after, "reusing the cluster must not destroy and recreate its nodes")
+	s.Equal(res.Outputs["name"].Reveal(), s.clusterName)
+	s.Contains(strings.Join(out.stdout, "\n"), "reusing cluster")
+}
+
 // TestUpIsIdempotent proves that a second patch of CoreDNS and a second
 // install of the trust certificate succeed against the running cluster.
 //
-// A second full Up recreates the cluster and costs minutes. patchCoreDNS and
-// installTrustCA carry the real idempotency risk, so this test calls them
-// directly instead of calling Up again.
+// reuseOrCreateCluster only skips the delete-then-create - it still runs
+// finishClusterSetup (CoreDNS patch, trust CA install) every time, so those
+// two must tolerate running twice against a cluster that already has them
+// applied. This calls them directly rather than through a second Up, to
+// isolate the check from TestUpReusesAnExistingClusterWithMatchingConfig's
+// own assertions.
 func (s *KindSuite) TestUpIsIdempotent() {
 	t := s.T()
 	ctx := t.Context()

@@ -1,6 +1,8 @@
 package kind
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -213,6 +215,33 @@ func TestDownIsIdempotent(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Contains(t, strings.Join(out.stdout, "\n"), "removing cluster kevin-kind-absent-cluster")
+}
+
+func TestReadRelayPort(t *testing.T) {
+	t.Run("no relay address file yet", func(t *testing.T) {
+		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
+		port, ok := readRelayPort(kubeconfig)
+		assert.False(t, ok)
+		assert.Zero(t, port)
+	})
+
+	t.Run("a valid relay address", func(t *testing.T) {
+		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
+		require.NoError(t, os.WriteFile(relayAddrFile(kubeconfig), []byte("127.0.0.1:54321"), 0o600))
+
+		port, ok := readRelayPort(kubeconfig)
+		require.True(t, ok)
+		assert.Equal(t, 54321, port)
+	})
+
+	t.Run("a malformed relay address", func(t *testing.T) {
+		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
+		require.NoError(t, os.WriteFile(relayAddrFile(kubeconfig), []byte("not-a-host-port"), 0o600))
+
+		port, ok := readRelayPort(kubeconfig)
+		assert.False(t, ok)
+		assert.Zero(t, port)
+	})
 }
 
 func TestPickHostPort(t *testing.T) {
