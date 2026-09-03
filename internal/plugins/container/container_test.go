@@ -603,5 +603,54 @@ func TestDownWithFakeEngine(t *testing.T) {
 	})
 }
 
+func TestExportWithFakeEngine(t *testing.T) {
+	t.Run("reports the container name and outputs", func(t *testing.T) {
+		useFakeRuntime(t, fakeRuntime{
+			inspect: func(context.Context, string) (cri.Container, error) {
+				return cri.Container{ID: "abc123", Running: true, IPs: map[string]string{"net": "10.0.0.2"}}, nil
+			},
+		})
+
+		result, err := Container{}.Export(t.Context(), &plugin.ExportRequest{
+			Step: "web",
+			Env:  plugin.Env{Project: "demo", Network: "net"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "kevin-demo-web", result.Out["name"].Reveal())
+		assert.Equal(t, "abc123", result.Out["id"].Reveal())
+		assert.Equal(t, "10.0.0.2", result.Out["ip"].Reveal())
+	})
+
+	t.Run("fails when the container is not running", func(t *testing.T) {
+		useFakeRuntime(t, fakeRuntime{
+			inspect: func(context.Context, string) (cri.Container, error) {
+				return cri.Container{Running: false}, nil
+			},
+		})
+
+		_, err := Container{}.Export(t.Context(), &plugin.ExportRequest{Step: "web"})
+		require.ErrorIs(t, err, ErrNotRunning)
+	})
+
+	t.Run("fails when the container was never created", func(t *testing.T) {
+		useFakeRuntime(t, fakeRuntime{
+			inspect: func(context.Context, string) (cri.Container, error) {
+				return cri.Container{}, cri.ErrNotFound
+			},
+		})
+
+		_, err := Container{}.Export(t.Context(), &plugin.ExportRequest{Step: "web"})
+		require.ErrorIs(t, err, cri.ErrNotFound)
+	})
+
+	t.Run("reports an unsupported engine before it touches any runtime", func(t *testing.T) {
+		_, err := Container{}.Export(t.Context(), &plugin.ExportRequest{
+			Step: "web",
+			Env:  plugin.Env{Engine: "bogus"},
+		})
+		require.ErrorIs(t, err, ErrUnsupportedEngine)
+	})
+}
+
 // hostPortPattern matches an address on the loopback with any port.
 const hostPortPattern = `^127\.0\.0\.1:[0-9]+$`

@@ -233,6 +233,35 @@ func (Container) Down(ctx context.Context, req *plugin.DownRequest, out plugin.E
 	return runtime.Remove(ctx, name)
 }
 
+// Container must keep satisfying plugin.Exporter.
+var _ plugin.Exporter = Container{}
+
+// Export reports the container's deterministic name, id, network address,
+// and published ports - the same shape Up's own outputs use, for a
+// cross-scope "needs: [\"setup.<name>\"]" reference or a `commands:` entry's
+// `run` (`docker exec -it "${needs.<step>.out.name}" sh`, for example).
+// Export inspects the running container, unlike kind's Export, since
+// there's no static file to read instead - it fails when the container
+// hasn't come up yet or isn't running.
+func (Container) Export(ctx context.Context, req *plugin.ExportRequest) (*plugin.ExportResult, error) {
+	runtime, err := newRuntime(req.Env)
+	if err != nil {
+		return nil, err
+	}
+	name := containerName(req.Env.Project, req.Step)
+	info, err := runtime.Inspect(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("container: %q has no container yet, run `kevin run` or `kevin setup` first: %w", name, err)
+	}
+	if !info.Running {
+		return nil, fmt.Errorf("container: %q: %w", name, ErrNotRunning)
+	}
+
+	return &plugin.ExportResult{
+		Out: plugin.StringMap(outputs(info.ID, name, info, req.Env.Network)),
+	}, nil
+}
+
 // newRuntime picks the container engine that env names.
 var newRuntime = func(env plugin.Env) (cri.Runtime, error) { // a var so tests can substitute a fake engine
 	switch env.Engine {

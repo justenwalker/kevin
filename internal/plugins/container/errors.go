@@ -24,4 +24,8 @@ const (
 	// ErrNoRelay reports that an expose entry sets relay, but no relay
 	// address is available.
 	ErrNoRelay = Error("container: expose relay: no relay address available")
+
+	// ErrNotRunning reports that Export found the container, but it isn't
+	// running.
+	ErrNotRunning = Error("container: the container is not running")
 )

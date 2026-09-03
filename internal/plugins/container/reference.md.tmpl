@@ -50,3 +50,9 @@ A container step never puts itself on the environment domain. Pair a
 published port's address output with a
 [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step to do
 that.
+
+Implements `Export`, reporting the same `id`/`name`/`ip`/`host_<port>`
+shape `Outputs` uses, for a cross-scope `setup.<name>` need or a
+`commands:` entry's `run` (`docker exec -it "${needs.<step>.out.name}" sh`,
+for example). Export inspects the running container - it fails when the
+step hasn't come up yet or the container isn't running.
