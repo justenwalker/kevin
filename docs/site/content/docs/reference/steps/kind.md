@@ -34,6 +34,7 @@ cluster: {
 | `trust_ca` | `bool` | `true` | Installs the kevin root certificate into every node, so a pull through the proxy verifies. Set it to false to opt out. |
 | `expose` | `[...#Expose]` | - | Lets a client outside the cluster dial an arbitrary in-cluster address (a Service DNS name or a Pod IP, with its port) through a single SOCKS5 relay pod inside the cluster. Unlike a container step, Up does not create what expose names. The target may come from a manifest applied separately, after the cluster is up, so Up does not wait for it to be dialable, only wires the relay and reports the address. Up also reports each entry's relay address as an `"expose_<name>"` output, for a downstream step (such as builtin:wait) to read. |
 | `relay` | `bool` | `false` | Deploys the SOCKS5 relay pod even with no expose entries, and publishes its address as the `"relay_addr"` output. Set this to route a subdomain into the cluster with builtin:route, without also needing an expose entry. |
+| `extra_mounts` | `[...#ExtraMount]` | - | Bind-mounts a host directory into the control-plane node, such as a live source tree for a workload that expects one - merged into the generated cluster config, so relay and expose still work. Ignored when config is set: write mounts into your own raw config instead. |
 
 ## `#Expose`
 
@@ -41,6 +42,13 @@ cluster: {
 |:------|:----:|:-------:|:------------|
 | `address` | `string` | - | **Required.** The in-cluster host:port to reach, such as `"postgres.default.svc.cluster.local:5432"`. |
 | `name` | `string` | - | Labels this entry in the console and the ready log line. Defaults to address. |
+
+## `#ExtraMount`
+
+| Field | Type | Default | Description |
+|:------|:----:|:-------:|:------------|
+| `host_path` | `string` | - | **Required.** The directory on the host to mount. |
+| `container_path` | `string` | - | **Required.** Where it lands inside the node. |
 
 ## Publishes
 

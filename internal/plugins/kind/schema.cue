@@ -54,6 +54,21 @@
 	// a subdomain into the cluster with builtin:route, without also
 	// needing an expose entry.
 	relay?: bool | *false
+
+	// extra_mounts bind-mounts a host directory into the control-plane
+	// node, such as a live source tree for a workload that expects one -
+	// merged into the generated cluster config, so relay and expose still
+	// work. Ignored when config is set: write mounts into your own raw
+	// config instead.
+	extra_mounts?: [...#ExtraMount]
+}
+
+#ExtraMount: {
+	// host_path is the directory on the host to mount.
+	host_path!: string
+
+	// container_path is where it lands inside the node.
+	container_path!: string
 }
 
 #Expose: {

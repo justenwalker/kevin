@@ -3,6 +3,7 @@ package kind
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -166,6 +167,32 @@ func TestClusterConfig(t *testing.T) {
 		assert.Contains(t, with, "containerPort: 1080")
 		assert.Contains(t, with, "hostPort: 54321")
 		assert.Contains(t, with, `listenAddress: "127.0.0.1"`)
+	})
+
+	t.Run("adds extra mounts", func(t *testing.T) {
+		without := clusterConfig(config{}, 0)
+		assert.NotContains(t, without, "extraMounts", "no extra_mounts means no mount")
+
+		with := clusterConfig(config{ExtraMounts: []kindExtraMount{
+			{HostPath: "/src", ContainerPath: "/workspace"},
+			{HostPath: `C:\has "quotes"`, ContainerPath: "/weird"},
+		}}, 0)
+		assert.Contains(t, with, "extraMounts:")
+		assert.Equal(t, 2, strings.Count(with, "hostPath:"))
+
+		for _, want := range []string{"/src", "/workspace", `C:\has "quotes"`, "/weird"} {
+			quoted := strconv.Quote(want)
+			require.Contains(t, with, quoted, "must quote %q so it round-trips as a single YAML scalar", want)
+			unquoted, err := strconv.Unquote(quoted)
+			require.NoError(t, err)
+			assert.Equal(t, want, unquoted, "quoting must round-trip exactly")
+		}
+	})
+
+	t.Run("ignores extra mounts when config is set", func(t *testing.T) {
+		raw := "kind: Cluster\n"
+		got := clusterConfig(config{Config: raw, ExtraMounts: []kindExtraMount{{HostPath: "/src", ContainerPath: "/workspace"}}}, 0)
+		assert.Equal(t, raw, got)
 	})
 }
 

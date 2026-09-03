@@ -34,18 +34,27 @@ var dockerClient cri.Runtime = docker.Client{}
 
 // config is the decoded with block of one step.
 type config struct {
-	Name    string       `json:"name"`
-	Image   string       `json:"image"`
-	Workers int          `json:"workers"`
-	Config  string       `json:"config"`
-	Wait    string       `json:"wait"`
-	Retain  bool         `json:"retain"`
-	Proxy   bool         `json:"proxy"`
-	Egress  []string     `json:"egress"`
-	CoreDNS bool         `json:"coredns"`
-	TrustCA bool         `json:"trust_ca"`
-	Expose  []kindExpose `json:"expose"`
-	Relay   bool         `json:"relay"`
+	Name        string           `json:"name"`
+	Image       string           `json:"image"`
+	Workers     int              `json:"workers"`
+	Config      string           `json:"config"`
+	Wait        string           `json:"wait"`
+	Retain      bool             `json:"retain"`
+	Proxy       bool             `json:"proxy"`
+	Egress      []string         `json:"egress"`
+	CoreDNS     bool             `json:"coredns"`
+	TrustCA     bool             `json:"trust_ca"`
+	Expose      []kindExpose     `json:"expose"`
+	Relay       bool             `json:"relay"`
+	ExtraMounts []kindExtraMount `json:"extra_mounts"`
+}
+
+// kindExtraMount is one entry of the with block's extra_mounts list: a host
+// directory bind-mounted into the control-plane node, generated config
+// only - ignored the same way workers is when config is set.
+type kindExtraMount struct {
+	HostPath      string `json:"host_path"`
+	ContainerPath string `json:"container_path"`
 }
 
 // kindExpose is one entry of the with block's expose list: an in-cluster
@@ -392,6 +401,13 @@ func clusterConfig(cfg config, relayHostPort int) string {
 	if relayHostPort > 0 {
 		fmt.Fprintf(&b, "  extraPortMappings:\n  - containerPort: %d\n    hostPort: %d\n    listenAddress: \"127.0.0.1\"\n    protocol: TCP\n",
 			relayNodePort, relayHostPort)
+	}
+	if len(cfg.ExtraMounts) > 0 {
+		b.WriteString("  extraMounts:\n")
+		for _, m := range cfg.ExtraMounts {
+			fmt.Fprintf(&b, "  - hostPath: %s\n    containerPath: %s\n",
+				strconv.Quote(m.HostPath), strconv.Quote(m.ContainerPath))
+		}
 	}
 	for range cfg.Workers {
 		b.WriteString("- role: worker\n")

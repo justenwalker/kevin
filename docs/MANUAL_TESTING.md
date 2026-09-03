@@ -242,6 +242,17 @@ kevin -C examples/kind run
       steps remain in this example - `kevin ca uninstall` manages CA trust
       separately, see section 4.)
 
+Add `extra_mounts: [{host_path: "/tmp/some-dir", container_path: "/host-src"}]`
+to `cluster`'s `with` block, alongside `relay: true` or an `expose` entry:
+
+- [ ] `docker exec <cluster>-control-plane ls /host-src` shows the host
+      directory's contents - a bind mount into the node, generated
+      alongside the relay's `extraPortMappings` in the same config, not a
+      replacement for it.
+- [ ] Setting `config:` (a raw kind config) at the same time makes
+      `extra_mounts` a no-op, the same way it already does for `workers` -
+      write the mount into the raw config yourself instead.
+
 Put `cluster` in `setup` scope instead, and add an `env` step needing
 `setup.cluster` that applies a manifest with `keep: true`:
 
@@ -250,6 +261,14 @@ Put `cluster` in `setup` scope instead, and add an `env` step needing
       other step), but the manifest it applied is still there afterward -
       `kubectl get` against the still-live `setup` cluster shows it.
       `helm`'s `keep` field behaves the same way for a release.
+- [ ] `kevin setup` a second time, with `cluster`'s `with` block
+      unchanged: logs `reusing cluster` rather than `creating cluster`,
+      returns in a few seconds instead of the minute or so real cluster
+      creation costs, and the manifest `keep: true` applied earlier is
+      still there - the cluster itself was never destroyed.
+- [ ] Change `cluster`'s `with` block (add a worker, say), then
+      `kevin setup` again: this time it does recreate - `docker ps -a`
+      shows a new control-plane container, and the manifest is gone.
 - [ ] `kevin teardown` afterward removes the cluster (and the manifest
       with it).
 
