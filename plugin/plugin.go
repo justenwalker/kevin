@@ -164,12 +164,10 @@ type ExportRequest struct {
 	Config []byte
 }
 
-// ExportResult carries what a step exports: Env, the environment variables
-// an external command needs to reach it (what "kevin connect" uses), and
-// Out, the same outputs in structured form for another step's cross-scope
-// needs to consume - the same Value shape Outputs uses.
+// ExportResult carries what a step exports: Out, structured outputs for
+// another step's cross-scope needs, or a "commands:" entry's run, to
+// consume - the same Value shape Outputs uses.
 type ExportResult struct {
-	Env map[string]string
 	Out map[string]Value
 }
 
@@ -333,7 +331,7 @@ type Downer interface {
 }
 
 // Exporter is an interface that indicates a step creates a resource that can be connected to.
-// It exposes environment variables that can be used to connect to the resource.
+// It reports structured values a "commands:" entry's run or a cross-scope needs reference can read.
 type Exporter interface {
 	Export(ctx context.Context, req *ExportRequest) (*ExportResult, error)
 }

@@ -218,14 +218,12 @@ func TestExport(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(client.Close)
 
-	t.Run("reports Env and Out separately", func(t *testing.T) {
+	t.Run("reports Out", func(t *testing.T) {
 		resp, exportErr := client.Export(t.Context(), &pb.ExportRequest{
 			Step: "api", Type: "echo",
 			Config: []byte(`{"export":{"greeting":"hi","password":"hunter2"},"export_sensitive":["password"]}`),
 		})
 		require.NoError(t, exportErr)
-		assert.Equal(t, map[string]string{"greeting": "hi", "password": "hunter2"}, resp.GetEnv(),
-			"echo's Export populates Env from the same export map as Out")
 		values := resp.GetOut().GetValues()
 		require.Contains(t, values, "greeting")
 		assert.Equal(t, "hi", values["greeting"].GetStringValue())

@@ -231,7 +231,7 @@ func (s *server) Export(ctx context.Context, req *pb.ExportRequest) (*pb.ExportR
 	if result == nil {
 		result = &ExportResult{}
 	}
-	return &pb.ExportResponse{Env: result.Env, Out: &pb.Outputs{Values: outputsToProto(result.Out)}}, nil
+	return &pb.ExportResponse{Out: &pb.Outputs{Values: outputsToProto(result.Out)}}, nil
 }
 
 func (s *server) CallTool(ctx context.Context, req *pb.ToolCallRequest) (*pb.ToolCallResponse, error) {

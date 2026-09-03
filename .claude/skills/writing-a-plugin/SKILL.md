@@ -79,8 +79,10 @@ engine never has to call one to find out and see what happens:
   vs. `echo.go`'s `echo` (also implements `Downer`).
 - **`Exporter`** — `Export(ctx, *ExportRequest) (*ExportResult, error)`.
   Implement this when something `Up` created is reachable from outside
-  kevin (e.g. a kubeconfig). Backs `kevin connect`. Must not create or
-  change anything - only report how to reach what `Up` already made.
+  kevin (e.g. a kubeconfig). Backs a cross-scope `needs: ["setup.<name>"]`
+  reference and a `commands:` entry's `run`, through `kevin do`. Must not
+  create or change anything - only report how to reach what `Up` already
+  made.
 - **`IdempotentStep`** — `Idempotent() bool`. Implement this when calling
   `Up` again is always safe (a probe that just re-checks, e.g.). Lets the
   console sweep this step into a cascading rerun of something it depends

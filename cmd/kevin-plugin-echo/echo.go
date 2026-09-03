@@ -92,9 +92,9 @@ func (echo) Down(_ context.Context, req *plugin.DownRequest, out plugin.Emitter)
 // echo must keep satisfying plugin.Exporter.
 var _ plugin.Exporter = echo{}
 
-// Export reports cfg.Export as both Out (for a cross-scope needs
-// reference) and Env (for kevin connect), with any key named in
-// cfg.ExportSensitive wrapped plugin.Sensitive in Out.
+// Export reports cfg.Export as Out, for a cross-scope needs reference or a
+// `commands:` entry's run, with any key named in cfg.ExportSensitive
+// wrapped plugin.Sensitive.
 func (echo) Export(_ context.Context, req *plugin.ExportRequest) (*plugin.ExportResult, error) {
 	cfg, err := decode(req.Config)
 	if err != nil {
@@ -112,7 +112,7 @@ func (echo) Export(_ context.Context, req *plugin.ExportRequest) (*plugin.Export
 	// exportCalls lets a test prove a caller memoizes Export instead of
 	// calling it once per consumer.
 	out["export_calls"] = plugin.String(strconv.Itoa(int(exportCalls.Add(1))))
-	return &plugin.ExportResult{Env: cfg.Export, Out: out}, nil
+	return &plugin.ExportResult{Out: out}, nil
 }
 
 // exportCalls counts every Export call this process has served.

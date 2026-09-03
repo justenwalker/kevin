@@ -1483,14 +1483,10 @@ func (x *ExportRequest) GetConfig() []byte {
 
 type ExportResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Env holds the environment variables that let an external command reach
-	// what the step created - what "kevin connect" injects into the exec'd
-	// shell.
-	Env map[string]string `protobuf:"bytes,1,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// Out holds the same step's outputs in structured form - the same Value
-	// shape Outputs uses, each value optionally marked sensitive. A
-	// cross-scope "needs: [\"setup.<name>\"]" reference resolves against
-	// this, never against env.
+	// Out holds the step's outputs in structured form - the same Value shape
+	// Outputs uses, each value optionally marked sensitive. A cross-scope
+	// "needs: [\"setup.<name>\"]" reference, and a "commands:" entry's "run"
+	// ("${needs.<step>.out.<key>}"), both resolve against this.
 	Out           *Outputs `protobuf:"bytes,2,opt,name=out,proto3" json:"out,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1524,13 +1520,6 @@ func (x *ExportResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ExportResponse.ProtoReflect.Descriptor instead.
 func (*ExportResponse) Descriptor() ([]byte, []int) {
 	return file_pb_plugin_proto_rawDescGZIP(), []int{19}
-}
-
-func (x *ExportResponse) GetEnv() map[string]string {
-	if x != nil {
-		return x.Env
-	}
-	return nil
 }
 
 func (x *ExportResponse) GetOut() *Outputs {
@@ -1943,13 +1932,9 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x04step\x18\x01 \x01(\tR\x04step\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12.\n" +
 	"\x03env\x18\x03 \x01(\v2\x1c.kevin.plugin.v1.EnvironmentR\x03env\x12\x16\n" +
-	"\x06config\x18\x04 \x01(\fR\x06config\"\xb0\x01\n" +
-	"\x0eExportResponse\x12:\n" +
-	"\x03env\x18\x01 \x03(\v2(.kevin.plugin.v1.ExportResponse.EnvEntryR\x03env\x12*\n" +
-	"\x03out\x18\x02 \x01(\v2\x18.kevin.plugin.v1.OutputsR\x03out\x1a6\n" +
-	"\bEnvEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc6\x02\n" +
+	"\x06config\x18\x04 \x01(\fR\x06config\"<\n" +
+	"\x0eExportResponse\x12*\n" +
+	"\x03out\x18\x02 \x01(\v2\x18.kevin.plugin.v1.OutputsR\x03out\"\xc6\x02\n" +
 	"\x0fToolCallRequest\x12\x12\n" +
 	"\x04step\x18\x01 \x01(\tR\x04step\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12.\n" +
@@ -1998,7 +1983,7 @@ func file_pb_plugin_proto_rawDescGZIP() []byte {
 }
 
 var file_pb_plugin_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_pb_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_pb_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_pb_plugin_proto_goTypes = []any{
 	(StepKind)(0),              // 0: kevin.plugin.v1.StepKind
 	(*InfoRequest)(nil),        // 1: kevin.plugin.v1.InfoRequest
@@ -2029,8 +2014,7 @@ var file_pb_plugin_proto_goTypes = []any{
 	nil,                        // 26: kevin.plugin.v1.Outputs.ValuesEntry
 	nil,                        // 27: kevin.plugin.v1.UpRequest.DepsEntry
 	nil,                        // 28: kevin.plugin.v1.DownRequest.DepsEntry
-	nil,                        // 29: kevin.plugin.v1.ExportResponse.EnvEntry
-	nil,                        // 30: kevin.plugin.v1.ToolCallRequest.DepsEntry
+	nil,                        // 29: kevin.plugin.v1.ToolCallRequest.DepsEntry
 }
 var file_pb_plugin_proto_depIdxs = []int32{
 	3,  // 0: kevin.plugin.v1.InfoResponse.steps:type_name -> kevin.plugin.v1.StepType
@@ -2053,31 +2037,30 @@ var file_pb_plugin_proto_depIdxs = []int32{
 	18, // 17: kevin.plugin.v1.Result.details:type_name -> kevin.plugin.v1.Detail
 	9,  // 18: kevin.plugin.v1.Detail.value:type_name -> kevin.plugin.v1.Value
 	7,  // 19: kevin.plugin.v1.ExportRequest.env:type_name -> kevin.plugin.v1.Environment
-	29, // 20: kevin.plugin.v1.ExportResponse.env:type_name -> kevin.plugin.v1.ExportResponse.EnvEntry
-	10, // 21: kevin.plugin.v1.ExportResponse.out:type_name -> kevin.plugin.v1.Outputs
-	7,  // 22: kevin.plugin.v1.ToolCallRequest.env:type_name -> kevin.plugin.v1.Environment
-	30, // 23: kevin.plugin.v1.ToolCallRequest.deps:type_name -> kevin.plugin.v1.ToolCallRequest.DepsEntry
-	9,  // 24: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
-	10, // 25: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	10, // 26: kevin.plugin.v1.DownRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	10, // 27: kevin.plugin.v1.ToolCallRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	1,  // 28: kevin.plugin.v1.Plugin.Info:input_type -> kevin.plugin.v1.InfoRequest
-	5,  // 29: kevin.plugin.v1.Plugin.Configure:input_type -> kevin.plugin.v1.ConfigureRequest
-	11, // 30: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
-	12, // 31: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
-	19, // 32: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
-	21, // 33: kevin.plugin.v1.Plugin.CallTool:input_type -> kevin.plugin.v1.ToolCallRequest
-	2,  // 34: kevin.plugin.v1.Plugin.Info:output_type -> kevin.plugin.v1.InfoResponse
-	6,  // 35: kevin.plugin.v1.Plugin.Configure:output_type -> kevin.plugin.v1.ConfigureResponse
-	13, // 36: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
-	13, // 37: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
-	20, // 38: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
-	22, // 39: kevin.plugin.v1.Plugin.CallTool:output_type -> kevin.plugin.v1.ToolCallResponse
-	34, // [34:40] is the sub-list for method output_type
-	28, // [28:34] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	10, // 20: kevin.plugin.v1.ExportResponse.out:type_name -> kevin.plugin.v1.Outputs
+	7,  // 21: kevin.plugin.v1.ToolCallRequest.env:type_name -> kevin.plugin.v1.Environment
+	29, // 22: kevin.plugin.v1.ToolCallRequest.deps:type_name -> kevin.plugin.v1.ToolCallRequest.DepsEntry
+	9,  // 23: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
+	10, // 24: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	10, // 25: kevin.plugin.v1.DownRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	10, // 26: kevin.plugin.v1.ToolCallRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	1,  // 27: kevin.plugin.v1.Plugin.Info:input_type -> kevin.plugin.v1.InfoRequest
+	5,  // 28: kevin.plugin.v1.Plugin.Configure:input_type -> kevin.plugin.v1.ConfigureRequest
+	11, // 29: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
+	12, // 30: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
+	19, // 31: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
+	21, // 32: kevin.plugin.v1.Plugin.CallTool:input_type -> kevin.plugin.v1.ToolCallRequest
+	2,  // 33: kevin.plugin.v1.Plugin.Info:output_type -> kevin.plugin.v1.InfoResponse
+	6,  // 34: kevin.plugin.v1.Plugin.Configure:output_type -> kevin.plugin.v1.ConfigureResponse
+	13, // 35: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
+	13, // 36: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
+	20, // 37: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
+	22, // 38: kevin.plugin.v1.Plugin.CallTool:output_type -> kevin.plugin.v1.ToolCallResponse
+	33, // [33:39] is the sub-list for method output_type
+	27, // [27:33] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_pb_plugin_proto_init() }
@@ -2099,7 +2082,7 @@ func file_pb_plugin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pb_plugin_proto_rawDesc), len(file_pb_plugin_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   30,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

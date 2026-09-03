@@ -367,7 +367,6 @@ func (Step) Export(_ context.Context, req *plugin.ExportRequest) (*plugin.Export
 	}
 
 	return &plugin.ExportResult{
-		Env: map[string]string{"KUBECONFIG": kubeconfig},
 		Out: plugin.StringMap(out),
 	}, nil
 }

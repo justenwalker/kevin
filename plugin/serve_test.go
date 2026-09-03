@@ -235,13 +235,14 @@ func TestServerExport(t *testing.T) {
 		exporter := NewMockExporter(t)
 		exporter.EXPECT().Export(mock.Anything, mock.Anything).
 			Run(func(_ context.Context, req *ExportRequest) { gotExport = req }).
-			Return(&ExportResult{Env: map[string]string{"KUBECONFIG": "/tmp/kubeconfig"}}, nil)
+			Return(&ExportResult{Out: StringMap(map[string]string{"kubeconfig": "/tmp/kubeconfig"})}, nil)
 		impl := &stepWithExporter{MockStep: NewMockStep(t), MockExporter: exporter}
 		srv := &server{provider: Plugin{Steps: map[string]Step{"widget": impl}}}
 
 		resp, err := srv.Export(t.Context(), &pb.ExportRequest{Step: "cluster", Type: "widget", Config: []byte(`{"a":1}`)})
 		require.NoError(t, err)
-		assert.Equal(t, map[string]string{"KUBECONFIG": "/tmp/kubeconfig"}, resp.GetEnv())
+		require.NotNil(t, resp.GetOut())
+		assert.Equal(t, "/tmp/kubeconfig", resp.GetOut().GetValues()["kubeconfig"].GetStringValue())
 
 		require.NotNil(t, gotExport)
 		assert.Equal(t, "cluster", gotExport.Step)
@@ -257,7 +258,7 @@ func TestServerExport(t *testing.T) {
 
 		resp, err := srv.Export(t.Context(), &pb.ExportRequest{Step: "a", Type: "widget"})
 		require.NoError(t, err)
-		assert.Empty(t, resp.GetEnv())
+		assert.Empty(t, resp.GetOut().GetValues())
 	})
 
 	t.Run("returns the step error", func(t *testing.T) {
