@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/mcpserver"
+	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/session"
 )
@@ -42,7 +43,7 @@ func (f fakeProxy) EgressAllowList() ([]string, []string, bool) {
 // MCP client to it over Streamable HTTP.
 func newTestServer(t *testing.T,
 	rerun func(ctx context.Context, step string, cascade bool) error,
-	export func(ctx context.Context, step string) (map[string]string, error),
+	export func(ctx context.Context, step string) (map[string]output.Value, error),
 	tools []mcpserver.ToolDef,
 	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (any, bool, string, error),
 ) *mcp.ClientSession {
@@ -163,9 +164,9 @@ func TestTools(t *testing.T) {
 	})
 
 	t.Run("export_step", func(t *testing.T) {
-		export := func(_ context.Context, step string) (map[string]string, error) {
+		export := func(_ context.Context, step string) (map[string]output.Value, error) {
 			assert.Equal(t, "api", step)
-			return map[string]string{"KUBECONFIG": "/tmp/kubeconfig"}, nil
+			return map[string]output.Value{"kubeconfig": {String: "/tmp/kubeconfig"}}, nil
 		}
 		sess := newTestServer(t, noopRerun, export, nil, nil)
 		res := callTool(t, sess, "export_step", mcpserver.ExportStepInput{Name: "api"})
@@ -174,7 +175,27 @@ func TestTools(t *testing.T) {
 		var out mcpserver.ExportStepOutput
 		decodeStructured(t, res, &out)
 		assert.Equal(t, "api", out.Name)
-		assert.Equal(t, "/tmp/kubeconfig", out.Env["KUBECONFIG"])
+		require.Len(t, out.Out, 1)
+		assert.Equal(t, mcpserver.DetailRow{Label: "kubeconfig", Value: "/tmp/kubeconfig"}, out.Out[0])
+	})
+
+	t.Run("export_step masks a sensitive value and sorts rows by label", func(t *testing.T) {
+		export := func(context.Context, string) (map[string]output.Value, error) {
+			return map[string]output.Value{
+				"zebra":    {String: "z"},
+				"password": {String: "hunter2", Sensitive: true},
+			}, nil
+		}
+		sess := newTestServer(t, noopRerun, export, nil, nil)
+		res := callTool(t, sess, "export_step", mcpserver.ExportStepInput{Name: "api"})
+		require.False(t, res.IsError)
+
+		var out mcpserver.ExportStepOutput
+		decodeStructured(t, res, &out)
+		require.Len(t, out.Out, 2)
+		assert.Equal(t, mcpserver.DetailRow{Label: "password", Value: "********", Sensitive: true}, out.Out[0],
+			"a sensitive value must be masked, never the real secret")
+		assert.Equal(t, mcpserver.DetailRow{Label: "zebra", Value: "z"}, out.Out[1])
 	})
 
 	t.Run("get_proxy_info", func(t *testing.T) {
@@ -249,4 +270,6 @@ func TestPluginTools(t *testing.T) {
 
 func noopRerun(context.Context, string, bool) error { return nil }
 
-func noopExport(context.Context, string) (map[string]string, error) { return map[string]string{}, nil }
+func noopExport(context.Context, string) (map[string]output.Value, error) {
+	return map[string]output.Value{}, nil
+}

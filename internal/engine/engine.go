@@ -1316,10 +1316,9 @@ func (r *run) RerunStep(ctx context.Context, name string, cascade bool) error {
 	return err
 }
 
-// exportStep asks name's plugin how to reach what it created - the same
-// RPC kevin connect makes against a freshly-launched client, but against
-// this session's already-running one.
-func (r *run) exportStep(ctx context.Context, name string) (map[string]string, error) {
+// exportStep asks name's plugin how to reach what it created, against this
+// session's already-running plugin client.
+func (r *run) exportStep(ctx context.Context, name string) (map[string]output.Value, error) {
 	step, ok := r.steps[name]
 	if !ok {
 		return nil, fmt.Errorf("mcpserver: no step named %q", name)
@@ -1346,7 +1345,7 @@ func (r *run) exportStep(ctx context.Context, name string) (map[string]string, e
 	if err != nil {
 		return nil, fmt.Errorf("mcpserver: export %s: %w", name, err)
 	}
-	return resp.GetEnv(), nil
+	return valuesFromProto(resp.GetOut()), nil
 }
 
 // callTool runs tool - a namespaced name from collectTools - against the
@@ -1541,15 +1540,28 @@ func depsToProto(deps map[string]dag.Outputs) map[string]*pb.Outputs {
 	return out
 }
 
-// outputsFromProto lifts a step's proto outputs into the DAG's Outputs map.
-func outputsFromProto(o *pb.Outputs) dag.Outputs {
+// valuesFromProto lifts a step's proto outputs into a plain output.Value map.
+func valuesFromProto(o *pb.Outputs) map[string]output.Value {
 	values := o.GetValues()
 	if len(values) == 0 {
 		return nil
 	}
-	out := make(dag.Outputs, len(values))
+	out := make(map[string]output.Value, len(values))
 	for k, v := range values {
 		out[k] = output.Value{String: v.GetStringValue(), Sensitive: v.GetSensitive()}
+	}
+	return out
+}
+
+// outputsFromProto lifts a step's proto outputs into the DAG's Outputs map.
+func outputsFromProto(o *pb.Outputs) dag.Outputs {
+	values := valuesFromProto(o)
+	if values == nil {
+		return nil
+	}
+	out := make(dag.Outputs, len(values))
+	for k, v := range values {
+		out[k] = v
 	}
 	return out
 }
@@ -1578,9 +1590,9 @@ func stepExports(info pluginhost.Info, name string) bool {
 }
 
 // exportCrossScopeStep asks a setup-scope step's plugin how to reach what
-// it created - the same request kevin connect and exportStep make against
-// this session's already-running plugin, sent with the setup step's own
-// unrendered with block, the same as exportStep. setupName is the name
+// it created - the same request exportStep makes against this session's
+// already-running plugin, sent with the setup step's own unrendered with
+// block, the same as exportStep. setupName is the name
 // with the "setup." prefix already stripped.
 func (r *run) exportCrossScopeStep(ctx context.Context, setupName string) (dag.Outputs, error) {
 	v, err, _ := r.exportGroup.Do(setupName, func() (any, error) {

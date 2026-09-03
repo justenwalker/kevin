@@ -991,9 +991,17 @@ env: {
 
 	out, ok := result.StructuredContent.(map[string]any)
 	require.True(t, ok, "expected structured content, got %#v", result.StructuredContent)
-	env, ok := out["env"].(map[string]any)
-	require.True(t, ok, "expected an env object, got %#v", out["env"])
-	assert.Equal(t, "hi", env["greeting"], "export_step must receive the rendered value, not the raw needs.* template")
+	rows, ok := out["out"].([]any)
+	require.True(t, ok, "expected an out array, got %#v", out["out"])
+
+	var greeting any
+	for _, r := range rows {
+		row, _ := r.(map[string]any)
+		if row["label"] == "greeting" {
+			greeting = row["value"]
+		}
+	}
+	assert.Equal(t, "hi", greeting, "export_step must receive the rendered value, not the raw needs.* template")
 
 	cancel()
 	require.NoError(t, <-done)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -146,20 +147,25 @@ type ExportStepInput struct {
 
 // ExportStepOutput is the result of export_step.
 type ExportStepOutput struct {
-	Name string            `json:"name" jsonschema:"the step that was exported"`
-	Env  map[string]string `json:"env"  jsonschema:"environment variables to set so an external command (kubectl, psql, ...) reaches what this step created, e.g. KUBECONFIG"`
+	Name string      `json:"name" jsonschema:"the step that was exported"`
+	Out  []DetailRow `json:"out"  jsonschema:"the step's exported values, e.g. kubeconfig or name - masked as ******** when sensitive is true"`
 }
 
 func (s *Server) exportStep(ctx context.Context, _ *mcp.CallToolRequest, in ExportStepInput) (*mcp.CallToolResult, ExportStepOutput, error) {
-	vars, err := s.export(ctx, in.Name)
+	values, err := s.export(ctx, in.Name)
 	if err != nil {
 		return nil, ExportStepOutput{}, fmt.Errorf("mcpserver: export %s: %w", in.Name, err)
 	}
-	if vars == nil {
-		// A nil map marshals as JSON null, which fails Env's object output schema.
-		vars = map[string]string{}
+	out := make([]DetailRow, 0, len(values))
+	for k, v := range values {
+		value := v.String
+		if v.Sensitive {
+			value = sensitiveMask
+		}
+		out = append(out, DetailRow{Label: k, Value: value, Sensitive: v.Sensitive})
 	}
-	return nil, ExportStepOutput{Name: in.Name, Env: vars}, nil
+	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
+	return nil, ExportStepOutput{Name: in.Name, Out: out}, nil
 }
 
 // RouteInfo is one entry of the proxy's routing table.

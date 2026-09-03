@@ -1,7 +1,6 @@
 // Package mcpserver exposes a running kevin environment to an MCP client
-// over Streamable HTTP: list steps, inspect a step, rerun a step, read a
-// step's exported environment, and read the proxy's routes and egress
-// list.
+// over Streamable HTTP: list steps, inspect a step, rerun a step, read what
+// a step exports, and read the proxy's routes and egress list.
 package mcpserver
 
 import (
@@ -11,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/version"
@@ -54,7 +54,7 @@ type Server struct {
 	view     stepViewer
 	proxy    egressViewer
 	rerun    func(ctx context.Context, step string, cascade bool) error
-	export   func(ctx context.Context, step string) (map[string]string, error)
+	export   func(ctx context.Context, step string) (map[string]output.Value, error)
 	tools    []ToolDef
 	callTool func(ctx context.Context, step, tool string, args json.RawMessage) (result any, isError bool, errMessage string, err error)
 }
@@ -68,7 +68,7 @@ func New(
 	view stepViewer,
 	px egressViewer,
 	rerun func(ctx context.Context, step string, cascade bool) error,
-	export func(ctx context.Context, step string) (map[string]string, error),
+	export func(ctx context.Context, step string) (map[string]output.Value, error),
 	tools []ToolDef,
 	callTool func(ctx context.Context, step, tool string, args json.RawMessage) (result any, isError bool, errMessage string, err error),
 ) *Server {
@@ -114,12 +114,11 @@ func (s *Server) Handler() http.Handler {
 	}, s.rerunStep)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "export_step",
-		Description: "Get the environment variables that let an external command reach what a " +
-			"step created - e.g. KUBECONFIG for a Kubernetes cluster step, or a database URL for " +
-			"a container step. This is the same data `kevin connect <step>` exports to a shell; " +
-			"use it to point an external tool (kubectl, psql, redis-cli, ...) at a resource this " +
-			"environment created. Only a step type that supports export returns anything; others " +
-			"return an error.",
+		Description: "Get the values that let an external tool reach what a step created - e.g. " +
+			"kubeconfig/context for a Kubernetes cluster step, or a container's name for a " +
+			"container step. Use these to point an external tool (kubectl, psql, redis-cli, " +
+			"docker exec, ...) at a resource this environment created. Only a step type that " +
+			"supports export returns anything; others return an error.",
 	}, s.exportStep)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "get_proxy_info",
