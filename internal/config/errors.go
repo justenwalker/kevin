@@ -47,6 +47,14 @@ const (
 	// ErrUndeclaredNeed reports a with block's "${...}" expression naming a
 	// step that the step's own needs list does not declare.
 	ErrUndeclaredNeed = Error("config: with block references a step its needs list does not declare")
+
+	// ErrUnknownStep reports a command's needs list naming a step that does
+	// not exist in the scope the entry implies.
+	ErrUnknownStep = Error("config: needs references a step that does not exist")
+
+	// ErrExportNotSupported reports a command's needs list naming a step
+	// whose plugin does not implement Export for that step type.
+	ErrExportNotSupported = Error("config: needs references a step that does not implement export")
 )
 
 // ValidationError indicates a problem validating a kevin configuration file.

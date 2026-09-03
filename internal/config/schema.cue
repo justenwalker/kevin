@@ -121,6 +121,29 @@ setup: [string]: #Step
 // exit.
 env: [string]: #Step
 
+#Command: {
+	// needs lists the steps whose exported environment this command's run
+	// merges in, the same "<step>" (env scope) / "setup.<step>" (setup
+	// scope) convention #Step.needs uses.
+	needs?: [...string]
+
+	// run is the argv kevin execs in place of itself, inheriting the
+	// caller's terminal - no shell; use ["sh", "-c", "..."] for shell
+	// features.
+	run!: [string, ...string]
+
+	// cwd is the working directory. A relative path resolves against the
+	// project directory, which is also the default.
+	cwd?: string
+
+	// label is a friendly name for the console, such as "Open a shell".
+	label?: string
+}
+
+// commands run on demand with `kevin do <name>` - never as part of setup or
+// env bring-up.
+commands: [string]: #Command
+
 proxy: {
 	// listen is the proxy address. Port 0 selects a free port.
 	listen: string | *"127.0.0.1:0"

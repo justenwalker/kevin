@@ -91,6 +91,14 @@ type Step struct {
 	Label string `json:"label"`
 }
 
+// Command is one entry of the commands block, run on demand by name.
+type Command struct {
+	Needs []string        `json:"needs"`
+	Run   json.RawMessage `json:"run"`
+	Cwd   string          `json:"cwd"`
+	Label string          `json:"label"`
+}
+
 // PluginSchemas are the schemas that one plugin publishes.
 type PluginSchemas struct {
 	// Config constrains the config block of the plugin. It is empty when the
@@ -99,6 +107,10 @@ type PluginSchemas struct {
 
 	// Steps constrains the with block of each step type, by step name.
 	Steps map[string][]byte
+
+	// Export reports, by step name, whether that step type implements
+	// Export.
+	Export map[string]bool
 }
 
 // Proxy configures the kevin proxy.
@@ -142,6 +154,9 @@ type Config struct {
 
 	// Env steps are ephemeral.
 	Env map[string]Step `json:"env"`
+
+	// Commands run on demand with "kevin do <name>".
+	Commands map[string]Command `json:"commands"`
 
 	Proxy   Proxy   `json:"proxy"`
 	Console Console `json:"console"`
@@ -412,8 +427,9 @@ func (f *File) Validate(schemas map[string]PluginSchemas) error {
 	}
 
 	var out struct {
-		Setup map[string]Step `json:"setup"`
-		Env   map[string]Step `json:"env"`
+		Setup    map[string]Step    `json:"setup"`
+		Env      map[string]Step    `json:"env"`
+		Commands map[string]Command `json:"commands"`
 	}
 	// f.Plugins above already decoded f.value once and succeeded, so this
 	// decode of the same value cannot fail.
@@ -427,6 +443,12 @@ func (f *File) Validate(schemas map[string]PluginSchemas) error {
 			if err := f.validateStep(scope.name, step, spec, plugins, schemas); err != nil {
 				return err
 			}
+		}
+	}
+
+	for name, cmd := range out.Commands {
+		if err := f.validateCommand(name, cmd, out.Env, out.Setup, schemas); err != nil {
+			return err
 		}
 	}
 
@@ -497,7 +519,7 @@ func (f *File) validateStep(scopeName, step string, spec Step, plugins map[strin
 		with = f.ctx.CompileString("{}")
 	}
 
-	if refErr := validateNeedsReferences(scopeName, step, spec); refErr != nil {
+	if refErr := validateNeedsReferences(scopeName, step, "with", spec.Needs, spec.With); refErr != nil {
 		// pos (the step's "uses" field), not with.Pos(): a "with" value that
 		// exists only via the core schema's own optional "with?: {...}"
 		// declaration reports schema.cue's position, not the actual file's.
@@ -521,21 +543,22 @@ func (f *File) validateStep(scopeName, step string, spec Step, plugins map[strin
 }
 
 // validateNeedsReferences checks that every "needs.<step>..." and
-// "setup.<step>..." reference inside spec.With's "${...}" markers names a
-// step that spec.Needs actually declares - the same rule internal/expr's
-// renderer enforces at Up time ("no such key"), caught here statically
-// instead: both facts (which steps a with block references, and which
-// steps needs lists) already sit in the parsed file, no plugin process or
-// Docker resource required to check them against each other.
-func validateNeedsReferences(scopeName, step string, spec Step) error {
-	needsRefs, setupRefs, err := expr.ReferencedSteps(spec.With)
+// "setup.<step>..." reference inside raw's "${...}" markers names a step
+// that needs actually declares - the same rule internal/expr's renderer
+// enforces at Up time ("no such key"), caught here statically instead: both
+// facts (which steps a block references, and which steps a needs list
+// declares) already sit in the parsed file, no plugin process or Docker
+// resource required to check them against each other. field names the
+// block in an error message ("with" for a step, "run" for a command).
+func validateNeedsReferences(scopeName, step, field string, needs []string, raw json.RawMessage) error {
+	needsRefs, setupRefs, err := expr.ReferencedSteps(raw)
 	if err != nil {
-		return fmt.Errorf("config: %s.%s.with: %w", scopeName, step, err)
+		return fmt.Errorf("config: %s.%s.%s: %w", scopeName, step, field, err)
 	}
 
-	declaredNeeds := make(map[string]struct{}, len(spec.Needs))
-	declaredSetup := make(map[string]struct{}, len(spec.Needs))
-	for _, n := range spec.Needs {
+	declaredNeeds := make(map[string]struct{}, len(needs))
+	declaredSetup := make(map[string]struct{}, len(needs))
+	for _, n := range needs {
 		if rest, ok := strings.CutPrefix(n, "setup."); ok {
 			declaredSetup[rest] = struct{}{}
 			continue
@@ -546,16 +569,55 @@ func validateNeedsReferences(scopeName, step string, spec Step) error {
 	for _, name := range needsRefs {
 		if _, ok := declaredNeeds[name]; !ok {
 			return fmt.Errorf(
-				"config: %s.%s.with: references %q via needs.%s, but %q is not in %s.%s's needs list: %w",
-				scopeName, step, name, name, name, scopeName, step, ErrUndeclaredNeed)
+				"config: %s.%s.%s: references %q via needs.%s, but %q is not in %s.%s's needs list: %w",
+				scopeName, step, field, name, name, name, scopeName, step, ErrUndeclaredNeed)
 		}
 	}
 	for _, name := range setupRefs {
 		if _, ok := declaredSetup[name]; !ok {
 			return fmt.Errorf(
-				"config: %s.%s.with: references %q via setup.%s, but %q is not in %s.%s's needs list as %q: %w",
-				scopeName, step, name, name, name, scopeName, step, "setup."+name, ErrUndeclaredNeed)
+				"config: %s.%s.%s: references %q via setup.%s, but %q is not in %s.%s's needs list as %q: %w",
+				scopeName, step, field, name, name, name, scopeName, step, "setup."+name, ErrUndeclaredNeed)
 		}
+	}
+	return nil
+}
+
+// validateCommand checks that every entry in cmd's needs list names a real
+// step - a plain name in env, a "setup.<name>" entry in setup - and that the
+// step's plugin implements Export for that step's type, so a step that
+// can't export fails here, before any plugin process runs Up or Export,
+// rather than at "kevin do" time. It also checks that every
+// "${needs.<step>...}"/"${setup.<step>...}" reference inside cmd.Run names
+// a step cmd.Needs actually declares, the same static check a step's with
+// block gets.
+func (f *File) validateCommand(name string, cmd Command, env, setup map[string]Step, schemas map[string]PluginSchemas) error {
+	pos := f.value.LookupPath(cue.MakePath(cue.Str("commands"), cue.Str(name), cue.Str("needs"))).Pos()
+
+	for _, n := range cmd.Needs {
+		scopeName, scope, stepName := ScopeEnv, env, n
+		if rest, ok := strings.CutPrefix(n, "setup."); ok {
+			scopeName, scope, stepName = ScopeSetup, setup, rest
+		}
+		step, ok := scope[stepName]
+		if !ok {
+			err := fmt.Errorf("config: commands.%s.needs: %q names no step in scope %q: %w",
+				name, n, scopeName, ErrUnknownStep)
+			return f.invalid(cueerrors.Wrapf(err, pos, ""))
+		}
+		ref, err := ParseStepRef(step.Uses)
+		if err != nil {
+			return f.invalid(cueerrors.Wrapf(fmt.Errorf("config: commands.%s.needs: %w", name, err), pos, ""))
+		}
+		if !schemas[ref.Plugin].Export[ref.Step] {
+			err := fmt.Errorf("config: commands.%s.needs: step %q (%s) does not implement export: %w",
+				name, stepName, ref, ErrExportNotSupported)
+			return f.invalid(cueerrors.Wrapf(err, pos, ""))
+		}
+	}
+
+	if refErr := validateNeedsReferences("commands", name, "run", cmd.Needs, cmd.Run); refErr != nil {
+		return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
 	}
 	return nil
 }

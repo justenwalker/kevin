@@ -589,6 +589,97 @@ env: a: {uses: "echo:echo", with: msg: "${needs..a}"}
 	})
 }
 
+func TestValidateCommands(t *testing.T) {
+	t.Run("a needs entry naming an exportable env step", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: a: uses: "echo:echo"
+commands: shell: {needs: ["a"], run: ["echo", "hi"]}
+`)
+		require.NoError(t, f.Validate(offersExport(true)))
+	})
+
+	t.Run("a needs entry naming an exportable setup step", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+setup: cluster: uses: "echo:echo"
+commands: shell: {needs: ["setup.cluster"], run: ["echo", "hi"]}
+`)
+		require.NoError(t, f.Validate(offersExport(true)))
+	})
+
+	t.Run("a needs entry naming no such step", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+commands: shell: {needs: ["nope"], run: ["echo", "hi"]}
+`)
+		err := f.Validate(offersExport(true))
+		require.ErrorIs(t, err, config.ErrUnknownStep)
+		assert.Contains(t, err.Error(), "commands.shell")
+		assert.Contains(t, err.Error(), `"nope"`)
+	})
+
+	t.Run("a needs entry naming no such setup step", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+commands: shell: {needs: ["setup.nope"], run: ["echo", "hi"]}
+`)
+		err := f.Validate(offersExport(true))
+		require.ErrorIs(t, err, config.ErrUnknownStep)
+	})
+
+	t.Run("a needs entry naming a step whose plugin does not implement export", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: a: uses: "echo:echo"
+commands: shell: {needs: ["a"], run: ["echo", "hi"]}
+`)
+		err := f.Validate(offersExport(false))
+		require.ErrorIs(t, err, config.ErrExportNotSupported)
+		assert.Contains(t, err.Error(), "commands.shell")
+		assert.Contains(t, err.Error(), `"a"`)
+	})
+
+	t.Run("no commands block at all is fine", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: a: uses: "echo:echo"
+`)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+	})
+
+	t.Run("a run reference declared in needs", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: a: uses: "echo:echo"
+commands: shell: {needs: ["a"], run: ["echo", "${needs.a.out.x}"]}
+`)
+		require.NoError(t, f.Validate(offersExport(true)))
+	})
+
+	t.Run("a run reference not in needs", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: a: uses: "echo:echo"
+commands: shell: {run: ["echo", "${needs.a.out.x}"]}
+`)
+		err := f.Validate(offers("echo", "echo"))
+		require.ErrorIs(t, err, config.ErrUndeclaredNeed)
+		assert.Contains(t, err.Error(), "commands.shell.run")
+		assert.Contains(t, err.Error(), "needs.a")
+	})
+
+	t.Run("a run setup reference with no matching needs entry", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+setup: cluster: uses: "echo:echo"
+commands: shell: {run: ["echo", "${setup.cluster.out.x}"]}
+`)
+		err := f.Validate(offers("echo", "echo"))
+		require.ErrorIs(t, err, config.ErrUndeclaredNeed)
+	})
+}
+
 func TestValidatePluginConfig(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -849,4 +940,14 @@ func offers(plugin string, steps ...string) map[string]config.PluginSchemas {
 		m[s] = nil
 	}
 	return map[string]config.PluginSchemas{plugin: {Steps: m}}
+}
+
+// offersExport builds a schemas map with one "echo" plugin offering the
+// "echo" step type, reporting export as whether that step type implements
+// Export.
+func offersExport(export bool) map[string]config.PluginSchemas {
+	return map[string]config.PluginSchemas{"echo": {
+		Steps:  map[string][]byte{"echo": nil},
+		Export: map[string]bool{"echo": export},
+	}}
 }

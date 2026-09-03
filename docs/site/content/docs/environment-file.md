@@ -151,7 +151,7 @@ kevin validates the environment file against a schema, so CUE syntax is convenie
 
 The unnamed environment is `kevin.cue`, `kevin.yaml`, `kevin.yml`, or `kevin.json`, or the same names with a leading `.` (`.kevin.cue`, and so on) for folks who'd rather keep it out of a plain directory listing. Exactly one of these may exist in the project directory.
 
-A project directory can also hold more than one environment, each with its own name. Pass `--env`/`-e` (every subcommand accepts it, including `kevin connect`), or set `KEVIN_ENV` in the shell to avoid repeating the flag, to select `<name>.kevin.<ext>` or `.<name>.kevin.<ext>` instead:
+A project directory can also hold more than one environment, each with its own name. Pass `--env`/`-e` (every subcommand accepts it, including `kevin do`), or set `KEVIN_ENV` in the shell to avoid repeating the flag, to select `<name>.kevin.<ext>` or `.<name>.kevin.<ext>` instead:
 
 ```sh
 kevin -C . --env staging run
@@ -242,6 +242,32 @@ env: app: {
 Two things differ from a same-scope reference. First, the `needs` entry itself carries the `setup.` prefix - only a bare, unprefixed name ever means "a step in my own scope." Second, reading the value back in a `with` block uses a separate `setup` variable, not `needs.setup...` - `${setup.cluster.out.KUBECONFIG}`, no prefix inside the expression itself.
 
 This only works for a step type that implements `Export` (`Info` reports which ones do), and only from `env` toward `setup` - never the reverse, since `setup` is provisioned independently of any `env` run. A plain `kevin run` never brings the `setup` scope up in that process, so kevin calls the setup step's `Export` RPC to resolve the value instead of walking it as a normal dependency.
+
+## Commands
+
+`commands` declares named, reusable actions to run against a live environment with `kevin do <name>`. A command has its own `needs` list (the same `<step>` / `setup.<name>` convention a step's `needs` uses) and a `run` argv kevin execs in place of itself, inheriting the caller's terminal:
+
+```cue
+env: web: {
+    uses: "builtin:container"
+    with: image: "postgres:16"
+}
+
+commands: {
+    shell: {
+        needs: ["web"]
+        run: ["sh", "-c", `docker exec -it "${needs.web.out.name}" psql -U postgres`]
+    }
+}
+```
+
+```sh
+kevin do shell
+```
+
+`run`'s `${...}` markers work exactly like a step's `with` block: `do` exports every step `needs` names, then renders `run` against `needs.<step>.out.<key>` (a plain entry) or `setup.<name>.out.<key>` (a `setup.`-prefixed entry) before exec'ing it - here `${needs.web.out.name}` becomes the container's real name, `builtin:container`'s own `Export` output. A command with more than one `needs` entry can read from all of them, each under its own name, unlike a single `${needs.a.out.x}` colliding with `${needs.b.out.x}` the way a flat environment-variable merge would. Extra args after `--` append to `run`: `kevin do shell -- -c "select 1"`.
+
+Only a step whose plugin implements `Export` may appear in a command's `needs` list, and every `${needs...}`/`${setup...}` reference inside `run` must name a step `needs` actually declares; `kevin validate` checks both statically, the same way it checks a step's `with` block, so a command that can never work fails before `kevin do` ever tries it.
 
 ## Validation
 

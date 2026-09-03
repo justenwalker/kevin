@@ -175,10 +175,12 @@ func LoadAndLaunch(ctx context.Context, dir, name string) (*config.Config, map[s
 	schemas := make(map[string]config.PluginSchemas, len(caps))
 	for name, info := range caps {
 		steps := make(map[string][]byte, len(info.Steps))
+		export := make(map[string]bool, len(info.Steps))
 		for _, st := range info.Steps {
 			steps[st.Name] = st.Schema
+			export[st.Name] = st.Export
 		}
-		schemas[name] = config.PluginSchemas{Config: info.Schema, Steps: steps}
+		schemas[name] = config.PluginSchemas{Config: info.Schema, Steps: steps, Export: export}
 	}
 	if err = file.Validate(schemas); err != nil {
 		return nil, plugins, nil, err
