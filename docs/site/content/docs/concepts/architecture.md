@@ -97,34 +97,9 @@ Only a plugin that a step references starts. A `plugins:` entry that no step nam
 
 ## Plugin protocol
 
-Every step type speaks the same protocol over gRPC. The engine has no privileged path for a step type that ships in this repository: every builtin step type compiles into the kevin binary the same way, and the engine starts it as `kevin plugin run <name>`. A third party writes a separate binary and gets the same protocol. One process serves every step type that its provider offers.
+Every step type speaks the same protocol over gRPC, six RPCs: `Info`, `Configure`, `Up`, `Down`, `Export`, `CallTool`. See [The plugin protocol]({{< relref "/docs/extending/plugin-protocol" >}}) for each one and the session-startup sequence that calls them.
 
-The service has five methods:
-
-1. `Info` reports the provider name and version, the CUE schema for the provider's own config block, and a CUE schema for each step type it offers.
-2. `Configure` delivers the provider's own `config` block, once, before any step of that provider runs.
-3. `Up` creates one step and returns the outputs of that step. The request carries the step type beside the node name, so one process can dispatch to the right step type.
-4. `Down` removes one step. The request also carries the step type.
-5. `Export` reports what a step created, in two forms: `env`, the environment variables that let an external command reach it (such as `KUBECONFIG` for a Kubernetes cluster - this is what `kevin connect` injects into the shell it execs), and `out`, the same information in structured, `Value`-typed form (the same shape `Up`'s outputs use, so a value can be marked sensitive). A step type implements `Export` only when there is something to export, and `Info` reports, per step type, whether it does. A caller never finds out by calling `Export` and seeing what happens. `kevin connect` is the CLI surface for `env`; an env step's `needs: ["setup.<name>"]` is the automatic caller of `out` (see [Cross-step values](#cross-step-values)).
-
-`Up` and `Down` stream from the server. One call carries the log lines, the progress reports, and the final result. Thus the protocol needs no separate progress service.
-
-The protocol has no callback service and no `GRPCBroker`. Everything that a plugin needs is in the request message: the docker network name, the CA certificate, the proxy address, the workspace path, and the outputs of the upstream steps.
-
-### Session startup
-
-1. Read `kevin.cue` and unify the file with the core schema.
-2. Start every declared plugin.
-3. Call `Info` on each plugin and collect the CUE schemas.
-4. Unify the `with` block of each step with the plugin's schema for that step.
-5. Call `Configure` on each plugin that declares a `config` block, once, before any step of that plugin runs.
-6. Walk the DAG and call `Up` for each step. A step whose `needs` names a `setup` step (`setup.<name>`) calls that setup step's `Export` instead - it is never walked or `Up`'d as part of this DAG.
-
-A step runs only after step 4 succeeds. A bad environment file fails before the plugin creates a resource.
-
-The plugin processes stay alive for the whole session. The engine stops them when the session ends.
-
-Step 4's per-step unification is what `internal/config.BenchmarkValidate` (`go test ./internal/config/... -run ^$ -bench BenchmarkValidate`) measures as step count grows. At 1, 10, 100, and 1000 steps the cost scales linearly, not quadratically, on the measurements taken so far. Re-run it before any change to how a step's `with` block unifies.
+Session startup's per-step `with`-block unification (step 4 of that sequence) is what `internal/config.BenchmarkValidate` (`go test ./internal/config/... -run ^$ -bench BenchmarkValidate`) measures as step count grows. At 1, 10, 100, and 1000 steps the cost scales linearly, not quadratically, on the measurements taken so far. Re-run it before any change to how a step's `with` block unifies.
 
 ### Cross-step values
 
@@ -218,7 +193,7 @@ The server never blocks on a browser. Each client has a bounded buffer, and a cl
 
 `internal/mcpserver` gives a coding agent the same read/control surface the console gives a human, over [MCP](https://modelcontextprotocol.io)'s Streamable HTTP transport instead of SSE/htmx: `list_steps`, `get_step`, `rerun_step`, `export_step`, and `get_proxy_info`.
 
-It mounts at `/_mcp` on the console's own `net/http.ServeMux`, via `console.Server.Mount`, rather than binding a listener of its own. A fourth loopback port for one more agent-facing surface would be one more thing to print, route through a firewall exception, and explain - the console already owns exactly the state an MCP tool call needs (`console.Server.View()` for `list_steps`/`get_step`, the registered rerun handler for `rerun_step`) and already binds one HTTP server for exactly this session's lifetime, so the MCP server rides on it instead of duplicating the bind/listen/shutdown dance `startConsole` already does.
+It mounts at `/_mcp` on the same `net/http.ServeMux` the console registers its own routes on (`console.Server.RegisterRoutes`), rather than binding a listener of its own. A fourth loopback port for one more agent-facing surface would be one more thing to print, route through a firewall exception, and explain - the console already owns exactly the state an MCP tool call needs (`console.Server.View()` for `list_steps`/`get_step`, the registered rerun handler for `rerun_step`) and already binds one HTTP server for exactly this session's lifetime, so the MCP server rides on it instead of duplicating the bind/listen/shutdown dance `startConsole` already does.
 
 `get_proxy_info` reads `proxy.Proxy.Routes()` and `proxy.Proxy.EgressAllowList()` directly, and `export_step` calls a step's plugin `Export` RPC through the session's already-running `pluginhost.Client` - the same RPC `kevin connect` makes, but against the live session instead of a freshly relaunched one, since an MCP client is asking about an environment that's already up. The console's own **MCP** tab shows the URL and the `claude mcp add` command to register it, the same page that shows the proxy's PAC URL and export line.
 
