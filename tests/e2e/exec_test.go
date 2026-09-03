@@ -4,8 +4,6 @@ package e2e
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -76,12 +74,4 @@ env: a: {
 	logs := s.readLogs(dir)
 	s.Contains(logs, "up-ran")
 	s.Contains(logs, "down-ran", "down.command must run once teardown starts")
-}
-
-// readLogs reads dir's durable step log (.kevin/logs.ndjson), the same
-// file EnvSuite's CEL tests already read.
-func (s *ExecSuite) readLogs(dir string) string {
-	b, err := os.ReadFile(filepath.Join(dir, ".kevin", "logs.ndjson"))
-	s.Require().NoError(err)
-	return string(b)
 }

@@ -348,6 +348,13 @@ func (s *e2eSuite) waitDockerLogs(name, want string, timeout time.Duration) stri
 	return ""
 }
 
+// readLogs reads dir's durable step log (.kevin/logs.ndjson).
+func (s *e2eSuite) readLogs(dir string) string {
+	b, err := os.ReadFile(filepath.Join(dir, ".kevin", "logs.ndjson"))
+	s.Require().NoError(err)
+	return string(b)
+}
+
 // sigkill sends SIGKILL to p and waits for it to die - for the
 // crash-resilience test, a real crash rather than a clean Ctrl-C.
 func (s *e2eSuite) sigkill(p *kevinProc) {

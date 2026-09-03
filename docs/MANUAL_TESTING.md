@@ -643,3 +643,88 @@ claude mcp add --transport http kevin http://127.0.0.1:<console-port>/_mcp
 - [ ] Calling it with a `step` that doesn't exist, or one of the wrong
       step type, is a clear error, not a silent empty result.
 
+## 19. `builtin:container` expose with `relay: true`
+
+_Automated by `gnob e2e` (`tests/e2e/container_test.go`)._
+
+`internal/version.String` on a checked-out release tag makes kevin default
+to the matching `ghcr.io/justenwalker/kevin/relay` image - build a fresh
+local one first for anything not yet released, `builtin:container`'s
+`relay: true` included:
+
+```sh
+./build/gnob relay-image
+```
+
+```cue
+env: {
+	web: {
+		uses:  "builtin:container"
+		label: "Web Server"
+		with: {
+			image:  "nginx:alpine"
+			expose: [{port: 80, name: "web", relay: true}]
+		}
+	}
+	web_ready: {
+		uses:  "builtin:wait"
+		label: "Web Ready"
+		needs: ["web"]
+		with: tcp: address: "${needs.web.system.expose_web}"
+	}
+}
+```
+
+```sh
+KEVIN_RELAY_IMAGE=kevin-relay:dev kevin -C /path/to/this run
+```
+
+- [ ] `web_ready` reaches `Ready` - the `expose_web` system output (a
+      `socks5://<relay>/web:80` upstream) is dialable through the relay's
+      SOCKS5 gateway, the same way `examples/kind`'s `apiserver_ready`
+      proves `builtin:kind`'s own expose entries.
+- [ ] `docker inspect --format '{{json .NetworkSettings.Ports}}'
+      kevin-<project>-web` shows no `HostPort` - a `relay: true` entry never
+      gets a `docker --publish` spec, unlike a plain `expose` entry.
+- [ ] Add a `builtin:exec` step needing `web` that curls
+      `http://${needs.web.system.forward_web}/` - the `forward_web` system
+      output (a plain host:port the engine's own local forward publishes on
+      loopback) reaches the same container with no SOCKS5-aware client
+      needed.
+- [ ] `expose: [{port: 53, protocol: "udp", relay: true}]` fails validation
+      up front - the relay's gateway is SOCKS5 CONNECT, TCP only.
+
+## 20. `examples/s3-app` - persistent cluster, intercepted S3, cross-scope route
+
+_Not yet automated - combines sections 7, 8, and 12 (`builtin:kind` +
+`external: true` interception + `setup`/`env` cross-scope `needs`) into one
+environment; each is covered separately elsewhere, but not together._
+
+```sh
+kevin -C examples/s3-app setup      # once: cluster + ministack + a seeded bucket
+kevin -C examples/s3-app run        # every iteration: deploy/redeploy the app
+```
+
+- [ ] `setup` brings up `cluster` (`builtin:kind`, `relay: true`),
+      `ministack`, and a `seed` Job that populates a bucket - all `setup`
+      scope, meant to outlive any single `run`.
+- [ ] `s3_intercept` (`env` scope) registers
+      `s3.us-east-1.amazonaws.com`/`*.s3.us-east-1.amazonaws.com` as
+      `external: true` routes via `${setup.cluster.out.relay_addr}` - a
+      cross-scope `needs: ["setup.cluster"]` read entirely through
+      `cluster`'s `Export` RPC, with no `kevin setup` process still running.
+- [ ] `app` (`builtin:helm`) deploys against the persistent cluster and
+      reaches the real `s3.us-east-1.amazonaws.com` hostname with the
+      unmodified `aws-cli` - no `--endpoint-url` - landing on `ministack`
+      instead of the real internet.
+- [ ] `KUBECONFIG=examples/s3-app/.kevin/kubeconfig/s3app kubectl logs -f
+      deployment/app` shows a fresh heartbeat each run, plus the bucket
+      content `seed` wrote during `setup` - proof the cluster and
+      MiniStack never went away between runs.
+- [ ] `Ctrl-C` on `run` removes only `app` and `s3_intercept`; the cluster
+      and MiniStack are still there afterward (`kubectl get pods` against
+      the same kubeconfig).
+- [ ] `kevin -C examples/s3-app run` a second time redeploys `app` against
+      the same cluster with no `setup` step recreated.
+- [ ] `kevin -C examples/s3-app teardown` removes the persistent scope.
+
