@@ -9,8 +9,8 @@ environment from a DAG of steps (`kevin.cue`), exposes a web console, an
 MCP server for coding agents (mounted on the console's own listener at
 `/_mcp`), and an HTTP/HTTPS proxy with TLS termination and default-deny
 egress, tears down on exit. Every step type is a plugin speaking gRPC -
-`container`, `kind`, `kubectl`, `helm`, `wait`, `route` ship as builtins
-inside the `kevin` binary; third-party plugins are separate binaries. Full
+`container`, `exec`, `kind`, `kubectl`, `helm`, `wait`, `route` ship as
+builtins inside the `kevin` binary; third-party plugins are separate binaries. Full
 design
 rationale:
 [docs/site/content/docs/concepts/architecture.md](docs/site/content/docs/concepts/architecture.md)
@@ -114,18 +114,19 @@ Key model to hold in your head when changing any of this:
 
 - **Provider model**: a plugin process is a *provider* that offers one or
   more step types. A step's `uses: "<plugin>:<step>"` names both parts.
-  `builtin` (never declared in `plugins:`) offers `container`, `kind`,
-  `kubectl`, `helm`, `wait`, `route`. One process serves every step type it offers and must be safe for
-  concurrent `Up`/`Down` calls - the DAG can create several steps of the same
-  type at once.
+  `builtin` (never declared in `plugins:`) offers `container`, `exec`,
+  `kind`, `kubectl`, `helm`, `wait`, `route`. One process serves every step
+  type it offers and must be safe for concurrent `Up`/`Down` calls - the DAG
+  can create several steps of the same type at once.
 - **Two independent DAG scopes** sharing one engine/protocol: `setup`
   (persists across runs, `kevin setup`/`teardown`) and `env` (ephemeral,
   `kevin run`). State lives under `./.kevin/` (or `./.kevin/<name>/` for a
   named environment selected with `-e`/`--env`), keyed by project name so
   two projects, or two named environments in the same project directory,
   can run concurrently.
-- **gRPC protocol has five RPCs**: `Info` (provider/version + CUE schemas),
-  `Configure`, `Up`, `Down`, `Export`. `Up`/`Down` are server-streaming -
+- **gRPC protocol has six RPCs**: `Info` (provider/version + CUE schemas),
+  `Configure`, `Up`, `Down`, `Export`, `CallTool` (invokes a plugin-exposed
+  MCP tool). `Up`/`Down` are server-streaming -
   logs, progress, and the final result all go over the same call, so there's
   no separate progress service and no `GRPCBroker`/callback path. Everything
   a plugin needs (docker network name, CA cert, proxy address, workspace
@@ -200,5 +201,5 @@ add`/`list`/`remove`. `kevin plugin pack` builds a package from a
 directory and `kevin plugin push` publishes one (plus its `.minisig`
 sibling, if present) to an OCI registry. An optional `config` block is
 delivered once via `Configure`). See
-[docs/site/content/docs/configuring-an-environment.md](docs/site/content/docs/configuring-an-environment.md)
+[docs/site/content/docs/environment-file.md](docs/site/content/docs/environment-file.md)
 for worked examples.
