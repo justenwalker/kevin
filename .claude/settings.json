@@ -8,5 +8,23 @@
       "Bash(go mod tidy *)",
       "Bash(./build/gnob *)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "gofmt -l -w $CLAUDE_FILE_PATHS 2>/dev/null; go build ./... 2>&1 | head -30" }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'git add (\\.|-A)|go mod tidy' && { echo 'BLOCKED: stage files explicitly; ask before go mod tidy'; exit 2; } || exit 0" }
+        ]
+      }
+    ]
   }
 }
