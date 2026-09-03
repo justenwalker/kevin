@@ -1,5 +1,6 @@
 ---
-title: "🚧 Proxy and egress"
+title: "Proxy and egress"
+description: "Reach a step through the proxy, and control what it can reach on the way out."
 weight: 1
 ---
 

@@ -1,5 +1,6 @@
 ---
-title: "🔑 CA and trust store"
+title: "CA and trust store"
+description: "How kevin's CA signs certificates for the proxy, and how to trust it."
 weight: 2
 ---
 

@@ -1,5 +1,5 @@
 ---
-title: "⌨️ Commands"
+title: "Commands"
 weight: 20
 bookCollapseSection: true
 description: "Every kevin subcommand, generated from its cobra definition."

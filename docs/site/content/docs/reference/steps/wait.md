@@ -1,5 +1,5 @@
 ---
-title: "⏳ wait"
+title: "wait"
 weight: 6
 ---
 
@@ -20,7 +20,7 @@ A `tcp` check's `address` may be a plain `host:port`, or the
 publish as a `needs.<step>.system.expose_<name>` value, to reach a service
 inside a kind cluster through its relay. `system` is a sub-namespace kept
 separate from `out` (a step's own outputs); see
-[Cross-step values]({{< relref "/docs/configuring-an-environment#cross-step-values" >}}):
+[Cross-step values]({{< relref "/docs/environment-file#cross-step-values" >}}):
 
 ```cue
 postgres_ready: {

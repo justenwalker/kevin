@@ -1,5 +1,5 @@
 ---
-title: "🧩 plugin"
+title: "plugin"
 weight: 7
 ---
 
@@ -9,7 +9,7 @@ weight: 7
 
 Works with the plugins that ship inside `kevin`, and with the plugin
 package format used by `plugins:` entries in `kevin.cue` (see
-[Configuring an environment]({{< relref "/docs/configuring-an-environment" >}})).
+[Configuring an environment]({{< relref "/docs/environment-file" >}})).
 
 ## `kevin plugin pack <dir>`
 

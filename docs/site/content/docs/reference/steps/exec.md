@@ -1,5 +1,5 @@
 ---
-title: "🏃 exec"
+title: "exec"
 weight: 8
 ---
 

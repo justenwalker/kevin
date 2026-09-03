@@ -1,5 +1,5 @@
 ---
-title: "🧮 CEL expressions"
+title: "CEL expressions"
 weight: 1
 description: "The ${...} syntax and variables (needs, setup, env, project) available inside a step's with block."
 ---
@@ -31,8 +31,8 @@ Four top-level scopes: [`needs`](#needs), [`setup`](#setup), [`env`](#env),
 
 | Namespace | Example | Value |
 |:----------|:--------|:------|
-| `out` | `${needs.cluster.out.kubeconfig}` | `<step>`'s `Result.Outputs` (plugin-authored). See [Cross-step values]({{< relref "/docs/configuring-an-environment#cross-step-values" >}}). |
-| `system` | `${needs.cluster.system.expose_postgres}` | A value kevin computes itself for `<step>`, namespaced apart from `out` so it never collides with a plugin-chosen key - currently `expose_<name>`/`forward_<name>` for that step's `ExposedPort` entries. See [Cluster tunnel]({{< relref "/docs/concepts/architecture#cluster-tunnel" >}}). |
+| `out` | `${needs.cluster.out.kubeconfig}` | `<step>`'s `Result.Outputs` (plugin-authored). See [Cross-step values]({{< relref "/docs/environment-file#cross-step-values" >}}). |
+| `system` | `${needs.cluster.system.expose_postgres}` | A value kevin computes itself for `<step>`, namespaced apart from `out` so it never collides with a plugin-chosen key - currently `expose_<name>`/`forward_<name>` for that step's `ExposedPort` entries. See [Cluster tunnel]({{< relref "/docs/concepts/relay#cluster-tunnel" >}}). |
 
 ## `setup`
 
@@ -41,7 +41,7 @@ Four top-level scopes: [`needs`](#needs), [`setup`](#setup), [`env`](#env),
 not `Up` - a plain `kevin run` never brings the `setup` scope up, so this
 is fetched fresh every time. `env`-scope steps only; a `setup` step can't
 depend on `env`. See
-[Cross-step values]({{< relref "/docs/configuring-an-environment#cross-step-values" >}}).
+[Cross-step values]({{< relref "/docs/environment-file#cross-step-values" >}}).
 
 ```cue
 setup: cluster: {uses: "builtin:kind"}

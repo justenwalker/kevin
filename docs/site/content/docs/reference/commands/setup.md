@@ -1,5 +1,5 @@
 ---
-title: "🧰 setup"
+title: "setup"
 weight: 2
 ---
 
@@ -14,5 +14,5 @@ a shared kind cluster reused by many `kevin run`s.
 kevin setup
 ```
 
-See [Configuring an environment]({{< relref "/docs/configuring-an-environment" >}})
+See [Configuring an environment]({{< relref "/docs/environment-file" >}})
 for the difference between a `setup` step and an `env` step.

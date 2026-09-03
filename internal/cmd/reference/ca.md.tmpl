@@ -1,5 +1,5 @@
 ---
-title: "🔐 ca"
+title: "ca"
 weight: 8
 ---
 

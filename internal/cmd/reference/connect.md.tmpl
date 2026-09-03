@@ -1,5 +1,5 @@
 ---
-title: "🔌 connect"
+title: "connect"
 weight: 4
 ---
 

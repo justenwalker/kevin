@@ -1,5 +1,5 @@
 ---
-title: "☸️ kind"
+title: "kind"
 weight: 2
 ---
 
@@ -56,7 +56,7 @@ need - `relay_addr` is read back from a file `Up` writes alongside
 
 `system`, read as `needs.<step>.system.<key>`, is a sub-namespace kept
 separate from `out` so it can never collide with one of the above (see
-[Cross-step values]({{< relref "/docs/configuring-an-environment#cross-step-values" >}})):
+[Cross-step values]({{< relref "/docs/environment-file#cross-step-values" >}})):
 one `expose_<name>` per `expose` entry, its relay address, for a downstream
 step such as [`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}), and
 one `forward_<name>` per `expose` entry, a plain `127.0.0.1:<port>` address

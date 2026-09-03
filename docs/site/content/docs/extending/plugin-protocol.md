@@ -1,5 +1,5 @@
 ---
-title: "🔌 The plugin protocol"
+title: "The plugin protocol"
 weight: 2
 ---
 
@@ -22,10 +22,10 @@ The protocol has no callback service and no `GRPCBroker`. Everything a plugin ne
 
 ## Session startup
 
-1. Read `kevin.cue` and unify the file with the core schema.
+1. Read `kevin.cue` and check the file against the core schema.
 2. Start every declared plugin.
 3. Call `Info` on each plugin and collect the CUE schemas.
-4. Unify the `with` block of each step with the plugin's schema for that step.
+4. Check the `with` block of each step against the plugin's schema for that step.
 5. Call `Configure` on each plugin that declares a `config` block, once, before any step of that plugin runs.
 6. Walk the DAG and call `Up` for each step. A step whose `needs` names a setup step (`setup.<name>`) calls that setup step's `Export` instead - it is never walked or `Up`'d as part of this DAG.
 
@@ -33,4 +33,4 @@ A step runs only after step 4 succeeds. A bad environment file fails before the 
 
 The plugin processes stay alive for the whole session. The engine stops them when the session ends.
 
-See [Environment file: cross-step values]({{< relref "/docs/configuring-an-environment#cross-step-values" >}}) for how a step's outputs reach a downstream step, both in the plugin's own wire request and in `${...}` expressions inside `with`.
+See [Environment file: cross-step values]({{< relref "/docs/environment-file#cross-step-values" >}}) for how a step's outputs reach a downstream step, both in the plugin's own wire request and in `${...}` expressions inside `with`.

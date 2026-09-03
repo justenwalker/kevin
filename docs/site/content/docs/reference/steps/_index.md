@@ -1,5 +1,5 @@
 ---
-title: "🧱 Steps"
+title: "Steps"
 weight: 10
 bookCollapseSection: true
 description: "The with block config for every builtin step type, generated from its #Config CUE schema."

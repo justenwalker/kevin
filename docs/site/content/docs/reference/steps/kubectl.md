@@ -1,5 +1,5 @@
 ---
-title: "🎮 kubectl"
+title: "kubectl"
 weight: 4
 ---
 

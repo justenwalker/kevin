@@ -227,20 +227,22 @@ b {
     stroke: #7ec8e3 !important;
   }
 
-  // e.g. the "gRPC" text on a connecting line.
+  // e.g. the "gRPC" text on a connecting line. No background chip - light
+  // text with a dark shadow reads fine straight over the navy panel/lines.
   .edgeLabel,
   .edgeLabel p,
   .edgeLabel rect,
   .labelBkg {
-    background-color: rgba(245, 233, 211, 0.9) !important;
-    fill: rgba(245, 233, 211, 0.9) !important;
+    background-color: transparent !important;
+    fill: transparent !important;
   }
 
   .edgeLabel text,
   .edgeLabel span,
   .edgeLabel p {
-    fill: #1a1a1a !important;
-    color: #1a1a1a !important;
+    fill: #f5e9d3 !important;
+    color: #f5e9d3 !important;
+    text-shadow: 0 1px 3px #000, 0 0 2px #000 !important;
   }
 
   .cluster rect {

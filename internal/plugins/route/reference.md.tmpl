@@ -1,5 +1,5 @@
 ---
-title: "🛣️ route"
+title: "route"
 weight: 7
 ---
 

@@ -1,5 +1,6 @@
 ---
-title: "☸️ Kubernetes clusters"
+title: "Kubernetes clusters"
+description: "Bring up a local Kubernetes cluster with kind, on the same docker network as everything else."
 weight: 3
 ---
 

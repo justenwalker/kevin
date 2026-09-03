@@ -1,5 +1,5 @@
 ---
-title: "🐳 container"
+title: "container"
 weight: 1
 ---
 

@@ -1,6 +1,6 @@
 ---
-title: "⚖️ kevin vs. other tools"
-weight: 3
+title: "Kevin vs. Other Tools"
+weight: 100
 ---
 
 # kevin vs. other tools

@@ -1,5 +1,5 @@
 ---
-title: "📖 Reference"
+title: "Reference"
 weight: 20
 bookCollapseSection: true
 ---

@@ -1,5 +1,5 @@
 ---
-title: "🚢 helm"
+title: "helm"
 weight: 5
 ---
 

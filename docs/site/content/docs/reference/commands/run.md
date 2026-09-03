@@ -1,5 +1,5 @@
 ---
-title: "🚀 run"
+title: "run"
 weight: 1
 ---
 
@@ -20,5 +20,5 @@ kevin run --keep --open
 | `--keep` | `bool` | `false` | leave the environment in place on exit |
 | `--open` | `bool` | `false` | open the console in the default browser once it's listening |
 
-See [Configuring an environment]({{< relref "/docs/configuring-an-environment" >}})
+See [Configuring an environment]({{< relref "/docs/environment-file" >}})
 for what an `env` step is.

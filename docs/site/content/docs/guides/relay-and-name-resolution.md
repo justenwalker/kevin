@@ -1,5 +1,6 @@
 ---
-title: "📡 Name resolution"
+title: "Name resolution"
+description: "How a workload resolves environment names with zero host configuration, via the in-network relay."
 weight: 5
 ---
 

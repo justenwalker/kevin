@@ -1,11 +1,11 @@
 ---
-title: "📝 Environment file"
+title: "Environment File"
 weight: 2
 ---
 
 # Environment file
 
-An environment is a `kevin.cue` (or `.yaml`/`.yml`/`.json`, or a `.`-prefixed dotfile variant of any of those - see [File name and format](#file-name-and-format) below) in the project directory. It declares the steps that make up the environment, and the plugin binaries that a step outside kevin needs. A CUE file has no package clause.
+An environment is a `kevin.cue` (or `.yaml`/`.yml`/`.json`, or a `.`-prefixed dotfile variant of any of those - see [File name and format](#file-name-and-format) below) in the project directory. It declares the steps that make up the environment, and the plugins that a step outside kevin needs. A CUE file has no package clause.
 
 A plugin is a provider: it offers one or more step types under its own name. A step's `uses` field names a step type as `<plugin>:<step>`. `builtin` is the provider kevin supplies, and it needs no `plugins:` entry. See [Reference]({{< relref "/docs/reference/steps" >}}) for every step type it offers and each one's `with` block.
 
@@ -218,7 +218,7 @@ env: {
 
 Any string in a `with` block, at any depth, that contains `${...}` gets that expression evaluated against a `needs` variable keyed by upstream step name, and the result spliced back into the surrounding text. A `with` block that never uses `${` pays no cost. This is how the [kubectl and helm steps]({{< relref "guides/deploying-workloads" >}}) read a cluster's `kubeconfig`/`context`, and it works the same way for any plugin's `with` block, not just the builtin ones.
 
-Each step entry under `needs` has two sub-namespaces: `out` (that step's own plugin-authored outputs, as above) and `system` (values kevin computes itself, currently `expose_<name>`/`forward_<name>` for a step's `ExposedPort` entries). They're kept apart so a kevin-computed key can never collide with one a plugin chose for its own output: `${needs.cluster.system.forward_postgres}` reads the same way `${needs.cluster.out.kubeconfig}` does; see [Cluster tunnel]({{< relref "/docs/concepts/architecture#cluster-tunnel" >}}).
+Each step entry under `needs` has two sub-namespaces: `out` (that step's own plugin-authored outputs, as above) and `system` (values kevin computes itself, currently `expose_<name>`/`forward_<name>` for a step's `ExposedPort` entries). They're kept apart so a kevin-computed key can never collide with one a plugin chose for its own output: `${needs.cluster.system.forward_postgres}` reads the same way `${needs.cluster.out.kubeconfig}` does; see [Cluster tunnel]({{< relref "/docs/concepts/relay#cluster-tunnel" >}}).
 
 The same `${...}` expression can also read `env.<VAR>`, kevin's own environment variables, for example `with: registry: "${env.REGISTRY_HOST}"`. Referencing a variable that isn't set is an error; give it a fallback with `${has(env.REGISTRY_HOST) ? env.REGISTRY_HOST : "localhost:5000"}`. `project.<key>` reads a small fixed set of project-level constants instead - kevin's CA paths and its own proxy address - for a tool that only takes them as a command-line flag, such as `${project.root_cert}` for `curl --cacert`. See [CEL expressions]({{< relref "/docs/reference/cel-expressions" >}}) for the full syntax reference.
 

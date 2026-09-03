@@ -1,5 +1,5 @@
 ---
-title: "🧩 Extending kevin"
+title: "Extending Kevin"
 weight: 90
 bookCollapseSection: true
 ---

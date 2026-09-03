@@ -1,5 +1,5 @@
 ---
-title: "🧹 teardown"
+title: "teardown"
 weight: 3
 ---
 

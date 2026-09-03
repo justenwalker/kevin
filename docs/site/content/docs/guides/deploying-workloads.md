@@ -1,5 +1,6 @@
 ---
-title: "📦 Deploying workloads"
+title: "Deploying workloads"
+description: "Deploy into a cluster with kubectl and helm steps, gated on real readiness checks."
 weight: 4
 ---
 
@@ -22,7 +23,7 @@ env: {
 }
 ```
 
-Both steps read `kubeconfig`/`context` off `needs` with a `${...}` expression. See [Environment file: cross-step values]({{< relref "/docs/configuring-an-environment#cross-step-values" >}}).
+Both steps read `kubeconfig`/`context` off `needs` with a `${...}` expression. See [Environment file: cross-step values]({{< relref "/docs/environment-file#cross-step-values" >}}).
 
 ## kubectl
 
@@ -58,4 +59,4 @@ app_ready: {
 }
 ```
 
-A `kubectl` check runs `kubectl wait --for=<condition>` or `kubectl rollout status`, retrying while the resource doesn't exist yet. There is no need to sequence it after the apply beyond the `needs` edge. `builtin:wait` also has `tcp`, `http`, and `exec` checks, for a step whose readiness isn't a kubectl condition. A `tcp` check reaches a service inside a kind cluster through the SOCKS5 relay, dialing the `needs.<step>.system.expose_<name>` value a `builtin:kind` step's `expose` entries publish (see [Cluster tunnel]({{< relref "/docs/concepts/architecture#cluster-tunnel" >}})). See [wait reference]({{< relref "/docs/reference/steps/wait" >}}) for every check kind, and [`examples/kind`](https://github.com/justenwalker/kevin/tree/main/examples/kind) for a full chain: a `kubectl` step and a `helm` step each gated by their own `wait` step, plus a `tcp` check through the relay and an `http` check against a plain container.
+A `kubectl` check runs `kubectl wait --for=<condition>` or `kubectl rollout status`, retrying while the resource doesn't exist yet. There is no need to sequence it after the apply beyond the `needs` edge. `builtin:wait` also has `tcp`, `http`, and `exec` checks, for a step whose readiness isn't a kubectl condition. A `tcp` check reaches a service inside a kind cluster through the SOCKS5 relay, dialing the `needs.<step>.system.expose_<name>` value a `builtin:kind` step's `expose` entries publish (see [Cluster tunnel]({{< relref "/docs/concepts/relay#cluster-tunnel" >}})). See [wait reference]({{< relref "/docs/reference/steps/wait" >}}) for every check kind, and [`examples/kind`](https://github.com/justenwalker/kevin/tree/main/examples/kind) for a full chain: a `kubectl` step and a `helm` step each gated by their own `wait` step, plus a `tcp` check through the relay and an `http` check against a plain container.
