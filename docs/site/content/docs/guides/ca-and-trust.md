@@ -10,7 +10,7 @@ kevin signs every certificate the proxy presents with its own CA, so it never ne
 
 | Level   | Location        | Signs                       |
 |---------|------------------|-------------------------------|
-| Root    | `~/.kevin/`      | the authority of a project    |
+| Root    | `~/.kevin/`      | a project's own intermediate CA |
 | Project | `./.kevin/` (`./.kevin/<name>/` for a named environment) | a leaf certificate per host   |
 
 Only the root ever reaches a trust store, and it's installed there once for the whole machine, so a trust store holds one kevin anchor no matter how many kevin projects exist. Each project's own authority lives in the project directory and goes away with it.
