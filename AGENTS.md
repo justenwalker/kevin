@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project Status: pre-1.0
+
+This project is v0 - breaking changes are acceptable and preferred over
+compatibility shims. Do NOT add reserved proto fields, deprecated aliases, or
+backward-compatibility layers unless explicitly asked. When a rename or
+removal is requested, do the full sweep: proto, Go code, mocks, tests, docs,
+and examples.
+
 ## What this is
 
 kevin: local dev environment supervisor. Brings up a Docker-backed test
@@ -16,6 +24,13 @@ rationale:
 [docs/site/content/docs/concepts/architecture.md](docs/site/content/docs/concepts/architecture.md)
 - read it before touching the DAG engine, the proxy, the CA, or the plugin
 protocol; it explains *why*, not just *what*.
+
+## Scope Control
+
+Implement exactly what was asked. Do not add adjacent features (e.g. UDP
+support, extra validation helpers) or run destructive housekeeping commands
+like `go mod tidy` without asking first. If extra work seems warranted,
+propose it in one sentence and wait.
 
 ## Build system: gnob
 
@@ -72,6 +87,18 @@ GoReleaser pushes the `kevin-relay` image before creating the GitHub
 release and aborts on the first failure, so a docker push failure still
 leaves no tag or GitHub release behind.
 
+## Commit Discipline
+
+- Before starting new work, confirm the working tree is clean and you are on
+  the correct base branch (ask if unsure). Never branch off `main` when a
+  feature branch is the intended base.
+- Stage files explicitly by path. Never use `git add .` or `git add -A` -
+  unrelated staged deletions have been swept into commits before.
+- Group work into small, logical commits as you go rather than one
+  monolithic commit at the end. Each commit must build, test, and lint clean.
+- Write real commit messages: subject describes the behavior change, body
+  explains why.
+
 ## Testing
 
 - Unit tests: `go test -race -cover ./...` (what `gnob test` runs).
@@ -92,6 +119,14 @@ leaves no tag or GitHub release behind.
   container). `kevin ca install`/`uninstall` manages the CA trust store;
   it needs no project (see the quickstart's "Trust the CA" section).
 
+## Verification Before Done
+
+A task is not complete until `go build ./...`, `go test ./...`, and the lint
+target all pass, and the docs affected by the change are updated in the same
+commit. Docs that must be checked on any behavior change: architecture/
+concepts pages, the feature index, comparison page, README, and generated
+reference docs.
+
 ## Linting
 
 `golangci-lint` (v2 config, `.golangci.yaml`) enables *all* linters and
@@ -106,7 +141,20 @@ exclusion rules.
 [docs/GO_CONVENTIONS.md](docs/GO_CONVENTIONS.md) covers the house style
 `golangci-lint` can't check - sentinel errors, error-message shape, helper
 placement, and the rest, each as a numbered rule (`GO-###`) with a DO/DO NOT
-example.
+example, including [GO-019](docs/GO_CONVENTIONS.md#go-019-a-function-returns-a-single-struct-plus-error-not-three-or-more-values)
+on Go API shape.
+
+## Writing Style
+
+- No em-dashes anywhere. Keep headings short.
+- Do not add explanatory comments for self-evident code. Comments explain
+  *why*, never *what* - see [docs/GO_CONVENTIONS.md](docs/GO_CONVENTIONS.md)
+  GO-006 for the doc-comment vs. inline-comment split.
+- Avoid AI-flavored filler ("comprehensive", "robust", "seamlessly",
+  "leverage"). Write plain user-facing language, not marketing jargon.
+- Follow [docs/GO_CONVENTIONS.md](docs/GO_CONVENTIONS.md) for test file
+  naming and test function names; keep test names short and match existing
+  files rather than creating new one-off scenario files.
 
 ## Architecture
 

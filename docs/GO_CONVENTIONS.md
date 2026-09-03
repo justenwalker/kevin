@@ -618,3 +618,33 @@ internal/proxy/
                   // into the file named after the package itself
   proxy_test.go   // every test for all of the above, in no particular order
 ```
+
+## GO-019: A function returns a single struct plus `error`, not three or more values
+
+A function that would return three or more values (not counting `error`)
+returns a single struct plus `error` instead. Prefer a type-safe wrapper type
+over a stringly-typed or list-based design for sensitive data. For
+contention on shared state, prefer reject-on-contention (`TryLock`) over a
+blocking lock unless blocking is explicitly required. Don't pre-format a
+user-facing message with `fmt.Sprintf`; keep the template and its args
+separate so they can still be localized.
+
+**DO:**
+```go
+// UpResult is the outcome of bringing a step up.
+type UpResult struct {
+	Outputs      map[string]string
+	EgressAllow  []string
+	ReadyAt      time.Time
+}
+
+func (s Step) Up(ctx context.Context, req UpRequest) (UpResult, error) { ... }
+```
+
+**DO NOT:**
+```go
+// A fourth return value means every call site destructures four positional
+// results, and a caller that only wants two of them still has to name all
+// four.
+func (s Step) Up(ctx context.Context, req UpRequest) (map[string]string, []string, time.Time, error) { ... }
+```
