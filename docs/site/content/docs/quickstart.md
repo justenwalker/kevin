@@ -49,7 +49,7 @@ curl --proxy http://127.0.0.1:18080 \
      https://web.kevin.home/
 ```
 
-A [`builtin:route`]({{< relref "/docs/reference/route" >}}) step puts a name on the environment domain. The domain defaults to `kevin.home`. It works the same way whether the address behind the name is a container's published port (as in `examples/web`) or something reached through a relay, such as a Service inside a `builtin:kind` cluster.
+A [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step puts a name on the environment domain. The domain defaults to `kevin.home`. It works the same way whether the address behind the name is a container's published port (as in `examples/web`) or something reached through a relay, such as a Service inside a `builtin:kind` cluster.
 
 A browser needs no configuration beyond pointing at the proxy's auto-config file, `http://127.0.0.1:18080/proxy.pac`: it sends the environment domain through the proxy and everything else direct. Behind the scenes, an in-network relay container resolves `<step>.<domain>` and egress denies by default: see [Name resolution]({{< relref "guides/relay-and-name-resolution" >}}) and [Proxy and egress]({{< relref "guides/proxy-and-egress" >}}) for the full model.
 

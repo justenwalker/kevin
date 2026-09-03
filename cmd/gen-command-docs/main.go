@@ -7,7 +7,7 @@
 // reference.md.tmpl owns everything that isn't mechanical - front matter,
 // the intro, worked examples, trailing notes - using the built-in "flags"
 // template wherever a flag table belongs. --out sets the output directory
-// (default docs/site/content/docs/commands). A command with no
+// (default docs/site/content/docs/reference/commands). A command with no
 // reference.md.tmpl gets no page.
 package main
 
@@ -28,7 +28,7 @@ import (
 
 const (
 	templateDir   = "internal/cmd/reference"
-	defaultOutDir = "docs/site/content/docs/commands"
+	defaultOutDir = "docs/site/content/docs/reference/commands"
 	outputDirPerm = 0o755 // caller-controlled via --out, not attacker input
 )
 

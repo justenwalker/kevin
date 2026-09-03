@@ -10,8 +10,8 @@ weight: 6
 Blocks a step's dependents until a check succeeds: a TCP dial, an HTTP(S)
 probe, a `kubectl wait`/`rollout status`, a command retried until it exits
 zero, or a fixed `duration` sleep. Useful after a
-[`kubectl`]({{< relref "/docs/reference/kubectl" >}})
-or [`helm`]({{< relref "/docs/reference/helm" >}}) step applies a manifest,
+[`kubectl`]({{< relref "/docs/reference/steps/kubectl" >}})
+or [`helm`]({{< relref "/docs/reference/steps/helm" >}}) step applies a manifest,
 to gate a dependent step on the workload actually being ready. See
 [Deploying workloads]({{< relref "/docs/guides/deploying-workloads" >}}).
 

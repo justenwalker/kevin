@@ -30,6 +30,6 @@ kind only brings up the cluster. See [Deploying workloads]({{< relref "deploying
 
 ## Service routing
 
-`expose` reaches an arbitrary in-cluster address as raw TCP. It never goes through the proxy, and has no notion of a hostname. To instead serve a Service in a browser under a subdomain, set `relay: true` on the `kind` step (standing up the relay pod even with no `expose` entries) and add a [`builtin:route`]({{< relref "/docs/reference/route" >}}) step reading its `relay_addr` output. See [Name resolution]({{< relref "relay-and-name-resolution" >}}) for the full picture, including why `route` works identically for a `builtin:container` step's published port.
+`expose` reaches an arbitrary in-cluster address as raw TCP. It never goes through the proxy, and has no notion of a hostname. To instead serve a Service in a browser under a subdomain, set `relay: true` on the `kind` step (standing up the relay pod even with no `expose` entries) and add a [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step reading its `relay_addr` output. See [Name resolution]({{< relref "relay-and-name-resolution" >}}) for the full picture, including why `route` works identically for a `builtin:container` step's published port.
 
-See [Reference]({{< relref "/docs/reference/kind" >}}) for the full `with` block, including `egress` (external hosts the cluster's nodes can reach), `expose` (reaching an arbitrary in-cluster address from the host), and `relay`.
+See [Reference]({{< relref "/docs/reference/steps/kind" >}}) for the full `with` block, including `egress` (external hosts the cluster's nodes can reach), `expose` (reaching an arbitrary in-cluster address from the host), and `relay`.

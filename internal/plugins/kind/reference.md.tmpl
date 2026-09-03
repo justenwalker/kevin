@@ -32,7 +32,7 @@ cluster: {
 absolute path), `context` (always `"kind-"+name`), `nodes` (a
 comma-separated list), and `relay_addr` (a plain host:port loopback
 address) whenever the relay is up (see `relay` above), for a
-[`builtin:route`]({{< relref "/docs/reference/route" >}}) step to dial
+[`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step to dial
 through. Implements `Export`, reporting `KUBECONFIG` for `kevin connect` and
 `name`/`kubeconfig`/`context`/`relay_addr` for a cross-scope `setup.<name>`
 need - `relay_addr` is read back from a file `Up` writes alongside
@@ -42,7 +42,7 @@ need - `relay_addr` is read back from a file `Up` writes alongside
 separate from `out` so it can never collide with one of the above (see
 [Cross-step values]({{< relref "/docs/configuring-an-environment#cross-step-values" >}})):
 one `expose_<name>` per `expose` entry, its relay address, for a downstream
-step such as [`builtin:wait`]({{< relref "/docs/reference/wait" >}}), and
+step such as [`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}), and
 one `forward_<name>` per `expose` entry, a plain `127.0.0.1:<port>` address
 the engine forwards to the relay on a client's behalf, so a tool with
 no SOCKS5 awareness (`psql`, `curl`, ...) can dial it directly.

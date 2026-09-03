@@ -11,7 +11,7 @@ kevin changes no file on the host: no entry in `/etc/hosts`, no file in `/etc/re
 
 Set `HTTP_PROXY`/`HTTPS_PROXY`, or point a browser at `http://<proxy>/proxy.pac`. The auto-config file sends the environment domain through the proxy and everything else direct, so normal browsing is untouched, and it updates automatically as steps are added (no reload needed).
 
-The environment has a base domain, `kevin.home` by default; set `domain:` in `kevin.cue` to use a different one. A [`builtin:route`]({{< relref "/docs/reference/route" >}}) step puts a name on it, pointed at a `builtin:container` step's published port for a direct address, or at a relay for a target the proxy can't dial itself, such as a Service inside a `builtin:kind` cluster. A bare step name alone is never routable; it always needs the dot and the domain, so a step name can't accidentally shadow a real host on the internet.
+The environment has a base domain, `kevin.home` by default; set `domain:` in `kevin.cue` to use a different one. A [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step puts a name on it, pointed at a `builtin:container` step's published port for a direct address, or at a relay for a target the proxy can't dial itself, such as a Service inside a `builtin:kind` cluster. A bare step name alone is never routable; it always needs the dot and the domain, so a step name can't accidentally shadow a real host on the internet.
 
 The proxy listens on `127.0.0.1:0` (a free port) by default; set `proxy: listen:` in `kevin.cue` to pin it to a fixed address instead. The web console has the same knob, `console: listen:`.
 

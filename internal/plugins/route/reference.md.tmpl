@@ -13,7 +13,7 @@ on the domain, whatever kind of step produced the address. A route step
 deploys nothing itself: it only tells the kevin proxy how to dial each
 host.
 
-Pair it with a [`builtin:container`]({{< relref "/docs/reference/container" >}})
+Pair it with a [`builtin:container`]({{< relref "/docs/reference/steps/container" >}})
 step's `expose` output for an address the proxy can dial directly:
 
 ```cue
@@ -41,7 +41,7 @@ tenant_route: {
 registers `*.web.<domain>`, matching `anything.web.<domain>` (but not the
 bare `web.<domain>`) into the same address.
 
-Or with a [`builtin:kind`]({{< relref "/docs/reference/kind" >}}) cluster's
+Or with a [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}) cluster's
 relay for a target the proxy can only reach through a SOCKS5 tunnel. Set
 `relay` to dial through it, with a CONNECT to each route's address:
 

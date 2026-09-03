@@ -8,8 +8,9 @@
 // front matter, the intro, the worked example, trailing notes - using the
 // built-in "table" template (see fieldTable) wherever a field table
 // belongs. --out sets the output directory (default
-// docs/site/content/docs/reference); a third-party plugin repo passes its
-// own schema.cue path(s) and --out to render into its own docs tree:
+// docs/site/content/docs/reference/steps); a third-party plugin repo
+// passes its own schema.cue path(s) and --out to render into its own
+// docs tree:
 //
 //	gen-reference-docs --out ./docs ./schema.cue
 package main
@@ -31,7 +32,7 @@ import (
 
 const (
 	defaultGlob      = "internal/plugins/*/schema.cue"
-	defaultOutputDir = "docs/site/content/docs/reference"
+	defaultOutputDir = "docs/site/content/docs/reference/steps"
 	templateName     = "reference.md.tmpl"
 	outputDirPerm    = 0o755 // caller-controlled via --out, not attacker input
 )

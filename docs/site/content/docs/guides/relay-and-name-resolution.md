@@ -22,11 +22,11 @@ cluster: {
 }
 ```
 
-Unlike a container step's `expose`, `Up` doesn't wait for the address to become dialable. The target is usually deployed separately, after the cluster is up, so `Up` only wires the tunnel and reports where to reach it. See [kind reference]({{< relref "/docs/reference/kind" >}}) for the `expose` field.
+Unlike a container step's `expose`, `Up` doesn't wait for the address to become dialable. The target is usually deployed separately, after the cluster is up, so `Up` only wires the tunnel and reports where to reach it. See [kind reference]({{< relref "/docs/reference/steps/kind" >}}) for the `expose` field.
 
 ## HTTP routing
 
-`expose` is a raw TCP tunnel, dialed directly by a tool that speaks SOCKS5 or by an engine-managed local forward. It never goes through the proxy, and it has no notion of a hostname. To instead serve `myapp` as a subdomain of the environment domain in a browser, backed by a Service inside a kind cluster, add a [`builtin:route`]({{< relref "/docs/reference/route" >}}) step. It reuses the same relay: set `relay: true` on the `kind` step to stand the relay pod up even with no `expose` entries, read its address back as `relay_addr`, and register a route through it:
+`expose` is a raw TCP tunnel, dialed directly by a tool that speaks SOCKS5 or by an engine-managed local forward. It never goes through the proxy, and it has no notion of a hostname. To instead serve `myapp` as a subdomain of the environment domain in a browser, backed by a Service inside a kind cluster, add a [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step. It reuses the same relay: set `relay: true` on the `kind` step to stand the relay pod up even with no `expose` entries, read its address back as `relay_addr`, and register a route through it:
 
 ```cue
 cluster: {uses: "builtin:kind", with: {relay: true}}

@@ -14,16 +14,14 @@ This document describes the parts of kevin and the reasons for the shape of each
 graph TD
     CLI["kevin CLI"] -->|invokes| ENG[engine]
 
-    subgraph ENGPROC["kevin engine process"]
-        ENG -->|loads| CFG["Config"]
-        ENG -->|uses| DAG["DAG engine"]
-        ENG -->|creates| CA["CA"]
-        ENG -->|starts| HOST[pluginhost]
-        ENG -->|starts| PROXY[proxy]
-        ENG -->|drives| CON[console]
-        CON -->|mounts /_mcp| MCPN[MCP server]
-        CA -->|signs leaf for| PROXY
-    end
+    ENG -->|loads| CFG["Config"]
+    ENG -->|uses| DAG["DAG engine"]
+    ENG -->|creates| CA["CA"]
+    ENG -->|starts| HOST[pluginhost]
+    ENG -->|starts| PROXY[proxy]
+    ENG -->|drives| CON[console]
+    CON -->|mounts /_mcp| MCPN[MCP server]
+    CA -->|signs leaf for| PROXY
 
     subgraph DOCKERNET["docker network"]
         RELAY["relay<br/>(container)"]
@@ -134,7 +132,7 @@ A step publishes outputs. Every step that declares a `needs` edge on that step r
 
 A step's own plugin code always gets every upstream output through the wire request. The engine passes it beside the `with` block, not through it. But a `with` value itself can also reference one, using `${cel-expression}`: any string in the `with` block, at any depth, that contains `${...}` gets that expression evaluated, against a `needs` variable shaped `map[string]map[string]map[string]string`, keyed by upstream step name, then by `out` (that step's own plugin-authored outputs) or `system` (values kevin computes itself, kept apart so a kevin-computed key can never collide with one a plugin chose for its own output). The same expression can also read `env.<VAR>`, the kevin process's own environment variables; referencing an unset one errors, so `has(env.VAR) ? env.VAR : "default"` is the idiom for an optional one. The result is spliced back into the surrounding text before the plugin ever sees it. A step whose `with` block never uses `${` pays no cost; there is no other change to what the plugin receives.
 
-`internal/expr` implements this, using [CEL](https://github.com/google/cel-go). `internal/engine`'s DAG walk calls it once per step, right where the upstream outputs for that step are already assembled, so this needs no separate resolution phase and no reordering of validate-then-walk: CUE unification of the `with` block still happens once, globally, before the walk starts, and only ever sees the `${...}` placeholder as a plain string. The mechanism itself is generic: any step type's `with` block can use it, builtin or third-party. See [CEL expressions]({{< relref "/docs/cel-expressions" >}}) for the full syntax reference.
+`internal/expr` implements this, using [CEL](https://github.com/google/cel-go). `internal/engine`'s DAG walk calls it once per step, right where the upstream outputs for that step are already assembled, so this needs no separate resolution phase and no reordering of validate-then-walk: CUE unification of the `with` block still happens once, globally, before the walk starts, and only ever sees the `${...}` placeholder as a plain string. The mechanism itself is generic: any step type's `with` block can use it, builtin or third-party. See [CEL expressions]({{< relref "/docs/reference/cel-expressions" >}}) for the full syntax reference.
 
 #### Crossing scopes with `needs`
 

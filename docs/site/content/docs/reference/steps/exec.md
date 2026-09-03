@@ -50,7 +50,7 @@ up: command: [
 ]
 ```
 
-See [CEL expressions]({{< relref "/docs/cel-expressions" >}}).
+See [CEL expressions]({{< relref "/docs/reference/cel-expressions" >}}).
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
