@@ -32,6 +32,16 @@ support, extra validation helpers) or run destructive housekeeping commands
 like `go mod tidy` without asking first. If extra work seems warranted,
 propose it in one sentence and wait.
 
+## Before Planning a Design
+
+Before entering plan mode on any non-trivial design (new subsystem, wire
+protocol change, cross-package refactor, or anything else a design proposal
+would cover), read [docs/adr/README.md](docs/adr/README.md) and state
+explicitly which ADRs constrain the design and how the proposal satisfies
+each one. If a proposal would violate an ADR, say so up front, in the same
+message as the proposal, and justify the violation - do not let the user
+discover the conflict by reading the plan.
+
 ## Build system: gnob
 
 No Makefile. Build orchestration is `gnob` (github.com/justenwalker/gnob),
