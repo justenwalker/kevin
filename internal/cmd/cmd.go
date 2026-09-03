@@ -78,9 +78,9 @@ func Run(ctx context.Context, args []string) error {
 }
 
 // NewRootCommand builds the kevin command tree without running it.
-// cmd/gen-command-docs walks the result for Use/Short/Long/flags. The
-// *options return value is Run's own bookkeeping, not meant for a caller
-// outside this package to use.
+// gen-docs commands walks the result for Use/Short/Long/flags. The *options
+// return value is Run's own bookkeeping, not meant for a caller outside
+// this package to use.
 func NewRootCommand() (*cobra.Command, *options) {
 	opts := &options{}
 

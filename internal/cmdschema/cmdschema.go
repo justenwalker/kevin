@@ -1,5 +1,5 @@
 // Package cmdschema reduces a *cobra.Command tree to a plain Go structure
-// that a text/template can range over, so gen-command-docs depends on this
+// that a text/template can range over, so gen-docs depends on this
 // package's types instead of cobra's own API.
 package cmdschema
 

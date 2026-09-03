@@ -13,10 +13,10 @@ matches the code. You do not edit files, report findings only.
 
 1. **Generated reference pages.** `docs/site/content/docs/reference/*.md`
    render from each plugin's `schema.cue` + `reference.md.tmpl` via
-   `cmd/gen-reference-docs`. Never hand-drifted from schema. Regenerate and
-   diff instead of comparing fields by hand:
+   `cmd/gen-docs`'s `reference` subcommand. Never hand-drifted from schema.
+   Regenerate and diff instead of comparing fields by hand:
    ```sh
-   go run ./cmd/gen-reference-docs --out /tmp/ref-check
+   go run ./cmd/gen-docs reference --out /tmp/ref-check
    diff -rq /tmp/ref-check docs/site/content/docs/reference
    ```
    Any diff is a finding: schema changed and the page wasn't regenerated

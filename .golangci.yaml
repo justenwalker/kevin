@@ -130,11 +130,12 @@ linters:
       - path: 'internal/cmd/cmd\.go'
         linters:
           - contextcheck
-      # gen-command-docs walks the same cobra tree via cmd.NewRootCommand
-      # purely for its Use/Short/Long/flags - it never calls Execute, so no
-      # RunE closure's cmd.Context() ever runs, but contextcheck still
-      # traces the call graph through it as if it would.
-      - path: 'cmd/gen-command-docs/main\.go'
+      # gen-docs's commands subcommand walks the same cobra tree via
+      # cmd.NewRootCommand purely for its Use/Short/Long/flags - it never
+      # calls Execute, so no RunE closure's cmd.Context() ever runs, but
+      # contextcheck still traces the call graph through it as if it
+      # would, surfacing the finding at main.go's own call into it.
+      - path: 'cmd/gen-docs/(main|commands)\.go'
         linters:
           - contextcheck
       # Tests may use globals, sleep, and assertions freely.
