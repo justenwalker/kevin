@@ -377,6 +377,15 @@ func TestProjectKeyPath(t *testing.T) {
 	assert.Equal(t, filepath.Join(state.ProjectStateDir("/work/project", "demo"), ca.KeyFile), got)
 }
 
+func TestProjectVars(t *testing.T) {
+	got := ca.ProjectVars("/work/project", "demo")
+	assert.Equal(t, map[string]string{
+		"root_cert": ca.RootCertPath(),
+		"ca_cert":   ca.ProjectCertPath("/work/project", "demo"),
+		"ca_key":    ca.ProjectKeyPath("/work/project", "demo"),
+	}, got)
+}
+
 // freshDir returns a path to a directory that does not exist yet, inside a
 // fresh temporary directory. LoadOrGenerateRoot and LoadOrGenerateIntermediate
 // only set 0700 permissions when they create a directory themselves, so

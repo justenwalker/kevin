@@ -93,6 +93,16 @@ func ProjectKeyPath(cwd, name string) string {
 	return filepath.Join(state.ProjectStateDir(cwd, name), KeyFile)
 }
 
+// ProjectVars returns the project.* CEL map entries backed by kevin's own
+// CA: root_cert, ca_cert, ca_key.
+func ProjectVars(cwd, name string) map[string]string {
+	return map[string]string{
+		"root_cert": RootCertPath(),
+		"ca_cert":   ProjectCertPath(cwd, name),
+		"ca_key":    ProjectKeyPath(cwd, name),
+	}
+}
+
 // RootCommonName is the common name of the Root Certificate Authority.
 const RootCommonName = "Kevin Local Root CA"
 

@@ -14,8 +14,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/config"
+	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/engine"
+	"github.com/justenwalker/kevin/internal/expr"
+	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/protos/pb"
 )
@@ -117,7 +121,7 @@ func runConnect(ctx context.Context, dir, name, step string, target []string) er
 		}
 		return errors.New("connect: no step in the kevin environment file supports connect")
 	case 1:
-		return execStep(ctx, plugins, env, candidates[0], target)
+		return execStep(ctx, cfg, plugins, caps, env, candidates[0], target)
 	default:
 		names := make([]string, len(candidates))
 		for i, c := range candidates {
@@ -166,10 +170,76 @@ func stepExports(info pluginhost.Info, name string) bool {
 	return false
 }
 
-func execStep(ctx context.Context, plugins map[string]*pluginhost.Client, env *pb.Environment, c candidate, target []string) error {
+// setupCrossScopeDeps resolves every "setup."-prefixed entry in step's
+// needs list via that setup step's Export, keyed by the unprefixed
+// name - the shape the "setup" CEL variable uses.
+func setupCrossScopeDeps(ctx context.Context, cfg *config.Config, plugins map[string]*pluginhost.Client, caps map[string]pluginhost.Info, env *pb.Environment, step config.Step) (map[string]dag.Outputs, error) {
+	var out map[string]dag.Outputs
+	for _, dep := range step.Needs {
+		setupName, ok := strings.CutPrefix(dep, "setup.")
+		if !ok {
+			continue
+		}
+		setupStep, ok := cfg.Setup[setupName]
+		if !ok {
+			return nil, fmt.Errorf("needs %q: no such step in scope \"setup\"", dep)
+		}
+		ref, err := config.ParseStepRef(setupStep.Uses)
+		if err != nil {
+			return nil, err
+		}
+		client, ok := plugins[ref.Plugin]
+		if !ok {
+			return nil, fmt.Errorf("plugin %q not loaded", ref.Plugin)
+		}
+		if !stepExports(caps[ref.Plugin], ref.Step) {
+			return nil, fmt.Errorf("setup step %q (%s) does not implement export", setupName, ref)
+		}
+		with, err := expr.Render(setupStep.With, setupName, expr.Scopes{Project: ca.ProjectVars(cfg.Dir, cfg.Name)})
+		if err != nil {
+			return nil, fmt.Errorf("setup step %q: %w", setupName, err)
+		}
+		resp, err := client.Export(ctx, &pb.ExportRequest{
+			Step: setupName, Type: ref.Step, Env: env, Config: with,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("export setup step %q: %w", setupName, err)
+		}
+		if out == nil {
+			out = make(map[string]dag.Outputs)
+		}
+		out[setupName] = outputsFromProto(resp.GetOut())
+	}
+	return out, nil
+}
+
+// outputsFromProto lifts a step's proto outputs into the DAG's Outputs map.
+func outputsFromProto(o *pb.Outputs) dag.Outputs {
+	values := o.GetValues()
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(dag.Outputs, len(values))
+	for k, v := range values {
+		out[k] = output.Value{String: v.GetStringValue(), Sensitive: v.GetSensitive()}
+	}
+	return out
+}
+
+func execStep(ctx context.Context, cfg *config.Config, plugins map[string]*pluginhost.Client, caps map[string]pluginhost.Info, env *pb.Environment, c candidate, target []string) error {
 	client := plugins[c.ref.Plugin]
+
+	setupDeps, err := setupCrossScopeDeps(ctx, cfg, plugins, caps, env, c.step)
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	with, err := expr.Render(c.step.With, c.name, expr.Scopes{Setup: setupDeps, Project: ca.ProjectVars(cfg.Dir, cfg.Name)})
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+
 	resp, err := client.Export(ctx, &pb.ExportRequest{
-		Step: c.name, Type: c.ref.Step, Env: env, Config: c.step.With,
+		Step: c.name, Type: c.ref.Step, Env: env, Config: with,
 	})
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)

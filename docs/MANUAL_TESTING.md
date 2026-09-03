@@ -307,6 +307,20 @@ kevin -C examples/web connect
 - [ ] No step in `examples/web` supports connect - errors saying so, cleanly
       (not a crash).
 
+`connect` renders a step's `with` block before calling `Export`, the same
+as `Up`/`Down` do - not just `${needs...}`, but `${env...}`/`${project...}`
+too, and `${setup.<name>.out.<key>}` even with no `kevin setup` ever having
+run first (`Export` is side-effect-free). Add a step with
+`with: registry: "${env.REGISTRY_HOST}"` (or `${project.root_cert}`, or a
+`setup:`/`env:` pair using `${setup.<name>.out.<key>}`) to a step that
+supports `Export`:
+
+- [ ] `REGISTRY_HOST=foo kevin connect <step> -- env` prints the real
+      value, not the literal `${env.REGISTRY_HOST}` template.
+- [ ] Same for `${project.root_cert}` - prints the real CA path.
+- [ ] Same for `${setup.<name>.out.<key>}`, with no `kevin setup` run
+      first.
+
 ## 10. `kevin validate` / `kevin init`
 
 _Automated by `gnob e2e` (`tests/e2e/cli_test.go`)._
@@ -390,6 +404,17 @@ Already exercised structurally in sections 6-8 (`${needs.cluster.out.kubeconfig}
       runs, not a generic "unknown step" message. (Automated at the unit
       level, not `gnob e2e` - `internal/engine/engine_test.go`'s
       `TestRunCrossScopeNeeds`.)
+- [ ] `with: message: "${project.root_cert}"` splices in the real host
+      path of kevin's root CA certificate. `${project.ca_cert}`/
+      `${project.ca_key}` do the same for the project's own intermediate
+      CA cert/key, and `${project.http_proxy_addr}` for the proxy's own
+      `host:port` - useful for a tool that only takes these as a
+      command-line flag (`curl --cacert ${project.root_cert} --proxy
+      ${project.http_proxy_addr}`), not via `SSL_CERT_FILE`/`HTTP_PROXY`.
+- [ ] A `setup` step's own `with` block is rendered too, before its
+      `Export` result reaches a cross-scope consumer - e.g. a `setup` step
+      using `${project.root_cert}` in one of its own `export` values, read
+      back by an `env` step via `${setup.<name>.out.<key>}`.
 
 ## 13. Plugin packaging: pack / push / trust / signed
 

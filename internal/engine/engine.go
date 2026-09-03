@@ -257,12 +257,8 @@ func Run(ctx context.Context, opts Options) error {
 		Scope:         opts.Scope,
 	}
 	r.env = env
-	r.project = map[string]string{
-		"root_cert":       ca.RootCertPath(),
-		"ca_cert":         ca.ProjectCertPath(cfg.Dir, cfg.Name),
-		"ca_key":          ca.ProjectKeyPath(cfg.Dir, cfg.Name),
-		"http_proxy_addr": server.addr,
-	}
+	r.project = ca.ProjectVars(cfg.Dir, cfg.Name)
+	r.project["http_proxy_addr"] = server.addr
 	notifyEnvironment(opts, env)
 
 	if err := ConfigureAll(ctx, cfg.Plugins, plugins, env); err != nil {
@@ -712,11 +708,7 @@ func Teardown(ctx context.Context, opts Options) error {
 		// No proxy runs during Teardown, so unlike Run, there's no
 		// http_proxy_addr to offer - the CA files still exist on disk
 		// regardless.
-		project: map[string]string{
-			"root_cert": ca.RootCertPath(),
-			"ca_cert":   ca.ProjectCertPath(cfg.Dir, cfg.Name),
-			"ca_key":    ca.ProjectKeyPath(cfg.Dir, cfg.Name),
-		},
+		project: ca.ProjectVars(cfg.Dir, cfg.Name),
 		timings: loadTimings(ctx, filepath.Join(workspace, TimingsFile)),
 		stepLog: stepLog.Logger,
 		// There is no state file for step outputs. Every step is a candidate
@@ -1264,8 +1256,16 @@ func (r *run) exportStep(ctx context.Context, name string) (map[string]string, e
 	if !ok {
 		return nil, fmt.Errorf("mcpserver: plugin %q not loaded", ref.Plugin)
 	}
+	setupDeps, err := r.crossScopeDeps(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	with, err := r.renderWith(name, step, r.sameScopeDeps(name), setupDeps)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := client.Export(ctx, &pb.ExportRequest{
-		Step: name, Type: ref.Step, Env: r.env, Config: step.With,
+		Step: name, Type: ref.Step, Env: r.env, Config: with,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("mcpserver: export %s: %w", name, err)
@@ -1479,8 +1479,12 @@ func (r *run) doExportCrossScopeStep(ctx context.Context, setupName string) (dag
 	if !stepExports(r.caps[ref.Plugin], ref.Step) {
 		return nil, fmt.Errorf("setup step %q (%s) does not implement export", setupName, ref)
 	}
+	with, err := expr.Render(step.With, setupName, expr.Scopes{Project: r.project})
+	if err != nil {
+		return nil, fmt.Errorf("setup step %q: %w", setupName, err)
+	}
 	resp, err := client.Export(ctx, &pb.ExportRequest{
-		Step: setupName, Type: ref.Step, Env: r.env, Config: step.With,
+		Step: setupName, Type: ref.Step, Env: r.env, Config: with,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("export setup step %q: %w", setupName, err)
@@ -1510,6 +1514,27 @@ func (r *run) crossScopeDeps(ctx context.Context, name string) (map[string]dag.O
 		out[setupName] = vals
 	}
 	return out, nil
+}
+
+// sameScopeDeps builds name's same-scope deps map from already-completed
+// step outputs. Use it outside the DAG walk, such as from Export.
+func (r *run) sameScopeDeps(name string) map[string]dag.Outputs {
+	completed := r.snapshotCompleted()
+	var out map[string]dag.Outputs
+	for _, dep := range r.steps[name].Needs {
+		if strings.HasPrefix(dep, setupPrefix) {
+			continue // cross-scope, resolved by crossScopeDeps instead.
+		}
+		outputs, ok := completed[dep]
+		if !ok {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]dag.Outputs)
+		}
+		out[dep] = outputs
+	}
+	return out
 }
 
 // depsWithSetup folds setupDeps into deps for the wire Deps field, each

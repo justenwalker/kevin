@@ -154,6 +154,10 @@ func (s *Server) exportStep(ctx context.Context, _ *mcp.CallToolRequest, in Expo
 	if err != nil {
 		return nil, ExportStepOutput{}, fmt.Errorf("mcpserver: export %s: %w", in.Name, err)
 	}
+	if vars == nil {
+		// A nil map marshals as JSON null, which fails Env's object output schema.
+		vars = map[string]string{}
+	}
 	return nil, ExportStepOutput{Name: in.Name, Env: vars}, nil
 }
 

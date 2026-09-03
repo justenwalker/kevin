@@ -172,6 +172,89 @@ func (s *EnvSuite) TestHasFallbackForUnsetVar() {
 	s.Contains(string(logs), "value is localhost:5000")
 }
 
+// TestConnectRendersEnvTemplate is the regression guard for kevin connect
+// sending a step's with block to Export completely unrendered: an
+// ${env.VAR} reference must splice the real value, not the literal
+// template, into what connect execs.
+func (s *EnvSuite) TestConnectRendersEnvTemplate() {
+	dir := s.T().TempDir()
+	src := fmt.Sprintf(`project: "kevin-e2e-connect-env"
+
+plugins: echo: cmd: %s
+
+env: a: {uses: "echo:echo", with: export: msg: "${env.KEVIN_E2E_CONNECT_ENV_VAR}"}
+`, strconv.Quote(s.echoPluginBin()))
+	s.writeCUE(dir, src)
+
+	out, code := s.runToCompletionWithEnv(dir, []string{"KEVIN_E2E_CONNECT_ENV_VAR=connect-value"}, "-C", dir, "connect", "a", "--", "env")
+	s.Equal(0, code, "output:\n%s", out)
+	s.Contains(out, "msg=connect-value")
+}
+
+// TestConnectRendersProjectTemplate covers the same gap for
+// ${project.root_cert} - a value connect can compute with no live DAG
+// walk at all, unlike ${needs...}.
+func (s *EnvSuite) TestConnectRendersProjectTemplate() {
+	dir := s.T().TempDir()
+	src := fmt.Sprintf(`project: "kevin-e2e-connect-project"
+
+plugins: echo: cmd: %s
+
+env: a: {uses: "echo:echo", with: export: msg: "${project.root_cert}"}
+`, strconv.Quote(s.echoPluginBin()))
+	s.writeCUE(dir, src)
+
+	out, code := s.runToCompletion(dir, "-C", dir, "connect", "a", "--", "env")
+	s.Equal(0, code, "output:\n%s", out)
+	s.Contains(out, "root.crt", "must render to the real CA path, not the literal ${project.root_cert} template")
+	s.NotContains(out, "${project.root_cert}")
+}
+
+// TestConnectRendersSetupCrossScopeTemplate covers ${setup.<name>.out.<key>}
+// through kevin connect, with no "kevin setup" ever having run first -
+// Export is side-effect-free and needs no prior Up.
+func (s *EnvSuite) TestConnectRendersSetupCrossScopeTemplate() {
+	dir := s.T().TempDir()
+	src := fmt.Sprintf(`project: "kevin-e2e-connect-setup"
+
+plugins: echo: cmd: %s
+
+setup: base: {uses: "echo:echo", with: export: greeting: "from-setup"}
+env: a: {
+	uses:  "echo:echo"
+	needs: ["setup.base"]
+	with:  export: msg: "${setup.base.out.greeting}"
+}
+`, strconv.Quote(s.echoPluginBin()))
+	s.writeCUE(dir, src)
+
+	out, code := s.runToCompletion(dir, "-C", dir, "connect", "a", "--", "env")
+	s.Equal(0, code, "output:\n%s", out)
+	s.Contains(out, "msg=from-setup")
+}
+
+// TestProjectRootCertSplicesCorrectly covers the project.* CEL scope's
+// root_cert entry through a normal "kevin run", the same shape as
+// TestSetEnvVarSplicesCorrectly.
+func (s *EnvSuite) TestProjectRootCertSplicesCorrectly() {
+	project := "kevin-e2e-project-root-cert"
+	dir := s.T().TempDir()
+	s.writeOneStep(dir, project, "cert is ${project.root_cert}")
+	s.cleanupProject(project)
+
+	p := s.startKevin(dir, "-C", dir, "run")
+	s.waitFor(p, stepLine("a", "ready"), defaultTimeout)
+	s.Require().NoError(p.cmd.Process.Signal(syscall.SIGINT))
+	s.Equal(0, s.waitExit(p, defaultTimeout), "output:\n%s", p.buf.String())
+
+	logs, err := os.ReadFile(filepath.Join(dir, ".kevin", "logs.ndjson"))
+	s.Require().NoError(err)
+	logStr := string(logs)
+	s.Contains(logStr, "cert is ")
+	s.Contains(logStr, "root.crt")
+	s.NotContains(logStr, "${project.root_cert}")
+}
+
 // TestCrossScopeNeedsSurvivesSeparateProcesses covers docs/MANUAL_TESTING.md
 // section 12's setup/env cross-scope case: "kevin setup" runs and exits in
 // its own process - its plugin process is gone by the time a wholly

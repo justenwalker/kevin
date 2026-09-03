@@ -308,6 +308,14 @@ func (s *e2eSuite) runToCompletion(dir string, args ...string) (string, int) {
 	return p.buf.String(), code
 }
 
+// runToCompletionWithEnv is [e2eSuite.runToCompletion] with extraEnv
+// appended to the subprocess's environment.
+func (s *e2eSuite) runToCompletionWithEnv(dir string, extraEnv []string, args ...string) (string, int) {
+	p := s.startKevinWithEnv(dir, extraEnv, args...)
+	code := s.waitExit(p, defaultTimeout)
+	return p.buf.String(), code
+}
+
 // dockerLogs returns the combined stdout+stderr of a container by name.
 func dockerLogs(name string) (string, error) {
 	out, err := exec.CommandContext(context.Background(), "docker", "logs", name).CombinedOutput()

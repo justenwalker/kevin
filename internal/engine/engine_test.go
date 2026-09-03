@@ -591,6 +591,22 @@ env:   app:     {uses: "echo:echo", needs: ["setup.cluster"], with: message: "${
 		assert.Contains(t, out, "greeting:from-setup", "a non-sensitive value must appear in the clear")
 	})
 
+	t.Run("renders a setup step's own with block before exporting it", func(t *testing.T) {
+		requireRelay(t)
+		dir := project(t, `
+setup: cluster: {uses: "echo:echo", with: export: cert: "${project.root_cert}"}
+env:   app:     {uses: "echo:echo", needs: ["setup.cluster"], with: message: "${setup.cluster.out.cert}"}
+`)
+		w, err := runUntil(t, dir, fmt.Sprintf("%-16s %s", "app", "ready"))
+		require.NoError(t, err)
+		assert.Contains(t, w.String(), fmt.Sprintf("%-16s %s", "app", "ready"))
+
+		logs, err := os.ReadFile(filepath.Join(dir, WorkspaceDir, LogsFile))
+		require.NoError(t, err)
+		assert.Contains(t, string(logs), "root.crt",
+			"the setup step's own with block must be rendered before Export sees it, not sent as the literal ${project.root_cert} template")
+	})
+
 	t.Run("memoizes Export across concurrent consumers of the same setup step", func(t *testing.T) {
 		requireRelay(t)
 		dir := project(t, `
@@ -908,9 +924,9 @@ env: {
 }
 
 // TestRunRendersProjectTemplates proves a with block can read the
-// project.* CEL scope (Commit 1 of the project.*/builtin:exec plan),
-// alongside needs.*, and that it resolves to the real host path kevin's
-// own ca.RootCertPath computes - not a stand-in or the literal template.
+// project.* CEL scope, alongside needs.*, and that it resolves to the
+// real host path kevin's own ca.RootCertPath computes - not a stand-in
+// or the literal template.
 func TestRunRendersProjectTemplates(t *testing.T) {
 	requireRelay(t)
 	dir := project(t, `
@@ -925,6 +941,62 @@ env: {
 	require.NoError(t, err)
 	assert.Contains(t, string(logs), "cert="+ca.RootCertPath(),
 		"Up must receive the rendered value, not the raw project.* template")
+}
+
+// TestRunExportStepRendersNeedsTemplates proves export_step renders a
+// step's with block against upstream outputs, rather than sending the
+// plugin the raw "${needs...}" template string.
+func TestRunExportStepRendersNeedsTemplates(t *testing.T) {
+	requireRelay(t)
+	dir := project(t, `
+env: {
+	a: {uses: "echo:echo", with: outputs: greeting: "hi"}
+	b: {uses: "echo:echo", needs: ["a"], with: export: greeting: "${needs.a.out.greeting}"}
+}
+`)
+	w := &watcher{}
+	addrCh := make(chan string, 1)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Options{
+			Dir: dir, Scope: config.ScopeEnv, Events: w,
+			OnEnvironment: func(env *pb.Environment) { addrCh <- env.GetConsoleAddr() },
+		})
+	}()
+
+	var addr string
+	select {
+	case addr = <-addrCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the environment address")
+	}
+	waitForCount(t, w, "b                ready", 1, 5*time.Second)
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
+	sess, err := client.Connect(t.Context(), &mcp.StreamableClientTransport{
+		Endpoint: "http://" + addr + mcpserver.Path,
+	}, nil)
+	require.NoError(t, err)
+	defer func() { _ = sess.Close() }()
+
+	result, err := sess.CallTool(t.Context(), &mcp.CallToolParams{
+		Name:      "export_step",
+		Arguments: map[string]string{"name": "b"},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError, "%v", result.Content)
+
+	out, ok := result.StructuredContent.(map[string]any)
+	require.True(t, ok, "expected structured content, got %#v", result.StructuredContent)
+	env, ok := out["env"].(map[string]any)
+	require.True(t, ok, "expected an env object, got %#v", out["env"])
+	assert.Equal(t, "hi", env["greeting"], "export_step must receive the rendered value, not the raw needs.* template")
+
+	cancel()
+	require.NoError(t, <-done)
 }
 
 // TestRunRerunReExecutesAStepAndFillsInSkippedDependents proves the
