@@ -69,7 +69,7 @@ func buildBinary(name, pkg string) (string, error) {
 		return "", fmt.Errorf("e2e: mkdir temp: %w", err)
 	}
 	bin := filepath.Join(dir, name)
-	cmd := exec.CommandContext(context.Background(), "go", "build", "-o", bin, pkg)
+	cmd := exec.CommandContext(context.Background(), "go", "build", "-cover", "-covermode=atomic", "-o", bin, pkg)
 	cmd.Dir = repoRoot()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("e2e: build %s: %w: %s", pkg, err, out)

@@ -60,7 +60,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	mf := makefile.New(Default, Generate, Build, PackagePlugin, Test, Integration, Lint, Fmt, Tidy, Clean, E2E, RelayImage, Release, Docs, DocsServe, GHPages)
+	mf := makefile.New(Default, Generate, Build, PackagePlugin, Test, Integration, Lint, Fmt, Tidy, Clean, E2E, Coverage, RelayImage, Release, Docs, DocsServe, GHPages)
 	mf.Run(context.Background())
 }
 
@@ -393,12 +393,30 @@ var GHPages = GnobMakeTarget{
 	},
 }
 
+// coverageRawDir returns the absolute path of the raw GOCOVERDIR for a test
+// tier ("unit", "integration", "e2e"), creating it if needed. Absolute
+// because the e2e target's kevin subprocess runs with a different cwd.
+func coverageRawDir(tier string) (string, error) {
+	dir, err := filepath.Abs(filepath.Join("coverage", "raw", tier))
+	if err != nil {
+		return "", err
+	}
+	if err = os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
 var Test = GnobMakeTarget{
 	Name:     "test",
 	Desc:     "run the tests",
 	LongDesc: "Runs the full test suite with the race detector.",
 	Body: func(ctx context.Context, _ *GnobMakefile) error {
-		return goRun(ctx, "test", "-race", "-cover", "./...")
+		dir, err := coverageRawDir("unit")
+		if err != nil {
+			return err
+		}
+		return goRun(ctx, "test", "-race", "-cover", "-covermode=atomic", "./...", "-args", "-test.gocoverdir="+dir)
 	},
 }
 
@@ -408,7 +426,12 @@ var Integration = GnobMakeTarget{
 	LongDesc: "Runs the tests behind the integration build tag. These suites need\n" +
 		"a running Docker daemon and take several minutes.",
 	Body: func(ctx context.Context, _ *GnobMakefile) error {
-		return goRun(ctx, "test", "-tags", "integration", "-race", "-timeout", "900s", "./...")
+		dir, err := coverageRawDir("integration")
+		if err != nil {
+			return err
+		}
+		return goRun(ctx, "test", "-tags", "integration", "-race", "-cover", "-covermode=atomic",
+			"-timeout", "900s", "./...", "-args", "-test.gocoverdir="+dir)
 	},
 }
 
@@ -466,6 +489,53 @@ var E2E = GnobMakeTarget{
 		"parts of docs/MANUAL_TESTING.md, driven through the real kevin\n" +
 		"binary. Needs a running Docker daemon and takes several minutes.",
 	Body: func(ctx context.Context, _ *GnobMakefile) error {
-		return goRun(ctx, "test", "-tags", "e2e", "-race", "-v", "-timeout", "900s", "./tests/e2e/...")
+		dir, err := coverageRawDir("e2e")
+		if err != nil {
+			return err
+		}
+		return run(ctx, cmd.WithEnvVars(map[string]string{"GOCOVERDIR": dir}),
+			"go", "test", "-tags", "e2e", "-race", "-v", "-timeout", "900s", "./tests/e2e/...")
+	},
+}
+
+var Coverage = GnobMakeTarget{
+	Name: "coverage",
+	Desc: "merge coverage from test/integration/e2e into one report",
+	LongDesc: "Merges whatever raw coverage data exists under coverage/raw from\n" +
+		"prior test/integration/e2e runs into coverage/merged, then writes\n" +
+		"coverage/coverage.out and coverage/coverage.html.",
+	Body: func(ctx context.Context, _ *GnobMakefile) error {
+		var inputs []string
+		for _, tier := range []string{"unit", "integration", "e2e"} {
+			dir := filepath.Join("coverage", "raw", tier)
+			entries, err := os.ReadDir(dir)
+			if err != nil || len(entries) == 0 {
+				continue
+			}
+			inputs = append(inputs, dir)
+		}
+		if len(inputs) == 0 {
+			return fmt.Errorf("coverage: no raw coverage data under coverage/raw - run test/integration/e2e first")
+		}
+
+		merged := filepath.Join("coverage", "merged")
+		if err := os.RemoveAll(merged); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(merged, 0o755); err != nil {
+			return err
+		}
+		if err := goRun(ctx, "tool", "covdata", "merge", "-i="+strings.Join(inputs, ","), "-o="+merged); err != nil {
+			return err
+		}
+		if err := goRun(ctx, "tool", "covdata", "percent", "-i="+merged); err != nil {
+			return err
+		}
+
+		profile := filepath.Join("coverage", "coverage.out")
+		if err := goRun(ctx, "tool", "covdata", "textfmt", "-i="+merged, "-o="+profile); err != nil {
+			return err
+		}
+		return goRun(ctx, "tool", "cover", "-html="+profile, "-o="+filepath.Join("coverage", "coverage.html"))
 	},
 }
