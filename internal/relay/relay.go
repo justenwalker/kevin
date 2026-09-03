@@ -136,10 +136,15 @@ type Options struct {
 	Scope string
 }
 
+// socks5Port is the fixed container port the relay's SOCKS5 gateway
+// listens on, published to the host loopback on an OS-assigned port.
+const socks5Port = "1080/tcp"
+
 // Relay is a running relay container.
 type Relay struct {
-	name string
-	addr string
+	name       string
+	addr       string
+	socks5Addr string
 }
 
 // Start creates the relay container, or reuses one already running for
@@ -175,6 +180,10 @@ func Start(ctx context.Context, opts Options) (*Relay, error) {
 		// Docker does not, so the relay needs the entry to reach the host proxy.
 		AddHosts: []string{hostGateway + ":host-gateway"},
 		Cmd:      []string{"forward", "--domain", opts.Domain, "--proxy", opts.ProxyAddr},
+		// The SOCKS5 gateway is the one thing on the relay a host process
+		// needs to dial directly - everything else (DNS, HTTP/HTTPS
+		// forwarding) is reached only from inside the docker network.
+		Ports: []string{"127.0.0.1::1080"},
 	}
 	if _, err := client.Run(ctx, spec); err != nil {
 		return nil, err
@@ -188,8 +197,12 @@ func Start(ctx context.Context, opts Options) (*Relay, error) {
 	if !ok {
 		return nil, fmt.Errorf("relay: %w", ErrNoAddress)
 	}
+	socks5Addr, ok := info.Ports[socks5Port]
+	if !ok {
+		return nil, fmt.Errorf("relay: %w", ErrNoSOCKS5Addr)
+	}
 
-	return &Relay{name: name, addr: addr}, nil
+	return &Relay{name: name, addr: addr, socks5Addr: socks5Addr}, nil
 }
 
 // Lookup reports the relay container already running for project, without
@@ -212,7 +225,11 @@ func lookup(ctx context.Context, client docker.Client, name, network string) (*R
 	if !ok {
 		return nil, fmt.Errorf("relay: %w", ErrNoAddress)
 	}
-	return &Relay{name: name, addr: addr}, nil
+	socks5Addr, ok := info.Ports[socks5Port]
+	if !ok {
+		return nil, fmt.Errorf("relay: %w", ErrNoSOCKS5Addr)
+	}
+	return &Relay{name: name, addr: addr, socks5Addr: socks5Addr}, nil
 }
 
 // reusable reports the relay container already running for name when its
@@ -229,7 +246,11 @@ func reusable(ctx context.Context, client docker.Client, name string, opts Optio
 	if !ok {
 		return nil, fmt.Errorf("relay: %w", ErrNoAddress)
 	}
-	return &Relay{name: name, addr: addr}, nil
+	socks5Addr, ok := info.Ports[socks5Port]
+	if !ok {
+		return nil, fmt.Errorf("relay: %w", ErrNoSOCKS5Addr)
+	}
+	return &Relay{name: name, addr: addr, socks5Addr: socks5Addr}, nil
 }
 
 // inspectRunning reports name's container info, or (nil, nil) when it is
@@ -251,6 +272,12 @@ func inspectRunning(ctx context.Context, client docker.Client, name string) (*cr
 // Addr is the address of the relay container on the shared network. A
 // workload uses it for DNS.
 func (r *Relay) Addr() string { return r.addr }
+
+// SOCKS5Addr is the host-reachable address of the relay's SOCKS5 gateway. A
+// step's Up builds a "socks5://<addr>/<target>" upstream against it to
+// reach a docker-network address through a single host port instead of a
+// dedicated published port.
+func (r *Relay) SOCKS5Addr() string { return r.socks5Addr }
 
 // Close removes the relay container. Close is idempotent.
 func (r *Relay) Close() error { return (docker.Client{}).Remove(context.Background(), r.name) }

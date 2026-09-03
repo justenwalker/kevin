@@ -41,15 +41,28 @@ web: {
 | `port` | `int` | - | **Required.** The container port to publish. |
 | `name` | `string` | - | Labels this port in the console and in the ready log line. Defaults to the port number. |
 | `protocol` | `"tcp"` \| `"udp"` | `"tcp"` |  |
-| `host_port` | `int` | - | Pins the port on the host. Omitted, the OS assigns one. |
+| `host_port` | `int` | - | Pins the port on the host. Omitted, the OS assigns one. Ignored when relay is true - there's no dedicated port to pin. |
+| `relay` | `bool` | `false` | Routes this entry through the environment's relay container instead of publishing a dedicated host port on this container - one relay, shared by every relay-routed entry across every container step, instead of one host port per entry. Up reports the entry as an `"expose_<name>"` system output (a socks5:// upstream) and, once the engine's local forward is up, a `"forward_<name>"` output carrying a plain host:port a non-SOCKS5-aware tool can dial directly - the same shape a builtin:kind step's expose entry uses. protocol must stay `"tcp"` - the relay is a SOCKS5 gateway, TCP only. |
 
 ## Publishes
 
 `Outputs`, read as `needs.<step>.out.<key>`: `id`, `name`, `ip` (on the
 shared docker network, when it has one), and one `host_80`-style key per
-published port (from `ports` and `expose` alike, named after the
-container port). Each is a host-reachable address, already accepting
-connections by the time `Up` returns for a TCP `expose` entry.
+published port (from `ports` and a directly-published `expose` entry
+alike, named after the container port). Each is a host-reachable address,
+already accepting connections by the time `Up` returns for a TCP `expose`
+entry. A `relay: true` expose entry publishes no `host_<port>` key - see
+`system` below instead.
+
+`system`, read as `needs.<step>.system.<key>`, is a sub-namespace kept
+separate from `out` so it can never collide with one of the above (see
+[Cross-step values]({{< relref "/docs/environment-file#cross-step-values" >}})):
+one `expose_<name>` per `relay: true` expose entry, its relay address, for a
+downstream step such as
+[`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}), and one
+`forward_<name>` per such entry, a plain `127.0.0.1:<port>` address the
+engine forwards to the relay on a client's behalf, so a tool with no SOCKS5
+awareness (`psql`, `curl`, ...) can dial it directly.
 
 A container step never puts itself on the environment domain. Pair a
 published port's address output with a

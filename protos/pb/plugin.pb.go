@@ -498,9 +498,14 @@ type Environment struct {
 	// Scope is which DAG this step belongs to: "setup" or "env". A plugin
 	// should carry it as the "kevin.scope" label alongside
 	// "kevin.project"/"kevin.urn".
-	Scope         string `protobuf:"bytes,13,opt,name=scope,proto3" json:"scope,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Scope string `protobuf:"bytes,13,opt,name=scope,proto3" json:"scope,omitempty"`
+	// RelaySocks5Addr is the host-reachable address of the relay's SOCKS5
+	// gateway. A plugin builds a "socks5://<addr>/<target>" upstream against
+	// it to reach a docker-network address through a single host port
+	// instead of a dedicated published port.
+	RelaySocks5Addr string `protobuf:"bytes,14,opt,name=relay_socks5_addr,json=relaySocks5Addr,proto3" json:"relay_socks5_addr,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Environment) Reset() {
@@ -620,6 +625,13 @@ func (x *Environment) GetEngineConfig() []byte {
 func (x *Environment) GetScope() string {
 	if x != nil {
 		return x.Scope
+	}
+	return ""
+}
+
+func (x *Environment) GetRelaySocks5Addr() string {
+	if x != nil {
+		return x.RelaySocks5Addr
 	}
 	return ""
 }
@@ -1848,7 +1860,7 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x10ConfigureRequest\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\x12.\n" +
 	"\x03env\x18\x02 \x01(\v2\x1c.kevin.plugin.v1.EnvironmentR\x03env\"\x13\n" +
-	"\x11ConfigureResponse\"\xeb\x03\n" +
+	"\x11ConfigureResponse\"\x97\x04\n" +
 	"\vEnvironment\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x1c\n" +
 	"\tworkspace\x18\x02 \x01(\tR\tworkspace\x12\x18\n" +
@@ -1864,7 +1876,8 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"projectDir\x12\x16\n" +
 	"\x06engine\x18\v \x01(\tR\x06engine\x12#\n" +
 	"\rengine_config\x18\f \x01(\fR\fengineConfig\x12\x14\n" +
-	"\x05scope\x18\r \x01(\tR\x05scope\x1a;\n" +
+	"\x05scope\x18\r \x01(\tR\x05scope\x12*\n" +
+	"\x11relay_socks5_addr\x18\x0e \x01(\tR\x0frelaySocks5Addr\x1a;\n" +
 	"\rProxyEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x14\n" +

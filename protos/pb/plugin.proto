@@ -173,6 +173,12 @@ message Environment {
   // should carry it as the "kevin.scope" label alongside
   // "kevin.project"/"kevin.urn".
   string scope = 13;
+
+  // RelaySocks5Addr is the host-reachable address of the relay's SOCKS5
+  // gateway. A plugin builds a "socks5://<addr>/<target>" upstream against
+  // it to reach a docker-network address through a single host port
+  // instead of a dedicated published port.
+  string relay_socks5_addr = 14;
 }
 
 // DockerEngineConfig is the engine_config message for the "docker" engine.

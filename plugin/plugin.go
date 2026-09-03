@@ -101,6 +101,13 @@ type Env struct {
 	// DNS. Relay is empty when the relay is disabled.
 	Relay string
 
+	// RelaySOCKS5Addr is the host-reachable address of the relay's SOCKS5
+	// gateway. A step builds a "socks5://<addr>/<target>" upstream against
+	// it to reach a docker-network address through a single host port
+	// instead of a dedicated published port. Empty when the relay is
+	// disabled.
+	RelaySOCKS5Addr string
+
 	// ProjectDir is the absolute path of the directory that holds kevin.cue.
 	// A step resolves a relative with-block path against this.
 	ProjectDir string

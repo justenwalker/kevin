@@ -42,13 +42,15 @@ type config struct {
 	Expose       []expose          `json:"expose"`
 }
 
-// expose is one entry of the with block's expose list: a container port to
-// publish directly to the host as raw TCP or UDP.
+// expose is one entry of the with block's expose list: a container port
+// reachable from the host, either published directly as raw TCP or UDP, or
+// routed through the environment's relay.
 type expose struct {
 	Port     int    `json:"port"`
 	Name     string `json:"name"`
 	Protocol string `json:"protocol"`
 	HostPort int    `json:"host_port"`
+	Relay    bool   `json:"relay"`
 }
 
 // Container is the container step.
@@ -136,7 +138,7 @@ func (Container) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitt
 
 	out.Log("stdout", "running as "+name)
 
-	exposed, err := exposedPorts(cfg, info)
+	exposed, err := exposedPorts(cfg, info, req.Step, req.Env.RelaySOCKS5Addr)
 	if err != nil {
 		return nil, err
 	}
@@ -150,10 +152,13 @@ func (Container) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitt
 }
 
 // buildPorts is the full list of ports to publish: the step's own ports:
-// list, plus one entry per expose declaration.
+// list, plus one entry per expose declaration that isn't relay-routed.
 func buildPorts(cfg config) []string {
 	ports := slices.Clone(cfg.Ports)
 	for _, e := range cfg.Expose {
+		if e.Relay {
+			continue
+		}
 		ports = append(ports, publishSpec(e))
 	}
 	return ports
@@ -183,20 +188,34 @@ func stepDetails(exposed []plugin.ExposedPort) []plugin.Detail {
 	return details
 }
 
-// exposedPorts reports the raw TCP/UDP endpoints that this step's Up
-// publishes directly to the host, from its expose declarations.
-func exposedPorts(cfg config, info cri.Container) ([]plugin.ExposedPort, error) {
+// exposedPorts reports the host-reachable endpoints that this step's Up
+// makes available, from its expose declarations - either published
+// directly to the host, or routed through the environment's relay.
+func exposedPorts(cfg config, info cri.Container, step, relaySOCKS5Addr string) ([]plugin.ExposedPort, error) {
 	out := make([]plugin.ExposedPort, 0, len(cfg.Expose))
 	for _, e := range cfg.Expose {
+		name := e.Name
+		if name == "" {
+			name = strconv.Itoa(e.Port)
+		}
+		if e.Relay {
+			if relaySOCKS5Addr == "" {
+				return nil, plugin.Wrap(
+					fmt.Errorf("container: expose %s: %w", name, ErrNoRelay),
+					"expose %q sets relay, but no relay address is available", name)
+			}
+			out = append(out, plugin.ExposedPort{
+				Name:     name,
+				Protocol: "socks5",
+				Upstream: fmt.Sprintf("socks5://%s/%s:%d", relaySOCKS5Addr, step, e.Port),
+			})
+			continue
+		}
 		upstream, ok := info.Ports[strconv.Itoa(e.Port)+"/"+e.Protocol]
 		if !ok {
 			return nil, plugin.Wrap(
 				fmt.Errorf("container: expose %s %d: the container publishes no such port: %w", e.Protocol, e.Port, ErrNoPort),
 				"the container isn't listening on %s %s - check the image actually exposes it, or fix the expose block", e.Protocol, strconv.Itoa(e.Port))
-		}
-		name := e.Name
-		if name == "" {
-			name = strconv.Itoa(e.Port)
 		}
 		out = append(out, plugin.ExposedPort{Name: name, Protocol: e.Protocol, Upstream: upstream})
 	}
@@ -319,6 +338,17 @@ func decode(data []byte) (config, error) {
 	for i, e := range cfg.Expose {
 		if e.Protocol == "" {
 			cfg.Expose[i].Protocol = "tcp"
+		}
+	}
+	for _, e := range cfg.Expose {
+		if e.Relay && e.Protocol == "udp" {
+			name := e.Name
+			if name == "" {
+				name = strconv.Itoa(e.Port)
+			}
+			return cfg, plugin.Wrap(
+				fmt.Errorf("container: expose %s: relay with udp: %w", name, ErrRelayUDP),
+				"expose %q combines relay with udp - the relay's SOCKS5 gateway only carries TCP; drop relay or set protocol to \"tcp\"", name)
 		}
 	}
 	return cfg, nil

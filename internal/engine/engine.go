@@ -246,17 +246,18 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	env := &pb.Environment{
-		Project:       cfg.Project,
-		Workspace:     workspace,
-		Network:       network,
-		CaPath:        ca.RootCertPath(),
-		HttpProxyAddr: server.addr,
-		ConsoleAddr:   web.addr,
-		ProxyEnv:      ProxyEnv(server.addr, network, stepNames(cfg)),
-		Domain:        cfg.Domain,
-		Relay:         rl.Addr(),
-		ProjectDir:    cfg.Dir,
-		Scope:         opts.Scope,
+		Project:         cfg.Project,
+		Workspace:       workspace,
+		Network:         network,
+		CaPath:          ca.RootCertPath(),
+		HttpProxyAddr:   server.addr,
+		ConsoleAddr:     web.addr,
+		ProxyEnv:        ProxyEnv(server.addr, network, stepNames(cfg)),
+		Domain:          cfg.Domain,
+		Relay:           rl.Addr(),
+		RelaySocks5Addr: rl.SOCKS5Addr(),
+		ProjectDir:      cfg.Dir,
+		Scope:           opts.Scope,
 	}
 	r.env = env
 	r.project = ca.ProjectVars(cfg.Dir, cfg.Name)

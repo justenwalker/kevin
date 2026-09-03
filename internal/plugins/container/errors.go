@@ -16,4 +16,12 @@ const (
 	// ErrUnsupportedEngine reports that Env.Engine names an engine this
 	// plugin does not implement.
 	ErrUnsupportedEngine = Error("container: unsupported engine")
+
+	// ErrRelayUDP reports that an expose entry combines relay routing with
+	// the udp protocol, which the relay's SOCKS5 gateway cannot carry.
+	ErrRelayUDP = Error("container: expose relay does not support udp")
+
+	// ErrNoRelay reports that an expose entry sets relay, but no relay
+	// address is available.
+	ErrNoRelay = Error("container: expose relay: no relay address available")
 )

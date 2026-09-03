@@ -8,16 +8,12 @@ import (
 	"github.com/things-go/go-socks5"
 )
 
-// serveSOCKS5 runs a SOCKS5 server on listen until ctx is done. This is the
-// relay's other job: reached from inside a kind cluster's node, it lets a
-// client outside the cluster dial an arbitrary in-cluster address - the
-// opposite direction from the domain relay's job, same binary.
-func serveSOCKS5(ctx context.Context, listen string) error {
-	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", listen)
-	if err != nil {
-		return fmt.Errorf("relay: listen socks5: %w", err)
-	}
+// serveSOCKS5 runs a SOCKS5 server on ln until ctx is done. This is the
+// relay's other job: reached either as a kind cluster's pod (a client
+// outside the cluster dials an arbitrary in-cluster address) or as a
+// listener on the domain relay itself (a client outside the docker network
+// dials an arbitrary container on it) - same server, same binary.
+func serveSOCKS5(ctx context.Context, ln net.Listener) error {
 	go func() {
 		<-ctx.Done()
 		_ = ln.Close()

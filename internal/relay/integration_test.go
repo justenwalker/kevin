@@ -87,6 +87,20 @@ func (s *RelaySuite) TestAddrIsRoutableOnTheNetwork() {
 	s.Regexp(`^\d+\.\d+\.\d+\.\d+$`, s.relay.Addr())
 }
 
+// TestSOCKS5AddrIsPublishedOnLoopback proves that SOCKS5Addr reports the
+// real published address of the relay's SOCKS5 gateway, against the actual
+// kevin-relay image - relay_test.go's TestStartAndClose checks the same
+// thing against a fixture image that never runs the real binary.
+func (s *RelaySuite) TestSOCKS5AddrIsPublishedOnLoopback() {
+	t := s.T()
+	info, err := dockerClient.Inspect(t.Context(), s.containerName())
+	s.Require().NoError(err)
+
+	s.Equal(info.Ports["1080/tcp"], s.relay.SOCKS5Addr(),
+		"SOCKS5Addr must report the loopback address docker published the gateway on")
+	s.Regexp(`^127\.0\.0\.1:\d+$`, s.relay.SOCKS5Addr())
+}
+
 // TestCarriesRoleAndProjectLabels proves that the relay container carries
 // the labels that mark its role and its owner.
 func (s *RelaySuite) TestCarriesRoleAndProjectLabels() {

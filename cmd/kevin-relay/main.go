@@ -1,20 +1,22 @@
-// Command kevin-relay has two mutually exclusive modes, one binary either
-// way, selected by subcommand.
+// Command kevin-relay has two subcommands, one binary either way.
 //
-// forward answers DNS for the environment domain and forwards HTTP and
-// HTTPS traffic to the host proxy. It runs inside a container on the shared
-// docker network. A workload reaches a step under the domain with no proxy
-// configuration, because the relay resolves the domain and forwards the
-// traffic to the proxy on the host.
+// forward answers DNS for the environment domain, forwards HTTP and HTTPS
+// traffic to the host proxy, and runs a SOCKS5 gateway. It runs inside a
+// container on the shared docker network. A workload reaches a step under
+// the domain with no proxy configuration, because the relay resolves the
+// domain and forwards the traffic to the proxy on the host; the host, in
+// the opposite direction, reaches an arbitrary address on the docker
+// network (such as a builtin:container step's expose entry with
+// relay: true) through the SOCKS5 gateway's one published port.
 //
-// socks5-gateway runs a SOCKS5 relay instead - the opposite direction, run
-// as a Pod inside a kind cluster so a client outside the cluster can reach
-// an arbitrary in-cluster address.
+// socks5-gateway runs the same SOCKS5 relay standalone, without the
+// DNS/HTTP/HTTPS listeners - run as a Pod inside a kind cluster so a client
+// outside the cluster can reach an arbitrary in-cluster address.
 //
 // Flags configure the relay, because the container or pod that runs it
 // carries no config file:
 //
-//	kevin-relay forward --domain kevin.home --proxy host.docker.internal:18080
+//	kevin-relay forward --domain kevin.home --proxy host.docker.internal:18080 --socks5-listen :1080
 //	kevin-relay socks5-gateway --listen :1080
 package main
 
@@ -37,13 +39,14 @@ var log = logging.New("relay")
 
 // config holds the flags that configure one relay process.
 type config struct {
-	domain      string
-	proxyAddr   string
-	self        string
-	dnsListen   string
-	httpListen  string
-	httpsListen string
-	upstreamDNS string
+	domain       string
+	proxyAddr    string
+	self         string
+	dnsListen    string
+	httpListen   string
+	httpsListen  string
+	socks5Listen string
+	upstreamDNS  string
 }
 
 func main() {
@@ -114,6 +117,7 @@ func bindForwardFlags(fs *pflag.FlagSet, cfg *config) {
 	fs.StringVar(&cfg.dnsListen, "dns-listen", ":53", "the address the DNS server listens on")
 	fs.StringVar(&cfg.httpListen, "http-listen", ":80", "the address the HTTP forwarder listens on")
 	fs.StringVar(&cfg.httpsListen, "https-listen", ":443", "the address the HTTPS forwarder listens on")
+	fs.StringVar(&cfg.socks5Listen, "socks5-listen", ":1080", "the address the SOCKS5 gateway listens on")
 	fs.StringVar(&cfg.upstreamDNS, "upstream-dns", "127.0.0.11:53", "the DNS server for a query outside the domain")
 }
 
@@ -127,7 +131,12 @@ func socks5GatewayCommand() *cobra.Command {
 		Short: "Run a SOCKS5 relay for a client outside the cluster to reach an in-cluster address",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return serveSOCKS5(cmd.Context(), listen)
+			var lc net.ListenConfig
+			ln, err := lc.Listen(cmd.Context(), "tcp", listen)
+			if err != nil {
+				return fmt.Errorf("relay: listen socks5: %w", err)
+			}
+			return serveSOCKS5(cmd.Context(), ln)
 		},
 	}
 	cmd.Flags().StringVar(&listen, "listen", "", "the address the SOCKS5 relay listens on (required)")
@@ -153,12 +162,14 @@ type relayProcess struct {
 	dns       *dnsServer
 	httpsLn   net.Listener
 	httpLn    net.Listener
+	socks5Ln  net.Listener
 	proxyAddr string
 }
 
 // newRelayProcess resolves self when cfg.self is empty, then binds the DNS,
-// the HTTP, and the HTTPS listeners. A caller reads back an ephemeral
-// address with dnsAddr, httpAddr, or httpsAddr before run starts.
+// the HTTP, the HTTPS, and the SOCKS5 listeners. A caller reads back an
+// ephemeral address with dnsAddr, httpAddr, httpsAddr, or socks5Addr before
+// run starts.
 func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
 	self := cfg.self
 	if self == "" {
@@ -178,6 +189,10 @@ func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
 	if err != nil {
 		return nil, fmt.Errorf("relay: listen http: %w", err)
 	}
+	socks5Ln, err := lc.Listen(ctx, "tcp", cfg.socks5Listen)
+	if err != nil {
+		return nil, fmt.Errorf("relay: listen socks5: %w", err)
+	}
 
 	relay := newDNSRelay(cfg.domain, self, cfg.upstreamDNS)
 	dnsSrv, err := bindDNSServer(ctx, cfg.dnsListen, relay)
@@ -187,12 +202,16 @@ func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
 
 	log.Ctx(ctx).Info("relay starting",
 		"domain", cfg.domain, "self", self, "proxy", cfg.proxyAddr,
-		"dns_listen", dnsSrv.addr(), "http_listen", httpLn.Addr(), "https_listen", httpsLn.Addr())
+		"dns_listen", dnsSrv.addr(), "http_listen", httpLn.Addr(), "https_listen", httpsLn.Addr(),
+		"socks5_listen", socks5Ln.Addr())
 
-	return &relayProcess{dns: dnsSrv, httpsLn: httpsLn, httpLn: httpLn, proxyAddr: cfg.proxyAddr}, nil
+	return &relayProcess{
+		dns: dnsSrv, httpsLn: httpsLn, httpLn: httpLn, socks5Ln: socks5Ln, proxyAddr: cfg.proxyAddr,
+	}, nil
 }
 
-// run serves DNS, HTTP, and HTTPS until ctx is done or one of them fails.
+// run serves DNS, HTTP, HTTPS, and the SOCKS5 gateway until ctx is done or
+// one of them fails.
 func (p *relayProcess) run(ctx context.Context) error {
 	grp, ctx := errgroup.WithContext(ctx)
 	grp.Go(func() error { return p.dns.run(ctx) })
@@ -202,6 +221,7 @@ func (p *relayProcess) run(ctx context.Context) error {
 	grp.Go(func() error {
 		return acceptLoop(ctx, p.httpLn, func(conn net.Conn) { handleHTTP(ctx, conn, p.proxyAddr) })
 	})
+	grp.Go(func() error { return serveSOCKS5(ctx, p.socks5Ln) })
 	return grp.Wait() //nolint:wrapcheck // each sub-server already wraps its own error; wrapping again here would double it
 }
 
@@ -213,6 +233,9 @@ func (p *relayProcess) httpAddr() string { return p.httpLn.Addr().String() }
 
 // httpsAddr is the bound address of the HTTPS forwarder.
 func (p *relayProcess) httpsAddr() string { return p.httpsLn.Addr().String() }
+
+// socks5Addr is the bound address of the SOCKS5 gateway.
+func (p *relayProcess) socks5Addr() string { return p.socks5Ln.Addr().String() }
 
 // resolveSelf picks the address that the DNS server answers with when -self
 // is empty.

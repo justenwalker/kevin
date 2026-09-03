@@ -271,19 +271,20 @@ func (s *server) CallTool(ctx context.Context, req *pb.ToolCallRequest) (*pb.Too
 
 func envFromProto(e *pb.Environment) Env {
 	return Env{
-		Project:       e.GetProject(),
-		Workspace:     e.GetWorkspace(),
-		Network:       e.GetNetwork(),
-		Engine:        e.GetEngine(),
-		EngineConfig:  e.GetEngineConfig(),
-		CAPath:        e.GetCaPath(),
-		HTTPProxyAddr: e.GetHttpProxyAddr(),
-		ConsoleAddr:   e.GetConsoleAddr(),
-		ProxyEnv:      e.GetProxyEnv(),
-		Domain:        e.GetDomain(),
-		Relay:         e.GetRelay(),
-		ProjectDir:    e.GetProjectDir(),
-		Scope:         e.GetScope(),
+		Project:         e.GetProject(),
+		Workspace:       e.GetWorkspace(),
+		Network:         e.GetNetwork(),
+		Engine:          e.GetEngine(),
+		EngineConfig:    e.GetEngineConfig(),
+		CAPath:          e.GetCaPath(),
+		HTTPProxyAddr:   e.GetHttpProxyAddr(),
+		ConsoleAddr:     e.GetConsoleAddr(),
+		ProxyEnv:        e.GetProxyEnv(),
+		Domain:          e.GetDomain(),
+		Relay:           e.GetRelay(),
+		RelaySOCKS5Addr: e.GetRelaySocks5Addr(),
+		ProjectDir:      e.GetProjectDir(),
+		Scope:           e.GetScope(),
 	}
 }
 

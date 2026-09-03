@@ -167,6 +167,8 @@ func TestStartAndClose(t *testing.T) {
 
 	assert.Regexp(t, `^\d+\.\d+\.\d+\.\d+$`, r.Addr(),
 		"Addr must report the container address on the shared network")
+	assert.Regexp(t, `^127\.0\.0\.1:\d+$`, r.SOCKS5Addr(),
+		"SOCKS5Addr must report the loopback address the socks5 gateway is published on")
 
 	require.NoError(t, r.Close())
 	_, err = dockerClient.Inspect(t.Context(), name)
@@ -294,6 +296,7 @@ func TestLookup(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, found)
 	assert.Equal(t, started.Addr(), found.Addr())
+	assert.Equal(t, started.SOCKS5Addr(), found.SOCKS5Addr())
 
 	require.NoError(t, found.Close())
 	afterClose, err := relay.Lookup(t.Context(), "relay-lookup-test", network)

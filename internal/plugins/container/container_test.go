@@ -89,6 +89,11 @@ func TestDecode(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "decode config")
 	})
+
+	t.Run("rejects relay combined with udp", func(t *testing.T) {
+		_, err := decode([]byte(`{"image": "postgres:16", "expose": [{"port": 53, "protocol": "udp", "relay": true}]}`))
+		require.ErrorIs(t, err, ErrRelayUDP)
+	})
 }
 
 func TestBuildEnv(t *testing.T) {
@@ -217,7 +222,7 @@ func TestExposedPorts(t *testing.T) {
 			"53/udp":   "127.0.0.1:49002",
 		}}
 
-		got, err := exposedPorts(cfg, info)
+		got, err := exposedPorts(cfg, info, "db", "")
 		require.NoError(t, err)
 		require.Len(t, got, 2)
 		assert.Equal(t, plugin.ExposedPort{Name: "postgres", Protocol: "tcp", Upstream: "127.0.0.1:49001"}, got[0])
@@ -228,13 +233,44 @@ func TestExposedPorts(t *testing.T) {
 	t.Run("reports an unpublished port", func(t *testing.T) {
 		cfg := config{Expose: []expose{{Port: 5432, Protocol: "tcp"}}}
 
-		_, err := exposedPorts(cfg, cri.Container{Ports: map[string]string{}})
+		_, err := exposedPorts(cfg, cri.Container{Ports: map[string]string{}}, "db", "")
 
 		require.ErrorIs(t, err, ErrNoPort)
 		assert.Contains(t, err.Error(), "5432")
 		assert.Equal(t, "the container isn't listening on tcp 5432 - check the image actually exposes it, or fix the expose block",
 			uerr.Display(err))
 	})
+
+	t.Run("builds a socks5 upstream for a relay entry", func(t *testing.T) {
+		cfg := config{Expose: []expose{{Port: 5432, Name: "postgres", Protocol: "tcp", Relay: true}}}
+
+		got, err := exposedPorts(cfg, cri.Container{}, "db", "127.0.0.1:54321")
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, plugin.ExposedPort{Name: "postgres", Protocol: "socks5", Upstream: "socks5://127.0.0.1:54321/db:5432"}, got[0])
+	})
+
+	t.Run("reports a relay entry with no relay address", func(t *testing.T) {
+		cfg := config{Expose: []expose{{Port: 5432, Protocol: "tcp", Relay: true}}}
+
+		_, err := exposedPorts(cfg, cri.Container{}, "db", "")
+
+		require.ErrorIs(t, err, ErrNoRelay)
+	})
+}
+
+func TestBuildPorts(t *testing.T) {
+	cfg := config{
+		Ports: []string{"8080:80"},
+		Expose: []expose{
+			{Port: 5432, Protocol: "tcp"},
+			{Port: 6379, Protocol: "tcp", Relay: true},
+		},
+	}
+
+	got := buildPorts(cfg)
+
+	assert.Equal(t, []string{"8080:80", "127.0.0.1::5432"}, got, "a relay entry never gets a docker --publish spec")
 }
 
 type noopEmitter struct{}
@@ -509,6 +545,34 @@ func TestUpWithFakeEngine(t *testing.T) {
 			Config: []byte(`{"image":"nginx"}`),
 		}, &noopEmitter{})
 		require.ErrorIs(t, err, ErrUnsupportedEngine)
+	})
+
+	t.Run("routes a relay entry through the relay instead of publishing it", func(t *testing.T) {
+		var gotSpec cri.RunSpec
+		useFakeRuntime(t, fakeRuntime{
+			run: func(_ context.Context, spec cri.RunSpec) (string, error) {
+				gotSpec = spec
+				return "abc123", nil
+			},
+			inspect: func(context.Context, string) (cri.Container, error) {
+				return cri.Container{Running: true}, nil
+			},
+		})
+
+		result, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+			Step: "db",
+			Env:  plugin.Env{RelaySOCKS5Addr: "127.0.0.1:54321"},
+			Config: []byte(`{"image":"postgres:16","expose":[
+				{"port": 5432, "name": "postgres", "relay": true}
+			]}`),
+		}, &noopEmitter{})
+		require.NoError(t, err)
+
+		assert.Empty(t, gotSpec.Ports, "a relay entry must never appear in the docker --publish list")
+		require.Len(t, result.ExposedPorts, 1)
+		assert.Equal(t, plugin.ExposedPort{
+			Name: "postgres", Protocol: "socks5", Upstream: "socks5://127.0.0.1:54321/db:5432",
+		}, result.ExposedPorts[0])
 	})
 }
 

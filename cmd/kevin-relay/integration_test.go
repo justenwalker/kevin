@@ -18,6 +18,7 @@ import (
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	"golang.org/x/net/proxy"
 )
 
 // relayTestDomain is the environment domain that the suite's relay answers
@@ -57,13 +58,14 @@ func (s *RelayProcessSuite) SetupSuite() {
 	}))
 
 	proc, err := newRelayProcess(t.Context(), config{
-		domain:      relayTestDomain,
-		proxyAddr:   s.proxyStub.Listener.Addr().String(),
-		self:        "10.20.30.40",
-		dnsListen:   "127.0.0.1:0",
-		httpListen:  "127.0.0.1:0",
-		httpsListen: "127.0.0.1:0",
-		upstreamDNS: s.upstreamPC.LocalAddr().String(),
+		domain:       relayTestDomain,
+		proxyAddr:    s.proxyStub.Listener.Addr().String(),
+		self:         "10.20.30.40",
+		dnsListen:    "127.0.0.1:0",
+		httpListen:   "127.0.0.1:0",
+		httpsListen:  "127.0.0.1:0",
+		socks5Listen: "127.0.0.1:0",
+		upstreamDNS:  s.upstreamPC.LocalAddr().String(),
 	})
 	s.Require().NoError(err)
 	s.proc = proc
@@ -230,6 +232,41 @@ func (s *RelayProcessSuite) TestHTTPForwarderSendsAbsoluteURI() {
 	}
 }
 
+// TestSOCKS5ForwardsToTarget proves that the relay's SOCKS5 gateway CONNECTs
+// to whatever target address a client asks for, the same path a
+// builtin:container step's relay: true expose entry relies on.
+func (s *RelayProcessSuite) TestSOCKS5ForwardsToTarget() {
+	t := s.T()
+
+	var lc net.ListenConfig
+	echoLn, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	s.Require().NoError(err)
+	defer func() { _ = echoLn.Close() }()
+	go func() {
+		conn, acceptErr := echoLn.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_, _ = io.Copy(conn, conn)
+	}()
+
+	dialer, err := proxy.SOCKS5("tcp", s.proc.socks5Addr(), nil, proxy.Direct)
+	s.Require().NoError(err)
+
+	conn, err := dialer.Dial("tcp", echoLn.Addr().String())
+	s.Require().NoError(err)
+	defer func() { _ = conn.Close() }()
+
+	_, err = conn.Write([]byte("hello"))
+	s.Require().NoError(err)
+
+	buf := make([]byte, 5)
+	_, err = io.ReadFull(conn, buf)
+	s.Require().NoError(err)
+	s.Equal("hello", string(buf))
+}
+
 // TestResolveSelfFindsARealInterfaceAddress proves that resolveSelf, which
 // serve calls when a caller leaves -self empty, finds a usable address on
 // the test host.
@@ -279,13 +316,14 @@ func (s *RelayProcessSuite) TestHTTPSForwarderRelaysTheClientHello() {
 	defer cancel()
 
 	proc, err := newRelayProcess(ctx, config{
-		domain:      relayTestDomain,
-		proxyAddr:   connectLn.Addr().String(),
-		self:        "10.20.30.40",
-		dnsListen:   "127.0.0.1:0",
-		httpListen:  "127.0.0.1:0",
-		httpsListen: "127.0.0.1:0",
-		upstreamDNS: s.upstreamPC.LocalAddr().String(),
+		domain:       relayTestDomain,
+		proxyAddr:    connectLn.Addr().String(),
+		self:         "10.20.30.40",
+		dnsListen:    "127.0.0.1:0",
+		httpListen:   "127.0.0.1:0",
+		httpsListen:  "127.0.0.1:0",
+		socks5Listen: "127.0.0.1:0",
+		upstreamDNS:  s.upstreamPC.LocalAddr().String(),
 	})
 	s.Require().NoError(err)
 

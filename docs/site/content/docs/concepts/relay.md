@@ -34,7 +34,7 @@ Plain Linux Docker runs the daemon on the host. The gateway bind succeeds there,
 
 ## Cluster tunnel
 
-The relay's other job runs the opposite direction: `kevin-relay` also has a `-socks5-listen` mode, mutually exclusive with `-domain`/`-proxy`, that runs a SOCKS5 server instead of the DNS/HTTP forwarder. A `builtin:kind` step's `with.expose` list stands up exactly one such relay as a Pod inside the cluster, so a client outside the cluster can dial an arbitrary in-cluster address (a Service DNS name or a Pod IP, with its port) by asking the relay to `CONNECT` to it.
+The relay's other job runs the opposite direction: `kevin-relay forward` also runs a SOCKS5 server (`-socks5-listen`) alongside its DNS/HTTP/HTTPS listeners, and `kevin-relay` separately has a standalone `socks5-gateway` subcommand that runs just that SOCKS5 server on its own, with no DNS/HTTP/HTTPS at all. A `builtin:kind` step's `with.expose` list stands up one `socks5-gateway` instance as a Pod inside the cluster, so a client outside the cluster can dial an arbitrary in-cluster address (a Service DNS name or a Pod IP, with its port) by asking the relay to `CONNECT` to it.
 
 This exists because a kind cluster's `extraPortMappings` are fixed at cluster creation, before `Up` has created anything, unlike a container step's port publish. One relay avoids needing a static port mapping per exposed service: `Up` picks one host port, bakes one `extraPortMappings` entry for it into the generated cluster config (pointed at the control-plane node), loads the `kevin-relay` image into that same node, and applies the relay Pod with `kubectl apply` run inside the node, the same `docker exec`-wrapped `kubectl` mechanism the CoreDNS patch already uses, pinned to that same control-plane node.
 
@@ -43,6 +43,12 @@ A `builtin:kind` step's `Up` does not wait for an `expose` entry's address to be
 An `expose` entry reports through the same `Result.ExposedPorts` a container step's `expose` already populates. No protocol or console change was needed. A plain `host:port` isn't enough information here, since a client must dial the relay and then ask it to reach the real target, so `Upstream` carries both as one string: `socks5://127.0.0.1:<relayPort>/<address>`, and `Protocol` reads `"socks5"` rather than `"tcp"`/`"udp"`, marking that it needs a SOCKS5-aware dial rather than a direct one.
 
 The engine doesn't make a client do that dial itself. For any step's `ExposedPort` with `Protocol == "socks5"` (not kind-specific, any plugin's), it opens one more loopback listener of its own and forwards every accepted connection through a SOCKS5 dial to the target. A plain client like `psql` just connects to that local port with no SOCKS5 awareness at all. The address is mirrored into `system` too, as `needs.<step>.system.forward_<name>`, alongside the raw `expose_<name>` entry, and shown in the console as its own row next to the `socks5://...` one.
+
+## Container tunnel
+
+A `builtin:container` step's `with.expose` list reuses the same mechanism, but through the domain relay every project already runs (Lifecycle, above), not a dedicated Pod: `kevin-relay forward`'s SOCKS5 listener is that one relay's second job, always on, one loopback port per project - not one per exposed container port the way a direct `docker --publish` is. An expose entry sets `relay: true` to route through it instead of getting its own published port; `Up` skips that entry's `--publish` flag and reports it as a `socks5://<relay>/<step>:<port>` `ExposedPort` instead, the exact shape the previous section describes, dialable because the relay already sits on the same shared docker network as every container step and resolves a step's name through docker's own embedded DNS, the same alias a step already uses to reach another step directly.
+
+kind needs a Pod-per-cluster because a kind cluster is its own network namespace the relay container isn't part of. A container step has no such boundary - it's already on the shared network the relay is already on - so there's nothing to stand up beyond the one listener the relay gains at process start. Trading a dedicated host port for a hop through the relay only pays off past a handful of exposed ports, or when host ports themselves are scarce; a single `expose` entry with no `relay` set is still the plainer, zero-hop default.
 
 ## Subdomain routing
 

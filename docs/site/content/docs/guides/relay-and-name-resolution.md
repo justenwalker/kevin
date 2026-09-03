@@ -25,6 +25,28 @@ cluster: {
 
 Unlike a container step's `expose`, `Up` doesn't wait for the address to become dialable. The target is usually deployed separately, after the cluster is up, so `Up` only wires the tunnel and reports where to reach it. See [kind reference]({{< relref "/docs/reference/steps/kind" >}}) for the `expose` field.
 
+## Container steps
+
+`with.expose` on a `builtin:container` step normally publishes a dedicated
+host loopback port per entry. Set `relay: true` on an entry instead to
+route it through the same relay container every project already runs, so
+it costs no dedicated host port of its own:
+
+```cue
+db: {
+    uses: "builtin:container"
+    with: {
+        image:  "postgres:16"
+        expose: [{port: 5432, name: "postgres", relay: true}]
+    }
+}
+```
+
+`relay` only carries TCP - the relay's gateway is a SOCKS5 CONNECT server.
+A plain (non-relay) `expose` entry keeps publishing directly, and a step
+can mix both kinds of entry freely. See [container reference]({{< relref
+"/docs/reference/steps/container" >}}) for the `expose` field.
+
 ## HTTP routing
 
 `expose` is a raw TCP tunnel, dialed directly by a tool that speaks SOCKS5 or by an engine-managed local forward. It never goes through the proxy, and it has no notion of a hostname. To instead serve `myapp` as a subdomain of the environment domain in a browser, backed by a Service inside a kind cluster, add a [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step. It reuses the same relay: set `relay: true` on the `kind` step to stand the relay pod up even with no `expose` entries, read its address back as `relay_addr`, and register a route through it:
