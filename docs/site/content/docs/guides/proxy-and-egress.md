@@ -38,6 +38,15 @@ Set `proxy: egress: deny: false` to disable the control entirely, for an environ
 
 The `403` page carries cache-busting headers, so a browser won't keep showing a stale denial after you fix the allow list.
 
+To flip that per run instead of hardcoding it, don't re-declare `deny`'s own default - `proxy: egress: deny: *false | bool` conflicts with the schema's own `*true`, since CUE won't resolve two different defaults for the same field. Give the toggle its own field and point `deny` at it instead:
+
+```cue
+airgap: bool | *false
+proxy: egress: deny: *airgap | bool
+```
+
+Then flip it with a [local override]({{< relref "/docs/environment-file#local-overrides" >}}) (`kevin.local.cue`: `airgap: true`) instead of duplicating the whole file into a named environment just to change one field.
+
 ## Step readiness
 
 A container reports `Running` before the process inside has necessarily bound its port. A TCP `expose` entry is only actually reachable once its published port accepts a connection. kevin waits for that before marking the step ready. Note this if you're debugging a race in your own tooling against a step.
