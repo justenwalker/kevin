@@ -243,6 +243,10 @@ var releaseVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-.+)?$`
 // archive too, not just a goreleaser build.
 const versionFile = "internal/version/VERSION"
 
+// docsVersionFile is a Hugo data file the docs site reads (via the
+// {{% version %}} shortcode) to avoid hardcoding the version in prose.
+const docsVersionFile = "docs/site/data/version.yaml"
+
 var Release = GnobMakeTarget{
 	Name: "release",
 	Desc: "cut a version release with GoReleaser",
@@ -277,8 +281,12 @@ var Release = GnobMakeTarget{
 		if err := os.WriteFile(versionFile, []byte(version+"\n"), 0o644); err != nil {
 			return fmt.Errorf("release: write %s: %w", versionFile, err)
 		}
-		if err := run(ctx, nil, "git", "add", versionFile); err != nil {
-			return fmt.Errorf("release: stage %s: %w", versionFile, err)
+		docsVersion := fmt.Sprintf("version: %q\n", strings.TrimPrefix(version, "v"))
+		if err := os.WriteFile(docsVersionFile, []byte(docsVersion), 0o644); err != nil {
+			return fmt.Errorf("release: write %s: %w", docsVersionFile, err)
+		}
+		if err := run(ctx, nil, "git", "add", versionFile, docsVersionFile); err != nil {
+			return fmt.Errorf("release: stage %s and %s: %w", versionFile, docsVersionFile, err)
 		}
 		if err := run(ctx, nil, "git", "commit", "-m", "Release "+version); err != nil {
 			return fmt.Errorf("release: commit %s: %w", versionFile, err)

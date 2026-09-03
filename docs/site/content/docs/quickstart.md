@@ -16,7 +16,7 @@ weight: 1
 Download the archive for your OS/arch from the [GitHub releases page](https://github.com/justenwalker/kevin/releases), or with `curl`:
 
 ```sh
-VERSION=0.0.1  # see the releases page for the latest
+VERSION={{% version %}}  # see the releases page for the latest
 OS=darwin      # or: linux
 ARCH=arm64     # or: amd64
 
