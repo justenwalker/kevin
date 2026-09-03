@@ -434,6 +434,13 @@ Already exercised structurally in sections 6-8 (`${needs.cluster.out.kubeconfig}
       `Export` result reaches a cross-scope consumer - e.g. a `setup` step
       using `${project.root_cert}` in one of its own `export` values, read
       back by an `env` step via `${setup.<name>.out.<key>}`.
+- [ ] A step whose `with` block references `${needs.<step>...}` or
+      `${setup.<name>...}` without also listing that name in its own
+      `needs` fails `kevin validate` - both facts are static in the file,
+      so this is caught before `kevin run`/`kevin setup` touch Docker, not
+      only at the point that step's `with` block actually renders.
+      (Automated at the unit level - `internal/config/config_test.go`'s
+      `TestValidateNeedsReferences`.)
 
 ## 13. Plugin packaging: pack / push / trust / signed
 

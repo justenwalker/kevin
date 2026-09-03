@@ -502,6 +502,93 @@ env: a: uses: "echo:echo"
 	})
 }
 
+func TestValidateNeedsReferences(t *testing.T) {
+	t.Run("a needs reference declared in needs", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: {
+	a: uses: "echo:echo"
+	b: {uses: "echo:echo", needs: ["a"], with: msg: "${needs.a.out.x}"}
+}
+`)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+	})
+
+	t.Run("a needs reference not in needs", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: {
+	a: uses: "echo:echo"
+	b: {uses: "echo:echo", with: msg: "${needs.a.out.x}"}
+}
+`)
+		err := f.Validate(offers("echo", "echo"))
+		require.ErrorIs(t, err, config.ErrUndeclaredNeed)
+		assert.Contains(t, err.Error(), "env.b")
+		assert.Contains(t, err.Error(), "needs.a")
+	})
+
+	t.Run("a setup reference declared as setup.<name> in needs", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+setup: cluster: uses: "echo:echo"
+env: app: {uses: "echo:echo", needs: ["setup.cluster"], with: msg: "${setup.cluster.out.x}"}
+`)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+	})
+
+	t.Run("a setup reference with no matching needs entry", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+setup: cluster: uses: "echo:echo"
+env: app: {uses: "echo:echo", with: msg: "${setup.cluster.out.x}"}
+`)
+		err := f.Validate(offers("echo", "echo"))
+		require.ErrorIs(t, err, config.ErrUndeclaredNeed)
+		assert.Contains(t, err.Error(), "env.app")
+		assert.Contains(t, err.Error(), "setup.cluster")
+	})
+
+	t.Run("a plain needs entry does not satisfy a setup reference", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+setup: cluster: uses: "echo:echo"
+env: app: {uses: "echo:echo", needs: ["cluster"], with: msg: "${setup.cluster.out.x}"}
+`)
+		err := f.Validate(offers("echo", "echo"))
+		require.ErrorIs(t, err, config.ErrUndeclaredNeed)
+	})
+
+	t.Run("no with block at all is fine", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: a: uses: "echo:echo"
+`)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+	})
+
+	t.Run("caught even when the plugin publishes no with schema", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: {
+	a: uses: "echo:echo"
+	b: {uses: "echo:echo", with: msg: "${needs.a.out.x}"}
+}
+`)
+		err := f.Validate(map[string]config.PluginSchemas{"echo": {Steps: map[string][]byte{"echo": nil}}})
+		require.ErrorIs(t, err, config.ErrUndeclaredNeed)
+	})
+
+	t.Run("a malformed expression still surfaces an error", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: a: {uses: "echo:echo", with: msg: "${needs..a}"}
+`)
+		err := f.Validate(offers("echo", "echo"))
+		require.Error(t, err)
+	})
+}
+
 func TestValidatePluginConfig(t *testing.T) {
 	tests := []struct {
 		name         string

@@ -43,6 +43,10 @@ const (
 	// ErrBadStepRef reports a step type reference that does not match the
 	// grammar of [ParseStepRef].
 	ErrBadStepRef = Error("config: invalid step type reference")
+
+	// ErrUndeclaredNeed reports a with block's "${...}" expression naming a
+	// step that the step's own needs list does not declare.
+	ErrUndeclaredNeed = Error("config: with block references a step its needs list does not declare")
 )
 
 // ValidationError indicates a problem validating a kevin configuration file.

@@ -209,3 +209,61 @@ func TestRender(t *testing.T) {
 		require.Error(t, err, "expected an error for a project key that was never set")
 	})
 }
+
+func TestReferencedSteps(t *testing.T) {
+	t.Run("no marker at all", func(t *testing.T) {
+		needs, setup, err := expr.ReferencedSteps(json.RawMessage(`{"a":"b"}`))
+		require.NoError(t, err)
+		assert.Empty(t, needs)
+		assert.Empty(t, setup)
+	})
+
+	t.Run("a needs reference", func(t *testing.T) {
+		needs, setup, err := expr.ReferencedSteps(json.RawMessage(`{"a":"${needs.cluster.out.kubeconfig}"}`))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"cluster"}, needs)
+		assert.Empty(t, setup)
+	})
+
+	t.Run("a setup reference", func(t *testing.T) {
+		needs, setup, err := expr.ReferencedSteps(json.RawMessage(`{"a":"${setup.db.out.dsn}"}`))
+		require.NoError(t, err)
+		assert.Empty(t, needs)
+		assert.Equal(t, []string{"db"}, setup)
+	})
+
+	t.Run("finds references nested in objects, arrays, and multiple markers in one string", func(t *testing.T) {
+		raw := json.RawMessage(`{
+			"list": ["${needs.a.out.x}", "${needs.b.out.y}"],
+			"obj": {"k": "${setup.c.out.z}"},
+			"combined": "${needs.d.out.x}-${setup.e.out.y}"
+		}`)
+		needs, setup, err := expr.ReferencedSteps(raw)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"a", "b", "d"}, needs)
+		assert.ElementsMatch(t, []string{"c", "e"}, setup)
+	})
+
+	t.Run("a reference inside has() is still found", func(t *testing.T) {
+		needs, _, err := expr.ReferencedSteps(json.RawMessage(`{"a":"${has(needs.cluster.out.x) ? needs.cluster.out.x : \"default\"}"}`))
+		require.NoError(t, err)
+		assert.Contains(t, needs, "cluster")
+	})
+
+	t.Run("env and project references are not needs or setup", func(t *testing.T) {
+		needs, setup, err := expr.ReferencedSteps(json.RawMessage(`{"a":"${env.HOME}", "b":"${project.root_cert}"}`))
+		require.NoError(t, err)
+		assert.Empty(t, needs)
+		assert.Empty(t, setup)
+	})
+
+	t.Run("an unbalanced marker errors", func(t *testing.T) {
+		_, _, err := expr.ReferencedSteps(json.RawMessage(`{"a":"${needs.cluster"}`))
+		require.Error(t, err)
+	})
+
+	t.Run("a syntax error in the expression errors", func(t *testing.T) {
+		_, _, err := expr.ReferencedSteps(json.RawMessage(`{"a":"${needs..cluster}"}`))
+		require.Error(t, err)
+	})
+}

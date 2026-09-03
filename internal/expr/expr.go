@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/google/cel-go/cel"
+	celast "github.com/google/cel-go/common/ast"
 
 	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/output"
@@ -89,6 +90,104 @@ func Render(raw json.RawMessage, step string, scopes Scopes) (json.RawMessage, e
 	return out, nil
 }
 
+// parseOnlyEnv is a CEL environment with no declared variables, sufficient
+// to parse an expression's syntax tree without evaluating it - ReferencedSteps
+// only walks the tree structure, so it needs no type information.
+var parseOnlyEnv = sync.OnceValues(func() (*cel.Env, error) { return cel.NewEnv() })
+
+// ReferencedSteps reports every step name that raw's "${...}" markers
+// reference via "needs.<step>..." or "setup.<step>...", with no
+// evaluation - for a caller that wants to check those names against a
+// step's own needs list statically, before any of Render's variables
+// (upstream outputs, in particular) exist to evaluate against.
+func ReferencedSteps(raw json.RawMessage) ([]string, []string, error) {
+	if !bytes.Contains(raw, []byte(marker)) {
+		return nil, nil, nil
+	}
+
+	var v any
+	if unmarshalErr := json.Unmarshal(raw, &v); unmarshalErr != nil {
+		return nil, nil, fmt.Errorf("expr: decode: %w", unmarshalErr)
+	}
+
+	var exprs []string
+	if collectErr := collectExprs(v, &exprs); collectErr != nil {
+		return nil, nil, collectErr
+	}
+
+	env, err := parseOnlyEnv()
+	if err != nil {
+		return nil, nil, fmt.Errorf("expr: build the cel environment: %w", err)
+	}
+	var needsRefs, setupRefs []string
+	for _, exprStr := range exprs {
+		n, s, err := selectRoots(env, exprStr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("expr: %q: %w", exprStr, err)
+		}
+		needsRefs = append(needsRefs, n...)
+		setupRefs = append(setupRefs, s...)
+	}
+	return needsRefs, setupRefs, nil
+}
+
+// collectExprs walks v the same way renderValue does, appending every
+// "${...}" expression found in a string value to exprs, with no
+// evaluation.
+func collectExprs(v any, exprs *[]string) error {
+	switch t := v.(type) {
+	case string:
+		found, err := markersIn(t)
+		if err != nil {
+			return err
+		}
+		*exprs = append(*exprs, found...)
+	case map[string]any:
+		for _, elem := range t {
+			if err := collectExprs(elem, exprs); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, elem := range t {
+			if err := collectExprs(elem, exprs); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// selectRoots parses exprStr and reports the field name of every
+// "needs.<field>..." and "setup.<field>..." select chain in it - a chain
+// rooted at an identifier named "needs" or "setup", whatever comes after.
+func selectRoots(env *cel.Env, exprStr string) ([]string, []string, error) {
+	parsed, iss := env.Parse(exprStr)
+	if iss != nil && iss.Err() != nil {
+		return nil, nil, fmt.Errorf("expr: parse: %w", iss.Err())
+	}
+
+	var needsRefs, setupRefs []string
+	root := parsed.NativeRep().Expr()
+	celast.PreOrderVisit(root, celast.NewExprVisitor(func(e celast.Expr) {
+		if e.Kind() != celast.SelectKind {
+			return
+		}
+		sel := e.AsSelect()
+		operand := sel.Operand()
+		if operand.Kind() != celast.IdentKind {
+			return
+		}
+		switch operand.AsIdent() {
+		case "needs":
+			needsRefs = append(needsRefs, sel.FieldName())
+		case "setup":
+			setupRefs = append(setupRefs, sel.FieldName())
+		}
+	}))
+	return needsRefs, setupRefs, nil
+}
+
 // renderValue is a recursive function that evaluates CEL expressions in a JSON value.
 // If the value `v` is a string, it tries to render any cel expression in the string.
 // If the value is a collection type, it will recursively try to evaluate each collection element.
@@ -130,24 +229,58 @@ func renderString(s string, step string, needs, setup map[string]any, env, proje
 	var b strings.Builder
 	rest := s
 	for {
-		i := strings.Index(rest, marker)
-		if i < 0 {
+		before, exprStr, remainder, ok, err := nextMarker(rest)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
 			b.WriteString(rest)
 			return b.String(), nil
 		}
-		b.WriteString(rest[:i])
-
-		afterOpen := rest[i+len(marker):]
-		exprStr, remainder, ok := strings.Cut(afterOpen, "}")
-		if !ok {
-			return "", fmt.Errorf("%w: %q", ErrUnbalanced, s)
-		}
+		b.WriteString(before)
 
 		result, err := eval(exprStr, step, needs, setup, env, project)
 		if err != nil {
 			return "", err
 		}
 		b.WriteString(result)
+		rest = remainder
+	}
+}
+
+// nextMarker finds the first "${...}" marker in s. before is the literal
+// text ahead of it, exprStr is the CEL expression inside it, and rest is
+// the text after its closing "}". ok is false when s carries no (more)
+// marker, the loop-termination signal both renderString and markersIn
+// share. An unclosed marker is reported as ErrUnbalanced.
+func nextMarker(s string) (string, string, string, bool, error) {
+	before, afterOpen, found := strings.Cut(s, marker)
+	if !found {
+		return "", "", "", false, nil
+	}
+	exprStr, rest, closed := strings.Cut(afterOpen, "}")
+	if !closed {
+		return "", "", "", false, fmt.Errorf("%w: %q", ErrUnbalanced, s)
+	}
+	return before, exprStr, rest, true, nil
+}
+
+// markersIn returns every CEL expression found inside s's "${...}" markers,
+// in order, with no evaluation - the same splitting nextMarker gives
+// renderString, for a caller that only needs to inspect the expressions
+// themselves.
+func markersIn(s string) ([]string, error) {
+	var exprs []string
+	rest := s
+	for {
+		_, exprStr, remainder, ok, err := nextMarker(rest)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return exprs, nil
+		}
+		exprs = append(exprs, exprStr)
 		rest = remainder
 	}
 }

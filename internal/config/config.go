@@ -24,6 +24,7 @@ import (
 	jsonpkg "cuelang.org/go/encoding/json"
 	yamlpkg "cuelang.org/go/encoding/yaml"
 
+	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
@@ -491,6 +492,18 @@ func (f *File) validateStep(scopeName, step string, spec Step, plugins map[strin
 		return f.invalid(cueerrors.Wrapf(stepErr, pos, ""))
 	}
 
+	with := f.value.LookupPath(cue.MakePath(cue.Str(scopeName), cue.Str(step), cue.Str("with")))
+	if !with.Exists() {
+		with = f.ctx.CompileString("{}")
+	}
+
+	if refErr := validateNeedsReferences(scopeName, step, spec); refErr != nil {
+		// pos (the step's "uses" field), not with.Pos(): a "with" value that
+		// exists only via the core schema's own optional "with?: {...}"
+		// declaration reports schema.cue's position, not the actual file's.
+		return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
+	}
+
 	schema, ok, err := f.compileSchema(ref.String(), src)
 	if err != nil {
 		return err
@@ -499,14 +512,50 @@ func (f *File) validateStep(scopeName, step string, spec Step, plugins map[strin
 		return nil
 	}
 
-	with := f.value.LookupPath(cue.MakePath(cue.Str(scopeName), cue.Str(step), cue.Str("with")))
-	if !with.Exists() {
-		with = f.ctx.CompileString("{}")
-	}
 	merged := schema.Unify(with)
 	if err := merged.Validate(cue.Concrete(true)); err != nil {
 		wrapped := cueerrors.Wrapf(err, with.Pos(), "%s.%s.with", scopeName, step)
 		return f.invalid(fmt.Errorf("%w: %w", ErrInvalid, wrapped))
+	}
+	return nil
+}
+
+// validateNeedsReferences checks that every "needs.<step>..." and
+// "setup.<step>..." reference inside spec.With's "${...}" markers names a
+// step that spec.Needs actually declares - the same rule internal/expr's
+// renderer enforces at Up time ("no such key"), caught here statically
+// instead: both facts (which steps a with block references, and which
+// steps needs lists) already sit in the parsed file, no plugin process or
+// Docker resource required to check them against each other.
+func validateNeedsReferences(scopeName, step string, spec Step) error {
+	needsRefs, setupRefs, err := expr.ReferencedSteps(spec.With)
+	if err != nil {
+		return fmt.Errorf("config: %s.%s.with: %w", scopeName, step, err)
+	}
+
+	declaredNeeds := make(map[string]struct{}, len(spec.Needs))
+	declaredSetup := make(map[string]struct{}, len(spec.Needs))
+	for _, n := range spec.Needs {
+		if rest, ok := strings.CutPrefix(n, "setup."); ok {
+			declaredSetup[rest] = struct{}{}
+			continue
+		}
+		declaredNeeds[n] = struct{}{}
+	}
+
+	for _, name := range needsRefs {
+		if _, ok := declaredNeeds[name]; !ok {
+			return fmt.Errorf(
+				"config: %s.%s.with: references %q via needs.%s, but %q is not in %s.%s's needs list: %w",
+				scopeName, step, name, name, name, scopeName, step, ErrUndeclaredNeed)
+		}
+	}
+	for _, name := range setupRefs {
+		if _, ok := declaredSetup[name]; !ok {
+			return fmt.Errorf(
+				"config: %s.%s.with: references %q via setup.%s, but %q is not in %s.%s's needs list as %q: %w",
+				scopeName, step, name, name, name, scopeName, step, "setup."+name, ErrUndeclaredNeed)
+		}
 	}
 	return nil
 }
