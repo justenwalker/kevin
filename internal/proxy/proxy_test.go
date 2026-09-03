@@ -533,8 +533,14 @@ func startTestProxyWithClient(t *testing.T) (*proxy.Proxy, *http.Client) {
 // deny is the toggle for egress filtering. If it is false, no egress filtering is applied.
 func startTestProxyWithClientAndEgressFiltering(t *testing.T, allow []string, deny bool) (*proxy.Proxy, *http.Client) {
 	t.Helper()
+	return startTestProxyServingWithAuthority(t, newTestIntermediateCA(t), allow, deny)
+}
 
-	authority := newTestIntermediateCA(t)
+// startTestProxyServingWithAuthority is [startTestProxyWithClientAndEgressFiltering],
+// against a caller-supplied authority - for a test that also needs the same
+// authority itself, to mint a leaf certificate for a fake TLS upstream.
+func startTestProxyServingWithAuthority(t *testing.T, authority *ca.CA, allow []string, deny bool) (*proxy.Proxy, *http.Client) {
+	t.Helper()
 
 	p, err := proxy.New(authority, "kevin.home", allow, deny)
 	require.NoError(t, err)

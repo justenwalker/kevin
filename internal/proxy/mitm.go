@@ -77,7 +77,7 @@ func (b *bufferedConn) Read(p []byte) (int, error) { return b.r.Read(p) }
 // It overrides the URL scheme to HTTPS and sets URL Host to the CONNECT host.
 func mitmConnect(host string, next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Scheme = "https"
+		r.URL.Scheme = schemeHTTPS
 		if r.URL.Host == "" {
 			r.URL.Host = host
 		}

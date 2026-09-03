@@ -18,6 +18,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"html"
@@ -39,6 +40,10 @@ import (
 )
 
 var log = logging.New("proxy")
+
+// schemeHTTPS is the URL scheme forward sets when a route's upstream itself
+// speaks TLS.
+const schemeHTTPS = "https"
 
 // readHeaderTimeout bounds a client that opens a connection and sends nothing.
 const readHeaderTimeout = 30 * time.Second
@@ -91,6 +96,8 @@ type Proxy struct {
 	mux   *http.ServeMux
 	h2srv *http2.Server
 
+	rootPool *x509.CertPool
+
 	// domain is the base name of the environment. The proxy.pac sends this
 	// domain and every route through the proxy.
 	domain string
@@ -134,8 +141,19 @@ func New(authority *ca.CA, domain string, allow []string, deny bool) (*Proxy, er
 		return nil, err
 	}
 
+	// x509.SystemCertPool returns a fresh clone, safe to extend in place -
+	// it never affects the process-wide default pool. A platform that
+	// reports no system pool (err or nil) still gets a pool of its own,
+	// with the kevin root as the only anchor.
+	rootPool, err := x509.SystemCertPool()
+	if err != nil || rootPool == nil {
+		rootPool = x509.NewCertPool()
+	}
+	rootPool.AppendCertsFromPEM([]byte(authority.RootPEM()))
+
 	p := &Proxy{
 		certs:          certs,
+		rootPool:       rootPool,
 		domain:         domain,
 		deny:           deny,
 		routes:         map[string]Route{},
@@ -149,16 +167,20 @@ func New(authority *ca.CA, domain string, allow []string, deny bool) (*Proxy, er
 	// real target before handing the request to rp, so there is nothing left
 	// for Rewrite itself to do.
 	//
-	// Transport clones http.DefaultTransport but dials through p.dialContext,
-	// so a route whose Upstream is a socks5:// relay address (see relay.go)
-	// gets CONNECTed through the relay instead of dialed directly - every
-	// other route keeps the stdlib-default dial behavior.
+	// Transport clones http.DefaultTransport but dials through p.dialContext
+	// and completes TLS itself through p.dialTLSContext, so a route whose
+	// Upstream is a socks5:// relay address (see relay.go) gets CONNECTed
+	// through the relay instead of dialed directly, and a tls: true route's
+	// certificate is verified against the real upstream hostname (from the
+	// request context) rather than the dial address, which for a relay
+	// route is the relay's own address, not the upstream's identity.
 	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		return nil, fmt.Errorf("proxy: http.DefaultTransport is %T, not *http.Transport", http.DefaultTransport)
 	}
 	transport := defaultTransport.Clone()
 	transport.DialContext = p.dialContext
+	transport.DialTLSContext = p.dialTLSContext
 	p.rp = &httputil.ReverseProxy{Rewrite: func(*httputil.ProxyRequest) {}, Transport: transport}
 
 	// A browser fetches the proxy auto-config file directly, not through the
@@ -445,7 +467,12 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request) {
 		r.URL.Host = upstream
 		r.URL.Scheme = "http"
 		if target.TLS {
-			r.URL.Scheme = "https"
+			r.URL.Scheme = schemeHTTPS
+			// r.URL.Host is now the dial address - the relay's own address
+			// for a relay route, not the upstream's real identity. Carry
+			// the name the client actually asked for on the context, for
+			// dialTLSContext to verify the certificate against.
+			r = r.WithContext(withTLSServerName(r.Context(), hostOnly(r.Host)))
 		}
 		host = hostOnly(r.Host)
 		log.Ctx(r.Context()).Debug("routed", "host", target.Host, "upstream", target.Upstream)

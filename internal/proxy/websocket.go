@@ -42,7 +42,15 @@ func (p *Proxy) serveUpgrade(w http.ResponseWriter, r *http.Request) int {
 	}
 	defer client.Close() //nolint:errcheck // best effort once the pipe (or an earlier error) ends
 
-	upstream, err := p.dialContext(r.Context(), "tcp", r.URL.Host)
+	dial := p.dialContext
+	if r.URL.Scheme == schemeHTTPS {
+		// forward already attached the real upstream hostname to the
+		// context for a tls: true route (dialTLSContext reads it back) -
+		// r.URL.Host here is only ever a dial address, the relay's own for
+		// a relay route, not the upstream's real identity.
+		dial = p.dialTLSContext
+	}
+	upstream, err := dial(r.Context(), "tcp", r.URL.Host)
 	if err != nil {
 		log.Ctx(r.Context()).Debug("upgrade dial failed", "host", r.URL.Host, "error", err)
 		_, _ = io.WriteString(client, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
