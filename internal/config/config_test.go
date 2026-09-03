@@ -469,6 +469,14 @@ env: a: {uses: "echo:echo", with: anything: [1, 2, 3]}
 		require.NoError(t, f.Validate(offers("echo", "echo")))
 	})
 
+	t.Run("a step name with a hyphen", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: "mirror-postgres": {uses: "echo:echo", with: anything: [1, 2, 3]}
+`)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+	})
+
 	t.Run("rejects a broken plugin schema", func(t *testing.T) {
 		f := load(t, `
 plugins: echo: cmd: "echo"
@@ -498,6 +506,7 @@ func TestValidatePluginConfig(t *testing.T) {
 	tests := []struct {
 		name         string
 		src          string
+		plugin       string
 		configSchema []byte
 		wantErr      error
 		wantContains []string
@@ -547,13 +556,28 @@ plugins: echo: {
 			wantErr:      config.ErrInvalid,
 			wantContains: []string{"echo schema"},
 		},
+		{
+			name: "a plugin name with a hyphen",
+			src: `
+plugins: "echo-two": {
+	cmd:    "echo"
+	config: greeting: "hi"
+}
+`,
+			plugin:       "echo-two",
+			configSchema: []byte(`#Config: greeting!: string`),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := load(t, tt.src)
-			schemas := offers("echo", "echo")
+			name := tt.plugin
+			if name == "" {
+				name = "echo"
+			}
+			schemas := offers(name, "echo")
 			if tt.configSchema != nil {
-				schemas["echo"] = config.PluginSchemas{Config: tt.configSchema, Steps: schemas["echo"].Steps}
+				schemas[name] = config.PluginSchemas{Config: tt.configSchema, Steps: schemas[name].Steps}
 			}
 
 			err := f.Validate(schemas)

@@ -361,7 +361,7 @@ func (f *File) StepPlugins() ([]string, error) {
 		for step, spec := range scope.steps {
 			ref, err := ParseStepRef(spec.Uses)
 			if err != nil {
-				pos := f.value.LookupPath(cue.ParsePath(scope.name + "." + step + ".uses")).Pos()
+				pos := f.value.LookupPath(cue.MakePath(cue.Str(scope.name), cue.Str(step), cue.Str("uses"))).Pos()
 				return nil, f.invalid(cueerrors.Wrapf(fmt.Errorf("config: step names step type %q: %w", spec.Uses, err), pos, ""))
 			}
 			seen[ref.Plugin] = struct{}{}
@@ -439,7 +439,7 @@ func (f *File) validatePluginKeys(plugins map[string]PluginSpec) error {
 		if IsReservedName(key) {
 			err := fmt.Errorf("config: plugins.%s: %s is a reserved name, reserved names are %s: %w",
 				key, key, strings.Join(reservedNames, ", "), ErrReservedNamespace)
-			pos := f.value.LookupPath(cue.ParsePath("plugins." + key)).Pos()
+			pos := f.value.LookupPath(cue.MakePath(cue.Str("plugins"), cue.Str(key))).Pos()
 			return f.invalid(cueerrors.Wrapf(err, pos, ""))
 		}
 	}
@@ -468,7 +468,7 @@ func (f *File) compileSchema(label string, src []byte) (cue.Value, bool, error) 
 // validateStep checks that a step names a step type that resolves, then
 // unifies the step's with block against the schema of that step type.
 func (f *File) validateStep(scopeName, step string, spec Step, plugins map[string]PluginSpec, schemas map[string]PluginSchemas) error {
-	pos := f.value.LookupPath(cue.ParsePath(scopeName + "." + step + ".uses")).Pos()
+	pos := f.value.LookupPath(cue.MakePath(cue.Str(scopeName), cue.Str(step), cue.Str("uses"))).Pos()
 
 	ref, err := ParseStepRef(spec.Uses)
 	if err != nil {
@@ -499,7 +499,7 @@ func (f *File) validateStep(scopeName, step string, spec Step, plugins map[strin
 		return nil
 	}
 
-	with := f.value.LookupPath(cue.ParsePath(scopeName + "." + step + ".with"))
+	with := f.value.LookupPath(cue.MakePath(cue.Str(scopeName), cue.Str(step), cue.Str("with")))
 	if !with.Exists() {
 		with = f.ctx.CompileString("{}")
 	}
@@ -527,7 +527,7 @@ func (f *File) validatePluginConfigs(plugins map[string]PluginSpec, schemas map[
 			continue
 		}
 
-		pos := f.value.LookupPath(cue.ParsePath("plugins." + name + ".config")).Pos()
+		pos := f.value.LookupPath(cue.MakePath(cue.Str("plugins"), cue.Str(name), cue.Str("config"))).Pos()
 
 		configSrc := schemas[name].Config
 		if len(configSrc) == 0 {
@@ -542,7 +542,7 @@ func (f *File) validatePluginConfigs(plugins map[string]PluginSpec, schemas map[
 		}
 
 		// spec.Config above was decoded from this same path, so it exists.
-		val := f.value.LookupPath(cue.ParsePath("plugins." + name + ".config"))
+		val := f.value.LookupPath(cue.MakePath(cue.Str("plugins"), cue.Str(name), cue.Str("config")))
 		merged := schema.Unify(val)
 		if err := merged.Validate(cue.Concrete(true)); err != nil {
 			wrapped := cueerrors.Wrapf(err, val.Pos(), "plugins.%s.config", name)
