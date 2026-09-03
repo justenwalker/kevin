@@ -28,6 +28,12 @@ service Plugin {
   //
   // A step that has nothing to export does not implement Export.
   rpc Export(ExportRequest) returns (ExportResponse);
+
+  // CallTool runs one of a step type's declared tools against a running
+  // step instance.
+  //
+  // A step type with no tools does not implement CallTool.
+  rpc CallTool(ToolCallRequest) returns (ToolCallResponse);
 }
 
 message InfoRequest {}
@@ -91,6 +97,22 @@ message StepType {
   // Idempotent is true when this step type implements IdempotentStep and
   // indicates that the supervisor can call Up on it again safely.
   bool idempotent = 6;
+
+  // Tools are the MCP tools this step type offers. Empty means this step
+  // type does not implement CallTool.
+  repeated ToolDefinition tools = 7;
+}
+
+// ToolDefinition describes one MCP tool a step type offers, callable
+// against a running step instance.
+message ToolDefinition {
+  string name = 1;
+  string description = 2;
+
+  // InputSchema is the tool's parameters, an "object" JSON Schema
+  // document. It must not declare a "step" property - the supervisor
+  // injects that one itself before showing the schema to an MCP client.
+  bytes input_schema = 3;
 }
 
 message ConfigureRequest {
@@ -304,6 +326,42 @@ message ExportResponse {
   // cross-scope "needs: [\"setup.<name>\"]" reference resolves against
   // this, never against env.
   Outputs out = 2;
+}
+
+message ToolCallRequest {
+  // Step is the name of the step instance to call the tool against.
+  string step = 1;
+
+  // Type is the step type that this node uses.
+  string type = 2;
+
+  Environment env = 3;
+
+  // Config is the with block of the step, in JSON form, CEL-rendered the
+  // same way UpRequest.Config is.
+  bytes config = 4;
+
+  // Deps maps the name of each upstream step to the outputs of that step.
+  map<string, Outputs> deps = 5;
+
+  // Tool is the name from the step type's ToolDefinition.
+  string tool = 6;
+
+  // Arguments is the MCP call's own arguments, in JSON form, with the
+  // supervisor-injected "step" property already removed.
+  bytes arguments = 7;
+}
+
+message ToolCallResponse {
+  // Content is the tool's result, JSON-encoded - any JSON value (object,
+  // array, or primitive), surfaced to the MCP client as structured
+  // content.
+  bytes content = 1;
+
+  bool is_error = 2;
+
+  // ErrorMessage is shown to the MCP client when IsError is true.
+  string error_message = 3;
 }
 
 message Route {

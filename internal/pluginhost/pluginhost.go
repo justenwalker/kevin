@@ -128,6 +128,22 @@ type StepInfo struct {
 	// again - safe to include in a cascading rerun triggered by a
 	// different step.
 	Idempotent bool
+
+	// Tools are the MCP tools this step type offers. Empty means this
+	// step type does not implement CallTool.
+	Tools []ToolInfo
+}
+
+// ToolInfo is what a plugin reports about one MCP tool a step type offers.
+type ToolInfo struct {
+	// Name identifies the tool.
+	Name string
+
+	// Description explains the tool to an MCP client.
+	Description string
+
+	// InputSchema is the tool's parameters, a JSON Schema document.
+	InputSchema []byte
 }
 
 // Info is what a plugin reports about itself.
@@ -159,6 +175,10 @@ func (c *Client) Info(ctx context.Context) (Info, error) {
 	}
 	steps := make([]StepInfo, 0, len(resp.GetSteps()))
 	for _, st := range resp.GetSteps() {
+		tools := make([]ToolInfo, 0, len(st.GetTools()))
+		for _, t := range st.GetTools() {
+			tools = append(tools, ToolInfo{Name: t.GetName(), Description: t.GetDescription(), InputSchema: t.GetInputSchema()})
+		}
 		steps = append(steps, StepInfo{
 			Name:       st.GetName(),
 			Schema:     st.GetCueSchema(),
@@ -166,6 +186,7 @@ func (c *Client) Info(ctx context.Context) (Info, error) {
 			Down:       st.GetDown(),
 			Kind:       st.GetKind(),
 			Idempotent: st.GetIdempotent(),
+			Tools:      tools,
 		})
 	}
 	info := Info{
@@ -225,6 +246,16 @@ func (c *Client) Export(ctx context.Context, req *pb.ExportRequest) (*pb.ExportR
 	resp, err := c.api.Export(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("pluginhost: %q Export %q: %w", c.name, req.GetStep(), wrapRPCErr(err))
+	}
+	return resp, nil
+}
+
+// CallTool runs one of a step type's declared tools against a step
+// instance.
+func (c *Client) CallTool(ctx context.Context, req *pb.ToolCallRequest) (*pb.ToolCallResponse, error) {
+	resp, err := c.api.CallTool(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("pluginhost: %q CallTool %q on %q: %w", c.name, req.GetTool(), req.GetStep(), wrapRPCErr(err))
 	}
 	return resp, nil
 }

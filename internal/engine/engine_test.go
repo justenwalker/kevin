@@ -999,6 +999,73 @@ env: {
 	require.NoError(t, <-done)
 }
 
+// TestRunCallsAPluginDeclaredTool proves a plugin-declared MCP tool
+// (echo's ToolProvider) reaches the plugin through a real tools/call,
+// with the step argument resolved to that step's rendered config and deps.
+func TestRunCallsAPluginDeclaredTool(t *testing.T) {
+	requireRelay(t)
+	dir := project(t, `
+env: {
+	a: {uses: "echo:echo", with: outputs: greeting: "hi"}
+	b: {uses: "echo:echo", needs: ["a"], with: message: "hello"}
+}
+`)
+	w := &watcher{}
+	addrCh := make(chan string, 1)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Options{
+			Dir: dir, Scope: config.ScopeEnv, Events: w,
+			OnEnvironment: func(env *pb.Environment) { addrCh <- env.GetConsoleAddr() },
+		})
+	}()
+
+	var addr string
+	select {
+	case addr = <-addrCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the environment address")
+	}
+	waitForCount(t, w, "b                ready", 1, 5*time.Second)
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
+	sess, err := client.Connect(t.Context(), &mcp.StreamableClientTransport{
+		Endpoint: "http://" + addr + mcpserver.Path,
+	}, nil)
+	require.NoError(t, err)
+	defer func() { _ = sess.Close() }()
+
+	tools, err := sess.ListTools(t.Context(), nil)
+	require.NoError(t, err)
+	var toolName string
+	for _, tl := range tools.Tools {
+		if strings.HasPrefix(tl.Name, "echo_echo_") {
+			toolName = tl.Name
+		}
+	}
+	require.NotEmpty(t, toolName, "echo's step type must advertise its tool, namespaced echo_echo_<tool>")
+
+	result, err := sess.CallTool(t.Context(), &mcp.CallToolParams{
+		Name:      toolName,
+		Arguments: map[string]any{"step": "b"},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError, "%v", result.Content)
+
+	out, ok := result.StructuredContent.(map[string]any)
+	require.True(t, ok, "expected structured content, got %#v", result.StructuredContent)
+	assert.Equal(t, "hello", out["message"])
+	deps, ok := out["deps"].(map[string]any)
+	require.True(t, ok, "expected a deps object, got %#v", out["deps"])
+	require.Contains(t, deps, "a")
+
+	cancel()
+	require.NoError(t, <-done)
+}
+
 // TestRunRerunReExecutesAStepAndFillsInSkippedDependents proves the
 // console's rerun endpoint reaches run.RerunStep end to end. A dependent
 // that a failure left skipped shows as skipped on the page; a direct rerun

@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -197,4 +198,38 @@ func (s *Server) getProxyInfo(_ context.Context, _ *mcp.CallToolRequest, _ struc
 		Routes: out,
 		Egress: EgressInfo{Deny: deny, Allow: allow, Wildcards: wildcards},
 	}, nil
+}
+
+// toolHandler builds the raw ToolHandler for a plugin-declared tool: pull
+// the kevin-injected "step" property out of the call's arguments, forward
+// the rest to s.callTool, and translate the result into a CallToolResult.
+func (s *Server) toolHandler(def ToolDef) mcp.ToolHandler {
+	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		args := make(map[string]json.RawMessage)
+		if len(req.Params.Arguments) > 0 {
+			if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
+				return nil, fmt.Errorf("mcpserver: %s: decode arguments: %w", def.Name, err)
+			}
+		}
+		var step string
+		if raw, ok := args["step"]; ok {
+			if err := json.Unmarshal(raw, &step); err != nil {
+				return nil, fmt.Errorf("mcpserver: %s: step must be a string: %w", def.Name, err)
+			}
+			delete(args, "step")
+		}
+		rest, err := json.Marshal(args)
+		if err != nil {
+			return nil, fmt.Errorf("mcpserver: %s: %w", def.Name, err)
+		}
+
+		result, isError, errMessage, err := s.callTool(ctx, step, def.Name, rest)
+		if err != nil {
+			return nil, err
+		}
+		if isError {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: errMessage}}}, nil
+		}
+		return &mcp.CallToolResult{StructuredContent: result}, nil
+	}
 }

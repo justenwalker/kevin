@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -63,6 +64,13 @@ func (s *server) Info(context.Context, *pb.InfoRequest) (*pb.InfoResponse, error
 		_, exports := step.(Exporter)
 		_, downs := step.(Downer)
 		idempotentStep, _ := step.(IdempotentStep)
+		toolProvider, _ := step.(ToolProvider)
+		var tools []*pb.ToolDefinition
+		if toolProvider != nil {
+			for _, t := range toolProvider.Tools() {
+				tools = append(tools, &pb.ToolDefinition{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema})
+			}
+		}
 		steps = append(steps, &pb.StepType{
 			Name:       name,
 			CueSchema:  step.Schema(),
@@ -70,6 +78,7 @@ func (s *server) Info(context.Context, *pb.InfoRequest) (*pb.InfoResponse, error
 			Down:       downs,
 			Kind:       stepKindToProto(step.Kind()),
 			Idempotent: idempotentStep != nil && idempotentStep.Idempotent(),
+			Tools:      tools,
 		})
 	}
 	return &pb.InfoResponse{
@@ -223,6 +232,41 @@ func (s *server) Export(ctx context.Context, req *pb.ExportRequest) (*pb.ExportR
 		result = &ExportResult{}
 	}
 	return &pb.ExportResponse{Env: result.Env, Out: &pb.Outputs{Values: outputsToProto(result.Out)}}, nil
+}
+
+func (s *server) CallTool(ctx context.Context, req *pb.ToolCallRequest) (*pb.ToolCallResponse, error) {
+	step, err := s.step(req.GetType())
+	if err != nil {
+		return nil, err
+	}
+
+	toolProvider, ok := step.(ToolProvider)
+	if !ok {
+		// In practice, this should not be called by a well-behaved plugin that indicated it doesn't support tools.
+		// However, this case is here for defensive purposes.
+		return nil, status.Errorf(codes.Unimplemented, "plugin: %q step type %q does not support tools", s.provider.Name, req.GetType())
+	}
+
+	result, err := toolProvider.CallTool(ctx, &ToolCallRequest{
+		Step:      req.GetStep(),
+		Type:      req.GetType(),
+		Env:       envFromProto(req.GetEnv()),
+		Config:    req.GetConfig(),
+		Deps:      depsFromProto(req.GetDeps()),
+		Tool:      req.GetTool(),
+		Arguments: req.GetArguments(),
+	})
+	if err != nil {
+		return nil, withUserMessage(err)
+	}
+	if result == nil {
+		result = &ToolCallResult{}
+	}
+	content, err := json.Marshal(result.Content)
+	if err != nil {
+		return nil, fmt.Errorf("plugin: %q tool %q: marshal content: %w", s.provider.Name, req.GetTool(), err)
+	}
+	return &pb.ToolCallResponse{Content: content, IsError: result.IsError, ErrorMessage: result.ErrorMessage}, nil
 }
 
 func envFromProto(e *pb.Environment) Env {

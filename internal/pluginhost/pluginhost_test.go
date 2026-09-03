@@ -127,6 +127,25 @@ func TestInfo(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, info.Icon, "the echo plugin ships a demo icon; Info must decode it")
 	})
+
+	t.Run("reports the echo step type's tools", func(t *testing.T) {
+		client, err := Launch(t.Context(), "echo", Spec{Cmd: bin, Dir: t.TempDir()})
+		require.NoError(t, err)
+		t.Cleanup(client.Close)
+
+		info, err := client.Info(t.Context())
+		require.NoError(t, err)
+
+		var echoStep StepInfo
+		for _, st := range info.Steps {
+			if st.Name == "echo" {
+				echoStep = st
+			}
+		}
+		require.Len(t, echoStep.Tools, 1)
+		assert.Equal(t, "echo", echoStep.Tools[0].Name)
+		assert.NotEmpty(t, echoStep.Tools[0].InputSchema)
+	})
 }
 
 func TestConfigure(t *testing.T) {
@@ -205,7 +224,8 @@ func TestExport(t *testing.T) {
 			Config: []byte(`{"export":{"greeting":"hi","password":"hunter2"},"export_sensitive":["password"]}`),
 		})
 		require.NoError(t, exportErr)
-		assert.Empty(t, resp.GetEnv(), "echo's Export only ever populates Out, never Env")
+		assert.Equal(t, map[string]string{"greeting": "hi", "password": "hunter2"}, resp.GetEnv(),
+			"echo's Export populates Env from the same export map as Out")
 		values := resp.GetOut().GetValues()
 		require.Contains(t, values, "greeting")
 		assert.Equal(t, "hi", values["greeting"].GetStringValue())
@@ -221,6 +241,47 @@ func TestExport(t *testing.T) {
 		_, exportErr := client.Export(t.Context(), &pb.ExportRequest{Step: "api", Type: "probe"})
 		require.Error(t, exportErr)
 		assert.Equal(t, codes.Unimplemented, status.Code(exportErr))
+	})
+}
+
+func TestCallTool(t *testing.T) {
+	bin := buildEchoPlugin(t)
+	client, err := Launch(t.Context(), "echo", Spec{Cmd: bin, Dir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	t.Run("runs the tool and returns its content", func(t *testing.T) {
+		resp, callErr := client.CallTool(t.Context(), &pb.ToolCallRequest{
+			Step: "api", Type: "echo", Tool: "echo",
+			Config:    []byte(`{"message":"hi"}`),
+			Arguments: []byte(`{"n":1}`),
+		})
+		require.NoError(t, callErr)
+		assert.False(t, resp.GetIsError())
+		assert.JSONEq(t, `{"message":"hi","arguments":{"n":1},"deps":null}`, string(resp.GetContent()))
+	})
+
+	t.Run("a tool-reported failure sets IsError, not an RPC error", func(t *testing.T) {
+		resp, callErr := client.CallTool(t.Context(), &pb.ToolCallRequest{
+			Step: "api", Type: "echo", Tool: "echo", Arguments: []byte(`{"fail":true}`),
+		})
+		require.NoError(t, callErr)
+		assert.True(t, resp.GetIsError())
+		assert.Equal(t, "requested failure", resp.GetErrorMessage())
+	})
+
+	t.Run("an unknown tool name fails at the plugin, not pluginhost", func(t *testing.T) {
+		_, callErr := client.CallTool(t.Context(), &pb.ToolCallRequest{Step: "api", Type: "echo", Tool: "no-such-tool"})
+		require.Error(t, callErr)
+		assert.Contains(t, callErr.Error(), "no-such-tool")
+	})
+
+	t.Run("a step type with no ToolProvider fails at the plugin, not pluginhost", func(t *testing.T) {
+		// probe implements neither Tools nor CallTool, so the plugin
+		// itself - not pluginhost - reports the failure.
+		_, callErr := client.CallTool(t.Context(), &pb.ToolCallRequest{Step: "api", Type: "probe", Tool: "echo"})
+		require.Error(t, callErr)
+		assert.Equal(t, codes.Unimplemented, status.Code(callErr))
 	})
 }
 

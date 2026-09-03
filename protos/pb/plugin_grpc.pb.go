@@ -24,6 +24,7 @@ const (
 	Plugin_Up_FullMethodName        = "/kevin.plugin.v1.Plugin/Up"
 	Plugin_Down_FullMethodName      = "/kevin.plugin.v1.Plugin/Down"
 	Plugin_Export_FullMethodName    = "/kevin.plugin.v1.Plugin/Export"
+	Plugin_CallTool_FullMethodName  = "/kevin.plugin.v1.Plugin/CallTool"
 )
 
 // PluginClient is the client API for Plugin service.
@@ -50,6 +51,11 @@ type PluginClient interface {
 	//
 	// A step that has nothing to export does not implement Export.
 	Export(ctx context.Context, in *ExportRequest, opts ...grpc.CallOption) (*ExportResponse, error)
+	// CallTool runs one of a step type's declared tools against a running
+	// step instance.
+	//
+	// A step type with no tools does not implement CallTool.
+	CallTool(ctx context.Context, in *ToolCallRequest, opts ...grpc.CallOption) (*ToolCallResponse, error)
 }
 
 type pluginClient struct {
@@ -128,6 +134,16 @@ func (c *pluginClient) Export(ctx context.Context, in *ExportRequest, opts ...gr
 	return out, nil
 }
 
+func (c *pluginClient) CallTool(ctx context.Context, in *ToolCallRequest, opts ...grpc.CallOption) (*ToolCallResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ToolCallResponse)
+	err := c.cc.Invoke(ctx, Plugin_CallTool_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PluginServer is the server API for Plugin service.
 // All implementations should embed UnimplementedPluginServer
 // for forward compatibility.
@@ -152,6 +168,11 @@ type PluginServer interface {
 	//
 	// A step that has nothing to export does not implement Export.
 	Export(context.Context, *ExportRequest) (*ExportResponse, error)
+	// CallTool runs one of a step type's declared tools against a running
+	// step instance.
+	//
+	// A step type with no tools does not implement CallTool.
+	CallTool(context.Context, *ToolCallRequest) (*ToolCallResponse, error)
 }
 
 // UnimplementedPluginServer should be embedded to have
@@ -175,6 +196,9 @@ func (UnimplementedPluginServer) Down(*DownRequest, grpc.ServerStreamingServer[E
 }
 func (UnimplementedPluginServer) Export(context.Context, *ExportRequest) (*ExportResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Export not implemented")
+}
+func (UnimplementedPluginServer) CallTool(context.Context, *ToolCallRequest) (*ToolCallResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CallTool not implemented")
 }
 func (UnimplementedPluginServer) testEmbeddedByValue() {}
 
@@ -272,6 +296,24 @@ func _Plugin_Export_Handler(srv interface{}, ctx context.Context, dec func(inter
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Plugin_CallTool_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ToolCallRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).CallTool(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_CallTool_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).CallTool(ctx, req.(*ToolCallRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Plugin_ServiceDesc is the grpc.ServiceDesc for Plugin service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -290,6 +332,10 @@ var Plugin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Export",
 			Handler:    _Plugin_Export_Handler,
+		},
+		{
+			MethodName: "CallTool",
+			Handler:    _Plugin_CallTool_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

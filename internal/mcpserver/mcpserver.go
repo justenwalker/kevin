@@ -6,6 +6,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -33,35 +34,53 @@ type egressViewer interface {
 	EgressAllowList() ([]string, []string, bool)
 }
 
+// ToolDef describes one MCP tool a plugin contributes, already resolved
+// against a running environment's steps.
+type ToolDef struct {
+	Name        string
+	Description string
+
+	// InputSchema is the tool's parameters, an "object" JSON Schema
+	// document.
+	InputSchema []byte
+}
+
 // Server holds the state needed to answer MCP tool calls about a running
 // environment. The zero value is not usable. Call [New]. A Server is safe
 // for concurrent use.
 type Server struct {
-	project string
-	domain  string
-	view    stepViewer
-	proxy   egressViewer
-	rerun   func(ctx context.Context, step string, cascade bool) error
-	export  func(ctx context.Context, step string) (map[string]string, error)
+	project  string
+	domain   string
+	view     stepViewer
+	proxy    egressViewer
+	rerun    func(ctx context.Context, step string, cascade bool) error
+	export   func(ctx context.Context, step string) (map[string]string, error)
+	tools    []ToolDef
+	callTool func(ctx context.Context, step, tool string, args json.RawMessage) (result any, isError bool, errMessage string, err error)
 }
 
 // New builds a Server for one project. view answers the step-list/status
 // tools, px answers the proxy-info tool, rerun and export are the engine's
-// live-session hooks for the rerun_step and export_step tools.
+// live-session hooks for the rerun_step and export_step tools. tools and
+// callTool add every plugin-declared tool alongside the five above.
 func New(
 	project, domain string,
 	view stepViewer,
 	px egressViewer,
 	rerun func(ctx context.Context, step string, cascade bool) error,
 	export func(ctx context.Context, step string) (map[string]string, error),
+	tools []ToolDef,
+	callTool func(ctx context.Context, step, tool string, args json.RawMessage) (result any, isError bool, errMessage string, err error),
 ) *Server {
 	return &Server{
-		project: project,
-		domain:  domain,
-		view:    view,
-		proxy:   px,
-		rerun:   rerun,
-		export:  export,
+		project:  project,
+		domain:   domain,
+		view:     view,
+		proxy:    px,
+		rerun:    rerun,
+		export:   export,
+		tools:    tools,
+		callTool: callTool,
 	}
 }
 
@@ -110,6 +129,10 @@ func (s *Server) Handler() http.Handler {
 			"routable hostname for a step, or to check why an outbound request from inside the " +
 			"environment might be denied.",
 	}, s.getProxyInfo)
+
+	for _, def := range s.tools {
+		srv.AddTool(&mcp.Tool{Name: def.Name, Description: def.Description, InputSchema: json.RawMessage(def.InputSchema)}, s.toolHandler(def))
+	}
 
 	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 }

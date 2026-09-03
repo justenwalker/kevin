@@ -224,6 +224,8 @@ It mounts at `/_mcp` on the console's own `net/http.ServeMux`, via `console.Serv
 
 `get_proxy_info` reads `proxy.Proxy.Routes()` and `proxy.Proxy.EgressAllowList()` directly, and `export_step` calls a step's plugin `Export` RPC through the session's already-running `pluginhost.Client` - the same RPC `kevin connect` makes, but against the live session instead of a freshly relaunched one, since an MCP client is asking about an environment that's already up. The console's own **MCP** tab shows the URL and the `claude mcp add` command to register it, the same page that shows the proxy's PAC URL and export line.
 
+A plugin can contribute its own tools alongside these five, through the `CallTool` RPC. See [The plugin protocol]({{< relref "/docs/extending/plugin-protocol" >}}) for the wire method and [Writing a plugin]({{< relref "/docs/extending/writing-a-plugin" >}}) for `ToolProvider`.
+
 ## CA
 
 `internal/ca` creates the authorities and holds the private keys. The proxy needs a private key to sign a leaf, thus the authority does not live in a plugin. Every key is ECDSA P-256, at mode 0600 in a directory at mode 0700.

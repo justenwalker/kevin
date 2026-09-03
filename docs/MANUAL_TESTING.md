@@ -622,3 +622,24 @@ up: command: [
       the host-reachable proxy address - not the container-oriented one a
       `builtin:container` step's `proxy: true` uses.
 
+## 18. Plugin-exposed MCP tools
+
+_Automated by `gnob e2e` (`tests/e2e/mcp_test.go`)._
+
+With any environment up that uses a step type implementing `ToolProvider`
+(the echo plugin's `echo:echo` ships a demo tool - see
+[docs/site/content/docs/extending/writing-a-plugin.md](site/content/docs/extending/writing-a-plugin.md)):
+
+```sh
+claude mcp add --transport http kevin http://127.0.0.1:<console-port>/_mcp
+```
+
+- [ ] An MCP client's tool list shows the plugin's tool alongside the five
+      builtin ones, namespaced `<plugin>_<type>_<tool>` (e.g.
+      `echo_echo_echo`), with a required `step` string property injected
+      into its schema.
+- [ ] Calling it with a valid `step` reaches the real plugin process and
+      returns its actual result as structured content, not an error.
+- [ ] Calling it with a `step` that doesn't exist, or one of the wrong
+      step type, is a clear error, not a silent empty result.
+

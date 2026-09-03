@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -116,3 +117,45 @@ func (echo) Export(_ context.Context, req *plugin.ExportRequest) (*plugin.Export
 
 // exportCalls counts every Export call this process has served.
 var exportCalls atomic.Int64
+
+// echo must keep satisfying plugin.ToolProvider.
+var _ plugin.ToolProvider = echo{}
+
+// toolName is the one MCP tool echo's Tools/CallTool implement.
+const toolName = "echo"
+
+// Tools returns one demo tool, toolName.
+func (echo) Tools() []plugin.ToolDef {
+	return []plugin.ToolDef{{
+		Name:        toolName,
+		Description: "echoes its arguments back alongside this step's message and resolved deps",
+		InputSchema: []byte(`{"type":"object"}`),
+	}}
+}
+
+// CallTool reports req.Config's message, req.Deps, and the decoded
+// req.Arguments. It returns an error result when the arguments set
+// "fail" true, and a real Go error when req.Tool is not toolName.
+func (echo) CallTool(_ context.Context, req *plugin.ToolCallRequest) (*plugin.ToolCallResult, error) {
+	if req.Tool != toolName {
+		return nil, fmt.Errorf("echo: unknown tool %q", req.Tool)
+	}
+	cfg, err := decode(req.Config)
+	if err != nil {
+		return nil, err
+	}
+	var args map[string]any
+	if len(req.Arguments) > 0 {
+		if err := json.Unmarshal(req.Arguments, &args); err != nil {
+			return nil, fmt.Errorf("echo: decode arguments: %w", err)
+		}
+	}
+	if fail, _ := args["fail"].(bool); fail {
+		return &plugin.ToolCallResult{IsError: true, ErrorMessage: "requested failure"}, nil
+	}
+	return &plugin.ToolCallResult{Content: map[string]any{
+		"message":   cfg.Message,
+		"arguments": args,
+		"deps":      req.Deps,
+	}}, nil
+}

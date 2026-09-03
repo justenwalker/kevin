@@ -166,6 +166,52 @@ type ExportResult struct {
 	Out map[string]Value
 }
 
+// ToolDef describes one MCP tool a step type offers.
+type ToolDef struct {
+	Name        string
+	Description string
+
+	// InputSchema is the tool's parameters, an "object" JSON Schema
+	// document. It must not declare a "step" property - the supervisor
+	// injects that one itself.
+	InputSchema []byte
+}
+
+// ToolCallRequest asks a step to run one of its declared tools.
+type ToolCallRequest struct {
+	// Step is the name of this step in the environment.
+	Step string
+
+	// Type is the step type that this step uses.
+	Type string
+
+	Env Env
+
+	// Config is the with block of the step, in JSON form.
+	Config []byte
+
+	// Deps maps the name of each upstream step to the outputs of that step.
+	Deps map[string]map[string]Value
+
+	// Tool is the name from one of this step type's ToolDef entries.
+	Tool string
+
+	// Arguments is the MCP call's own arguments, in JSON form.
+	Arguments []byte
+}
+
+// ToolCallResult is what a tool call returns.
+type ToolCallResult struct {
+	// Content is JSON-marshaled and surfaced to the MCP client as
+	// structured content.
+	Content any
+
+	IsError bool
+
+	// ErrorMessage is shown to the MCP client when IsError is true.
+	ErrorMessage string
+}
+
 // Route is a hostname that a step serves. A Route in a [Result] joins the
 // routing table of the proxy for the rest of the session.
 type Route struct {
@@ -289,4 +335,11 @@ type Exporter interface {
 // Idempotent steps are safe to run multiple times without side effects.
 type IdempotentStep interface {
 	Idempotent() bool
+}
+
+// ToolProvider is an interface that indicates a step type offers one or
+// more MCP tools, callable against a running step instance.
+type ToolProvider interface {
+	Tools() []ToolDef
+	CallTool(ctx context.Context, req *ToolCallRequest) (*ToolCallResult, error)
 }

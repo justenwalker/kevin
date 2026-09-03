@@ -129,6 +129,104 @@ func TestServerInfo(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("reports a tool provider's tools", func(t *testing.T) {
+		m := NewMockStep(t)
+		m.EXPECT().Schema().Return(nil)
+		m.EXPECT().Kind().Return(StepKindUnspecified)
+		toolProvider := NewMockToolProvider(t)
+		toolProvider.EXPECT().Tools().Return([]ToolDef{
+			{Name: "query", Description: "runs a query", InputSchema: []byte(`{"type":"object"}`)},
+		})
+		impl := &stepWithToolProvider{MockStep: m, MockToolProvider: toolProvider}
+		srv := &server{provider: Plugin{Steps: map[string]Step{"widget": impl}}}
+
+		resp, err := srv.Info(t.Context(), &pb.InfoRequest{})
+		require.NoError(t, err)
+
+		require.Len(t, resp.GetSteps(), 1)
+		tools := resp.GetSteps()[0].GetTools()
+		require.Len(t, tools, 1)
+		assert.Equal(t, "query", tools[0].GetName())
+		assert.Equal(t, "runs a query", tools[0].GetDescription())
+		assert.JSONEq(t, `{"type":"object"}`, string(tools[0].GetInputSchema()))
+	})
+
+	t.Run("a step with no tool provider reports no tools", func(t *testing.T) {
+		m := NewMockStep(t)
+		m.EXPECT().Schema().Return(nil)
+		m.EXPECT().Kind().Return(StepKindUnspecified)
+		srv := &server{provider: Plugin{Steps: map[string]Step{"widget": m}}}
+
+		resp, err := srv.Info(t.Context(), &pb.InfoRequest{})
+		require.NoError(t, err)
+
+		require.Len(t, resp.GetSteps(), 1)
+		assert.Empty(t, resp.GetSteps()[0].GetTools())
+	})
+}
+
+func TestServerCallTool(t *testing.T) {
+	t.Run("routes to the step and translates the result", func(t *testing.T) {
+		var gotReq *ToolCallRequest
+		toolProvider := NewMockToolProvider(t)
+		toolProvider.EXPECT().CallTool(mock.Anything, mock.Anything).
+			Run(func(_ context.Context, req *ToolCallRequest) { gotReq = req }).
+			Return(&ToolCallResult{Content: map[string]any{"rows": float64(3)}}, nil)
+		impl := &stepWithToolProvider{MockStep: NewMockStep(t), MockToolProvider: toolProvider}
+		srv := &server{provider: Plugin{Steps: map[string]Step{"widget": impl}}}
+
+		resp, err := srv.CallTool(t.Context(), &pb.ToolCallRequest{
+			Step: "db", Type: "widget", Tool: "query", Config: []byte(`{"a":1}`), Arguments: []byte(`{"sql":"select 1"}`),
+		})
+		require.NoError(t, err)
+		assert.False(t, resp.GetIsError())
+		assert.JSONEq(t, `{"rows":3}`, string(resp.GetContent()))
+
+		require.NotNil(t, gotReq)
+		assert.Equal(t, "db", gotReq.Step)
+		assert.Equal(t, "widget", gotReq.Type)
+		assert.Equal(t, "query", gotReq.Tool)
+		assert.JSONEq(t, `{"sql":"select 1"}`, string(gotReq.Arguments))
+	})
+
+	t.Run("carries a tool-reported error through", func(t *testing.T) {
+		toolProvider := NewMockToolProvider(t)
+		toolProvider.EXPECT().CallTool(mock.Anything, mock.Anything).
+			Return(&ToolCallResult{IsError: true, ErrorMessage: "no such table"}, nil)
+		impl := &stepWithToolProvider{MockStep: NewMockStep(t), MockToolProvider: toolProvider}
+		srv := &server{provider: Plugin{Steps: map[string]Step{"widget": impl}}}
+
+		resp, err := srv.CallTool(t.Context(), &pb.ToolCallRequest{Step: "db", Type: "widget", Tool: "query"})
+		require.NoError(t, err, "a tool-level failure is not an RPC error")
+		assert.True(t, resp.GetIsError())
+		assert.Equal(t, "no such table", resp.GetErrorMessage())
+	})
+
+	t.Run("returns the step error", func(t *testing.T) {
+		toolProvider := NewMockToolProvider(t)
+		toolProvider.EXPECT().CallTool(mock.Anything, mock.Anything).Return(nil, assert.AnError)
+		impl := &stepWithToolProvider{MockStep: NewMockStep(t), MockToolProvider: toolProvider}
+		srv := &server{provider: Plugin{Steps: map[string]Step{"widget": impl}}}
+
+		_, err := srv.CallTool(t.Context(), &pb.ToolCallRequest{Step: "db", Type: "widget", Tool: "query"})
+		require.ErrorIs(t, err, assert.AnError)
+	})
+
+	t.Run("reports unimplemented for a step type with no tools", func(t *testing.T) {
+		srv := &server{provider: Plugin{Name: "demo", Steps: map[string]Step{"widget": NewMockStep(t)}}}
+
+		_, err := srv.CallTool(t.Context(), &pb.ToolCallRequest{Step: "db", Type: "widget", Tool: "query"})
+		require.Error(t, err)
+		assert.Equal(t, codes.Unimplemented, status.Code(err))
+	})
+
+	t.Run("reports an unknown step type", func(t *testing.T) {
+		srv := &server{provider: Plugin{Steps: map[string]Step{"widget": NewMockStep(t)}}}
+
+		_, err := srv.CallTool(t.Context(), &pb.ToolCallRequest{Step: "db", Type: "sprocket", Tool: "query"})
+		require.ErrorIs(t, err, ErrUnknownStepType)
+	})
 }
 
 func TestServerExport(t *testing.T) {
@@ -544,4 +642,12 @@ type stepWithExporter struct {
 type stepWithDowner struct {
 	*MockStep
 	*MockDowner
+}
+
+// stepWithToolProvider combines a MockStep and a MockToolProvider into
+// one value that satisfies both Step and ToolProvider, the way a real
+// plugin step would.
+type stepWithToolProvider struct {
+	*MockStep
+	*MockToolProvider
 }
