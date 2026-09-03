@@ -97,7 +97,7 @@ Only a plugin that a step references starts. A `plugins:` entry that no step nam
 
 ## Plugin protocol
 
-Every step type speaks the same protocol over gRPC, six RPCs: `Info`, `Configure`, `Up`, `Down`, `Export`, `CallTool`. See [The plugin protocol]({{< relref "/docs/extending/plugin-protocol" >}}) for each one and the session-startup sequence that calls them.
+Every step type speaks the same protocol over gRPC. See [The plugin protocol]({{< relref "/docs/extending/plugin-protocol" >}}) for the RPCs and the session-startup sequence that calls them.
 
 Session startup's per-step `with`-block unification (step 4 of that sequence) is what `internal/config.BenchmarkValidate` (`go test ./internal/config/... -run ^$ -bench BenchmarkValidate`) measures as step count grows. At 1, 10, 100, and 1000 steps the cost scales linearly, not quadratically, on the measurements taken so far. Re-run it before any change to how a step's `with` block unifies.
 

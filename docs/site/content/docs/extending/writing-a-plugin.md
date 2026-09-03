@@ -83,4 +83,4 @@ A step that generates a secret - a password, an API token - wraps that `Outputs`
 
 Wrap a `Detail`'s `Value` in `plugin.Sensitive{...}` when it carries a secret. The console masks it and never renders it as a link or a tooltip; a `Copyable` sensitive detail still exposes the real value to its copy-to-clipboard button, since that's the reveal path meant for a dev who needs the value, not a display path.
 
-Reserved plugin namespaces (`builtin`, `cmd`, `core`, `docker`, `file`, `helm`, `http`, `k8s`, `kevin`, `kubectl`, `kubernetes`, `oci`, `official`, `std`) can't be used as a `plugins:` key, so a third-party plugin never reads as first-party.
+A plugin's own name in `kevin.cue`'s `plugins:` block can't be one of the [reserved namespaces]({{< relref "/docs/concepts/architecture#provider-model" >}}), so a third-party plugin never reads as first-party.
