@@ -102,3 +102,28 @@ A step that generates a secret - a password, an API token - wraps that `Outputs`
 Wrap a `Detail`'s `Value` in `plugin.Sensitive{...}` when it carries a secret. The console masks it and never renders it as a link or a tooltip; a `Copyable` sensitive detail still exposes the real value to its copy-to-clipboard button, since that's the reveal path meant for a dev who needs the value, not a display path.
 
 A plugin's own name in `kevin.cue`'s `plugins:` block can't be one of the [reserved namespaces]({{< relref "/docs/concepts/scopes-and-providers#provider-model" >}}), so a third-party plugin never reads as first-party.
+
+## Testing
+
+A `Step` is a plain Go interface, so `Up`/`Down`/`Export` need no gRPC or a running kevin session to test - call them directly with a `*plugin.UpRequest`/`*plugin.DownRequest`/`*plugin.ExportRequest` and a small `plugin.Emitter` implementation of your own:
+
+```go
+type capture struct{ logs []string }
+
+func (c *capture) Log(_, text string)                 { c.logs = append(c.logs, text) }
+func (c *capture) Progress(label string, _, _ int64)   {}
+
+func TestUp(t *testing.T) {
+    out := &capture{}
+    result, err := widgetStep{}.Up(t.Context(), &plugin.UpRequest{
+        Step:   "api",
+        Config: []byte(`{"image":"nginx"}`),
+    }, out)
+    require.NoError(t, err)
+    assert.Equal(t, "...", result.Outputs["endpoint"].Reveal())
+}
+```
+
+[`cmd/kevin-plugin-echo`](https://github.com/justenwalker/kevin/tree/main/cmd/kevin-plugin-echo)'s own test files (`echo_test.go`, `probe_test.go`, `config_test.go`) follow exactly this pattern - a `capture` `Emitter` and one `Up`/`Down` call per case, no mocking framework needed.
+
+For an end-to-end check that the binary actually speaks the plugin protocol, build it and drive it with a real `kevin.cue` and `kevin validate`/`kevin run` against the compiled binary - the same black-box approach this repo's own `tests/e2e` suite uses against `kevin-plugin-echo`.

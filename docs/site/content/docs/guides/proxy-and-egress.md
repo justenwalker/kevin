@@ -38,7 +38,9 @@ Set `proxy: egress: deny: false` to disable the control entirely, for an environ
 
 The `403` page carries cache-busting headers, so a browser won't keep showing a stale denial after you fix the allow list.
 
-To flip that per run instead of hardcoding it, don't re-declare `deny`'s own default - `proxy: egress: deny: *false | bool` conflicts with the schema's own `*true`, since CUE won't resolve two different defaults for the same field. Give the toggle its own field and point `deny` at it instead:
+To flip that per run instead of hardcoding it, don't re-declare `deny`'s own default - `proxy: egress: deny: *false | bool` conflicts with the schema's own `*true`, since CUE won't resolve two different defaults for the same field, and errors loudly. Writing just `deny: bool` (restating the type, no default) is the quieter trap: that's not a conflict, so CUE resolves it straight to the schema's own default - `true` - with no error and no field left "unset". If a field already carries a schema default, the only way to make it conditionally overridable without silently keeping the default is the `if`-bridge below; there's no form of the field's own declaration that leaves it genuinely open.
+
+Give the toggle its own field and point `deny` at it instead:
 
 ```cue
 package kevin
