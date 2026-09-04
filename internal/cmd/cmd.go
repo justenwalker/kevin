@@ -195,7 +195,9 @@ func runCommand(opts *options) *cobra.Command {
 }
 
 func setupCommand(opts *options) *cobra.Command {
-	return &cobra.Command{
+	var open bool
+
+	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Create the setup steps, which persist across runs",
 		Long: "setup runs the setup DAG. These steps outlive one run, such as a " +
@@ -211,9 +213,12 @@ func setupCommand(opts *options) *cobra.Command {
 				Keep:   true,
 				NoWait: true,
 				Debug:  opts.debug,
+				Open:   open,
 			})
 		},
 	}
+	cmd.Flags().BoolVar(&open, "open", false, "open the console in the default browser once it's listening")
+	return cmd
 }
 
 func teardownCommand(opts *options) *cobra.Command {

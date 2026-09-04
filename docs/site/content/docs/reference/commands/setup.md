@@ -12,7 +12,12 @@ a shared kind cluster reused by many `kevin run`s.
 
 ```sh
 kevin setup
+kevin setup --open
 ```
+
+| Flag | Type | Default | Description |
+|:-----|:----:|:-------:|:------------|
+| `--open` | `bool` | `false` | open the console in the default browser once it's listening |
 
 See [Configuring an environment]({{< relref "/docs/environment-file" >}})
 for the difference between a `setup` step and an `env` step.
