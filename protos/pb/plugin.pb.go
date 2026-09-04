@@ -1280,7 +1280,10 @@ type ExposedPort struct {
 	// Protocol is "tcp" or "udp".
 	Protocol string `protobuf:"bytes,2,opt,name=protocol,proto3" json:"protocol,omitempty"`
 	// Upstream is the host-reachable address, such as "127.0.0.1:54321".
-	Upstream      string `protobuf:"bytes,3,opt,name=upstream,proto3" json:"upstream,omitempty"`
+	Upstream string `protobuf:"bytes,3,opt,name=upstream,proto3" json:"upstream,omitempty"`
+	// HostPort pins the port of the engine's local forward for a "socks5"
+	// protocol entry. Zero lets the OS assign one.
+	HostPort      int32 `protobuf:"varint,4,opt,name=host_port,json=hostPort,proto3" json:"host_port,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1334,6 +1337,13 @@ func (x *ExposedPort) GetUpstream() string {
 		return x.Upstream
 	}
 	return ""
+}
+
+func (x *ExposedPort) GetHostPort() int32 {
+	if x != nil {
+		return x.HostPort
+	}
+	return 0
 }
 
 // Detail is one extra piece of information that a step shows on its
@@ -1918,11 +1928,12 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x06routes\x18\x02 \x03(\v2\x16.kevin.plugin.v1.RouteR\x06routes\x12!\n" +
 	"\fegress_allow\x18\x03 \x03(\tR\vegressAllow\x12A\n" +
 	"\rexposed_ports\x18\x04 \x03(\v2\x1c.kevin.plugin.v1.ExposedPortR\fexposedPorts\x121\n" +
-	"\adetails\x18\x05 \x03(\v2\x17.kevin.plugin.v1.DetailR\adetails\"Y\n" +
+	"\adetails\x18\x05 \x03(\v2\x17.kevin.plugin.v1.DetailR\adetails\"v\n" +
 	"\vExposedPort\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\bprotocol\x18\x02 \x01(\tR\bprotocol\x12\x1a\n" +
-	"\bupstream\x18\x03 \x01(\tR\bupstream\"|\n" +
+	"\bupstream\x18\x03 \x01(\tR\bupstream\x12\x1b\n" +
+	"\thost_port\x18\x04 \x01(\x05R\bhostPort\"|\n" +
 	"\x06Detail\x12\x14\n" +
 	"\x05label\x18\x01 \x01(\tR\x05label\x12,\n" +
 	"\x05value\x18\x02 \x01(\v2\x16.kevin.plugin.v1.ValueR\x05value\x12\x1a\n" +

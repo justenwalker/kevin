@@ -291,6 +291,10 @@ message ExposedPort {
 
   // Upstream is the host-reachable address, such as "127.0.0.1:54321".
   string upstream = 3;
+
+  // HostPort pins the port of the engine's local forward for a "socks5"
+  // protocol entry. Zero lets the OS assign one.
+  int32 host_port = 4;
 }
 
 // Detail is one extra piece of information that a step shows on its

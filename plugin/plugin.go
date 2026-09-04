@@ -242,6 +242,11 @@ type ExposedPort struct {
 
 	// Upstream is the host-reachable address, such as "127.0.0.1:54321".
 	Upstream string
+
+	// HostPort pins the port of the engine's local forward for a "socks5"
+	// protocol entry. Zero lets the OS assign one. Ignored for a "tcp"/"udp"
+	// entry, which is already a fixed host-reachable address in Upstream.
+	HostPort int
 }
 
 // Detail is one extra piece of information a step shows on its console

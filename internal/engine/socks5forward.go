@@ -44,8 +44,12 @@ func newPortForward(ctx context.Context, ep *pb.ExposedPort) (*portForward, erro
 		return nil, errors.New("supervisor: socks5 dialer does not support DialContext")
 	}
 
+	addr := "127.0.0.1:0"
+	if hostPort := ep.GetHostPort(); hostPort > 0 {
+		addr = fmt.Sprintf("127.0.0.1:%d", hostPort)
+	}
 	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
+	ln, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("supervisor: %s: listen: %w", ep.GetName(), err)
 	}

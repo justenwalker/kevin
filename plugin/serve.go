@@ -163,7 +163,10 @@ func (s *server) Up(req *pb.UpRequest, stream grpc.ServerStreamingServer[pb.Even
 
 	exposedPorts := make([]*pb.ExposedPort, 0, len(result.ExposedPorts))
 	for _, ep := range result.ExposedPorts {
-		exposedPorts = append(exposedPorts, &pb.ExposedPort{Name: ep.Name, Protocol: ep.Protocol, Upstream: ep.Upstream})
+		exposedPorts = append(exposedPorts, &pb.ExposedPort{
+			Name: ep.Name, Protocol: ep.Protocol, Upstream: ep.Upstream,
+			HostPort: int32(ep.HostPort), //nolint:gosec // HostPort is a TCP port, always within int32 range
+		})
 	}
 
 	details := make([]*pb.Detail, 0, len(result.Details))
