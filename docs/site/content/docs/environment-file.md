@@ -199,20 +199,40 @@ This is the one place kevin does *not* guard against a missing clause: a gitigno
 
 ### `@tag` mode switches
 
-A mode toggle - `airgap`, a feature flag, anything that used to mean editing `kevin.local.cue` on your own machine - is a job for CUE's `@tag`, not a second file:
+A mode toggle - `airgap`, a feature flag, anything you'd otherwise flip by hand-editing `kevin.cue` before a run - is what `--tag`/`-t` is for. Mark the field with `@tag(<name>,type=bool)` and pass `-t <name>` on the command line:
 
 ```cue
 package kevin
 
-airgap: bool | *false @tag(airgap,type=bool)
-proxy: egress: deny: *airgap | bool
+proxy: egress: deny: bool @tag(airgap,type=bool)
 ```
 
 ```sh
 kevin run -t airgap
 ```
 
-`--tag`/`-t` is repeatable and only works against a package-mode file (see above) - a legacy `kevin.cue` with no `package` clause can't take a tag, and kevin refuses the flag outright rather than silently doing nothing. A bare `-t airgap` is shorthand for `-t airgap=true`; `-t key=value` sets any other `@tag` type CUE supports (string, int, number).
+Without `-t airgap`, the field is whatever it would normally be. With it, the field becomes `true`. This works exactly the same whether the field already had a fallback value written into `kevin.cue` or not - `@tag` on a field is enough by itself, nothing else in the file needs to change to make a field taggable.
+
+`--tag`/`-t` is repeatable, only works against a package-mode file (see above - a legacy `kevin.cue` with no `package` clause can't take a tag, and kevin says so rather than silently ignoring the flag), and takes more than booleans: a bare `-t airgap` is shorthand for `-t airgap=true`, and `-t key=value` sets a string, int, or number field the same way.
+
+#### Sharing one toggle across several fields
+
+Tagging a field directly is enough when only that one field needs to change. If the same on/off switch should also gate something else - a second field, a condition, text spliced into a log message - give it its own name instead, and reference that name everywhere you need it:
+
+```cue
+package kevin
+
+airgap: bool | *false @tag(airgap,type=bool)
+if airgap {
+	domain: "airgap.kevin.home"
+}
+```
+
+`airgap` is a plain field here, taggable the same way as before, but now readable anywhere else in the file too.
+
+**One thing that looks like it should work and doesn't**: if the field you're changing already has a fallback value in `kevin.cue` (`domain` above normally falls back to `kevin.home`), don't point it straight at your toggle field, like `domain: *airgap | string`. It looks like a natural way to say "normally kevin.home, but let `airgap` decide otherwise" - instead, kevin quietly keeps the original `kevin.home` fallback no matter what `-t airgap` is set to, and nothing warns you this happened. Use the `if` block shown above instead: it always writes a real, specific value for `domain` when `airgap` is true, rather than trying to swap out one fallback for another. This is exactly why `proxy.egress.deny`, `proxy.listen`, `proxy.gateway_port`, and `console.listen` have no built-in fallback of their own in kevin's schema - fields without one can be tagged directly with no `if` block needed, which is one less thing to get wrong.
+
+Both forms can be combined - tag a field directly for the parts that only need that one value, and keep a named field only for the parts that need it reused elsewhere. The same `-t` flag drives both at once.
 
 ## Scopes
 

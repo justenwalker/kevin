@@ -273,6 +273,61 @@ proxy: egress: deny: airgap
 		assert.True(t, withCfg.Proxy.Egress.Deny)
 	})
 
+	t.Run("@tag attached directly to a field with no schema default", func(t *testing.T) {
+		// No separate airgap field at all here - @tag sits straight on the
+		// field being overridden. Per cuelang.org/go's own load.Config.Tags
+		// doc, "field: x @tag(key)" becomes "field: x & value": a plain
+		// unification, not a second disjunction, so there's nothing for a
+		// schema default to collide with even when one exists (the next
+		// subtest) - and nothing extra needed when one doesn't (this one).
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(`package kevin
+
+project: "base"
+proxy: {listen: "127.0.0.1:18080", gateway_port: 18081}
+console: listen: "127.0.0.1:18082"
+proxy: egress: deny: bool @tag(airgap,type=bool)
+`), 0o600))
+
+		without, err := config.Load(dir, "", nil)
+		require.NoError(t, err, "Load itself succeeds - deny just stays incomplete without a tag")
+		_, err = without.Config()
+		require.ErrorIs(t, err, config.ErrInvalid, "no default and no tag, so deny must fail loud, not silently pick a value")
+
+		with, err := config.Load(dir, "", []string{"airgap=false"})
+		require.NoError(t, err)
+		withCfg, err := with.Config()
+		require.NoError(t, err)
+		assert.False(t, withCfg.Proxy.Egress.Deny)
+	})
+
+	t.Run("@tag attached directly to a field that still has a schema default", func(t *testing.T) {
+		// domain carries a real schema default (kevin.home) - proves the
+		// same direct-attach pattern falls back to it cleanly with no tag,
+		// and overrides it cleanly with one, unlike domain: *someTag | string
+		// would.
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(`package kevin
+
+project: "base"
+proxy: {listen: "127.0.0.1:18080", gateway_port: 18081, egress: deny: true}
+console: listen: "127.0.0.1:18082"
+domain: string @tag(dom)
+`), 0o600))
+
+		without, err := config.Load(dir, "", nil)
+		require.NoError(t, err)
+		withoutCfg, err := without.Config()
+		require.NoError(t, err)
+		assert.Equal(t, "kevin.home", withoutCfg.Domain, "no tag, so the schema default must stand")
+
+		with, err := config.Load(dir, "", []string{"dom=custom.test"})
+		require.NoError(t, err)
+		withCfg, err := with.Config()
+		require.NoError(t, err)
+		assert.Equal(t, "custom.test", withCfg.Domain)
+	})
+
 	t.Run("a bare tag name is shorthand for name=true", func(t *testing.T) {
 		dir := write(t, `package kevin
 

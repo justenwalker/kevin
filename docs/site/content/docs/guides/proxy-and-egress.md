@@ -26,32 +26,32 @@ The proxy terminates TLS for you: it mints a leaf certificate for the requested 
 
 ## Egress control
 
-Egress denies by default: a workload reaches the internet only through a host `kevin.cue` names. A denied host gets a `403` page naming the host and the exact CUE to add:
+`proxy: egress: deny:` has no schema default - `kevin.cue` must set it to `true` or `false` itself:
 
 ```cue
-proxy: egress: allow: ["api.example.com"]
+proxy: egress: {
+	deny:  true
+	allow: ["api.example.com"]
+}
 ```
 
-An allow entry is an exact host, such as `api.github.com`, or a leading-dot wildcard, such as `*.github.com`. A wildcard matches a subdomain but not the bare domain, so list both when both need to be reachable. Matching ignores case and any port.
+With `deny: true`, a workload reaches the internet only through a host `kevin.cue` names. A denied host gets a `403` page naming the host and the exact CUE to add. An allow entry is an exact host, such as `api.github.com`, or a leading-dot wildcard, such as `*.github.com`. A wildcard matches a subdomain but not the bare domain, so list both when both need to be reachable. Matching ignores case and any port.
 
 `proxy: egress: allow` in `kevin.cue` names hosts for the whole environment. A step can also open hosts for itself alone through its own plugin (the `egress` field on `builtin:container` and `builtin:kind`, for example). See [Reference]({{< relref "/docs/reference" >}}) for each step type's `with` block.
 
-Set `proxy: egress: deny: false` to disable the control entirely, for an environment that needs no such protection.
+Set `proxy: egress: deny: false` instead, for an environment that needs no such protection - every request then reaches the internet.
 
 The `403` page carries cache-busting headers, so a browser won't keep showing a stale denial after you fix the allow list.
 
-To flip that per run instead of hardcoding it, don't re-declare `deny`'s own default - `proxy: egress: deny: *false | bool` conflicts with the schema's own `*true`, since CUE won't resolve two different defaults for the same field, and errors loudly. Writing just `deny: bool` (restating the type, no default) is the quieter trap: that's not a conflict, so CUE resolves it straight to the schema's own default - `true` - with no error and no field left "unset". If a field already carries a schema default, the only way to make it conditionally overridable without silently keeping the default is the `if`-bridge below; there's no form of the field's own declaration that leaves it genuinely open.
-
-Give the toggle its own field and point `deny` at it instead:
+It also flips cleanly per run - attach `@tag` straight to it:
 
 ```cue
 package kevin
 
-airgap: bool | *false @tag(airgap,type=bool)
-proxy: egress: deny: *airgap | bool
+proxy: egress: deny: bool @tag(airgap,type=bool)
 ```
 
-Then flip it per run with `kevin run -t airgap` (see [`@tag` mode switches]({{< relref "/docs/environment-file#tag-mode-switches" >}})) instead of duplicating the whole file into a named environment just to change one field.
+Then flip it per run with `kevin run -t airgap` instead of duplicating the whole file into a named environment just to change one field. See [`@tag` mode switches]({{< relref "/docs/environment-file#tag-mode-switches" >}}) for tagging a field that already has a fallback value, and for sharing one toggle across more than one field.
 
 ## Step readiness
 
