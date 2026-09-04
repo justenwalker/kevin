@@ -1151,10 +1151,24 @@ func (r *run) reportUpFailure(ctx context.Context, name string, err error) {
 // upStep calls Up on one step. It is the dag.NodeFunc both the initial
 // bring-up and a console-triggered rerun run through, so a rerun gets route
 // registration, egress allow, detail/progress reporting, and timing history
-// exactly like the first attempt.
+// exactly like the first attempt. On success it also records its own
+// output into r.completed directly, rather than leaving that to the
+// walk's aggregate return value.
 func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outputs) (dag.Outputs, error) {
 	if grp, ok := r.groups[name]; ok {
-		return r.upGroup(ctx, name, grp, deps)
+		out, err := r.upGroup(ctx, name, grp, deps)
+		if err == nil {
+			// Record as soon as this step succeeds: up's Walk and
+			// RerunStep's WalkFrom run every step in one goroutine group
+			// with no ordering guarantee between them, so a slow step
+			// still in flight elsewhere would otherwise leave this one's
+			// output unrecorded for as long as that other step runs - a
+			// rerun requested on anything else in that window would see
+			// no prior output for a dependency that is, in fact, long
+			// since Ready.
+			r.mergeCompleted(map[string]dag.Outputs{name: out})
+		}
+		return out, err
 	}
 
 	mu := r.stepLock(name)
@@ -1260,12 +1274,14 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	r.emit(name, "ready")
 	r.store.SetStep(name, session.Ready, "")
 	r.timings.RecordUp(ctx, name, ref.String(), time.Since(start))
-	return outputsFromProto(result.GetOutputs()), nil
+
+	out := outputsFromProto(result.GetOutputs())
+	r.mergeCompleted(map[string]dag.Outputs{name: out})
+	return out, nil
 }
 
 func (r *run) up(ctx context.Context) error {
 	results, err := r.graph().Walk(ctx, r.upStep)
-	r.mergeCompleted(results)
 	r.markSkipped(r.graph().Steps(), results)
 	return err
 }
@@ -1299,7 +1315,6 @@ func (r *run) RerunStep(ctx context.Context, name string, cascade bool) error {
 	}
 
 	results, err := r.graph().WalkFrom(ctx, toRun, completed, r.upStep)
-	r.mergeCompleted(results)
 	r.markSkipped(names, results)
 	return err
 }

@@ -1139,6 +1139,42 @@ env: {
 	require.Error(t, <-done)
 }
 
+// TestRunRerunWhileAnotherStepIsStillUp proves a rerun sees a dependency's
+// real output even while some unrelated step is still blocked inside its
+// own Up call. r.completed used to land in bulk only once every step in
+// the walk returned, so a rerun requested during that window saw no prior
+// output for anything - not just the still-running step - and marked its
+// target Skipped instead of actually rerunning it.
+func TestRunRerunWhileAnotherStepIsStillUp(t *testing.T) {
+	requireRelay(t)
+
+	consoleAddr := freeAddr(t)
+	dir := project(t, `
+console: listen: "`+consoleAddr+`"
+env: {
+	a:    {uses: "echo:echo", with: message: "A"}
+	b:    {uses: "echo:echo", needs: ["a"], with: message: "B"}
+	hold: {uses: "echo:echo", needs: ["b"], with: delay: "3s"}
+}
+`)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	w := &watcher{}
+	done := runAsync(t, ctx, dir, w)
+
+	// hold is now blocked inside its own 3s Up call - the walk that used to
+	// be the only source of r.completed has not returned yet.
+	waitForCount(t, w, fmt.Sprintf("%-16s %s", "hold", "up"), 1, 10*time.Second)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	postRerun(t, client, "http://"+consoleAddr, "b", false)
+	waitForCount(t, w, fmt.Sprintf("%-16s %s", "b", "ready"), 2, 3*time.Second)
+
+	cancel()
+	<-done
+}
+
 // TestRunRerunDoesNotDuplicateAStepsCardDetails proves upStep's
 // ClearStepDetails call keeps a rerun from piling a second copy of a step's
 // detail rows onto the first - a step's Up can only republish what is still
