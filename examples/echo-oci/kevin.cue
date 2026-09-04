@@ -13,6 +13,12 @@
 
 project: "echo-oci-example"
 
+proxy: {
+	listen:       "127.0.0.1:18110"
+	gateway_port: 18111
+}
+console: listen: "127.0.0.1:18112"
+
 plugins: echo: {
 	oci:    "ghcr.io/justenwalker/kevin/plugin-echo:0.0.1"
 	signed: true

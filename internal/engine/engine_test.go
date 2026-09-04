@@ -120,16 +120,34 @@ func buildPackagedEchoPlugin() (string, error) {
 }
 
 // project writes a kevin.cue into a temporary directory, and returns the
-// directory.
+// directory. proxy.listen, proxy.gateway_port, and console.listen are all
+// required fields with no default, so project fills them in with freshly
+// reserved ports - a case that needs to control them itself uses configDir
+// instead, with proxyBlock to fill in the same required fields.
 func project(t *testing.T, body string) string {
 	t.Helper()
 	bin, err := echoPlugin()
 	require.NoError(t, err)
 
 	dir := t.TempDir()
-	src := "plugins: echo: cmd: " + strconv.Quote(bin) + "\n" + body
+	src := "plugins: echo: cmd: " + strconv.Quote(bin) + "\n" + proxyBlock(t) + body
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(src), 0o600))
 	return dir
+}
+
+// proxyBlock is a "proxy: {listen: ..., gateway_port: ...}\nconsole:
+// listen: ...\n" CUE snippet naming freshly reserved, free ports as
+// defaults, not concrete values - proxy.listen, proxy.gateway_port, and
+// console.listen all carry no schema default, so every fixture that
+// reaches config.Config() needs these, but a body that sets its own value
+// for any of the three must still be able to unify its concrete value
+// over this block's default instead of conflicting with it.
+func proxyBlock(t *testing.T) string {
+	t.Helper()
+	_, gatewayPort, err := net.SplitHostPort(freeAddr(t))
+	require.NoError(t, err)
+	return "proxy: {listen: string | *" + strconv.Quote(freeAddr(t)) + ", gateway_port: int | *" + gatewayPort + "}\n" +
+		"console: listen: string | *" + strconv.Quote(freeAddr(t)) + "\n"
 }
 
 // watcher collects the engine output. When the environment is up, watcher
@@ -395,7 +413,7 @@ env: {
 		pkgPath, err := packagedEchoPlugin()
 		require.NoError(t, err)
 
-		dir := configDir(t, "plugins: echo: file: "+strconv.Quote(pkgPath)+"\n"+
+		dir := configDir(t, "plugins: echo: file: "+strconv.Quote(pkgPath)+"\n"+proxyBlock(t)+
 			`env: a: {uses: "echo:echo", with: message: "A"}`+"\n")
 
 		w, err := runUntil(t, dir, "a                ready")
@@ -755,7 +773,7 @@ setup: {
 // config first.
 func TestRunRejectsInvalidConfiguration(t *testing.T) {
 	t.Run("reports a plugin that will not start", func(t *testing.T) {
-		dir := configDir(t, `
+		dir := configDir(t, proxyBlock(t)+`
 plugins: echo: cmd: "/nonexistent/kevin-plugin-echo"
 env: a: uses: "echo:echo"
 `)
@@ -765,7 +783,7 @@ env: a: uses: "echo:echo"
 	})
 
 	t.Run("starts only the plugins that steps reference", func(t *testing.T) {
-		dir := configDir(t, `
+		dir := configDir(t, proxyBlock(t)+`
 plugins: {
 	echo:    cmd: "/nonexistent/kevin-plugin-echo"
 	unused: cmd: "/nonexistent/kevin-plugin-unused"
@@ -796,7 +814,7 @@ env: a: {uses: "echo:echo", with: nonsense: true}
 	})
 
 	t.Run("rejects a reserved namespace before launching anything", func(t *testing.T) {
-		dir := configDir(t, `
+		dir := configDir(t, proxyBlock(t)+`
 plugins: "kevin": cmd: "echo"
 env: a: uses: "kevin:thing"
 `)
@@ -808,7 +826,7 @@ env: a: uses: "kevin:thing"
 	t.Run("reports a plugin name mismatch", func(t *testing.T) {
 		bin, err := echoPlugin()
 		require.NoError(t, err)
-		dir := configDir(t, "plugins: notecho: cmd: "+strconv.Quote(bin)+"\nenv: a: uses: \"notecho:echo\"\n")
+		dir := configDir(t, proxyBlock(t)+"plugins: notecho: cmd: "+strconv.Quote(bin)+"\nenv: a: uses: \"notecho:echo\"\n")
 
 		err = runEnv(t, dir)
 		require.ErrorIs(t, err, pluginhost.ErrNameMismatch)
@@ -1302,36 +1320,15 @@ func TestNetworkNameCarriesTheProject(t *testing.T) {
 	assert.NotEqual(t, NetworkName("a"), NetworkName("b"))
 }
 
-// TestGatewayPort covers loadGatewayPort/saveGatewayPort's own persistence,
-// independent of startProxy - see TestStartProxyGatewayPort for how a
-// pinned port interacts with the running proxy.
-func TestGatewayPort(t *testing.T) {
-	t.Run("round trips through save and load", func(t *testing.T) {
-		workspace := t.TempDir()
-		assert.Equal(t, 0, loadGatewayPort(workspace), "an empty workspace has no recorded port")
-
-		saveGatewayPort(workspace, 54321)
-		assert.Equal(t, 54321, loadGatewayPort(workspace), "loadGatewayPort must report what saveGatewayPort wrote")
-	})
-
-	t.Run("ignores unparsable content", func(t *testing.T) {
-		workspace := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(workspace, gatewayPortFile), []byte("not-a-port"), 0o600))
-
-		assert.Equal(t, 0, loadGatewayPort(workspace), "unparsable content must report 0, not an error")
-	})
-}
-
-// TestStartProxyGatewayPort proves that a nonzero opts.GatewayPort is used
-// as-is for the gateway listener, instead of whatever loadGatewayPort would
-// otherwise report, and that a pinned port already in use fails outright
-// rather than silently falling back to a different one.
+// TestStartProxyGatewayPort proves that opts.GatewayPort is used as-is for
+// the gateway listener, and that a port already in use fails outright
+// rather than falling back to a different one.
 func TestStartProxyGatewayPort(t *testing.T) {
-	t.Run("pins the requested port", func(t *testing.T) {
+	t.Run("uses the requested port", func(t *testing.T) {
 		requireDocker(t)
 
 		cfg := &config.Config{Project: "kevin-gwport-pin-test", Dir: t.TempDir()}
-		workspace, authority, err := prepare(t.Context(), cfg)
+		_, authority, err := prepare(t.Context(), cfg)
 		require.NoError(t, err)
 		network := NetworkName(cfg.Project)
 		t.Cleanup(func() {
@@ -1342,30 +1339,28 @@ func TestStartProxyGatewayPort(t *testing.T) {
 		require.NoError(t, err)
 
 		// Reserve a free port on the gateway address, then free it again -
-		// startProxy is asked to pin exactly that port back.
+		// startProxy is asked to bind exactly that port back.
 		probe := bindGatewayPort(t, gateway)
-		pinnedPort := mustPort(t, probe.Addr().String())
+		wantPort := mustPort(t, probe.Addr().String())
 		require.NoError(t, probe.Close())
 
 		server, err := startProxy(t.Context(), authority, proxyOptions{
 			Network:     network,
-			Workspace:   workspace,
 			Listen:      "127.0.0.1:0",
-			GatewayPort: pinnedPort,
+			GatewayPort: wantPort,
 			Domain:      "kevin.test",
 		})
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = server.Close() })
 
-		assert.Equal(t, pinnedPort, mustPort(t, server.gatewayAddr))
-		assert.Equal(t, 0, loadGatewayPort(workspace), "a pinned port must not be persisted to the auto-reuse file")
+		assert.Equal(t, wantPort, mustPort(t, server.gatewayAddr))
 	})
 
-	t.Run("fails when the pinned port is already in use", func(t *testing.T) {
+	t.Run("fails when the port is already in use", func(t *testing.T) {
 		requireDocker(t)
 
 		cfg := &config.Config{Project: "kevin-gwport-conflict-test", Dir: t.TempDir()}
-		workspace, authority, err := prepare(t.Context(), cfg)
+		_, authority, err := prepare(t.Context(), cfg)
 		require.NoError(t, err)
 		network := NetworkName(cfg.Project)
 		t.Cleanup(func() {
@@ -1381,12 +1376,11 @@ func TestStartProxyGatewayPort(t *testing.T) {
 
 		_, err = startProxy(t.Context(), authority, proxyOptions{
 			Network:     network,
-			Workspace:   workspace,
 			Listen:      "127.0.0.1:0",
 			GatewayPort: heldPort,
 			Domain:      "kevin.test",
 		})
-		require.Error(t, err, "a pinned port already in use must fail, not fall back silently")
+		require.Error(t, err, "a port already in use must fail, not fall back silently")
 	})
 }
 

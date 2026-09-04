@@ -33,7 +33,10 @@
 
 project: "s3-app-example"
 
-proxy:   listen: "127.0.0.1:18090"
+proxy: {
+	listen:       "127.0.0.1:18090"
+	gateway_port: 18092
+}
 console: listen: "127.0.0.1:18091"
 
 setup: {

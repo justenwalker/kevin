@@ -15,6 +15,15 @@ import (
 	"github.com/justenwalker/kevin/internal/pkgtrust"
 )
 
+// listenBlockDefault is a "proxy: {...}, console: {...}" CUE snippet
+// naming arbitrary literal ports as defaults - proxy.listen/
+// proxy.gateway_port/console.listen carry no schema default, but nothing
+// here binds a real port (validate/init never call startProxy/startConsole),
+// so a fixed literal default is enough.
+const listenBlockDefault = `proxy: {listen: string | *"127.0.0.1:18080", gateway_port: int | *18081}
+console: listen: string | *"127.0.0.1:18082"
+`
+
 // captureStdout runs fn and returns everything that fn writes to os.Stdout.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
@@ -119,7 +128,7 @@ func TestRun(t *testing.T) {
 	t.Run("--env overrides KEVIN_ENV", func(t *testing.T) {
 		t.Setenv("KEVIN_ENV", "staging")
 		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(`plugins: {}`), 0o600))
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(listenBlockDefault+`plugins: {}`), 0o600))
 
 		// The unnamed kevin.cue exists but staging.kevin.cue does not: with
 		// KEVIN_ENV alone this would fail like the case above. Passing
@@ -250,7 +259,7 @@ func TestValidateCommand(t *testing.T) {
 
 	t.Run("reports a step that names an undeclared plugin", func(t *testing.T) {
 		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(listenBlockDefault+
 			`project: "x"
 env: { web: { uses: "unknown:container" } }`,
 		), 0o600))
@@ -261,7 +270,7 @@ env: { web: { uses: "unknown:container" } }`,
 
 	t.Run("prints the step counts on success", func(t *testing.T) {
 		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(`project: "x"`), 0o600))
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(listenBlockDefault+`project: "x"`), 0o600))
 
 		var runErr error
 		out := captureStdout(t, func() {
@@ -295,7 +304,7 @@ func TestInitCommand(t *testing.T) {
 
 	t.Run("reports a step that names an undeclared plugin", func(t *testing.T) {
 		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(listenBlockDefault+
 			`project: "x"
 env: { web: { uses: "unknown:container" } }`,
 		), 0o600))
@@ -308,7 +317,7 @@ env: { web: { uses: "unknown:container" } }`,
 		dir := t.TempDir()
 		// cmd: names a local binary kevin never launches here, so a
 		// nonexistent path is fine - init only resolves the spec.
-		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(listenBlockDefault+
 			`project: "x"
 plugins: { acme: { cmd: "/nonexistent/acme" } }
 env: { web: { uses: "acme:widget" }, sidecar: { uses: "builtin:wait" } }`,

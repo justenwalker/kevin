@@ -165,7 +165,6 @@ func Run(ctx context.Context, opts Options) error {
 
 	server, err := startProxy(ctx, authority, proxyOptions{
 		Network:     network,
-		Workspace:   workspace,
 		Listen:      cfg.Proxy.Listen,
 		GatewayPort: cfg.Proxy.GatewayPort,
 		Domain:      cfg.Domain,
@@ -478,15 +477,11 @@ type proxyOptions struct {
 	// gateway address.
 	Network string
 
-	// Workspace is the absolute path of the .kevin state directory, where
-	// the gateway listener's port is persisted across processes.
-	Workspace string
-
 	// Listen is the address of the primary, host-facing listener.
 	Listen string
 
-	// GatewayPort pins the gateway listener's port. 0 means "reuse or
-	// auto-assign" (see loadGatewayPort); nonzero is used as-is, no fallback.
+	// GatewayPort is the gateway listener's port, used as-is with no
+	// fallback - a bind failure is a hard error.
 	GatewayPort int
 
 	Domain string
@@ -520,26 +515,11 @@ func startProxy(ctx context.Context, authority *ca.CA, opts proxyOptions) (*prox
 
 	listeners := []net.Listener{ln}
 	gatewayAddr := ln.Addr().String()
-	pinned := opts.GatewayPort != 0
-	port := opts.GatewayPort
-	if !pinned {
-		port = loadGatewayPort(opts.Workspace)
-	}
-	gatewayLn, err := lc.Listen(ctx, "tcp", net.JoinHostPort(gateway.String(), strconv.Itoa(port)))
-	if err != nil && !pinned {
-		// The recorded port may no longer be free - a stale reservation, or
-		// another project's process. Let the OS pick one instead.
-		gatewayLn, err = lc.Listen(ctx, "tcp", net.JoinHostPort(gateway.String(), "0"))
-	}
+	gatewayLn, err := lc.Listen(ctx, "tcp", net.JoinHostPort(gateway.String(), strconv.Itoa(opts.GatewayPort)))
 	switch {
 	case err == nil:
 		listeners = append(listeners, gatewayLn)
 		gatewayAddr = gatewayLn.Addr().String()
-		if !pinned {
-			if tcpAddr, ok := gatewayLn.Addr().(*net.TCPAddr); ok {
-				saveGatewayPort(opts.Workspace, tcpAddr.Port)
-			}
-		}
 	case errors.Is(err, syscall.EADDRNOTAVAIL):
 		// Docker Desktop on macOS and Windows runs the daemon inside a VM.
 		// The gateway address exists only inside that VM, and the host
@@ -547,7 +527,7 @@ func startProxy(ctx context.Context, authority *ca.CA, opts proxyOptions) (*prox
 		// listener on the host loopback, so the primary listener covers the
 		// relay too.
 	default:
-		return nil, fmt.Errorf("supervisor: listen on %s: %w", net.JoinHostPort(gateway.String(), strconv.Itoa(port)), err)
+		return nil, fmt.Errorf("supervisor: listen on %s: %w", net.JoinHostPort(gateway.String(), strconv.Itoa(opts.GatewayPort)), err)
 	}
 
 	// The proxy must outlive an interrupt, because removal of a step can still
@@ -563,31 +543,6 @@ func startProxy(ctx context.Context, authority *ca.CA, opts proxyOptions) (*prox
 		stop:        stop,
 		done:        done,
 	}, nil
-}
-
-// gatewayPortFile is the workspace file that records the gateway
-// listener's port.
-const gatewayPortFile = "gateway-port"
-
-// loadGatewayPort reports the gateway port a previous process recorded, or
-// 0 - "let the OS pick one" - when none is recorded or it doesn't parse.
-func loadGatewayPort(workspace string) int {
-	data, err := os.ReadFile(filepath.Join(workspace, gatewayPortFile)) //nolint:gosec // path is the project's own workspace file
-	if err != nil {
-		return 0
-	}
-	port, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil || port <= 0 {
-		return 0
-	}
-	return port
-}
-
-// saveGatewayPort persists port for a later process to ask for by name.
-// Best effort: a write failure only costs a possible relay drift-repair
-// next time, not this process's own correctness.
-func saveGatewayPort(workspace string, port int) {
-	_ = os.WriteFile(filepath.Join(workspace, gatewayPortFile), []byte(strconv.Itoa(port)), 0o600)
 }
 
 // Close stops the proxy and reports how serving ended. Close is idempotent.

@@ -69,7 +69,7 @@ func (w *integrationWatcher) Write(p []byte) (int, error) {
 func (s *RelaySuite) writeRelayProject(project string) string {
 	t := s.T()
 	dir := t.TempDir()
-	src := `plugins: echo: cmd: ` + strconv.Quote(s.echoPlugin) + `
+	src := proxyBlock(t) + `plugins: echo: cmd: ` + strconv.Quote(s.echoPlugin) + `
 project: ` + strconv.Quote(project) + `
 env: web: {uses: "echo:echo", with: message: "hi"}
 `

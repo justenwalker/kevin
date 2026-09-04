@@ -187,7 +187,7 @@ func (s *ProxySuite) testEgressPolicy(egressCUE, project string) {
 	src := fmt.Sprintf(`project: %s
 
 `, strconv.Quote(project)) + egressCUE
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 	s.cleanupProject(project)
 
 	p := s.startKevin(dir, "-C", dir, "run")
@@ -239,7 +239,7 @@ env: {
 	}
 }
 `, strconv.Quote(project))
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 
 	p := s.startKevin(dir, "-C", dir, "run")
 	s.waitFor(p, stepLine("web_route", "ready"), defaultTimeout)

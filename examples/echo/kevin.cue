@@ -18,6 +18,12 @@
 
 project: "echo-example"
 
+proxy: {
+	listen:       "127.0.0.1:18100"
+	gateway_port: 18101
+}
+console: listen: "127.0.0.1:18102"
+
 plugins: echo: {
 	cmd: "../../bin/kevin-plugin-echo"
 	config: greeting: "hello from the provider config"

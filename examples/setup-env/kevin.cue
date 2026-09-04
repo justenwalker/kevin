@@ -25,6 +25,12 @@
 
 project: "setup-env-example"
 
+proxy: {
+	listen:       "127.0.0.1:18120"
+	gateway_port: 18121
+}
+console: listen: "127.0.0.1:18122"
+
 plugins: echo: cmd: "../../bin/kevin-plugin-echo"
 
 setup: {

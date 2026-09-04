@@ -39,7 +39,7 @@ env: {
 	}
 }
 `, strconv.Quote(project))
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 
 	out, code := s.runUntil(dir, stepLine("b", "ready"), "-C", dir, "run")
 	s.Equal(0, code, "output:\n%s", out)
@@ -66,7 +66,7 @@ env: a: {
 	}
 }
 `, strconv.Quote(project))
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 
 	out, code := s.runUntil(dir, stepLine("a", "ready"), "-C", dir, "run")
 	s.Equal(0, code, "output:\n%s", out)

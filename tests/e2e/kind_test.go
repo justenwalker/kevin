@@ -164,7 +164,7 @@ func (s *KindSuite) SetupSuite() {
 	chartDir := filepath.Join(repoRoot(), "examples", "kind", "charts", "hello")
 	src := fmt.Sprintf(kindCUE, project, strconv.Quote(chartDir))
 	s.dir = s.T().TempDir()
-	s.writeCUE(s.dir, src)
+	s.writeCUE(s.dir, proxyBlock(s.T())+src)
 	s.cleanupProject(project)
 
 	s.p = s.startKevin(s.dir, "-C", s.dir, "run")
@@ -274,7 +274,7 @@ commands: bad: {needs: ["a"], run: ["echo", "unreachable"]}
 func (s *KindSuite) TestDoErrorsCleanlyWithoutExport() {
 	dir := s.T().TempDir()
 	src := fmt.Sprintf(noExportStepCUE, "kevin-e2e-kind-noexport", strconv.Quote(s.echoPluginBin()))
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 
 	out, code := s.runToCompletion(dir, "-C", dir, "do", "bad")
 	s.NotEqual(0, code, "output:\n%s", out)
@@ -334,7 +334,7 @@ func (s *KindKeepSuite) SetupSuite() {
 
 	s.project = "kevin-e2e-kind-keep"
 	s.dir = s.T().TempDir()
-	s.writeCUE(s.dir, fmt.Sprintf(keepCUE, s.project))
+	s.writeCUE(s.dir, proxyBlock(s.T())+fmt.Sprintf(keepCUE, s.project))
 	s.cleanupProject(s.project)
 
 	out, code := s.runToCompletion(s.dir, "-C", s.dir, "setup")

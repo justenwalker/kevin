@@ -41,7 +41,7 @@ func TestEnvSuite(t *testing.T) {
 // expression and writes it to dir/kevin.cue.
 func (s *EnvSuite) writeOneStep(dir, project, message string) {
 	src := fmt.Sprintf(oneStepCUE, project, strconv.Quote(s.echoPluginBin()), strconv.Quote(message))
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 }
 
 // TestNamedEnvironmentDefaultsAndState covers --env: the named file is
@@ -53,7 +53,7 @@ func (s *EnvSuite) TestNamedEnvironmentDefaultsAndState() {
 	// defaults an empty decoded Project the same way either way - so this
 	// still exercises the "<dirname>-<name>" default.
 	src := fmt.Sprintf(oneStepCUE, "", strconv.Quote(s.echoPluginBin()), strconv.Quote("hi"))
-	s.writeCUEFile(dir, "staging.kevin.cue", src)
+	s.writeCUEFile(dir, "staging.kevin.cue", proxyBlock(s.T())+src)
 
 	wantProject := filepath.Base(dir) + "-staging"
 
@@ -89,7 +89,7 @@ func (s *EnvSuite) TestTwoNamedEnvironmentsRunSimultaneously() {
 	dir := s.T().TempDir()
 	s.writeOneStep(dir, "kevin-e2e-simul-default", "default env")
 	src := fmt.Sprintf(oneStepCUE, "kevin-e2e-simul-staging", strconv.Quote(s.echoPluginBin()), strconv.Quote("staging env"))
-	s.writeCUEFile(dir, "staging.kevin.cue", src)
+	s.writeCUEFile(dir, "staging.kevin.cue", proxyBlock(s.T())+src)
 	require := s.Require()
 
 	p1 := s.startKevin(dir, "-C", dir, "run")
@@ -185,7 +185,7 @@ plugins: echo: cmd: %s
 env: a: {uses: "echo:echo", with: export: msg: "${env.KEVIN_E2E_DO_ENV_VAR}"}
 commands: check: {needs: ["a"], run: ["sh", "-c", "echo msg=${needs.a.out.msg}"]}
 `, strconv.Quote(s.echoPluginBin()))
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 
 	out, code := s.runToCompletionWithEnv(dir, []string{"KEVIN_E2E_DO_ENV_VAR=do-value"}, "-C", dir, "do", "check")
 	s.Equal(0, code, "output:\n%s", out)
@@ -204,7 +204,7 @@ plugins: echo: cmd: %s
 env: a: {uses: "echo:echo", with: export: msg: "${project.root_cert}"}
 commands: check: {needs: ["a"], run: ["sh", "-c", "echo msg=${needs.a.out.msg}"]}
 `, strconv.Quote(s.echoPluginBin()))
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 
 	out, code := s.runToCompletion(dir, "-C", dir, "do", "check")
 	s.Equal(0, code, "output:\n%s", out)
@@ -229,7 +229,7 @@ env: a: {
 }
 commands: check: {needs: ["a"], run: ["sh", "-c", "echo msg=${needs.a.out.msg}"]}
 `, strconv.Quote(s.echoPluginBin()))
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 
 	out, code := s.runToCompletion(dir, "-C", dir, "do", "check")
 	s.Equal(0, code, "output:\n%s", out)
@@ -286,7 +286,7 @@ env: app: {
 	with:  message: "${setup.cluster.out.greeting}"
 }
 `, strconv.Quote(project), strconv.Quote(s.echoPluginBin()))
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 
 	out, code := s.runToCompletion(dir, "-C", dir, "setup")
 	s.Equal(0, code, "kevin setup output:\n%s", out)

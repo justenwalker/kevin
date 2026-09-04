@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +11,17 @@ import (
 
 	"github.com/justenwalker/kevin/internal/config"
 )
+
+// listenBlockDefault is a "proxy: {...}, console: {...}" CUE snippet
+// naming arbitrary literal ports as defaults, not concrete values -
+// proxy.listen/proxy.gateway_port/console.listen carry no schema default,
+// but nothing in this package binds a real port (pure CUE decode, no
+// network), so a fixed literal default is enough. A src that sets its own
+// value for any of these three fields unifies its concrete value over
+// this default instead of conflicting with it.
+const listenBlockDefault = `proxy: {listen: string | *"127.0.0.1:18080", gateway_port: int | *18081}
+console: listen: string | *"127.0.0.1:18082"
+`
 
 func TestLoad(t *testing.T) {
 	t.Run("reports a missing file", func(t *testing.T) {
@@ -41,7 +53,7 @@ func TestLoad(t *testing.T) {
 
 	t.Run("resolves a named environment", func(t *testing.T) {
 		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "staging.kevin.cue"), []byte(`project: "staging-env"`), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "staging.kevin.cue"), []byte(listenBlockDefault+`project: "staging-env"`), 0o600))
 
 		f, err := config.Load(dir, "staging", nil)
 		require.NoError(t, err)
@@ -52,7 +64,8 @@ func TestLoad(t *testing.T) {
 
 	t.Run("resolves a dotfile-named environment", func(t *testing.T) {
 		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, ".staging.kevin.yaml"), []byte("project: staging-hidden\n"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".staging.kevin.yaml"),
+			[]byte("project: staging-hidden\nproxy:\n  listen: \"127.0.0.1:18080\"\n  gateway_port: 18081\nconsole:\n  listen: \"127.0.0.1:18082\"\n"), 0o600))
 
 		f, err := config.Load(dir, "staging", nil)
 		require.NoError(t, err)
@@ -70,7 +83,8 @@ plugins: echo: cmd: "echo"`)
 		require.NoError(t, err)
 
 		yamlDir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(yamlDir, "kevin.yaml"), []byte("project: from-yaml\nplugins:\n  echo:\n    cmd: echo\n"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(yamlDir, "kevin.yaml"),
+			[]byte("project: from-yaml\nplugins:\n  echo:\n    cmd: echo\nproxy:\n  listen: \"127.0.0.1:18080\"\n  gateway_port: 18081\nconsole:\n  listen: \"127.0.0.1:18082\"\n"), 0o600))
 		yf, err := config.Load(yamlDir, "", nil)
 		require.NoError(t, err)
 		yamlSpecs, err := yf.Plugins()
@@ -78,7 +92,8 @@ plugins: echo: cmd: "echo"`)
 		assert.Equal(t, cueSpecs, yamlSpecs)
 
 		jsonDir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(jsonDir, "kevin.json"), []byte(`{"project":"from-yaml","plugins":{"echo":{"cmd":"echo"}}}`), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(jsonDir, "kevin.json"),
+			[]byte(`{"project":"from-yaml","plugins":{"echo":{"cmd":"echo"}},"proxy":{"listen":"127.0.0.1:18080","gateway_port":18081},"console":{"listen":"127.0.0.1:18082"}}`), 0o600))
 		jf, err := config.Load(jsonDir, "", nil)
 		require.NoError(t, err)
 		jsonSpecs, err := jf.Plugins()
@@ -268,7 +283,7 @@ project: "base"`)
 
 project: "base"`)
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "staging.kevin.cue"), []byte(`package kevin
-
+`+listenBlockDefault+`
 project: "staging-env"`), 0o600))
 
 		f, err := config.Load(dir, "", nil)
@@ -895,8 +910,6 @@ env: a: uses: "echo:echo"
 		require.NoError(t, err)
 
 		assert.Equal(t, "demo", cfg.Project)
-		assert.Equal(t, "127.0.0.1:0", cfg.Proxy.Listen)
-		assert.Equal(t, "127.0.0.1:0", cfg.Console.Listen)
 		assert.Empty(t, cfg.Proxy.Egress.Allow)
 		assert.Empty(t, cfg.Relay.Image)
 	})
@@ -927,7 +940,7 @@ relay: image: "kevin-relay:custom"
 			t.Run(tt.dirName, func(t *testing.T) {
 				dir := filepath.Join(t.TempDir(), tt.dirName)
 				require.NoError(t, os.Mkdir(dir, 0o750))
-				require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(`plugins: {}`), 0o600))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(listenBlockDefault+`plugins: {}`), 0o600))
 
 				f, err := config.Load(dir, "", nil)
 				require.NoError(t, err)
@@ -943,7 +956,7 @@ relay: image: "kevin-relay:custom"
 	t.Run("folds a given name into the default project", func(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "My_Service")
 		require.NoError(t, os.Mkdir(dir, 0o750))
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "Staging!.kevin.cue"), []byte(`plugins: {}`), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "Staging!.kevin.cue"), []byte(listenBlockDefault+`plugins: {}`), 0o600))
 
 		f, err := config.Load(dir, "Staging!", nil)
 		require.NoError(t, err)
@@ -956,7 +969,7 @@ relay: image: "kevin-relay:custom"
 
 	t.Run("an explicit project field wins over the default even with a name", func(t *testing.T) {
 		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "staging.kevin.cue"), []byte(`project: "explicit"`), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "staging.kevin.cue"), []byte(listenBlockDefault+`project: "explicit"`), 0o600))
 
 		f, err := config.Load(dir, "staging", nil)
 		require.NoError(t, err)
@@ -1027,11 +1040,19 @@ env: {
 	})
 }
 
-// write puts src into a new kevin.cue and returns the project directory.
+// write puts src into a new kevin.cue, prefixed with listenBlockDefault so
+// proxy.listen/proxy.gateway_port are always concrete, and returns the
+// project directory. A src that opens with its own "package" clause gets
+// the block inserted just after that line instead, since a package clause
+// must be the first thing in the file.
 func write(t *testing.T, src string) string {
 	t.Helper()
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(src), 0o600))
+	content := listenBlockDefault + src
+	if line, rest, ok := strings.Cut(src, "\n"); ok && strings.HasPrefix(strings.TrimSpace(line), "package ") {
+		content = line + "\n" + listenBlockDefault + rest
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(content), 0o600))
 	return dir
 }
 

@@ -42,7 +42,7 @@ env: {
 func (s *MCPSuite) TestPluginToolAppearsAndRoundTrips() {
 	dir := s.T().TempDir()
 	src := fmt.Sprintf(mcpCUE, "kevin-e2e-mcp-tool", strconv.Quote(s.echoPluginBin()))
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 
 	p := s.startKevin(dir, "-C", dir, "run")
 	s.waitFor(p, stepLine("b", "ready"), defaultTimeout)
@@ -86,7 +86,7 @@ func (s *MCPSuite) TestPluginToolAppearsAndRoundTrips() {
 func (s *MCPSuite) TestPluginToolRejectsAWrongStepName() {
 	dir := s.T().TempDir()
 	src := fmt.Sprintf(mcpCUE, "kevin-e2e-mcp-wrongstep", strconv.Quote(s.echoPluginBin()))
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 
 	p := s.startKevin(dir, "-C", dir, "run")
 	s.waitFor(p, stepLine("b", "ready"), defaultTimeout)

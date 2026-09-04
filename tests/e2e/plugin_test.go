@@ -73,7 +73,7 @@ env: a: {
 func (s *PluginSuite) TestFileSourceRunsAndSkipsReExtraction() {
 	project := "kevin-e2e-plugin-file"
 	dir := s.T().TempDir()
-	s.writeCUE(dir, fmt.Sprintf(filePluginCUE, project, strconv.Quote(s.tarball), ""))
+	s.writeCUE(dir, proxyBlock(s.T())+fmt.Sprintf(filePluginCUE, project, strconv.Quote(s.tarball), ""))
 	s.cleanupProject(project)
 
 	out, code := s.runUntil(dir, stepLine("a", "ready"), "-C", dir, "run")
@@ -101,7 +101,7 @@ func (s *PluginSuite) TestWrongChecksumFailsClosedBeforeExtraction() {
 	project := "kevin-e2e-plugin-checksum"
 	dir := s.T().TempDir()
 	wrongDigest := "checksum: \"sha256:" + hexOf("wrong") + "\""
-	s.writeCUE(dir, fmt.Sprintf(filePluginCUE, project, strconv.Quote(s.tarball), wrongDigest))
+	s.writeCUE(dir, proxyBlock(s.T())+fmt.Sprintf(filePluginCUE, project, strconv.Quote(s.tarball), wrongDigest))
 
 	out, code := s.runToCompletion(dir, "-C", dir, "run")
 	s.NotEqual(0, code, "a wrong checksum must fail before extraction, output:\n%s", out)
@@ -109,7 +109,7 @@ func (s *PluginSuite) TestWrongChecksumFailsClosedBeforeExtraction() {
 	data, err := os.ReadFile(s.tarball)
 	s.Require().NoError(err)
 	rightDigest := "checksum: \"sha256:" + hexOf(string(data)) + "\""
-	s.writeCUE(dir, fmt.Sprintf(filePluginCUE, project, strconv.Quote(s.tarball), rightDigest))
+	s.writeCUE(dir, proxyBlock(s.T())+fmt.Sprintf(filePluginCUE, project, strconv.Quote(s.tarball), rightDigest))
 	s.cleanupProject(project)
 
 	out, code = s.runUntil(dir, stepLine("a", "ready"), "-C", dir, "run")
@@ -140,7 +140,7 @@ env: a: {
 	with: message: "hi"
 }
 `
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 	s.cleanupProject(project)
 
 	out, code := s.runUntil(dir, stepLine("a", "ready"), "-C", dir, "run")

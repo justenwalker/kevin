@@ -14,7 +14,7 @@ The relay carries no routing table and no egress policy. The proxy remains the s
 
 The relay container's name is deterministic (`kevin-<project>-relay`), and `Start` reuses one already running rather than recreating it - a persisted `setup`-scope resource (a `kind` cluster's CoreDNS patch, say) that baked in the relay's address at `Up` time needs that address to survive the process that created it exiting. `kevin setup` leaves its relay running; `kevin run` afterward reuses it; `kevin teardown` is what finally removes it, once neither scope still needs it.
 
-A reused container must still forward to a live proxy, and the proxy's gateway listener binds an OS-assigned port fresh each process by default - so `Start` compares the running container's recorded domain/proxy address against what this process would use, and replaces it on a mismatch rather than reusing a relay that would silently forward nowhere. The gateway listener tries the port a previous process in the same workspace recorded first, which keeps that address (and therefore the relay) stable across most process boundaries; the replace-on-mismatch path only fires when that port could not be reused, or the domain changed.
+A reused container must still forward to a live proxy, and `proxy.gateway_port` in `kevin.cue` names that address explicitly - so `Start` compares the running container's recorded domain/proxy address against what this process would use, and replaces it on a mismatch rather than reusing a relay that would silently forward nowhere. That mismatch only fires when `gateway_port` or `domain` actually changed between processes, since the address is otherwise the same fixed value every time.
 
 ## Pod routing
 
@@ -26,7 +26,7 @@ A pod reaches a step across two hops on the host. The pod resolves the name thro
 
 ## Gateway bind
 
-The proxy binds a second listener on the gateway address of the shared network. A container reaches the proxy there directly. `proxy.gateway_port` in `kevin.cue` pins that listener's port instead of the default persist-and-reuse behavior described above.
+The proxy binds a second listener on the gateway address of the shared network. A container reaches the proxy there directly. `proxy.gateway_port` in `kevin.cue` sets that listener's port - kevin picks no port for you, for the same reason `proxy.listen` is required (see the [Proxy and egress guide]({{< relref "/docs/guides/proxy-and-egress" >}})).
 
 Docker Desktop on macOS and on Windows runs the daemon inside a virtual machine. The gateway address exists only inside that machine. A bind from the host fails with `EADDRNOTAVAIL`. The relay then reaches the proxy through `host.docker.internal` instead.
 

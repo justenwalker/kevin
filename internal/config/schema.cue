@@ -145,16 +145,16 @@ env: [string]: #Step
 commands: [string]: #Command
 
 proxy: {
-	// listen is the proxy address. Port 0 selects a free port.
-	listen: string | *"127.0.0.1:0"
+	// listen is the proxy's primary, host-facing address. Must name a
+	// real port - kevin does not pick one for you, so a builtin:kind
+	// step's containerd config (baked in at cluster creation) and a
+	// setup-scope proxy stay reachable across process restarts.
+	listen: string & =~ "^.+:[1-9][0-9]*$"
 
-	// gateway_port pins the port the proxy's gateway listener binds - the
+	// gateway_port is the port the proxy's gateway listener binds - the
 	// address the relay dials to reach the proxy from inside the docker
-	// network - instead of an OS-assigned one. kevin already persists
-	// whichever port gets picked and reuses it across processes on its
-	// own; set this only for a fixed, predictable port (a firewall rule,
-	// tooling that expects it). 0 selects a free port, as before.
-	gateway_port: int & >=0 & <=65535 | *0
+	// network. Must be a real port, for the same reason as listen.
+	gateway_port: int & >0 & <=65535
 
 	egress: {
 		// allow lists the external hosts that every step can reach. The proxy
@@ -169,8 +169,10 @@ proxy: {
 }
 
 console: {
-	// listen is the web console address. Port 0 selects a free port.
-	listen: string | *"127.0.0.1:0"
+	// listen is the web console's host-facing address. Must name a real
+	// port, for the same reason as proxy.listen: kevin does not pick one
+	// for you.
+	listen: string & =~ "^.+:[1-9][0-9]*$"
 }
 
 relay: {

@@ -28,7 +28,7 @@ func TestCLISuite(t *testing.T) {
 func (s *CLISuite) TestValidateNeedsNoDockerDaemon() {
 	dir := s.T().TempDir()
 	src := fmt.Sprintf(oneStepCUE, "kevin-e2e-validate-nodocker", strconv.Quote(s.echoPluginBin()), strconv.Quote("hi"))
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 
 	p := s.startKevinWithEnv(dir, []string{"DOCKER_HOST=unix:///nonexistent/docker.sock"}, "-C", dir, "validate")
 	code := s.waitExit(p, defaultTimeout)
@@ -42,7 +42,7 @@ func (s *CLISuite) TestValidateNeedsNoDockerDaemon() {
 // fail with a clear CUE error, before anything Docker-related runs.
 func (s *CLISuite) TestValidateFailsOnBrokenSchemaBeforeDocker() {
 	dir := s.T().TempDir()
-	s.writeCUE(dir, `project: "kevin-e2e-validate-broken"
+	s.writeCUE(dir, proxyBlock(s.T())+`project: "kevin-e2e-validate-broken"
 
 env: web: {
 	uses: "builtin:container"
@@ -61,7 +61,7 @@ env: web: {
 func (s *CLISuite) TestInitPrintsPluginNameForCmdSourceAndStartsNoProcess() {
 	dir := s.T().TempDir()
 	src := fmt.Sprintf(oneStepCUE, "kevin-e2e-init", strconv.Quote(s.echoPluginBin()), strconv.Quote("hi"))
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 
 	out, code := s.runToCompletion(dir, "-C", dir, "init")
 	s.Equal(0, code, "output:\n%s", out)
@@ -72,7 +72,7 @@ func (s *CLISuite) TestInitPrintsPluginNameForCmdSourceAndStartsNoProcess() {
 // key from the reserved list is rejected, naming every reserved name.
 func (s *CLISuite) TestReservedPluginNamespaceFailsValidation() {
 	dir := s.T().TempDir()
-	s.writeCUE(dir, `project: "kevin-e2e-reserved"
+	s.writeCUE(dir, proxyBlock(s.T())+`project: "kevin-e2e-reserved"
 
 plugins: kevin: {cmd: "./anything"}
 
@@ -93,6 +93,11 @@ const yamlEnvFile = `project: kevin-e2e-format-%s
 plugins:
   echo:
     cmd: %s
+proxy:
+  listen: "127.0.0.1:18080"
+  gateway_port: 18081
+console:
+  listen: "127.0.0.1:18082"
 env:
   a:
     uses: echo:echo
@@ -104,6 +109,8 @@ env:
 const jsonEnvFile = `{
   "project": "kevin-e2e-format-%s",
   "plugins": {"echo": {"cmd": %s}},
+  "proxy": {"listen": "127.0.0.1:18080", "gateway_port": 18081},
+  "console": {"listen": "127.0.0.1:18082"},
   "env": {"a": {"uses": "echo:echo", "label": "A", "with": {"message": "hello from %s"}}}
 }
 `
@@ -120,7 +127,7 @@ func (s *CLISuite) TestFileFormatsRunIdentically() {
 	}{
 		{"yaml", "kevin.yaml", fmt.Sprintf(yamlEnvFile, "yaml", echoBin, "yaml")},
 		{"json", "kevin.json", fmt.Sprintf(jsonEnvFile, "json", echoBin, "json")},
-		{"dotfile-cue", ".kevin.cue", fmt.Sprintf(oneStepCUE, "kevin-e2e-format-dotfile", echoBin, strconv.Quote("hello from dotfile"))},
+		{"dotfile-cue", ".kevin.cue", proxyBlock(s.T()) + fmt.Sprintf(oneStepCUE, "kevin-e2e-format-dotfile", echoBin, strconv.Quote("hello from dotfile"))},
 	}
 	for _, tc := range cases {
 		s.Run(tc.name, func() {

@@ -98,7 +98,7 @@ func (s *DAGSuite) SetupSuite() {
 	const project = "kevin-e2e-dag"
 	dir := s.T().TempDir()
 	src := fmt.Sprintf(dagCUE, project, strconv.Quote(s.echoPluginBin()))
-	s.writeCUE(dir, src)
+	s.writeCUE(dir, proxyBlock(s.T())+src)
 	s.cleanupProject(project)
 
 	p := s.startKevin(dir, "-C", dir, "run")

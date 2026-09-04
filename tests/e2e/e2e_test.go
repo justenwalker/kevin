@@ -13,12 +13,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -152,12 +154,44 @@ func (s *e2eSuite) requireDocker() {
 
 // project writes cueSrc, with project spliced in as its %s verb, to a fresh
 // temp dir's kevin.cue and returns the dir. It also registers cleanup of
-// any docker resources the project may leave behind.
+// any docker resources the project may leave behind. proxy.listen,
+// proxy.gateway_port, and console.listen carry no schema default, so
+// project prepends proxyBlock's freshly reserved ports as defaults,
+// letting cueSrc's own fields (if any) still unify their concrete values
+// in over them.
 func (s *e2eSuite) project(project, cueSrc string) string {
 	dir := s.T().TempDir()
-	s.writeCUE(dir, fmt.Sprintf(cueSrc, project))
+	s.writeCUE(dir, proxyBlock(s.T())+fmt.Sprintf(cueSrc, project))
 	s.cleanupProject(project)
 	return dir
+}
+
+// freeAddr finds a free TCP port and returns its address. A race remains
+// between the close and the caller's bind, but the risk is small enough for
+// a test.
+func freeAddr(t *testing.T) string {
+	t.Helper()
+	var lc net.ListenConfig
+	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+	return addr
+}
+
+// proxyBlock is a "proxy: {listen: ..., gateway_port: ...}\nconsole:
+// listen: ...\n" CUE snippet naming freshly reserved, free ports as
+// defaults, not concrete values - proxy.listen, proxy.gateway_port, and
+// console.listen carry no schema default, but a kevin.cue fixture that
+// sets its own value for any of these three must still be able to unify
+// its concrete value over this block's default instead of conflicting
+// with it.
+func proxyBlock(t *testing.T) string {
+	t.Helper()
+	_, gatewayPort, err := net.SplitHostPort(freeAddr(t))
+	require.NoError(t, err)
+	return "proxy: {listen: string | *" + strconv.Quote(freeAddr(t)) + ", gateway_port: int | *" + gatewayPort + "}\n" +
+		"console: listen: string | *" + strconv.Quote(freeAddr(t)) + "\n"
 }
 
 // writeCUE writes src to dir/kevin.cue. Callers that need more than one
