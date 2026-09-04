@@ -76,7 +76,7 @@ env: {
 		label: "Web Server"
 		with: {
 			image:  "nginx:alpine"
-			expose: [{port: 80, name: "web", relay: true}]
+			expose: web: {port: 80, relay: true}
 		}
 	}
 	web_ready: {

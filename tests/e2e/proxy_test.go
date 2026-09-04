@@ -30,7 +30,7 @@ env: {
 		label: "Web Server"
 		with: {
 			image:  "nginx:alpine"
-			expose: [{port: 80}]
+			expose: web: {port: 80}
 		}
 	}
 	web_route: {
@@ -231,7 +231,7 @@ func (s *ProxySuite) TestRouteWildcardWithoutExternal() {
 	src := fmt.Sprintf(`project: %s
 
 env: {
-	web: {uses: "builtin:container", label: "Web", with: {image: "nginx:alpine", expose: [{port: 80}]}}
+	web: {uses: "builtin:container", label: "Web", with: {image: "nginx:alpine", expose: web: {port: 80}}}
 	web_route: {
 		uses:  "builtin:route"
 		needs: ["web"]

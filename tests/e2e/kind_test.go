@@ -35,7 +35,7 @@ env: {
 		label: "Local Registry"
 		with: {
 			image:  "registry:3"
-			expose: [{port: 5000}]
+			expose: registry: {port: 5000}
 		}
 	}
 	registry_ready: {
@@ -55,7 +55,7 @@ env: {
 			workers: 1
 			wait:    "5m"
 			egress:  ["docker.io", "*.docker.io", "*.docker.com"]
-			expose:  [{name: "apiserver", address: "kubernetes.default.svc:443"}]
+			expose: apiserver: address: "kubernetes.default.svc:443"
 		}
 	}
 	apiserver_ready: {

@@ -24,7 +24,7 @@ env: {
 		label: "Fake S3 (MiniStack)"
 		with: {
 			image:  "ministackorg/ministack"
-			expose: [{port: 4566}]
+			expose: s3: {port: 4566}
 		}
 	}
 	fake_s3_ready: {

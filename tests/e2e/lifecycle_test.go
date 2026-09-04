@@ -24,7 +24,7 @@ env: {
 		label: "Web Server"
 		with: {
 			image:  "nginx:alpine"
-			expose: [{port: 80}]
+			expose: web: {port: 80}
 		}
 	}
 	probe: {
