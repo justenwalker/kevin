@@ -113,7 +113,7 @@ func TestUp(t *testing.T) {
 	t.Run("captures stdout as an output and runs in the project directory", func(t *testing.T) {
 		dir := t.TempDir()
 		req := &plugin.UpRequest{
-			Env:    plugin.Env{ProjectDir: dir},
+			Env:    plugin.Env{ProjectDir: dir, Workspace: t.TempDir()},
 			Config: json.RawMessage(`{"up":{"command":["sh","-c","echo hello; pwd"]}}`),
 		}
 		result, err := Step{}.Up(t.Context(), req, &capture{})
@@ -134,6 +134,7 @@ func TestUp(t *testing.T) {
 
 	t.Run("a nonzero exit surfaces stderr", func(t *testing.T) {
 		req := &plugin.UpRequest{
+			Env:    plugin.Env{Workspace: t.TempDir()},
 			Config: json.RawMessage(`{"up":{"command":["sh","-c","echo boom >&2; exit 1"]}}`),
 		}
 		_, err := Step{}.Up(t.Context(), req, &capture{})
@@ -145,6 +146,7 @@ func TestUp(t *testing.T) {
 func TestDown(t *testing.T) {
 	t.Run("does nothing when down is unset", func(t *testing.T) {
 		req := &plugin.DownRequest{
+			Env:    plugin.Env{Workspace: t.TempDir()},
 			Config: json.RawMessage(`{"up":{"command":["echo","hi"]}}`),
 		}
 		err := Step{}.Down(t.Context(), req, &capture{})
@@ -155,7 +157,7 @@ func TestDown(t *testing.T) {
 		upDir := t.TempDir()
 		downDir := t.TempDir()
 		req := &plugin.DownRequest{
-			Env: plugin.Env{ProjectDir: "/should-not-be-used"},
+			Env: plugin.Env{ProjectDir: "/should-not-be-used", Workspace: t.TempDir()},
 			Config: json.RawMessage(`{
 				"up":   {"command": ["echo", "hi"], "cwd": "` + upDir + `"},
 				"down": {"command": ["sh", "-c", "touch marker"], "cwd": "` + downDir + `"}
@@ -166,5 +168,63 @@ func TestDown(t *testing.T) {
 
 		assert.FileExists(t, filepath.Join(downDir, "marker"), "down must run in its own cwd, not up's")
 		assert.NoFileExists(t, filepath.Join(upDir, "marker"))
+	})
+
+	t.Run("removes the stdout Up persisted", func(t *testing.T) {
+		workspace := t.TempDir()
+		up := &plugin.UpRequest{
+			Step:   "a",
+			Env:    plugin.Env{Workspace: workspace},
+			Config: json.RawMessage(`{"up":{"command":["echo","hi"]}}`),
+		}
+		_, err := Step{}.Up(t.Context(), up, &capture{})
+		require.NoError(t, err)
+
+		down := &plugin.DownRequest{
+			Step:   "a",
+			Env:    plugin.Env{Workspace: workspace},
+			Config: json.RawMessage(`{"up":{"command":["echo","hi"]}}`),
+		}
+		require.NoError(t, Step{}.Down(t.Context(), down, &capture{}))
+
+		_, err = Step{}.Export(t.Context(), &plugin.ExportRequest{Step: "a", Env: plugin.Env{Workspace: workspace}})
+		require.Error(t, err, "Down must remove the persisted stdout, so a later Export has nothing to read")
+	})
+}
+
+func TestExport(t *testing.T) {
+	t.Run("reports the stdout Up captured", func(t *testing.T) {
+		workspace := t.TempDir()
+		up := &plugin.UpRequest{
+			Step:   "a",
+			Env:    plugin.Env{Workspace: workspace},
+			Config: json.RawMessage(`{"up":{"command":["echo","hi"]}}`),
+		}
+		_, err := Step{}.Up(t.Context(), up, &capture{})
+		require.NoError(t, err)
+
+		result, err := Step{}.Export(t.Context(), &plugin.ExportRequest{Step: "a", Env: plugin.Env{Workspace: workspace}})
+		require.NoError(t, err)
+		assert.Equal(t, "hi", result.Out["stdout"].Reveal())
+	})
+
+	t.Run("fails when Up has not run yet", func(t *testing.T) {
+		_, err := Step{}.Export(t.Context(), &plugin.ExportRequest{Step: "a", Env: plugin.Env{Workspace: t.TempDir()}})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "run `kevin run` or `kevin setup` first")
+	})
+
+	t.Run("scopes to the requesting step's own name", func(t *testing.T) {
+		workspace := t.TempDir()
+		up := &plugin.UpRequest{
+			Step:   "a",
+			Env:    plugin.Env{Workspace: workspace},
+			Config: json.RawMessage(`{"up":{"command":["echo","hi"]}}`),
+		}
+		_, err := Step{}.Up(t.Context(), up, &capture{})
+		require.NoError(t, err)
+
+		_, err = Step{}.Export(t.Context(), &plugin.ExportRequest{Step: "b", Env: plugin.Env{Workspace: workspace}})
+		require.Error(t, err, "a's captured stdout must not leak into b's Export")
 	})
 }

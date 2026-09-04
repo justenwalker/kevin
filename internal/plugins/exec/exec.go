@@ -54,7 +54,8 @@ func (Step) Kind() plugin.StepKind { return plugin.StepKindAction }
 var _ plugin.Downer = Step{}
 
 // Up runs the configured command. Its stdout, trimmed, becomes the
-// step's "stdout" output.
+// step's "stdout" output, and is also persisted under the workspace so a
+// later, possibly cross-scope Export call can read it back.
 func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
 	cfg, err := decode(req.Config)
 	if err != nil {
@@ -65,6 +66,9 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 	if err != nil {
 		return nil, err
 	}
+	if err = persistStdout(req.Env.Workspace, req.Step, stdout); err != nil {
+		return nil, err
+	}
 
 	return &plugin.Result{
 		Outputs:     plugin.StringMap(map[string]string{"stdout": stdout}),
@@ -72,18 +76,57 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 	}, nil
 }
 
-// Down runs the configured cleanup command. It does nothing when the with
-// block sets no down.
+// Down removes the stdout Up persisted, then runs the configured cleanup
+// command. The command itself does nothing when the with block sets no
+// down.
 func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitter) error {
 	cfg, err := decode(req.Config)
 	if err != nil {
 		return err
 	}
+
+	path := stdoutFile(req.Env.Workspace, req.Step)
+	if err = os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("exec: remove %s: %w", path, err)
+	}
+
 	if cfg.Down == nil {
 		return nil
 	}
 	_, err = runExec(ctx, *cfg.Down, cfg.Proxy, req.Env, out)
 	return err
+}
+
+// Step must keep satisfying plugin.Exporter.
+var _ plugin.Exporter = Step{}
+
+// Export reports the stdout Up persisted for this step. It never runs the
+// command again - Export must only report what Up already produced - and
+// fails when Up hasn't run yet.
+func (Step) Export(_ context.Context, req *plugin.ExportRequest) (*plugin.ExportResult, error) {
+	path := stdoutFile(req.Env.Workspace, req.Step)
+	data, err := os.ReadFile(path) //nolint:gosec // path is a workspace file this plugin itself wrote
+	if err != nil {
+		return nil, fmt.Errorf("exec: %q has no captured stdout yet, run `kevin run` or `kevin setup` first: %w", req.Step, err)
+	}
+	return &plugin.ExportResult{Out: plugin.StringMap(map[string]string{"stdout": string(data)})}, nil
+}
+
+// stdoutFile is the workspace file Up persists a step's captured stdout to.
+func stdoutFile(workspace, step string) string {
+	return filepath.Join(workspace, "exec-stdout", step)
+}
+
+// persistStdout writes stdout to stdoutFile, creating its directory first.
+func persistStdout(workspace, step, stdout string) error {
+	path := stdoutFile(workspace, step)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("exec: create the stdout directory for %q: %w", step, err)
+	}
+	if err := os.WriteFile(path, []byte(stdout), 0o600); err != nil {
+		return fmt.Errorf("exec: persist stdout for %q: %w", step, err)
+	}
+	return nil
 }
 
 // runExec runs one #Exec block and returns its trimmed stdout.

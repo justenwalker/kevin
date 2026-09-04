@@ -65,3 +65,10 @@ as `builtin:kubectl`'s `Down` doing nothing when `keep` is set.
 Not idempotent: kevin has no way to know whether rerunning an arbitrary
 command is safe, so a cascading rerun of a step this one depends on never
 sweeps this step back in automatically.
+
+Implements `Export`, reporting the same `stdout` value `Outputs` uses, for
+a cross-scope `setup.<name>` need or a `commands:` entry's `run`. `Up`
+persists the captured stdout under the workspace so a later, separate
+process's `Export` call can read it back - Export never runs the command
+again, only reports what `Up` already produced, and fails when `Up` hasn't
+run yet. `Down` removes the persisted value.
