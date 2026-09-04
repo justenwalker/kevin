@@ -269,6 +269,7 @@ func Run(ctx context.Context, opts Options) error {
 	r.env = env
 	r.project = ca.ProjectVars(cfg.Dir, cfg.Name)
 	r.project["http_proxy_addr"] = server.addr
+	r.project["relay"] = rl.Addr()
 	notifyEnvironment(opts, env)
 
 	if err := ConfigureAll(ctx, cfg.Plugins, plugins, env); err != nil {

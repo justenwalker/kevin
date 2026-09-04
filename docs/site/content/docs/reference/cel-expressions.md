@@ -81,6 +81,7 @@ session, independent of any step:
 | `ca_cert` | Host path of this project's intermediate CA certificate file. |
 | `ca_key` | Host path of this project's intermediate CA private key file. |
 | `http_proxy_addr` | `host:port` of kevin's own HTTP(S) proxy, reachable from the host. |
+| `relay` | Docker-network address of the project's relay container - reachable from any workload on that network. |
 
 For a tool that only takes these as a flag, not via
 `SSL_CERT_FILE`/`HTTP_PROXY`-style env vars:

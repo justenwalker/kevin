@@ -962,6 +962,27 @@ env: {
 		"Up must receive the rendered value, not the raw project.* template")
 }
 
+// TestRunProjectRelayIsPopulated proves project.relay renders to the
+// project's relay container's own address, not an empty string or the
+// literal template.
+func TestRunProjectRelayIsPopulated(t *testing.T) {
+	requireRelay(t)
+	dir := project(t, `
+env: {
+	a: {uses: "echo:echo", with: message: "relay=${project.relay}"}
+}
+`)
+	_, err := runUntil(t, dir, "a                ready")
+	require.NoError(t, err)
+
+	logs, err := os.ReadFile(filepath.Join(dir, WorkspaceDir, LogsFile))
+	require.NoError(t, err)
+	assert.Regexp(t, `relay=\S+`, string(logs),
+		"project.relay must render to the relay container's own address, not go empty")
+	assert.NotContains(t, string(logs), "${project.relay}",
+		"Up must receive the rendered value, not the raw project.* template")
+}
+
 // TestRunExportStepRendersNeedsTemplates proves export_step renders a
 // step's with block against upstream outputs, rather than sending the
 // plugin the raw "${needs...}" template string.
