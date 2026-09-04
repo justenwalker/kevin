@@ -65,17 +65,6 @@ type kindExpose struct {
 	HostPort int    `json:"host_port"`
 }
 
-// resolvePath resolves a with-block path against the project directory. An
-// absolute path, an empty path, or a missing project directory pass through
-// unchanged. Mirrors the identical helper in internal/plugins/kubectl and
-// internal/plugins/helm.
-func resolvePath(path, projectDir string) string {
-	if path == "" || projectDir == "" || filepath.IsAbs(path) {
-		return path
-	}
-	return filepath.Join(projectDir, path)
-}
-
 // Step is the kind step.
 type Step struct{}
 
@@ -151,6 +140,17 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 		EgressAllow:  cfg.Egress,
 		Details:      exposedPortDetails(exposedPorts),
 	}, nil
+}
+
+// resolvePath resolves a with-block path against the project directory. An
+// absolute path, an empty path, or a missing project directory pass through
+// unchanged. Mirrors the identical helper in internal/plugins/kubectl and
+// internal/plugins/helm.
+func resolvePath(path, projectDir string) string {
+	if path == "" || projectDir == "" || filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(projectDir, path)
 }
 
 // configMarkerFile is where reuseOrCreateCluster persists the kind config
