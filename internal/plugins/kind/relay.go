@@ -157,6 +157,7 @@ func exposedViaRelay(entries []kindExpose, addr string) []plugin.ExposedPort {
 			Name:     name,
 			Protocol: "socks5",
 			Upstream: fmt.Sprintf("socks5://%s/%s", addr, e.Address),
+			HostPort: e.HostPort,
 		})
 	}
 	return out

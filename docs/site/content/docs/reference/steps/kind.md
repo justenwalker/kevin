@@ -42,12 +42,13 @@ cluster: {
 |:------|:----:|:-------:|:------------|
 | `address` | `string` | - | **Required.** The in-cluster host:port to reach, such as `"postgres.default.svc.cluster.local:5432"`. |
 | `name` | `string` | - | Labels this entry in the console and the ready log line. Defaults to address. |
+| `host_port` | `int` | - | Pins the port of the local forward that lets a host process dial this entry directly, reported as the `"forward_<name>"` output. Omitted, the OS assigns one. |
 
 ## `#ExtraMount`
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `host_path` | `string` | - | **Required.** The directory on the host to mount. |
+| `host_path` | `string` | - | **Required.** The directory on the host to mount. A relative path resolves against the project directory. |
 | `container_path` | `string` | - | **Required.** Where it lands inside the node. |
 
 ## Publishes

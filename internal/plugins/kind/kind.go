@@ -60,8 +60,20 @@ type kindExtraMount struct {
 // kindExpose is one entry of the with block's expose list: an in-cluster
 // address to reach through the SOCKS5 relay.
 type kindExpose struct {
-	Address string `json:"address"`
-	Name    string `json:"name"`
+	Address  string `json:"address"`
+	Name     string `json:"name"`
+	HostPort int    `json:"host_port"`
+}
+
+// resolvePath resolves a with-block path against the project directory. An
+// absolute path, an empty path, or a missing project directory pass through
+// unchanged. Mirrors the identical helper in internal/plugins/kubectl and
+// internal/plugins/helm.
+func resolvePath(path, projectDir string) string {
+	if path == "" || projectDir == "" || filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(projectDir, path)
 }
 
 // Step is the kind step.
@@ -91,6 +103,9 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 	cfg, err := decode(req.Config)
 	if err != nil {
 		return nil, err
+	}
+	for i := range cfg.ExtraMounts {
+		cfg.ExtraMounts[i].HostPath = resolvePath(cfg.ExtraMounts[i].HostPath, req.Env.ProjectDir)
 	}
 
 	wait, err := time.ParseDuration(cfg.Wait)

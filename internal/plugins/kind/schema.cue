@@ -64,7 +64,8 @@
 }
 
 #ExtraMount: {
-	// host_path is the directory on the host to mount.
+	// host_path is the directory on the host to mount. A relative path
+	// resolves against the project directory.
 	host_path!: string
 
 	// container_path is where it lands inside the node.
@@ -79,4 +80,9 @@
 	// name labels this entry in the console and the ready log line.
 	// Defaults to address.
 	name?: string
+
+	// host_port pins the port of the local forward that lets a host
+	// process dial this entry directly, reported as the "forward_<name>"
+	// output. Omitted, the OS assigns one.
+	host_port?: int
 }

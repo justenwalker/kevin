@@ -52,12 +52,28 @@ func TestDecode(t *testing.T) {
 	})
 
 	t.Run("reads expose", func(t *testing.T) {
-		cfg, err := decode([]byte(`{"expose":[{"address":"postgres.default.svc:5432","name":"postgres"}]}`))
+		cfg, err := decode([]byte(`{"expose":[{"address":"postgres.default.svc:5432","name":"postgres","host_port":15432}]}`))
 		require.NoError(t, err)
 
 		require.Len(t, cfg.Expose, 1)
-		assert.Equal(t, kindExpose{Address: "postgres.default.svc:5432", Name: "postgres"}, cfg.Expose[0])
+		assert.Equal(t, kindExpose{Address: "postgres.default.svc:5432", Name: "postgres", HostPort: 15432}, cfg.Expose[0])
 	})
+}
+
+func TestResolvePath(t *testing.T) {
+	cases := []struct {
+		name, path, projectDir, want string
+	}{
+		{name: "empty path passes through", path: "", projectDir: "/proj", want: ""},
+		{name: "absolute path is untouched", path: "/abs/path", projectDir: "/proj", want: "/abs/path"},
+		{name: "no project dir passes through", path: "rel/path", projectDir: "", want: "rel/path"},
+		{name: "relative path joins the project dir", path: "rel/path", projectDir: "/proj", want: filepath.Join("/proj", "rel/path")},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.want, resolvePath(c.path, c.projectDir))
+		})
+	}
 }
 
 func TestWantsRelay(t *testing.T) {
@@ -302,6 +318,15 @@ func TestExposedViaRelay(t *testing.T) {
 		assert.Equal(t, plugin.Detail{
 			Label: "socks5 postgres", Value: plugin.String("socks5://127.0.0.1:54321/postgres.default.svc:5432"), Copyable: true,
 		}, got[0].Detail(), "Up must mirror every exposed port onto the card the same way")
+	})
+
+	t.Run("threads host_port through to the exposed port", func(t *testing.T) {
+		got := exposedViaRelay([]kindExpose{
+			{Address: "postgres.default.svc:5432", Name: "postgres", HostPort: 15432},
+		}, "127.0.0.1:54321")
+
+		require.Len(t, got, 1)
+		assert.Equal(t, 15432, got[0].HostPort)
 	})
 }
 
