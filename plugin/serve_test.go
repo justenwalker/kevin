@@ -322,7 +322,7 @@ func TestServerUp(t *testing.T) {
 					"password": Sensitive{String("hunter2")},
 				},
 				Routes:       []Route{{Host: "api.test", Upstream: "api:8080", TLS: true}},
-				ExposedPorts: []ExposedPort{{Name: "postgres", Protocol: "tcp", Upstream: "127.0.0.1:54321"}},
+				ExposedPorts: []ExposedPort{{Name: "postgres", Protocol: "tcp", Upstream: "127.0.0.1:54321", HostPort: 54321}},
 				EgressAllow:  []string{"proxy.golang.org"},
 				Details:      []Detail{{Label: "admin password", Value: Sensitive{String("hunter2")}, Copyable: true, Href: "https://api.test/admin"}},
 			}, nil)
@@ -403,6 +403,7 @@ func TestServerUp(t *testing.T) {
 		assert.Equal(t, "postgres", result.GetExposedPorts()[0].GetName())
 		assert.Equal(t, "tcp", result.GetExposedPorts()[0].GetProtocol())
 		assert.Equal(t, "127.0.0.1:54321", result.GetExposedPorts()[0].GetUpstream())
+		assert.Equal(t, int32(54321), result.GetExposedPorts()[0].GetHostPort())
 
 		require.Len(t, result.GetDetails(), 1)
 		assert.Equal(t, "admin password", result.GetDetails()[0].GetLabel())
