@@ -1,4 +1,4 @@
-package kind
+package plugin
 
 import (
 	"strings"
@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// capture records what emitWriter emits.
+// capture records what a line writer emits.
 type capture struct {
 	stdout []string
 	stderr []string
@@ -24,10 +24,10 @@ func (c *capture) Log(stream, text string) {
 
 func (c *capture) Progress(string, int64, int64) {}
 
-func TestEmitWriter(t *testing.T) {
+func TestNewLineWriter(t *testing.T) {
 	t.Run("forwards complete lines to the named stream", func(t *testing.T) {
 		out := &capture{}
-		w := &emitWriter{out: out, stream: "stderr"}
+		w := NewLineWriter(out, "stderr")
 
 		_, err := w.Write([]byte("creating cluster demo\nwaiting for control plane\n"))
 		require.NoError(t, err)
@@ -37,7 +37,7 @@ func TestEmitWriter(t *testing.T) {
 
 	t.Run("buffers a partial line until a later write completes it", func(t *testing.T) {
 		out := &capture{}
-		w := &emitWriter{out: out, stream: "stdout"}
+		w := NewLineWriter(out, "stdout")
 
 		_, err := w.Write([]byte("creating clus"))
 		require.NoError(t, err)
@@ -50,7 +50,7 @@ func TestEmitWriter(t *testing.T) {
 
 	t.Run("strips a trailing carriage return", func(t *testing.T) {
 		out := &capture{}
-		w := &emitWriter{out: out, stream: "stdout"}
+		w := NewLineWriter(out, "stdout")
 
 		_, err := w.Write([]byte("ready\r\n"))
 		require.NoError(t, err)
@@ -59,11 +59,11 @@ func TestEmitWriter(t *testing.T) {
 
 	t.Run("emits a line that never terminates once it grows too large", func(t *testing.T) {
 		out := &capture{}
-		w := &emitWriter{out: out, stream: "stdout"}
+		w := NewLineWriter(out, "stdout")
 
 		_, err := w.Write([]byte(strings.Repeat("x", maxLineLength+1)))
 		require.NoError(t, err)
-		assert.Len(t, out.stdout, 1)
+		require.Len(t, out.stdout, 1)
 		assert.True(t, strings.HasSuffix(out.stdout[0], "..."))
 	})
 }

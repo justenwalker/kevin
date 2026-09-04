@@ -236,7 +236,7 @@ func createCluster(ctx context.Context, cfg config, req *plugin.UpRequest, name,
 	// have found one whose config changed. Ensure it is deleted before we
 	// bring it up again - kind delete cluster is documented as idempotent, a
 	// no-op success when the cluster is already gone.
-	if err := kindcmd.Delete(ctx, kindcmd.DeleteSpec{Name: name, Kubeconfig: kubeconfig}, stderrWriter(out)); err != nil {
+	if err := kindcmd.Delete(ctx, kindcmd.DeleteSpec{Name: name, Kubeconfig: kubeconfig}, plugin.NewLineWriter(out, "stderr")); err != nil {
 		return nil, fmt.Errorf("kind: remove the previous cluster %q: %w", name, err)
 	}
 
@@ -252,7 +252,7 @@ func createCluster(ctx context.Context, cfg config, req *plugin.UpRequest, name,
 		Image:      cfg.Image,
 		Env:        proxyEnv(cfg, req.Env),
 	}
-	if err := kindcmd.Create(ctx, spec, stdoutWriter(out), stderrWriter(out)); err != nil {
+	if err := kindcmd.Create(ctx, spec, plugin.NewLineWriter(out, "stdout"), plugin.NewLineWriter(out, "stderr")); err != nil {
 		return nil, fmt.Errorf("kind: create the cluster %q: %w", name, err)
 	}
 
@@ -336,7 +336,7 @@ func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitte
 
 	out.Log("stdout", "removing cluster "+name)
 
-	if err = kindcmd.Delete(ctx, kindcmd.DeleteSpec{Name: name, Kubeconfig: kubeconfig}, stderrWriter(out)); err != nil {
+	if err = kindcmd.Delete(ctx, kindcmd.DeleteSpec{Name: name, Kubeconfig: kubeconfig}, plugin.NewLineWriter(out, "stderr")); err != nil {
 		return fmt.Errorf("kind: remove the cluster %q: %w", name, err)
 	}
 

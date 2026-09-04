@@ -69,6 +69,24 @@ Every `plugin.Value` a step reads or publishes - in `Outputs`, `Deps`, or a `Det
 
 See [The plugin protocol]({{< relref "plugin-protocol" >}}) for the full wire contract this rides on.
 
+## Streaming a subprocess
+
+A step type that shells out to a long-running subprocess wires
+`plugin.NewLineWriter(out, "stdout")`/`plugin.NewLineWriter(out, "stderr")`
+into `exec.Cmd`'s `Stdout`/`Stderr`, so its output reaches the console and
+the log as it runs instead of buffering until the process exits:
+
+```go
+cmd := exec.CommandContext(ctx, "some-tool", args...)
+cmd.Stdout = plugin.NewLineWriter(out, "stdout")
+cmd.Stderr = plugin.NewLineWriter(out, "stderr")
+return cmd.Run()
+```
+
+`NewLineWriter` forwards each complete line to `out.Log` under the named
+stream, buffering a partial line until a later write completes it with a
+newline.
+
 ## Schema
 
 `Step.Schema` returns the CUE that constrains the `with` block of that step type, or nil when the step type takes no configuration. A provider that takes its own configuration sets `Plugin.ConfigSchema` and `Plugin.Configure`; the engine calls `Configure` once, before any step of that provider runs. `Plugin.Icon` is an optional small PNG (48x48 or less) shown next to the provider's step types on the console; a provider that gives none shows a puzzle-piece placeholder instead.

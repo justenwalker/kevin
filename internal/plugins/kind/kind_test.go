@@ -14,6 +14,22 @@ import (
 	"github.com/justenwalker/kevin/plugin"
 )
 
+// capture records what a step logs, as a fake plugin.Emitter.
+type capture struct {
+	stdout []string
+	stderr []string
+}
+
+func (c *capture) Log(stream, text string) {
+	if stream == "stderr" {
+		c.stderr = append(c.stderr, text)
+		return
+	}
+	c.stdout = append(c.stdout, text)
+}
+
+func (c *capture) Progress(string, int64, int64) {}
+
 func TestSchemaCarriesTheEmbeddedSchema(t *testing.T) {
 	schema := Step{}.Schema()
 

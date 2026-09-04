@@ -98,7 +98,7 @@ func deployRelay(ctx context.Context, name string, allNodes []string, image stri
 		return err
 	}
 	defer func() { _ = os.Remove(tarPath) }()
-	if err = kindcmd.LoadImageArchive(ctx, kindcmd.LoadImageArchiveSpec{Name: name, Path: tarPath}, stderrWriter(out)); err != nil {
+	if err = kindcmd.LoadImageArchive(ctx, kindcmd.LoadImageArchiveSpec{Name: name, Path: tarPath}, plugin.NewLineWriter(out, "stderr")); err != nil {
 		return fmt.Errorf("kind: load the relay image: %w", err)
 	}
 
