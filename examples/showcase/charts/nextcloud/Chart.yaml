@@ -1,0 +1,4 @@
+apiVersion: v2
+name: nextcloud
+description: A real, self-hosted file server (Nextcloud) for the examples/showcase builtin:route interception demo.
+version: 0.1.0

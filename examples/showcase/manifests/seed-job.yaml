@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-bucket
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: seed
+          image: amazon/aws-cli
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              value: test
+            - name: AWS_SECRET_ACCESS_KEY
+              value: test
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: NOTE
+              valueFrom:
+                configMapKeyRef:
+                  name: seed-note
+                  key: note
+          command: ["sh", "-c"]
+          args:
+            - |
+              i=0
+              until aws --endpoint-url http://ministack:4566 s3 mb s3://archive; do
+                i=$((i + 1))
+                if [ "$i" -ge 30 ]; then
+                  echo "ministack never became ready" >&2
+                  exit 1
+                fi
+                sleep 2
+              done
+              printf '%s\n' "$NOTE" | aws --endpoint-url http://ministack:4566 s3 cp - s3://archive/note.txt

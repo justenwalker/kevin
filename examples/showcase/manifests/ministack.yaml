@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ministack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ministack
+  template:
+    metadata:
+      labels:
+        app: ministack
+    spec:
+      containers:
+        - name: ministack
+          image: ministackorg/ministack
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4566
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ministack
+spec:
+  selector:
+    app: ministack
+  ports:
+    - port: 4566
+      targetPort: 4566
