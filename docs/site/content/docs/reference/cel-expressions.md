@@ -70,6 +70,7 @@ session, independent of any step:
 
 | Key | Value |
 |:----|:------|
+| `dir` | Absolute path of the project directory (the directory holding `kevin.cue`). |
 | `root_cert` | Host path of kevin's root CA certificate file. |
 | `ca_cert` | Host path of this project's intermediate CA certificate file. |
 | `ca_key` | Host path of this project's intermediate CA private key file. |

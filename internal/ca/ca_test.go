@@ -380,6 +380,7 @@ func TestProjectKeyPath(t *testing.T) {
 func TestProjectVars(t *testing.T) {
 	got := ca.ProjectVars("/work/project", "demo")
 	assert.Equal(t, map[string]string{
+		"dir":       "/work/project",
 		"root_cert": ca.RootCertPath(),
 		"ca_cert":   ca.ProjectCertPath("/work/project", "demo"),
 		"ca_key":    ca.ProjectKeyPath("/work/project", "demo"),

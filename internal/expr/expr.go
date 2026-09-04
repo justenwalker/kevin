@@ -62,7 +62,8 @@ type Scopes struct {
 //  3. `env`: the kevin process's own environment variables, e.g. `env.HOME`.
 //     A reference to an unset variable errors; use `has(env.FOO) ? env.FOO : "default"` for a fallback.
 //  4. `project`: project-level constants kevin computes once per session,
-//     such as `project.root_cert`, keyed by name, same map shape as `env`.
+//     such as `project.dir` or `project.root_cert`, keyed by name, same map
+//     shape as `env`.
 func Render(raw json.RawMessage, step string, scopes Scopes) (json.RawMessage, error) {
 	// inexpensive early exit.
 	// If we have no '${' cel marker, then there is nothing to evaluate.
