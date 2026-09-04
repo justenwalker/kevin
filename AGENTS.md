@@ -226,7 +226,11 @@ Key model to hold in your head when changing any of this:
   container plugin publishes a step's port on loopback and returns that as
   the upstream. A step is "ready" when its published port accepts a
   connection, not when the container reports `Running`.
-- **Egress is default-deny.** `proxy: egress: allow` in `kevin.cue` is
+- **Egress denial has no schema default.** `proxy: egress: deny` carries no
+  default (like `proxy.listen`/`gateway_port`/`console.listen`) - an
+  environment must say `deny: true` or `deny: false` itself, so a
+  tag-driven value (`deny: someTag`) unifies cleanly instead of silently
+  losing to a schema default. `proxy: egress: allow` in `kevin.cue` is
   environment-wide; a step's `Up` result can add hosts for itself via
   `egress_allow`. Denied requests still complete the TLS MITM and get a
   `403` naming the host and the CUE fix, with cache-busting headers.

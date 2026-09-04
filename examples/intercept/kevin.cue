@@ -31,6 +31,7 @@ project: "intercept-example"
 proxy: {
 	listen:       "127.0.0.1:18080"
 	gateway_port: 18082
+	egress: deny: true
 }
 console: listen: "127.0.0.1:18081"
 

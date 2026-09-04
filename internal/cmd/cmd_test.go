@@ -16,11 +16,12 @@ import (
 )
 
 // listenBlockDefault is a "proxy: {...}, console: {...}" CUE snippet
-// naming arbitrary literal ports as defaults - proxy.listen/
-// proxy.gateway_port/console.listen carry no schema default, but nothing
-// here binds a real port (validate/init never call startProxy/startConsole),
-// so a fixed literal default is enough.
-const listenBlockDefault = `proxy: {listen: string | *"127.0.0.1:18080", gateway_port: int | *18081}
+// naming arbitrary literal ports and egress: deny as defaults -
+// proxy.listen/proxy.gateway_port/console.listen/proxy.egress.deny all
+// carry no schema default, but nothing here binds a real port or dials
+// the internet (validate/init never call startProxy/startConsole), so a
+// fixed literal default is enough.
+const listenBlockDefault = `proxy: {listen: string | *"127.0.0.1:18080", gateway_port: int | *18081, egress: deny: bool | *true}
 console: listen: string | *"127.0.0.1:18082"
 `
 

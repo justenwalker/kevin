@@ -158,13 +158,16 @@ proxy: {
 
 	egress: {
 		// allow lists the external hosts that every step can reach. The proxy
-		// denies egress by default. The proxy blocks a host that is absent
-		// from this list and absent from the list of a step.
+		// blocks a host that is absent from this list and absent from the
+		// list of a step, when deny is true.
 		allow: [...string] | *[]
 
-		// deny blocks a host that no step allows and that allow omits. Set it
-		// to false for an environment that needs no such protection.
-		deny: bool | *true
+		// deny blocks a host that no step allows and that allow omits. Must
+		// be set explicitly - kevin does not pick a default, so a tag-driven
+		// value (deny: someTag) unifies cleanly instead of silently losing
+		// to a schema default (see the Egress control guide). Set it to
+		// false for an environment that needs no such protection.
+		deny: bool
 	}
 }
 

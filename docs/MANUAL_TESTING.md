@@ -138,6 +138,16 @@ level.
 - [ ] Restart; every external host is now reachable through the proxy with no
       403 at all.
 
+Revert the edit. Then temporarily remove the `deny: true` line from
+`examples/web/kevin.cue`'s `proxy:` block entirely (leaving `listen:` and
+`gateway_port:` in place).
+
+- [ ] `kevin -C examples/web validate` fails clearly, naming
+      `proxy.egress.deny` - it carries no schema default, same as
+      `proxy.listen`/`gateway_port`/`console.listen`, so a tag-driven value
+      (`deny: someTag`) unifies cleanly instead of silently losing to a
+      schema default (see the Egress control guide).
+
 Revert the edit before moving on.
 
 ## 4. CA and trust store (`kevin ca`)

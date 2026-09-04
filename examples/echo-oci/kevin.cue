@@ -16,6 +16,7 @@ project: "echo-oci-example"
 proxy: {
 	listen:       "127.0.0.1:18110"
 	gateway_port: 18111
+	egress: deny: true
 }
 console: listen: "127.0.0.1:18112"
 

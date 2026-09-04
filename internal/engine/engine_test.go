@@ -135,18 +135,19 @@ func project(t *testing.T, body string) string {
 	return dir
 }
 
-// proxyBlock is a "proxy: {listen: ..., gateway_port: ...}\nconsole:
-// listen: ...\n" CUE snippet naming freshly reserved, free ports as
-// defaults, not concrete values - proxy.listen, proxy.gateway_port, and
-// console.listen all carry no schema default, so every fixture that
-// reaches config.Config() needs these, but a body that sets its own value
-// for any of the three must still be able to unify its concrete value
-// over this block's default instead of conflicting with it.
+// proxyBlock is a "proxy: {listen: ..., gateway_port: ..., egress: deny:
+// ...}\nconsole: listen: ...\n" CUE snippet naming freshly reserved, free
+// ports and a deny default, not concrete values - proxy.listen,
+// proxy.gateway_port, console.listen, and proxy.egress.deny all carry no
+// schema default, so every fixture that reaches config.Config() needs
+// these, but a body that sets its own value for any of the four must
+// still be able to unify its concrete value over this block's default
+// instead of conflicting with it.
 func proxyBlock(t *testing.T) string {
 	t.Helper()
 	_, gatewayPort, err := net.SplitHostPort(freeAddr(t))
 	require.NoError(t, err)
-	return "proxy: {listen: string | *" + strconv.Quote(freeAddr(t)) + ", gateway_port: int | *" + gatewayPort + "}\n" +
+	return "proxy: {listen: string | *" + strconv.Quote(freeAddr(t)) + ", gateway_port: int | *" + gatewayPort + ", egress: deny: bool | *true}\n" +
 		"console: listen: string | *" + strconv.Quote(freeAddr(t)) + "\n"
 }
 
@@ -857,8 +858,8 @@ env: a: uses: "nope:echo"
 }
 
 // TestRunAppliesEgressFromConfigToTheProxy proves proxy.egress.allow in
-// kevin.cue reaches the running proxy, and that the default-deny still
-// blocks everything else.
+// kevin.cue reaches the running proxy, and that deny (unset here, so
+// proxyBlock's own default true applies) still blocks everything else.
 func TestRunAppliesEgressFromConfigToTheProxy(t *testing.T) {
 	requireRelay(t)
 
@@ -912,7 +913,7 @@ env: a: {uses: "echo:echo", with: message: "A"}
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode,
-		"deny defaults to true, and that default must reach the proxy")
+		"proxyBlock's own deny:true default must reach the proxy")
 	assert.Contains(t, string(body), "Blocked by kevin")
 
 	cancel()

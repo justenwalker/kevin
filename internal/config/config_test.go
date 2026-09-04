@@ -13,13 +13,14 @@ import (
 )
 
 // listenBlockDefault is a "proxy: {...}, console: {...}" CUE snippet
-// naming arbitrary literal ports as defaults, not concrete values -
-// proxy.listen/proxy.gateway_port/console.listen carry no schema default,
-// but nothing in this package binds a real port (pure CUE decode, no
-// network), so a fixed literal default is enough. A src that sets its own
-// value for any of these three fields unifies its concrete value over
-// this default instead of conflicting with it.
-const listenBlockDefault = `proxy: {listen: string | *"127.0.0.1:18080", gateway_port: int | *18081}
+// naming arbitrary literal ports and egress: deny as defaults, not
+// concrete values - proxy.listen/proxy.gateway_port/console.listen/
+// proxy.egress.deny all carry no schema default, but nothing in this
+// package binds a real port or dials the internet (pure CUE decode), so
+// a fixed literal default is enough. A src that sets its own value for
+// any of these four fields unifies its concrete value over this default
+// instead of conflicting with it.
+const listenBlockDefault = `proxy: {listen: string | *"127.0.0.1:18080", gateway_port: int | *18081, egress: deny: bool | *true}
 console: listen: string | *"127.0.0.1:18082"
 `
 
@@ -65,7 +66,7 @@ func TestLoad(t *testing.T) {
 	t.Run("resolves a dotfile-named environment", func(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, ".staging.kevin.yaml"),
-			[]byte("project: staging-hidden\nproxy:\n  listen: \"127.0.0.1:18080\"\n  gateway_port: 18081\nconsole:\n  listen: \"127.0.0.1:18082\"\n"), 0o600))
+			[]byte("project: staging-hidden\nproxy:\n  listen: \"127.0.0.1:18080\"\n  gateway_port: 18081\n  egress:\n    deny: true\nconsole:\n  listen: \"127.0.0.1:18082\"\n"), 0o600))
 
 		f, err := config.Load(dir, "staging", nil)
 		require.NoError(t, err)
@@ -84,7 +85,7 @@ plugins: echo: cmd: "echo"`)
 
 		yamlDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(yamlDir, "kevin.yaml"),
-			[]byte("project: from-yaml\nplugins:\n  echo:\n    cmd: echo\nproxy:\n  listen: \"127.0.0.1:18080\"\n  gateway_port: 18081\nconsole:\n  listen: \"127.0.0.1:18082\"\n"), 0o600))
+			[]byte("project: from-yaml\nplugins:\n  echo:\n    cmd: echo\nproxy:\n  listen: \"127.0.0.1:18080\"\n  gateway_port: 18081\n  egress:\n    deny: true\nconsole:\n  listen: \"127.0.0.1:18082\"\n"), 0o600))
 		yf, err := config.Load(yamlDir, "", nil)
 		require.NoError(t, err)
 		yamlSpecs, err := yf.Plugins()
@@ -93,7 +94,7 @@ plugins: echo: cmd: "echo"`)
 
 		jsonDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(jsonDir, "kevin.json"),
-			[]byte(`{"project":"from-yaml","plugins":{"echo":{"cmd":"echo"}},"proxy":{"listen":"127.0.0.1:18080","gateway_port":18081},"console":{"listen":"127.0.0.1:18082"}}`), 0o600))
+			[]byte(`{"project":"from-yaml","plugins":{"echo":{"cmd":"echo"}},"proxy":{"listen":"127.0.0.1:18080","gateway_port":18081,"egress":{"deny":true}},"console":{"listen":"127.0.0.1:18082"}}`), 0o600))
 		jf, err := config.Load(jsonDir, "", nil)
 		require.NoError(t, err)
 		jsonSpecs, err := jf.Plugins()
@@ -240,6 +241,36 @@ if airgap {
 		cfg, err := f.Config()
 		require.NoError(t, err)
 		assert.Equal(t, "airgap.test", cfg.Domain)
+	})
+
+	t.Run("a tag reference unifies cleanly into a field with no schema default", func(t *testing.T) {
+		// proxy.egress.deny carries no schema default (unlike domain above),
+		// so binding it straight to a tag - the pattern the Egress control
+		// guide documents - needs its own full proxy/console block instead
+		// of write()'s listenBlockDefault, whose own egress: deny: *true
+		// default would otherwise collide with this one exactly the way
+		// deny: *airgap | bool used to.
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(`package kevin
+
+project: "base"
+proxy: {listen: "127.0.0.1:18080", gateway_port: 18081}
+console: listen: "127.0.0.1:18082"
+airgap: bool | *false @tag(airgap,type=bool)
+proxy: egress: deny: airgap
+`), 0o600))
+
+		without, err := config.Load(dir, "", nil)
+		require.NoError(t, err)
+		withoutCfg, err := without.Config()
+		require.NoError(t, err)
+		assert.False(t, withoutCfg.Proxy.Egress.Deny, "airgap defaults false, so deny must too")
+
+		with, err := config.Load(dir, "", []string{"airgap=true"})
+		require.NoError(t, err)
+		withCfg, err := with.Config()
+		require.NoError(t, err)
+		assert.True(t, withCfg.Proxy.Egress.Deny)
 	})
 
 	t.Run("a bare tag name is shorthand for name=true", func(t *testing.T) {

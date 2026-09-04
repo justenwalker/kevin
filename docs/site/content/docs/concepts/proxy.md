@@ -22,7 +22,7 @@ One listener serves three roles.
 2. A reverse proxy. The proxy matches the Host header against the routing table and forwards to the workload.
 3. An egress control. The proxy denies a host that no route covers and that no allow list covers.
 
-Egress denies by default. `proxy: egress: deny: false` in `kevin.cue` disables the control. Every request then reaches the internet, as before milestone 7.
+`proxy: egress: deny` has no schema default - `kevin.cue` must set it to `true` or `false` itself. Set it `false` to disable the control; every request then reaches the internet, as before milestone 7. Requiring an explicit value, rather than defaulting one, is what lets a tag-driven value (`deny: someTag`) unify cleanly instead of silently losing to a schema default - see the [Egress control guide]({{< relref "/docs/guides/proxy-and-egress#egress-control" >}}) for why a defaulted field can't be re-defaulted from outside.
 
 An allow entry is an exact host, such as `api.github.com`, or a leading-dot wildcard, such as `*.github.com`. A wildcard matches a subdomain. It does not match the bare domain: `*.github.com` matches `api.github.com`, not `github.com`. List the bare domain too when both must reach the internet. Matching ignores case and ignores any port. `proxy: egress: allow` in `kevin.cue` names hosts for the whole environment. A step names hosts for itself alone, through the `egress_allow` field of its `Up` result. A route that a step registers always reaches the proxy. A workload of the environment is not egress.
 

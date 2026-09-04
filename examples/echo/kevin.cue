@@ -21,6 +21,7 @@ project: "echo-example"
 proxy: {
 	listen:       "127.0.0.1:18100"
 	gateway_port: 18101
+	egress: deny: true
 }
 console: listen: "127.0.0.1:18102"
 

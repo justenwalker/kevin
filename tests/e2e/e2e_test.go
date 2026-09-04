@@ -179,18 +179,18 @@ func freeAddr(t *testing.T) string {
 	return addr
 }
 
-// proxyBlock is a "proxy: {listen: ..., gateway_port: ...}\nconsole:
-// listen: ...\n" CUE snippet naming freshly reserved, free ports as
-// defaults, not concrete values - proxy.listen, proxy.gateway_port, and
-// console.listen carry no schema default, but a kevin.cue fixture that
-// sets its own value for any of these three must still be able to unify
-// its concrete value over this block's default instead of conflicting
-// with it.
+// proxyBlock is a "proxy: {listen: ..., gateway_port: ..., egress: deny:
+// ...}\nconsole: listen: ...\n" CUE snippet naming freshly reserved, free
+// ports and a deny default, not concrete values - proxy.listen,
+// proxy.gateway_port, console.listen, and proxy.egress.deny all carry no
+// schema default, but a kevin.cue fixture that sets its own value for any
+// of these four must still be able to unify its concrete value over this
+// block's default instead of conflicting with it.
 func proxyBlock(t *testing.T) string {
 	t.Helper()
 	_, gatewayPort, err := net.SplitHostPort(freeAddr(t))
 	require.NoError(t, err)
-	return "proxy: {listen: string | *" + strconv.Quote(freeAddr(t)) + ", gateway_port: int | *" + gatewayPort + "}\n" +
+	return "proxy: {listen: string | *" + strconv.Quote(freeAddr(t)) + ", gateway_port: int | *" + gatewayPort + ", egress: deny: bool | *true}\n" +
 		"console: listen: string | *" + strconv.Quote(freeAddr(t)) + "\n"
 }
 

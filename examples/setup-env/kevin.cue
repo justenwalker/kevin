@@ -28,6 +28,7 @@ project: "setup-env-example"
 proxy: {
 	listen:       "127.0.0.1:18120"
 	gateway_port: 18121
+	egress: deny: true
 }
 console: listen: "127.0.0.1:18122"
 
