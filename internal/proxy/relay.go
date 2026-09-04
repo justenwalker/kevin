@@ -22,32 +22,29 @@ func splitSOCKS5(address string) (string, string, bool) {
 	return strings.Cut(rest, "/")
 }
 
-// socks5TargetKey is the request-context key that carries the real
-// upstream address a route's Upstream (itself a socks5:// relay address)
-// must be CONNECTed to, once forward has already rewritten r.URL.Host to
-// the relay's own dialable address.
-type socks5TargetKey struct{}
+// socks5RelayKey is the request-context key that carries the relay a route's
+// Upstream (itself a socks5:// relay address) must be CONNECTed through.
+type socks5RelayKey struct{}
 
-// withSOCKS5Target attaches target to ctx, for dialContext to read.
-func withSOCKS5Target(ctx context.Context, target string) context.Context {
-	return context.WithValue(ctx, socks5TargetKey{}, target)
+// withSOCKS5Relay attaches relay to ctx, for dialContext to read.
+func withSOCKS5Relay(ctx context.Context, relay string) context.Context {
+	return context.WithValue(ctx, socks5RelayKey{}, relay)
 }
 
-// socks5TargetFromContext returns the target that withSOCKS5Target attached,
-// if any.
-func socks5TargetFromContext(ctx context.Context) (string, bool) {
-	target, ok := ctx.Value(socks5TargetKey{}).(string)
-	return target, ok
+// socks5RelayFromContext returns the relay that withSOCKS5Relay attached, if
+// any.
+func socks5RelayFromContext(ctx context.Context) (string, bool) {
+	relay, ok := ctx.Value(socks5RelayKey{}).(string)
+	return relay, ok
 }
 
 // dialContext is p.rp's Transport.DialContext, and also what serveUpgrade
-// dials through. For an ordinary route it is a plain TCP dial. For a route
-// whose Upstream is a socks5:// relay address, forward has already
-// rewritten addr to the relay's own dialable address and attached the real
-// target to ctx - dialContext then dials addr and issues a SOCKS5 CONNECT
-// for that target, instead of treating addr itself as the destination.
+// dials through. For an ordinary route it is a plain TCP dial to addr. For a
+// route whose Upstream is a socks5:// relay address, addr is already the
+// real target - forward left r.URL.Host alone - and ctx carries the relay
+// to CONNECT through.
 func (p *Proxy) dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	target, ok := socks5TargetFromContext(ctx)
+	relay, ok := socks5RelayFromContext(ctx)
 	if !ok {
 		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
 		if err != nil {
@@ -55,7 +52,7 @@ func (p *Proxy) dialContext(ctx context.Context, network, addr string) (net.Conn
 		}
 		return conn, nil
 	}
-	return dialViaSOCKS5(ctx, network, addr, target)
+	return dialViaSOCKS5(ctx, network, relay, addr)
 }
 
 // dialViaSOCKS5 dials relayAddr and asks it to CONNECT to target. Mirrors

@@ -458,20 +458,21 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request) {
 		upstream := target.Upstream
 		if relay, connectTarget, ok := splitSOCKS5(upstream); ok {
 			// Upstream names a relay-reachable target, not something this
-			// process can dial directly (see relay.go). Dial the relay
-			// itself - a real, host-dialable address - and carry the real
-			// target on the context for dialContext to CONNECT to.
-			upstream = relay
-			r = r.WithContext(withSOCKS5Target(r.Context(), connectTarget))
+			// process can dial directly (see relay.go). r.URL.Host stays the
+			// real target - never the relay's own address - so Transport's
+			// keep-alive pool (keyed off the request URL) can't confuse two
+			// routes that share one relay; carry the relay itself on the
+			// context for dialContext to CONNECT through.
+			upstream = connectTarget
+			r = r.WithContext(withSOCKS5Relay(r.Context(), relay))
 		}
 		r.URL.Host = upstream
 		r.URL.Scheme = "http"
 		if target.TLS {
 			r.URL.Scheme = schemeHTTPS
-			// r.URL.Host is now the dial address - the relay's own address
-			// for a relay route, not the upstream's real identity. Carry
-			// the name the client actually asked for on the context, for
-			// dialTLSContext to verify the certificate against.
+			// Carry the name the client actually asked for on the context,
+			// for dialTLSContext to verify the certificate against - r.URL.Host
+			// is the target address, not necessarily a name a cert would list.
 			r = r.WithContext(withTLSServerName(r.Context(), hostOnly(r.Host)))
 		}
 		host = hostOnly(r.Host)

@@ -51,6 +51,29 @@ func TestRoutesThroughASOCKS5RelayToTheRealUpstream(t *testing.T) {
 		"the workload must see the hostname the client asked for, not the relay target")
 }
 
+func TestTwoRoutesThroughTheSameRelayReachTheirOwnUpstream(t *testing.T) {
+	p, client := startTestProxyWithClient(t)
+	relay := startSOCKS5(t)
+	first := createTestUpstream(t, "from first")
+	second := createTestUpstream(t, "from second")
+
+	p.AddRoutes(
+		proxy.Route{Host: "first.kevin.test", Upstream: "socks5://" + relay + "/" + getTestURLHost(t, first.URL)},
+		proxy.Route{Host: "second.kevin.test", Upstream: "socks5://" + relay + "/" + getTestURLHost(t, second.URL)},
+	)
+
+	// A request to first leaves an idle keep-alive connection through the
+	// relay pooled. A request to second, sharing the same relay, must not
+	// get that connection handed back to it - the pool has to key on the
+	// real target, not the relay address every relay route rewrites
+	// r.URL.Host to.
+	_, firstBody := getTestURL(t, client, "http://first.kevin.test/")
+	require.Equal(t, "from first", firstBody)
+
+	_, secondBody := getTestURL(t, client, "http://second.kevin.test/")
+	assert.Equal(t, "from second", secondBody)
+}
+
 func TestRouteThroughAnUnreachableRelayFailsCleanly(t *testing.T) {
 	p, client := startTestProxyWithClient(t)
 

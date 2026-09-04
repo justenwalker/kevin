@@ -9,8 +9,9 @@ import (
 
 // tlsServerNameKey is the request-context key that carries the hostname a
 // tls: true route's certificate must be verified against - the name the
-// client actually asked for, not the dial address, which for a relay route
-// is the relay's own address (see relay.go's socks5TargetKey).
+// client actually asked for, which need not match addr (see relay.go's
+// socks5RelayKey): addr is the real target, but a cert may list some other
+// name for it.
 type tlsServerNameKey struct{}
 
 // withTLSServerName attaches serverName to ctx, for dialTLSContext to read.
@@ -29,8 +30,8 @@ func tlsServerNameFromContext(ctx context.Context) (string, bool) {
 // It dials via p.dialContext - so a relay-routed upstream still gets a
 // SOCKS5 CONNECT to the real target - then completes the TLS handshake
 // itself, with ServerName taken from the request context rather than addr:
-// addr is only ever a dial address, and for a relay route that address is
-// the relay's own, not the upstream's real identity.
+// the client's own request may name the upstream differently than the
+// address dials it.
 func (p *Proxy) dialTLSContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	conn, err := p.dialContext(ctx, network, addr)
 	if err != nil {

@@ -46,8 +46,8 @@ func (p *Proxy) serveUpgrade(w http.ResponseWriter, r *http.Request) int {
 	if r.URL.Scheme == schemeHTTPS {
 		// forward already attached the real upstream hostname to the
 		// context for a tls: true route (dialTLSContext reads it back) -
-		// r.URL.Host here is only ever a dial address, the relay's own for
-		// a relay route, not the upstream's real identity.
+		// r.URL.Host is the dial address, which need not be the name a
+		// cert lists.
 		dial = p.dialTLSContext
 	}
 	upstream, err := dial(r.Context(), "tcp", r.URL.Host)
