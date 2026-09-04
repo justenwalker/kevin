@@ -228,6 +228,33 @@ func TestClusterConfig(t *testing.T) {
 	})
 }
 
+func TestReuseFingerprint(t *testing.T) {
+	cfg := config{Workers: 1}
+
+	t.Run("no proxy env yields the same fingerprint regardless of the map", func(t *testing.T) {
+		without := reuseFingerprint(cfg, 0, nil)
+		empty := reuseFingerprint(cfg, 0, map[string]string{})
+		assert.Equal(t, without, empty)
+	})
+
+	t.Run("carries the resolved proxy endpoint", func(t *testing.T) {
+		got := reuseFingerprint(cfg, 0, map[string]string{"HTTP_PROXY": "http://host.docker.internal:54321"})
+		assert.Contains(t, got, "http://host.docker.internal:54321")
+	})
+
+	t.Run("a different proxy endpoint changes the fingerprint", func(t *testing.T) {
+		a := reuseFingerprint(cfg, 0, map[string]string{"HTTP_PROXY": "http://host.docker.internal:1"})
+		b := reuseFingerprint(cfg, 0, map[string]string{"HTTP_PROXY": "http://host.docker.internal:2"})
+		assert.NotEqual(t, a, b, "a cluster created against one proxy address must not fingerprint as reusable against another")
+	})
+
+	t.Run("the cluster config prefix is unchanged", func(t *testing.T) {
+		got := reuseFingerprint(cfg, 0, map[string]string{"HTTP_PROXY": "http://host.docker.internal:54321"})
+		assert.True(t, strings.HasPrefix(got, clusterConfig(cfg, 0)),
+			"the fingerprint must extend clusterConfig's own text, not replace it - configMarkerFile's content is never fed back into kind create")
+	})
+}
+
 func TestProxyEnv(t *testing.T) {
 	env := plugin.Env{ProxyEnv: map[string]string{
 		"HTTP_PROXY": "http://kevin:8080",

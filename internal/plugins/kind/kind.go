@@ -204,7 +204,10 @@ func reuseOrCreateCluster(ctx context.Context, cfg config, req *plugin.UpRequest
 	}
 
 	if len(existingNodes) > 0 && reusablePort {
-		wantConfig := clusterConfig(cfg, relayHostPort)
+		// A cluster created against one proxy address must not be reused
+		// against another - kind bakes the proxy env into containerd once,
+		// at creation, and nothing updates it afterward.
+		wantConfig := reuseFingerprint(cfg, relayHostPort, proxyEnv(cfg, req.Env))
 		if marker, readErr := os.ReadFile(configMarkerFile(kubeconfig)); readErr == nil && string(marker) == wantConfig {
 			if err = joinSharedNetwork(ctx, req.Env.Network, existingNodes); err != nil {
 				return nil, 0, err
@@ -223,10 +226,16 @@ func reuseOrCreateCluster(ctx context.Context, cfg config, req *plugin.UpRequest
 	if err != nil {
 		return nil, 0, err
 	}
-	if err = os.WriteFile(configMarkerFile(kubeconfig), []byte(clusterConfig(cfg, relayHostPort)), 0o600); err != nil {
+	if err = os.WriteFile(configMarkerFile(kubeconfig), []byte(reuseFingerprint(cfg, relayHostPort, proxyEnv(cfg, req.Env))), 0o600); err != nil {
 		return nil, 0, fmt.Errorf("kind: write the cluster config marker for %q: %w", name, err)
 	}
 	return nodeList, relayHostPort, nil
+}
+
+// reuseFingerprint reports the generated kind config plus the resolved
+// proxy endpoint, as a single comparable string.
+func reuseFingerprint(cfg config, relayHostPort int, proxy map[string]string) string {
+	return clusterConfig(cfg, relayHostPort) + "\n# proxy=" + proxy["HTTP_PROXY"]
 }
 
 // createCluster removes a stale cluster of the same name, creates a fresh
