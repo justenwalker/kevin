@@ -42,8 +42,8 @@
 	// ready log report the address directly, and Outputs carries it too,
 	// as host_80 for port 80 and so on. Pair it with a builtin:route step
 	// to put a subdomain of the environment domain in front of it. A map,
-	// not a list, so a kevin.local.cue override can add or change one
-	// entry without replacing the whole set.
+	// not a list, so one entry can be added or changed without replacing
+	// the whole set.
 	expose?: [string]: #Expose
 }
 

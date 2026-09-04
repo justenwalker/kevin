@@ -5,7 +5,7 @@ weight: 2
 
 # Environment file
 
-An environment is a `kevin.cue` (or `.yaml`/`.yml`/`.json`, or a `.`-prefixed dotfile variant of any of those - see [File name and format](#file-name-and-format) below) in the project directory. It declares the steps that make up the environment, and the plugins that a step outside kevin needs. A CUE file has no package clause.
+An environment is a `kevin.cue` (or `.yaml`/`.yml`/`.json`, or a `.`-prefixed dotfile variant of any of those - see [File name and format](#file-name-and-format) below) in the project directory. It declares the steps that make up the environment, and the plugins that a step outside kevin needs. A CUE file may declare a `package` clause; see [Package-mode splitting](#package-mode-splitting) below.
 
 A plugin is a provider: it offers one or more step types under its own name. A step's `uses` field names a step type as `<plugin>:<step>`. `builtin` is the provider kevin supplies, and it needs no `plugins:` entry. See [Reference]({{< relref "/docs/reference/steps" >}}) for every step type it offers and each one's `with` block.
 
@@ -161,9 +161,28 @@ looks for `staging.kevin.cue` (or `.staging.kevin.cue`, `staging.kevin.yaml`, ..
 
 `KEVIN_PROJECT_STATE_DIR` overrides that per-project workspace path outright (skipping the `.kevin`/`<name>` join). `KEVIN_USER_STATE_DIR` does the same for the user-wide state directory, `~/.kevin`, which holds the trust store and package cache described below.
 
-### Local overrides
+### Package-mode splitting
 
-A project directory can also hold an optional `kevin.local.cue` (or `.kevin.local.cue`), for machine-specific tweaks that shouldn't go into source control - local plugin credentials, a locally-adjusted port, an extra egress host for your own workflow. Check `kevin.cue` in as usual, gitignore `kevin.local.cue` in your own project, and kevin unifies the two if the local file exists:
+A `kevin.cue` may declare a `package` clause. When it does, every other `.cue` file in the same directory sharing that clause unifies with it - CUE's own multi-file-per-package model, no `import` statement and no `cue.mod` required:
+
+```cue
+// kevin.cue
+package kevin
+
+project: "my-app"
+env: web: {uses: "builtin:container", with: image: "nginx:alpine"}
+```
+
+```cue
+// mirrors.cue
+package kevin
+
+plugins: registry: config: mirror: "https://mirror.internal"
+```
+
+`kevin -C .` loads both files as one environment. A `.cue` file in the directory *without* a matching `package` clause is a hard error naming the conflict - kevin never silently drops half a package-mode environment because one file forgot its clause. YAML and JSON candidates can't declare a package and always load alone; a legacy-format file sitting in an otherwise package-mode directory is the same hard error.
+
+Machine-specific facts that shouldn't go into source control - local plugin credentials, a locally-adjusted port - now live in a plain, developer-named `.cue` file, gitignored, carrying the same `package` clause as the rest of the directory:
 
 ```sh
 echo 'kevin.local.cue' >> .gitignore
@@ -171,12 +190,29 @@ echo 'kevin.local.cue' >> .gitignore
 
 ```cue
 // kevin.local.cue
+package kevin
+
 plugins: registry: config: token: "local-dev-token"
 ```
 
-A named environment's local file follows the same naming: `staging.kevin.local.cue` (or `.staging.kevin.local.cue`) overrides `staging.kevin.cue`.
+This is the one place kevin does *not* guard against a missing clause: a gitignored file the developer owns that itself forgets `package kevin` is silently excluded from the build, not an error - the same behavior CUE's own multi-file-package model gives any file that isn't gitignored, applied here to a file no one else's build depends on.
 
-The merge is plain CUE unification, same as everything else the schema does: the local file can freely add fields the base file doesn't set, with no conflict. Two different concrete values for the same field is a hard error naming the field, not a silent override - to make a field intentionally overridable, give it a default in `kevin.cue` (`listen: *"127.0.0.1:8080" | _`), which lets a local file's concrete value win without contradicting it. Several core fields (`project`, `domain`, `proxy.listen`, `console.listen`) already carry a schema default, so they're overridable from a local file with no extra syntax in the base file.
+### `@tag` mode switches
+
+A mode toggle - `airgap`, a feature flag, anything that used to mean editing `kevin.local.cue` on your own machine - is a job for CUE's `@tag`, not a second file:
+
+```cue
+package kevin
+
+airgap: bool | *false @tag(airgap,type=bool)
+proxy: egress: deny: *airgap | bool
+```
+
+```sh
+kevin run -t airgap
+```
+
+`--tag`/`-t` is repeatable and only works against a package-mode file (see above) - a legacy `kevin.cue` with no `package` clause can't take a tag, and kevin refuses the flag outright rather than silently doing nothing. A bare `-t airgap` is shorthand for `-t airgap=true`; `-t key=value` sets any other `@tag` type CUE supports (string, int, number).
 
 ## Scopes
 

@@ -91,6 +91,12 @@ type Options struct {
 	// unnamed environment.
 	Name string
 
+	// Tags injects CUE "@tag" values (see config.Load) into a
+	// package-mode environment file. A bare NAME is shorthand for
+	// NAME=true. A non-empty Tags is rejected as an error at load time
+	// when the resolved environment file declares no CUE package.
+	Tags []string
+
 	// Scope selects which DAG to run: config.ScopeSetup or config.ScopeEnv.
 	Scope string
 
@@ -131,7 +137,7 @@ func Run(ctx context.Context, opts Options) error {
 	live := wantsLiveUI(ctx, opts)
 	opts.Events = eventsWriter(opts, live)
 
-	cfg, plugins, caps, err := LoadAndLaunch(ctx, opts.Dir, opts.Name)
+	cfg, plugins, caps, err := LoadAndLaunch(ctx, opts.Dir, opts.Name, opts.Tags)
 	defer CloseAll(plugins)
 	if err != nil {
 		return err
@@ -673,7 +679,7 @@ func Teardown(ctx context.Context, opts Options) error {
 	live := wantsLiveUI(ctx, opts)
 	opts.Events = eventsWriter(opts, live)
 
-	cfg, plugins, caps, err := LoadAndLaunch(ctx, opts.Dir, opts.Name)
+	cfg, plugins, caps, err := LoadAndLaunch(ctx, opts.Dir, opts.Name, opts.Tags)
 	defer CloseAll(plugins)
 	if err != nil {
 		return err

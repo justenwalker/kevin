@@ -47,9 +47,8 @@
 	// Up does not wait for it to be dialable, only wires the relay and
 	// reports the address. Up also reports each entry's relay address as
 	// an "expose_<name>" output, for a downstream step (such as
-	// builtin:wait) to read. A map, not a list, so a kevin.local.cue
-	// override can add or change one entry without replacing the whole
-	// set.
+	// builtin:wait) to read. A map, not a list, so one entry can be added
+	// or changed without replacing the whole set.
 	expose?: [string]: #Expose
 
 	// relay deploys the SOCKS5 relay pod even with no expose entries, and

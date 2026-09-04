@@ -51,6 +51,7 @@ const envNameVar = "KEVIN_ENV"
 type options struct {
 	dir   string
 	name  string
+	tags  []string
 	debug bool
 
 	// ran becomes true when a command body starts.
@@ -109,6 +110,8 @@ func NewRootCommand() (*cobra.Command, *options) {
 	flags.StringVarP(&opts.dir, "dir", "C", ".", "project directory that holds a kevin environment file ("+strings.Join(config.FileNames, ", ")+")")
 	flags.StringVarP(&opts.name, "env", "e", os.Getenv(envNameVar),
 		"select a named environment (<name>.kevin.<ext> or .<name>.kevin.<ext>) instead of the default; defaults to "+envNameVar+" if set")
+	flags.StringArrayVarP(&opts.tags, "tag", "t", nil,
+		"inject a CUE @tag value (repeatable); a bare NAME is shorthand for NAME=true; requires the environment file to declare a CUE package")
 	flags.BoolVar(&opts.debug, "debug", false, "log at debug level")
 
 	root.AddCommand(
@@ -175,6 +178,7 @@ func runCommand(opts *options) *cobra.Command {
 			return engine.Run(cmd.Context(), engine.Options{
 				Dir:   opts.dir,
 				Name:  opts.name,
+				Tags:  opts.tags,
 				Scope: config.ScopeEnv,
 				Keep:  keep,
 				Debug: opts.debug,
@@ -202,6 +206,7 @@ func setupCommand(opts *options) *cobra.Command {
 			return engine.Run(cmd.Context(), engine.Options{
 				Dir:    opts.dir,
 				Name:   opts.name,
+				Tags:   opts.tags,
 				Scope:  config.ScopeSetup,
 				Keep:   true,
 				NoWait: true,
@@ -220,7 +225,7 @@ func teardownCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			return engine.Teardown(cmd.Context(), engine.Options{Dir: opts.dir, Name: opts.name, Debug: opts.debug})
+			return engine.Teardown(cmd.Context(), engine.Options{Dir: opts.dir, Name: opts.name, Tags: opts.tags, Debug: opts.debug})
 		},
 	}
 }
@@ -235,7 +240,7 @@ func initCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			names, err := engine.FetchPlugins(cmd.Context(), opts.dir, opts.name)
+			names, err := engine.FetchPlugins(cmd.Context(), opts.dir, opts.name, opts.tags)
 			if err != nil {
 				return err
 			}
@@ -260,7 +265,7 @@ func validateCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			cfg, plugins, _, err := engine.LoadAndLaunch(cmd.Context(), opts.dir, opts.name)
+			cfg, plugins, _, err := engine.LoadAndLaunch(cmd.Context(), opts.dir, opts.name, opts.tags)
 			engine.CloseAll(plugins)
 			if err != nil {
 				return err

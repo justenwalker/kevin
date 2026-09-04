@@ -55,6 +55,14 @@ const (
 	// ErrExportNotSupported reports a command's needs list naming a step
 	// whose plugin does not implement Export for that step type.
 	ErrExportNotSupported = Error("config: needs references a step that does not implement export")
+
+	// ErrPackageConflict reports a required environment file that declares
+	// no CUE package while another .cue file in the same directory does.
+	ErrPackageConflict = Error("config: a CUE file in the project directory declares a package, but the environment file does not")
+
+	// ErrTagWithoutPackage reports a non-empty tags argument to [Load]
+	// against an environment file that declares no CUE package.
+	ErrTagWithoutPackage = Error("config: --tag/-t requires the environment file to declare a CUE package")
 )
 
 // ValidationError indicates a problem validating a kevin configuration file.

@@ -21,6 +21,8 @@ import (
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
 	cueerrors "cuelang.org/go/cue/errors"
+	"cuelang.org/go/cue/load"
+	"cuelang.org/go/cue/parser"
 	jsonpkg "cuelang.org/go/encoding/json"
 	yamlpkg "cuelang.org/go/encoding/yaml"
 
@@ -36,6 +38,13 @@ var coreSchema []byte
 // (see [Load]) looks for the same set with "<name>." prefixed to "kevin".
 var FileNames = candidateFiles("")
 
+// envFileExts are the file extensions [candidateFiles] and
+// [looksLikeCandidateName] recognize as an environment file format.
+var envFileExts = [...]string{"cue", "yaml", "yml", "json"}
+
+// cueExt is the file extension of a CUE source file.
+const cueExt = ".cue"
+
 // candidateFiles builds the ordered list of filenames [Load] accepts for a
 // given environment name ("" for the unnamed environment): a visible and a
 // dotfile variant of each supported format.
@@ -44,23 +53,11 @@ func candidateFiles(name string) []string {
 	if name != "" {
 		prefix = name + "."
 	}
-	exts := [...]string{"cue", "yaml", "yml", "json"}
-	out := make([]string, 0, len(exts)*2)
-	for _, ext := range exts {
+	out := make([]string, 0, len(envFileExts)*2)
+	for _, ext := range envFileExts {
 		out = append(out, prefix+"kevin."+ext, "."+prefix+"kevin."+ext)
 	}
 	return out
-}
-
-// candidateLocalFiles builds the ordered list of local override filenames
-// [Load] accepts for a given environment name, mirroring candidateFiles one
-// step further: a visible and a dotfile variant, CUE only.
-func candidateLocalFiles(name string) []string {
-	prefix := ""
-	if name != "" {
-		prefix = name + "."
-	}
-	return []string{prefix + "kevin.local.cue", "." + prefix + "kevin.local.cue"}
 }
 
 // Builtin is the plugin name that resolves to kevin's builtin step types.
@@ -205,15 +202,21 @@ func mustCompileCoreSchema(ctx *cue.Context) cue.Value {
 // schema. With name == "", Load looks for the unnamed environment
 // (kevin.<ext> or .kevin.<ext>); otherwise it looks for the named one
 // (<name>.kevin.<ext> or .<name>.kevin.<ext>) for each of CUE, YAML, and
-// JSON. Exactly one candidate may exist. The file must not declare a CUE
-// package clause.
+// JSON. Exactly one candidate may exist.
 //
-// Load then looks for an optional local override file (kevin.local.cue or
-// .kevin.local.cue, prefixed with "<name>." when named) and unifies it onto
-// the result if present. A field the override should be able to replace
-// must be declared in the base file with a CUE default (field: *"x" | _);
-// unifying two different concrete values for the same field is an error.
-func Load(dir, name string) (*File, error) {
+// A CUE candidate may declare a package clause. When it does, Load unifies
+// every other .cue file in dir that shares the same package clause
+// alongside it (CUE's own multi-file-per-package model, via
+// [cuelang.org/go/cue/load]) - a .cue file in dir with a *different*
+// package clause returns [ErrPackageConflict]. YAML and JSON candidates
+// never declare a package and always load alone.
+//
+// tags injects "@tag" values (see [cuelang.org/go/cue/load.Config.Tags])
+// into a package-mode load; a bare "name" entry (no "=value") is shorthand
+// for "name=true". tags is only meaningful when the resolved candidate
+// declares a package - a non-empty tags against a package-less candidate
+// returns [ErrTagWithoutPackage].
+func Load(dir, name string, tags []string) (*File, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, fmt.Errorf("config: abs path %q: %w", dir, err)
@@ -224,18 +227,13 @@ func Load(dir, name string) (*File, error) {
 		return nil, err
 	}
 
-	src, err := os.ReadFile(path) //nolint:gosec // reading the project's own config file is the point
-	if err != nil {
-		return nil, fmt.Errorf("config: read %q: %w", path, err)
-	}
-
 	ctx := cuecontext.New()
 
 	schema := mustCompileCoreSchema(ctx)
 
-	user, err := parseFile(ctx, path, src)
+	user, err := loadUser(ctx, abs, path, tags)
 	if err != nil {
-		return nil, newValidationError(abs, fmt.Errorf("%w: %w", ErrInvalid, err))
+		return nil, err
 	}
 
 	value := schema.Unify(user)
@@ -243,26 +241,178 @@ func Load(dir, name string) (*File, error) {
 		return nil, newValidationError(abs, fmt.Errorf("%w: %w", ErrInvalid, err))
 	}
 
-	localPath, err := findLocalFile(abs, name)
+	return &File{ctx: ctx, value: value, dir: abs, name: name}, nil
+}
+
+// loadUser parses path into a [cue.Value]. If path is a .cue file that
+// declares a package clause, loadUser unifies every other .cue file in dir
+// sharing that same clause alongside it, injecting tags as "@tag" values. A
+// package-less path (including every YAML/JSON candidate, which cannot
+// declare a package) parses alone, as [parseFile].
+func loadUser(ctx *cue.Context, dir, path string, tags []string) (cue.Value, error) {
+	pkg, err := cuePackageName(path)
 	if err != nil {
-		return nil, err
-	}
-	if localPath != "" {
-		localSrc, err := os.ReadFile(localPath) //nolint:gosec // reading the project's own config file is the point
-		if err != nil {
-			return nil, fmt.Errorf("config: read %q: %w", localPath, err)
-		}
-		local := ctx.CompileBytes(localSrc, cue.Filename(localPath))
-		if err := local.Err(); err != nil {
-			return nil, newValidationError(abs, fmt.Errorf("%w: %w", ErrInvalid, err))
-		}
-		value = value.Unify(local)
-		if err := value.Err(); err != nil {
-			return nil, newValidationError(abs, fmt.Errorf("%w: %w", ErrInvalid, err))
-		}
+		return cue.Value{}, err
 	}
 
-	return &File{ctx: ctx, value: value, dir: abs, name: name}, nil
+	if pkg == "" {
+		return loadLegacyFile(ctx, dir, path, tags)
+	}
+
+	files, err := packageModeFiles(dir, path, pkg)
+	if err != nil {
+		return cue.Value{}, err
+	}
+	insts := load.Instances(files, &load.Config{Dir: dir, Package: pkg, Tags: normalizeTags(tags)})
+	v := ctx.BuildInstance(insts[0])
+	if err := v.Err(); err != nil {
+		return cue.Value{}, newValidationError(dir, fmt.Errorf("%w: %w", ErrInvalid, err))
+	}
+	return v, nil
+}
+
+// loadLegacyFile parses path alone, as [parseFile] - the pre-package-mode
+// behavior for a candidate (of any supported format) that declares no CUE
+// package. It rejects a non-empty tags ([ErrTagWithoutPackage], "@tag"
+// injection only applies to a package-mode load) and a directory that mixes
+// this package-less candidate with a package-mode sibling
+// ([ErrPackageConflict], see [packageModeSiblings]).
+func loadLegacyFile(ctx *cue.Context, dir, path string, tags []string) (cue.Value, error) {
+	if len(tags) > 0 {
+		return cue.Value{}, uerr.Wrap(fmt.Errorf("config: %s: %w", path, ErrTagWithoutPackage),
+			"-t/--tag was set but %s declares no CUE package - add \"package <name>\" to use --tag", path)
+	}
+	siblings, err := packageModeSiblings(dir, path)
+	if err != nil {
+		return cue.Value{}, err
+	}
+	if len(siblings) > 0 {
+		return cue.Value{}, uerr.Wrap(
+			fmt.Errorf("config: %s: found package clauses in %s: %w", path, strings.Join(siblings, ", "), ErrPackageConflict),
+			"%s declares no CUE package, but %s in the same directory does - "+
+				"give %s a matching \"package\" clause, or remove the stray file",
+			path, strings.Join(siblings, ", "), path)
+	}
+	src, err := os.ReadFile(path) //nolint:gosec // reading the project's own config file is the point
+	if err != nil {
+		return cue.Value{}, fmt.Errorf("config: read %q: %w", path, err)
+	}
+	v, err := parseFile(ctx, path, src)
+	if err != nil {
+		return cue.Value{}, newValidationError(dir, fmt.Errorf("%w: %w", ErrInvalid, err))
+	}
+	return v, nil
+}
+
+// cuePackageName reports the CUE package clause path declares, or "" if
+// path is not a .cue file, or is a .cue file with no package clause. It
+// parses only the package clause, not the rest of the file.
+func cuePackageName(path string) (string, error) {
+	if filepath.Ext(path) != cueExt {
+		return "", nil
+	}
+	f, err := parser.ParseFile(path, nil, parser.PackageClauseOnly)
+	if err != nil {
+		return "", fmt.Errorf("config: parse %q: %w", path, err)
+	}
+	return f.PackageName(), nil
+}
+
+// packageModeSiblings lists every other .cue file in dir (excluding path,
+// and excluding any file [looksLikeCandidateName] recognizes as a different
+// named or unnamed environment's own file) that declares a non-empty
+// package clause. It only runs against a package-less path - package-mode
+// loading resolves its own file list via [packageModeFiles] and needs no
+// separate sibling scan.
+func packageModeSiblings(dir, path string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("config: read %q: %w", dir, err)
+	}
+	var found []string
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != cueExt || looksLikeCandidateName(e.Name()) {
+			continue
+		}
+		candidate := filepath.Join(dir, e.Name())
+		if candidate == path {
+			continue
+		}
+		pkg, err := cuePackageName(candidate)
+		if err != nil {
+			return nil, err
+		}
+		if pkg != "" {
+			found = append(found, e.Name())
+		}
+	}
+	sort.Strings(found)
+	return found, nil
+}
+
+// packageModeFiles lists the .cue files [loadUser]'s package-mode branch
+// unifies for path: path itself, plus every other .cue file in dir that
+// declares pkg as its own package clause - excluding any file
+// [looksLikeCandidateName] recognizes as a different named or unnamed
+// environment's own file, so two environments sharing a directory (today's
+// sibling-file named-environment convention, kevin.cue next to
+// staging.kevin.cue) never merge into each other just because they happen
+// to share a package name.
+func packageModeFiles(dir, path, pkg string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("config: read %q: %w", dir, err)
+	}
+	files := []string{path}
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != cueExt || looksLikeCandidateName(e.Name()) {
+			continue
+		}
+		candidate := filepath.Join(dir, e.Name())
+		if candidate == path {
+			continue
+		}
+		p, err := cuePackageName(candidate)
+		if err != nil {
+			return nil, err
+		}
+		if p == pkg {
+			files = append(files, candidate)
+		}
+	}
+	sort.Strings(files[1:])
+	return files, nil
+}
+
+// looksLikeCandidateName reports whether base (a filename, not a full path)
+// matches the "kevin.<ext>" naming grammar [candidateFiles] generates for
+// any environment name - the unnamed environment, or a named one - so a
+// package-mode load and its conflict check both know to leave a sibling
+// environment's own file alone, whatever package clause it declares.
+func looksLikeCandidateName(base string) bool {
+	trimmed := strings.TrimPrefix(base, ".")
+	for _, ext := range envFileExts {
+		suffix := "kevin." + ext
+		if trimmed == suffix || strings.HasSuffix(trimmed, "."+suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeTags translates a bare "name" entry (no "=value") into
+// "name=true" for [cuelang.org/go/cue/load.Config.Tags]. A "name=value"
+// entry passes through unchanged.
+func normalizeTags(tags []string) []string {
+	out := make([]string, len(tags))
+	for i, t := range tags {
+		if strings.Contains(t, "=") {
+			out[i] = t
+			continue
+		}
+		out[i] = t + "=true"
+	}
+	return out
 }
 
 // findFile locates the single environment file for name in abs, among
@@ -285,29 +435,6 @@ func findFile(abs, name string) (string, error) {
 	default:
 		return "", uerr.Wrap(fmt.Errorf("config: %s: found %s: %w", abs, strings.Join(found, ", "), ErrAmbiguous),
 			"multiple environment files found in %s (%s) - keep one, or pass -e to pick a named environment",
-			abs, strings.Join(found, ", "))
-	}
-}
-
-// findLocalFile locates the optional local override file for name in abs,
-// among candidateLocalFiles(name). It returns ("", nil) when none exist, and
-// [ErrAmbiguous] when more than one does.
-func findLocalFile(abs, name string) (string, error) {
-	var found []string
-	for _, candidate := range candidateLocalFiles(name) {
-		path := filepath.Join(abs, candidate)
-		if _, err := os.Stat(path); err == nil {
-			found = append(found, path)
-		}
-	}
-	switch len(found) {
-	case 0:
-		return "", nil
-	case 1:
-		return found[0], nil
-	default:
-		return "", uerr.Wrap(fmt.Errorf("config: %s: found %s: %w", abs, strings.Join(found, ", "), ErrAmbiguous),
-			"multiple local override files found in %s (%s) - keep one",
 			abs, strings.Join(found, ", "))
 	}
 }

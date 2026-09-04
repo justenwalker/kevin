@@ -35,7 +35,7 @@ func doCommand(opts *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runDo(cmd.Context(), opts.dir, opts.name, name, extra)
+			return runDo(cmd.Context(), opts.dir, opts.name, opts.tags, name, extra)
 		},
 	}
 	return cmd
@@ -56,8 +56,8 @@ func splitDoArgs(args []string, dash int) (string, []string, error) {
 	return args[0], args[dash:], nil
 }
 
-func runDo(ctx context.Context, dir, name, cmdName string, extra []string) error {
-	cfg, plugins, caps, err := engine.LoadAndLaunch(ctx, dir, name)
+func runDo(ctx context.Context, dir, name string, tags []string, cmdName string, extra []string) error {
+	cfg, plugins, caps, err := engine.LoadAndLaunch(ctx, dir, name, tags)
 	defer engine.CloseAll(plugins)
 	if err != nil {
 		return err

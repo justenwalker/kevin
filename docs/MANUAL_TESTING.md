@@ -576,6 +576,9 @@ export`) and confirm each runs identically:
 - [ ] Two environment files of different formats in the same directory
       (e.g. `kevin.cue` and `kevin.yaml` both present) - fails clearly
       ("exactly one" environment file allowed), not a silent pick of one.
+- [ ] A legacy-format file (`kevin.yaml`) alongside a `.cue` sibling that
+      declares a `package` clause fails clearly, naming the conflicting
+      file - not a silent exclusion of the package-mode sibling.
 
 ## 16. Crash resilience / idempotent teardown
 
@@ -764,4 +767,39 @@ kevin -C examples/s3-app run        # every iteration: deploy/redeploy the app
 - [ ] `kevin -C examples/s3-app run` a second time redeploys `app` against
       the same cluster with no `setup` step recreated.
 - [ ] `kevin -C examples/s3-app teardown` removes the persistent scope.
+
+## 21. CUE package mode and `--tag`
+
+_Automated by `gnob e2e` (`tests/e2e/env_test.go`)._
+
+In a scratch directory:
+
+```cue
+// kevin.cue
+package kevin
+
+project: "pkgtest"
+airgap: bool | *false @tag(airgap,type=bool)
+plugins: echo: cmd: "true"
+env: a: {uses: "echo:echo", with: message: "hi"}
+```
+
+```cue
+// mirrors.cue
+package kevin
+
+domain: *"kevin.home" | string
+```
+
+- [ ] `kevin validate` reports fields from both files.
+- [ ] `kevin run -t airgap` flips the `@tag`-gated field (inspect via a
+      field `validate` prints, or add a temporary field for the check).
+- [ ] A bare `-t airgap` behaves identically to `-t airgap=true`.
+- [ ] `kevin -t bogus=1 validate` fails clearly, naming `bogus`.
+- [ ] Adding a package-less `stray.cue` (no `package` clause) alongside
+      the two files above changes nothing - its fields are silently
+      excluded, not merged, not an error.
+- [ ] Renaming `kevin.cue` to `kevin.yaml` (dropping its `package` clause)
+      while `mirrors.cue` keeps `package kevin` fails clearly, naming
+      `mirrors.cue`.
 

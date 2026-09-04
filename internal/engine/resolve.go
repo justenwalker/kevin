@@ -111,8 +111,8 @@ func packagedSpec(name string, spec config.PluginSpec, destDir string, result pl
 //
 // FetchPlugins returns the distinct, non-builtin plugin names it resolved,
 // sorted.
-func FetchPlugins(ctx context.Context, dir, name string) ([]string, error) {
-	file, err := config.Load(dir, name)
+func FetchPlugins(ctx context.Context, dir, name string, tags []string) ([]string, error) {
+	file, err := config.Load(dir, name, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -146,8 +146,8 @@ func FetchPlugins(ctx context.Context, dir, name string) ([]string, error) {
 //
 // LoadAndLaunch returns the plugins that did start even on failure. The
 // caller must close them.
-func LoadAndLaunch(ctx context.Context, dir, name string) (*config.Config, map[string]*pluginhost.Client, map[string]pluginhost.Info, error) {
-	file, err := config.Load(dir, name)
+func LoadAndLaunch(ctx context.Context, dir, name string, tags []string) (*config.Config, map[string]*pluginhost.Client, map[string]pluginhost.Info, error) {
+	file, err := config.Load(dir, name, tags)
 	if err != nil {
 		return nil, nil, nil, err
 	}

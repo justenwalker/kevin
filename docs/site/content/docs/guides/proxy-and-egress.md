@@ -41,11 +41,13 @@ The `403` page carries cache-busting headers, so a browser won't keep showing a 
 To flip that per run instead of hardcoding it, don't re-declare `deny`'s own default - `proxy: egress: deny: *false | bool` conflicts with the schema's own `*true`, since CUE won't resolve two different defaults for the same field. Give the toggle its own field and point `deny` at it instead:
 
 ```cue
-airgap: bool | *false
+package kevin
+
+airgap: bool | *false @tag(airgap,type=bool)
 proxy: egress: deny: *airgap | bool
 ```
 
-Then flip it with a [local override]({{< relref "/docs/environment-file#local-overrides" >}}) (`kevin.local.cue`: `airgap: true`) instead of duplicating the whole file into a named environment just to change one field.
+Then flip it per run with `kevin run -t airgap` (see [`@tag` mode switches]({{< relref "/docs/environment-file#tag-mode-switches" >}})) instead of duplicating the whole file into a named environment just to change one field.
 
 ## Step readiness
 

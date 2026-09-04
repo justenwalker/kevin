@@ -13,7 +13,7 @@ import (
 
 func TestLoad(t *testing.T) {
 	t.Run("reports a missing file", func(t *testing.T) {
-		_, err := config.Load(t.TempDir(), "")
+		_, err := config.Load(t.TempDir(), "", nil)
 		require.ErrorIs(t, err, config.ErrNotFound)
 	})
 
@@ -21,14 +21,20 @@ func TestLoad(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.Mkdir(filepath.Join(dir, "kevin.cue"), 0o750), "kevin.cue as a directory forces a read error")
 
-		_, err := config.Load(dir, "")
+		_, err := config.Load(dir, "", nil)
 		require.Error(t, err)
 		require.NotErrorIs(t, err, config.ErrNotFound)
 	})
 
+	t.Run("reports a malformed package clause", func(t *testing.T) {
+		dir := write(t, "package 123\nproject: \"base\"")
+		_, err := config.Load(dir, "", nil)
+		require.Error(t, err)
+	})
+
 	t.Run("resolves a relative directory", func(t *testing.T) {
 		dir := write(t, `project: "rel"`)
-		f, err := config.Load(dir, "")
+		f, err := config.Load(dir, "", nil)
 		require.NoError(t, err)
 		assert.True(t, filepath.IsAbs(f.Dir()), "Dir must be absolute")
 	})
@@ -37,7 +43,7 @@ func TestLoad(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "staging.kevin.cue"), []byte(`project: "staging-env"`), 0o600))
 
-		f, err := config.Load(dir, "staging")
+		f, err := config.Load(dir, "staging", nil)
 		require.NoError(t, err)
 		cfg, err := f.Config()
 		require.NoError(t, err)
@@ -48,7 +54,7 @@ func TestLoad(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, ".staging.kevin.yaml"), []byte("project: staging-hidden\n"), 0o600))
 
-		f, err := config.Load(dir, "staging")
+		f, err := config.Load(dir, "staging", nil)
 		require.NoError(t, err)
 		cfg, err := f.Config()
 		require.NoError(t, err)
@@ -58,14 +64,14 @@ func TestLoad(t *testing.T) {
 	t.Run("resolves yaml and json the same as an equivalent cue file", func(t *testing.T) {
 		cueDir := write(t, `project: "from-yaml"
 plugins: echo: cmd: "echo"`)
-		cf, err := config.Load(cueDir, "")
+		cf, err := config.Load(cueDir, "", nil)
 		require.NoError(t, err)
 		cueSpecs, err := cf.Plugins()
 		require.NoError(t, err)
 
 		yamlDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(yamlDir, "kevin.yaml"), []byte("project: from-yaml\nplugins:\n  echo:\n    cmd: echo\n"), 0o600))
-		yf, err := config.Load(yamlDir, "")
+		yf, err := config.Load(yamlDir, "", nil)
 		require.NoError(t, err)
 		yamlSpecs, err := yf.Plugins()
 		require.NoError(t, err)
@@ -73,7 +79,7 @@ plugins: echo: cmd: "echo"`)
 
 		jsonDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(jsonDir, "kevin.json"), []byte(`{"project":"from-yaml","plugins":{"echo":{"cmd":"echo"}}}`), 0o600))
-		jf, err := config.Load(jsonDir, "")
+		jf, err := config.Load(jsonDir, "", nil)
 		require.NoError(t, err)
 		jsonSpecs, err := jf.Plugins()
 		require.NoError(t, err)
@@ -85,61 +91,8 @@ plugins: echo: cmd: "echo"`)
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(`plugins: {}`), 0o600))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, ".kevin.cue"), []byte(`plugins: {}`), 0o600))
 
-		_, err := config.Load(dir, "")
+		_, err := config.Load(dir, "", nil)
 		require.ErrorIs(t, err, config.ErrAmbiguous)
-	})
-
-	t.Run("merges an optional local override file", func(t *testing.T) {
-		dir := write(t, `project: "base"
-plugins: echo: cmd: "echo"`)
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.local.cue"), []byte(`domain: "local.test"
-plugins: extra: cmd: "extra"`), 0o600))
-
-		f, err := config.Load(dir, "")
-		require.NoError(t, err)
-		cfg, err := f.Config()
-		require.NoError(t, err)
-		assert.Equal(t, "base", cfg.Project)
-		assert.Equal(t, "local.test", cfg.Domain)
-		assert.Len(t, cfg.Plugins, 2)
-	})
-
-	t.Run("ignores a missing local override file", func(t *testing.T) {
-		dir := write(t, `project: "base"`)
-		f, err := config.Load(dir, "")
-		require.NoError(t, err)
-		cfg, err := f.Config()
-		require.NoError(t, err)
-		assert.Equal(t, "base", cfg.Project)
-	})
-
-	t.Run("rejects a local override that conflicts with a concrete base value", func(t *testing.T) {
-		dir := write(t, `project: "base"`)
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.local.cue"), []byte(`project: "other"`), 0o600))
-
-		_, err := config.Load(dir, "")
-		require.ErrorIs(t, err, config.ErrInvalid)
-	})
-
-	t.Run("reports ambiguous local override candidates", func(t *testing.T) {
-		dir := write(t, `project: "base"`)
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.local.cue"), []byte(`plugins: {}`), 0o600))
-		require.NoError(t, os.WriteFile(filepath.Join(dir, ".kevin.local.cue"), []byte(`plugins: {}`), 0o600))
-
-		_, err := config.Load(dir, "")
-		require.ErrorIs(t, err, config.ErrAmbiguous)
-	})
-
-	t.Run("resolves a named environment's local override file", func(t *testing.T) {
-		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "staging.kevin.cue"), []byte(`project: "staging-env"`), 0o600))
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "staging.kevin.local.cue"), []byte(`domain: "local.test"`), 0o600))
-
-		f, err := config.Load(dir, "staging")
-		require.NoError(t, err)
-		cfg, err := f.Config()
-		require.NoError(t, err)
-		assert.Equal(t, "local.test", cfg.Domain)
 	})
 
 	t.Run("rejects invalid content", func(t *testing.T) {
@@ -177,13 +130,171 @@ plugins: extra: cmd: "extra"`), 0o600))
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				_, err := config.Load(write(t, tt.src), "")
+				_, err := config.Load(write(t, tt.src), "", nil)
 				require.ErrorIs(t, err, config.ErrInvalid)
 				for _, s := range tt.wantContains {
 					assert.Contains(t, err.Error(), s)
 				}
 			})
 		}
+	})
+}
+
+func TestLoadPackageMode(t *testing.T) {
+	t.Run("merges a package split across multiple files", func(t *testing.T) {
+		dir := write(t, `package kevin
+
+project: "base"
+plugins: echo: cmd: "echo"`)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "extra.cue"), []byte(`package kevin
+
+domain: "extra.test"
+plugins: extra: cmd: "extra"`), 0o600))
+
+		f, err := config.Load(dir, "", nil)
+		require.NoError(t, err)
+		cfg, err := f.Config()
+		require.NoError(t, err)
+		assert.Equal(t, "base", cfg.Project)
+		assert.Equal(t, "extra.test", cfg.Domain)
+		assert.Len(t, cfg.Plugins, 2)
+	})
+
+	t.Run("excludes a sibling with a different package name", func(t *testing.T) {
+		dir := write(t, `package kevin
+
+project: "base"`)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "other.cue"), []byte(`package other
+
+domain: "should-not-appear"`), 0o600))
+
+		f, err := config.Load(dir, "", nil)
+		require.NoError(t, err)
+		cfg, err := f.Config()
+		require.NoError(t, err)
+		assert.Equal(t, "base", cfg.Project)
+		assert.Equal(t, "kevin.home", cfg.Domain, "other.cue's field must never merge in")
+	})
+
+	t.Run("excludes a package-less sibling silently", func(t *testing.T) {
+		dir := write(t, `package kevin
+
+project: "base"`)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "stray.cue"), []byte(`domain: "should-not-appear"`), 0o600))
+
+		f, err := config.Load(dir, "", nil)
+		require.NoError(t, err)
+		cfg, err := f.Config()
+		require.NoError(t, err)
+		assert.Equal(t, "base", cfg.Project)
+		assert.Equal(t, "kevin.home", cfg.Domain, "stray.cue's field must never merge in")
+	})
+
+	t.Run("rejects a package-mode sibling when the required file has no package clause", func(t *testing.T) {
+		dir := write(t, `project: "base"`)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "extra.cue"), []byte(`package kevin
+
+domain: "extra.test"`), 0o600))
+
+		_, err := config.Load(dir, "", nil)
+		require.ErrorIs(t, err, config.ErrPackageConflict)
+	})
+
+	t.Run("rejects a package-mode sibling when the required file is yaml", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.yaml"), []byte("project: base\n"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "extra.cue"), []byte(`package kevin
+
+domain: "extra.test"`), 0o600))
+
+		_, err := config.Load(dir, "", nil)
+		require.ErrorIs(t, err, config.ErrPackageConflict)
+	})
+
+	t.Run("injects a tag value into a package-mode file", func(t *testing.T) {
+		dir := write(t, `package kevin
+
+project: "base"
+airgap: bool | *false @tag(airgap,type=bool)
+domain: *"default.test" | string
+if airgap {
+	domain: "airgap.test"
+}`)
+		f, err := config.Load(dir, "", []string{"airgap=true"})
+		require.NoError(t, err)
+		cfg, err := f.Config()
+		require.NoError(t, err)
+		assert.Equal(t, "airgap.test", cfg.Domain)
+	})
+
+	t.Run("a bare tag name is shorthand for name=true", func(t *testing.T) {
+		dir := write(t, `package kevin
+
+project: "base"
+airgap: bool | *false @tag(airgap,type=bool)
+domain: *"default.test" | string
+if airgap {
+	domain: "airgap.test"
+}`)
+		bare, err := config.Load(dir, "", []string{"airgap"})
+		require.NoError(t, err)
+		bareCfg, err := bare.Config()
+		require.NoError(t, err)
+
+		explicit, err := config.Load(dir, "", []string{"airgap=true"})
+		require.NoError(t, err)
+		explicitCfg, err := explicit.Config()
+		require.NoError(t, err)
+
+		assert.Equal(t, explicitCfg.Domain, bareCfg.Domain)
+	})
+
+	t.Run("rejects a tag with no matching @tag field", func(t *testing.T) {
+		dir := write(t, `package kevin
+
+project: "base"`)
+		_, err := config.Load(dir, "", []string{"bogus=1"})
+		require.Error(t, err)
+	})
+
+	t.Run("rejects a tag against a package-less file", func(t *testing.T) {
+		dir := write(t, `project: "base"`)
+		_, err := config.Load(dir, "", []string{"airgap=true"})
+		require.ErrorIs(t, err, config.ErrTagWithoutPackage)
+	})
+
+	t.Run("a named environment's package-mode file never merges with a sibling's", func(t *testing.T) {
+		dir := write(t, `package kevin
+
+project: "base"`)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "staging.kevin.cue"), []byte(`package kevin
+
+project: "staging-env"`), 0o600))
+
+		f, err := config.Load(dir, "", nil)
+		require.NoError(t, err)
+		cfg, err := f.Config()
+		require.NoError(t, err)
+		assert.Equal(t, "base", cfg.Project)
+
+		f, err = config.Load(dir, "staging", nil)
+		require.NoError(t, err)
+		cfg, err = f.Config()
+		require.NoError(t, err)
+		assert.Equal(t, "staging-env", cfg.Project)
+	})
+
+	t.Run("a package-mode named sibling never conflicts with an unrelated package-less file", func(t *testing.T) {
+		dir := write(t, `project: "base"`)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "staging.kevin.cue"), []byte(`package kevin
+
+project: "staging-env"`), 0o600))
+
+		f, err := config.Load(dir, "", nil)
+		require.NoError(t, err)
+		cfg, err := f.Config()
+		require.NoError(t, err)
+		assert.Equal(t, "base", cfg.Project)
 	})
 }
 
@@ -818,7 +929,7 @@ relay: image: "kevin-relay:custom"
 				require.NoError(t, os.Mkdir(dir, 0o750))
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(`plugins: {}`), 0o600))
 
-				f, err := config.Load(dir, "")
+				f, err := config.Load(dir, "", nil)
 				require.NoError(t, err)
 				cfg, err := f.Config()
 				require.NoError(t, err)
@@ -834,7 +945,7 @@ relay: image: "kevin-relay:custom"
 		require.NoError(t, os.Mkdir(dir, 0o750))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "Staging!.kevin.cue"), []byte(`plugins: {}`), 0o600))
 
-		f, err := config.Load(dir, "Staging!")
+		f, err := config.Load(dir, "Staging!", nil)
 		require.NoError(t, err)
 		cfg, err := f.Config()
 		require.NoError(t, err)
@@ -847,7 +958,7 @@ relay: image: "kevin-relay:custom"
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "staging.kevin.cue"), []byte(`project: "explicit"`), 0o600))
 
-		f, err := config.Load(dir, "staging")
+		f, err := config.Load(dir, "staging", nil)
 		require.NoError(t, err)
 		cfg, err := f.Config()
 		require.NoError(t, err)
@@ -927,7 +1038,7 @@ func write(t *testing.T, src string) string {
 // load reads a project and requires that the read succeeds.
 func load(t *testing.T, src string) *config.File {
 	t.Helper()
-	f, err := config.Load(write(t, src), "")
+	f, err := config.Load(write(t, src), "", nil)
 	require.NoError(t, err)
 	return f
 }

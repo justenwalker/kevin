@@ -270,6 +270,18 @@ env: { web: { uses: "unknown:container" } }`,
 		require.NoError(t, runErr)
 		assert.Contains(t, out, "x: 0 setup step(s), 0 env step(s)")
 	})
+
+	t.Run("--tag reaches the engine", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte("package kevin\n\nproject: \"x\"\n"), 0o600))
+
+		// No @tag field named "bogus" anywhere in the file, so CUE's own
+		// "tag not used" error is what fails. That proves --tag reached
+		// config.Load through opts.tags.
+		err := cmd.Run(t.Context(), []string{"-C", dir, "--tag", "bogus=1", "validate"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "bogus")
+	})
 }
 
 func TestInitCommand(t *testing.T) {

@@ -711,7 +711,7 @@ func TestExportCrossScopeStepRetriesAfterFailure(t *testing.T) {
 	dir := project(t, `
 setup: cluster: {uses: "echo:echo", with: export: greeting: "from-setup"}
 `)
-	cfg, plugins, caps, err := LoadAndLaunch(t.Context(), dir, "")
+	cfg, plugins, caps, err := LoadAndLaunch(t.Context(), dir, "", nil)
 	require.NoError(t, err)
 	defer CloseAll(plugins)
 
