@@ -269,6 +269,12 @@ Put `cluster` in `setup` scope instead, and add an `env` step needing
 - [ ] Change `cluster`'s `with` block (add a worker, say), then
       `kevin setup` again: this time it does recreate - `docker ps -a`
       shows a new control-plane container, and the manifest is gone.
+- [ ] With `cluster`'s `with` block back to unchanged, edit `proxy: listen:`
+      in `kevin.cue` to a different port, then `kevin setup` again: this
+      also recreates, even though the `with` block itself didn't change -
+      the reuse fingerprint folds in the resolved proxy address, so a
+      cluster created against one address is never silently reused against
+      another (its nodes would otherwise keep dialing the dead one).
 - [ ] `kevin teardown` afterward removes the cluster (and the manifest
       with it).
 
@@ -372,6 +378,15 @@ of a string.
 
 - [ ] `validate` fails at schema-unify with a clear CUE error, before
       touching Docker. Revert the edit.
+
+In a scratch directory, write a `kevin.cue` with a `project:` field but no
+`proxy:`/`console:` block at all, then `kevin -C <dir> validate`.
+
+- [ ] Fails clearly, naming `proxy.listen` - `proxy.listen`,
+      `proxy.gateway_port`, and `console.listen` all carry no schema
+      default, kevin picks no port for you. Same result setting any one of
+      the three to a literal zero (`"127.0.0.1:0"` / `0`) instead of
+      omitting it.
 
 ```sh
 kevin -C examples/echo init

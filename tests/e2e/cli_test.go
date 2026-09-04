@@ -55,6 +55,19 @@ env: web: {
 	s.Contains(out, "image")
 }
 
+// TestValidateFailsOnMissingListenPorts covers proxy.listen, proxy.gateway_port,
+// and console.listen all being required with no schema default: omitting the
+// proxy:/console: block entirely fails validate clearly, naming the field,
+// before anything Docker-related runs.
+func (s *CLISuite) TestValidateFailsOnMissingListenPorts() {
+	dir := s.T().TempDir()
+	s.writeCUE(dir, `project: "kevin-e2e-validate-missing-ports"`)
+
+	out, code := s.runToCompletion(dir, "-C", dir, "validate")
+	s.NotEqual(0, code, "output:\n%s", out)
+	s.Contains(out, "proxy.listen")
+}
+
 // TestInitPrintsPluginNameForCmdSourceAndStartsNoProcess covers init: it
 // lists every non-builtin plugin a step uses, cmd:-sourced or not, and
 // starts no process (a cmd: plugin needs nothing downloaded).

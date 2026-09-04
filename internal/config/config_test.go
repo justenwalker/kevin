@@ -990,6 +990,45 @@ env: a: uses: "echo:echo"
 		_, err := f.Config()
 		require.ErrorIs(t, err, config.ErrInvalid)
 	})
+
+	t.Run("rejects a missing proxy.listen/gateway_port/console.listen", func(t *testing.T) {
+		// No proxy:/console: block at all - unlike load()'s fixtures, this
+		// one deliberately skips listenBlockDefault to prove the three
+		// fields carry no schema default of their own.
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(`project: "demo"`), 0o600))
+
+		f, err := config.Load(dir, "", nil)
+		require.NoError(t, err)
+		_, err = f.Config()
+		require.ErrorIs(t, err, config.ErrInvalid)
+		assert.Contains(t, err.Error(), "proxy.listen")
+	})
+
+	t.Run("rejects a literal zero port", func(t *testing.T) {
+		tests := []struct {
+			name string
+			src  string
+			want string
+		}{
+			{name: "proxy.listen", src: `proxy: {listen: "127.0.0.1:0", gateway_port: 18081}
+console: listen: "127.0.0.1:18082"`, want: "proxy.listen"},
+			{name: "proxy.gateway_port", src: `proxy: {listen: "127.0.0.1:18080", gateway_port: 0}
+console: listen: "127.0.0.1:18082"`, want: "proxy.gateway_port"},
+			{name: "console.listen", src: `proxy: {listen: "127.0.0.1:18080", gateway_port: 18081}
+console: listen: "127.0.0.1:0"`, want: "console.listen"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(tt.src+"\nproject: \"demo\"\n"), 0o600))
+
+				_, err := config.Load(dir, "", nil)
+				require.ErrorIs(t, err, config.ErrInvalid)
+				assert.Contains(t, err.Error(), tt.want, "a literal 0 port is the muscle-memory mistake the regex/range constraint exists to catch")
+			})
+		}
+	})
 }
 
 func TestSteps(t *testing.T) {
