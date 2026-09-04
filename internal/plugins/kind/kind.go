@@ -34,19 +34,19 @@ var dockerClient cri.Runtime = docker.Client{}
 
 // config is the decoded with block of one step.
 type config struct {
-	Name        string           `json:"name"`
-	Image       string           `json:"image"`
-	Workers     int              `json:"workers"`
-	Config      string           `json:"config"`
-	Wait        string           `json:"wait"`
-	Retain      bool             `json:"retain"`
-	Proxy       bool             `json:"proxy"`
-	Egress      []string         `json:"egress"`
-	CoreDNS     bool             `json:"coredns"`
-	TrustCA     bool             `json:"trust_ca"`
-	Expose      []kindExpose     `json:"expose"`
-	Relay       bool             `json:"relay"`
-	ExtraMounts []kindExtraMount `json:"extra_mounts"`
+	Name        string                `json:"name"`
+	Image       string                `json:"image"`
+	Workers     int                   `json:"workers"`
+	Config      string                `json:"config"`
+	Wait        string                `json:"wait"`
+	Retain      bool                  `json:"retain"`
+	Proxy       bool                  `json:"proxy"`
+	Egress      []string              `json:"egress"`
+	CoreDNS     bool                  `json:"coredns"`
+	TrustCA     bool                  `json:"trust_ca"`
+	Expose      map[string]kindExpose `json:"expose"`
+	Relay       bool                  `json:"relay"`
+	ExtraMounts []kindExtraMount      `json:"extra_mounts"`
 }
 
 // kindExtraMount is one entry of the with block's extra_mounts list: a host
@@ -57,11 +57,10 @@ type kindExtraMount struct {
 	ContainerPath string `json:"container_path"`
 }
 
-// kindExpose is one entry of the with block's expose list: an in-cluster
-// address to reach through the SOCKS5 relay.
+// kindExpose is one entry of the with block's expose map: an in-cluster
+// address to reach through the SOCKS5 relay. The map key is its name.
 type kindExpose struct {
 	Address  string `json:"address"`
-	Name     string `json:"name"`
 	HostPort int    `json:"host_port"`
 }
 

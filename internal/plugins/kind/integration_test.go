@@ -106,7 +106,7 @@ func (s *KindSuite) SetupSuite() {
 			Domain:    kindDomain,
 			Relay:     s.relay.Addr(),
 		},
-		Config: []byte(`{"workers":0,"expose":[{"address":"kubernetes.default.svc:443","name":"apiserver"}]}`),
+		Config: []byte(`{"workers":0,"expose":{"apiserver":{"address":"kubernetes.default.svc:443"}}}`),
 	}, &capture{})
 	s.Require().NoError(err, "Up must create the cluster")
 	s.up = res
@@ -322,7 +322,7 @@ func (s *KindSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 			Domain:    kindDomain,
 			Relay:     s.relay.Addr(),
 		},
-		Config: []byte(`{"workers":0,"expose":[{"address":"kubernetes.default.svc:443","name":"apiserver"}]}`),
+		Config: []byte(`{"workers":0,"expose":{"apiserver":{"address":"kubernetes.default.svc:443"}}}`),
 	}, out)
 	s.Require().NoError(err)
 

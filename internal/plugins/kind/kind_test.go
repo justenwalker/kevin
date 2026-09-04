@@ -52,11 +52,11 @@ func TestDecode(t *testing.T) {
 	})
 
 	t.Run("reads expose", func(t *testing.T) {
-		cfg, err := decode([]byte(`{"expose":[{"address":"postgres.default.svc:5432","name":"postgres","host_port":15432}]}`))
+		cfg, err := decode([]byte(`{"expose":{"postgres":{"address":"postgres.default.svc:5432","host_port":15432}}}`))
 		require.NoError(t, err)
 
 		require.Len(t, cfg.Expose, 1)
-		assert.Equal(t, kindExpose{Address: "postgres.default.svc:5432", Name: "postgres", HostPort: 15432}, cfg.Expose[0])
+		assert.Equal(t, kindExpose{Address: "postgres.default.svc:5432", HostPort: 15432}, cfg.Expose["postgres"])
 	})
 }
 
@@ -78,7 +78,7 @@ func TestResolvePath(t *testing.T) {
 
 func TestWantsRelay(t *testing.T) {
 	assert.False(t, wantsRelay(config{}), "no expose entries and relay unset means no relay")
-	assert.True(t, wantsRelay(config{Expose: []kindExpose{{Address: "x:1"}}}))
+	assert.True(t, wantsRelay(config{Expose: map[string]kindExpose{"a": {Address: "x:1"}}}))
 	assert.True(t, wantsRelay(config{Relay: true}), "relay:true stands up the pod even with no expose entries")
 	assert.False(t, wantsRelay(config{Relay: false}))
 }
@@ -294,25 +294,25 @@ func TestPickHostPort(t *testing.T) {
 }
 
 func TestExposedViaRelay(t *testing.T) {
-	t.Run("builds a socks5 upstream per entry", func(t *testing.T) {
-		got := exposedViaRelay([]kindExpose{
-			{Address: "postgres.default.svc:5432", Name: "postgres"},
-			{Address: "kubernetes.default.svc:443"},
+	t.Run("builds a socks5 upstream per entry, sorted by name", func(t *testing.T) {
+		got := exposedViaRelay(map[string]kindExpose{
+			"postgres":   {Address: "postgres.default.svc:5432"},
+			"kubernetes": {Address: "kubernetes.default.svc:443"},
 		}, "127.0.0.1:54321")
 
 		require.Len(t, got, 2)
 		assert.Equal(t, plugin.ExposedPort{
-			Name: "postgres", Protocol: "socks5",
-			Upstream: "socks5://127.0.0.1:54321/postgres.default.svc:5432",
+			Name: "kubernetes", Protocol: "socks5",
+			Upstream: "socks5://127.0.0.1:54321/kubernetes.default.svc:443",
 		}, got[0])
 		assert.Equal(t, plugin.ExposedPort{
-			Name: "kubernetes.default.svc:443", Protocol: "socks5",
-			Upstream: "socks5://127.0.0.1:54321/kubernetes.default.svc:443",
-		}, got[1], "an entry with no name defaults to its address")
+			Name: "postgres", Protocol: "socks5",
+			Upstream: "socks5://127.0.0.1:54321/postgres.default.svc:5432",
+		}, got[1])
 	})
 
 	t.Run("entries convert to card details", func(t *testing.T) {
-		got := exposedViaRelay([]kindExpose{{Address: "postgres.default.svc:5432", Name: "postgres"}}, "127.0.0.1:54321")
+		got := exposedViaRelay(map[string]kindExpose{"postgres": {Address: "postgres.default.svc:5432"}}, "127.0.0.1:54321")
 
 		require.Len(t, got, 1)
 		assert.Equal(t, plugin.Detail{
@@ -321,8 +321,8 @@ func TestExposedViaRelay(t *testing.T) {
 	})
 
 	t.Run("threads host_port through to the exposed port", func(t *testing.T) {
-		got := exposedViaRelay([]kindExpose{
-			{Address: "postgres.default.svc:5432", Name: "postgres", HostPort: 15432},
+		got := exposedViaRelay(map[string]kindExpose{
+			"postgres": {Address: "postgres.default.svc:5432", HostPort: 15432},
 		}, "127.0.0.1:54321")
 
 		require.Len(t, got, 1)

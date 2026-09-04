@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/justenwalker/kevin/internal/kindcmd"
@@ -142,17 +144,15 @@ spec:
 `, nodeName, image, relayNodePort, relayNodePort, relayNodePort)
 }
 
-// exposedViaRelay reports each expose entry as a SOCKS5-routed endpoint. A
-// plain host:port isn't enough information here - a client must dial the
-// relay and ask it to CONNECT to the real target - so Upstream carries
-// both, as a single socks5://<relay>/<target> string.
-func exposedViaRelay(entries []kindExpose, addr string) []plugin.ExposedPort {
+// exposedViaRelay reports each expose entry as a SOCKS5-routed endpoint,
+// sorted by name for a stable result despite Go's randomized map
+// iteration. A plain host:port isn't enough information here - a client
+// must dial the relay and ask it to CONNECT to the real target - so
+// Upstream carries both, as a single socks5://<relay>/<target> string.
+func exposedViaRelay(entries map[string]kindExpose, addr string) []plugin.ExposedPort {
 	out := make([]plugin.ExposedPort, 0, len(entries))
-	for _, e := range entries {
-		name := e.Name
-		if name == "" {
-			name = e.Address
-		}
+	for _, name := range slices.Sorted(maps.Keys(entries)) {
+		e := entries[name]
 		out = append(out, plugin.ExposedPort{
 			Name:     name,
 			Protocol: "socks5",
