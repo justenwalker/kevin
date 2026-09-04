@@ -15,7 +15,7 @@ web: {
     with: {
         image:  "nginx:alpine"
         ports:  ["8080:80"]
-        expose: [{port: 80}]
+        expose: web: {port: 80}
     }
 }
 ```
@@ -32,14 +32,13 @@ web: {
 | `proxy` | `bool` | `true` | Adds the proxy variables and the CA to the container, so that the egress of the container is visible. |
 | `egress` | `[...string]` | - | Lists the external hosts that this container can reach. The proxy denies egress by default. |
 | `start_timeout` | `string` | `"30s"` | The time to wait for the container to run. The value is a Go duration. |
-| `expose` | `[...#Expose]` | - | Publishes a container port on the host loopback. This is the only way this step makes a port reachable outside the docker network. Nothing routes by name here; the console and the ready log report the address directly, and Outputs carries it too, as host_80 for port 80 and so on. Pair it with a builtin:route step to put a subdomain of the environment domain in front of it. |
+| `expose` | `[string]: #Expose` | - | Publishes a container port on the host loopback, keyed by a name that labels the entry in the console and the ready log line. This is the only way this step makes a port reachable outside the docker network. Nothing routes by name here; the console and the ready log report the address directly, and Outputs carries it too, as host_80 for port 80 and so on. Pair it with a builtin:route step to put a subdomain of the environment domain in front of it. A map, not a list, so a kevin.local.cue override can add or change one entry without replacing the whole set. |
 
 ## `#Expose`
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
 | `port` | `int` | - | **Required.** The container port to publish. |
-| `name` | `string` | - | Labels this port in the console and in the ready log line. Defaults to the port number. |
 | `protocol` | `"tcp"` \| `"udp"` | `"tcp"` |  |
 | `host_port` | `int` | - | Pins the port on the host. Omitted, the OS assigns one. Ignored when relay is true - there's no dedicated port to pin. |
 | `relay` | `bool` | `false` | Routes this entry through the environment's relay container instead of publishing a dedicated host port on this container - one relay, shared by every relay-routed entry across every container step, instead of one host port per entry. Up reports the entry as an `"expose_<name>"` system output (a socks5:// upstream) and, once the engine's local forward is up, a `"forward_<name>"` output carrying a plain host:port a non-SOCKS5-aware tool can dial directly - the same shape a builtin:kind step's expose entry uses. protocol must stay `"tcp"` - the relay is a SOCKS5 gateway, TCP only. |

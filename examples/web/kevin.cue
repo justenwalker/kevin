@@ -29,7 +29,7 @@ env: {
 		with: {
 			image:  "nginx:alpine"
 			ports:  ["8080:80"]
-			expose: [{port: 80}]
+			expose: web: {port: 80}
 		}
 	}
 	// web_route puts web on the environment domain - the one mechanism for

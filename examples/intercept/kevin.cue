@@ -37,7 +37,7 @@ env: {
 		label: "Fake S3 (MiniStack)"
 		with: {
 			image:  "ministackorg/ministack"
-			expose: [{port: 4566}]
+			expose: s3: {port: 4566}
 		}
 	}
 	// fake_s3's port accepts a TCP connection before its HTTP server is

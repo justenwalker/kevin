@@ -15,7 +15,7 @@ web: {
     with: {
         image:  "nginx:alpine"
         ports:  ["8080:80"]
-        expose: [{port: 80}]
+        expose: web: {port: 80}
     }
 }
 ```

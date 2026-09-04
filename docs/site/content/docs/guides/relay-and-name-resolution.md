@@ -19,7 +19,7 @@ A pod resolves a step through the cluster's own DNS (kevin patches CoreDNS autom
 ```cue
 cluster: {
     uses: "builtin:kind"
-    with: expose: [{address: "postgres.default.svc.cluster.local:5432", name: "db"}]
+    with: expose: db: address: "postgres.default.svc.cluster.local:5432"
 }
 ```
 
@@ -37,7 +37,7 @@ db: {
     uses: "builtin:container"
     with: {
         image:  "postgres:16"
-        expose: [{port: 5432, name: "postgres", relay: true}]
+        expose: postgres: {port: 5432, relay: true}
     }
 }
 ```

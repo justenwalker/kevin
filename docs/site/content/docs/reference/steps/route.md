@@ -17,7 +17,7 @@ Pair it with a [`builtin:container`]({{< relref "/docs/reference/steps/container
 step's `expose` output for an address the proxy can dial directly:
 
 ```cue
-web: {uses: "builtin:container", with: {image: "nginx:alpine", expose: [{port: 80}]}}
+web: {uses: "builtin:container", with: {image: "nginx:alpine", expose: web: {port: 80}}}
 
 web_route: {
     uses:  "builtin:route"
@@ -70,7 +70,7 @@ as a local fake running behind a `container` step. The same `*.` wildcard
 rule above still applies to `host` here too:
 
 ```cue
-s3_fake: {uses: "builtin:container", with: {image: "ministackorg/ministack", expose: [{port: 4566}]}}
+s3_fake: {uses: "builtin:container", with: {image: "ministackorg/ministack", expose: s3: {port: 4566}}}
 
 s3_intercept: {
     uses:  "builtin:route"
