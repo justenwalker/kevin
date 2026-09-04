@@ -35,22 +35,21 @@
 	// a Go duration.
 	start_timeout?: string | *"30s"
 
-	// expose publishes a container port on the host loopback. This is the
-	// only way this step makes a port reachable outside the docker
-	// network. Nothing routes by name here; the console and the ready log
-	// report the address directly, and Outputs carries it too, as
-	// host_80 for port 80 and so on. Pair it with a builtin:route step
-	// to put a subdomain of the environment domain in front of it.
-	expose?: [...#Expose]
+	// expose publishes a container port on the host loopback, keyed by a
+	// name that labels the entry in the console and the ready log line.
+	// This is the only way this step makes a port reachable outside the
+	// docker network. Nothing routes by name here; the console and the
+	// ready log report the address directly, and Outputs carries it too,
+	// as host_80 for port 80 and so on. Pair it with a builtin:route step
+	// to put a subdomain of the environment domain in front of it. A map,
+	// not a list, so a kevin.local.cue override can add or change one
+	// entry without replacing the whole set.
+	expose?: [string]: #Expose
 }
 
 #Expose: {
 	// port is the container port to publish.
 	port!: int
-
-	// name labels this port in the console and in the ready log line.
-	// Defaults to the port number.
-	name?: string
 
 	protocol?: "tcp" | "udp" | *"tcp"
 

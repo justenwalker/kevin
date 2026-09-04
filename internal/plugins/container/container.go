@@ -39,15 +39,14 @@ type config struct {
 	Proxy        bool              `json:"proxy"`
 	Egress       []string          `json:"egress"`
 	StartTimeout string            `json:"start_timeout"`
-	Expose       []expose          `json:"expose"`
+	Expose       map[string]expose `json:"expose"`
 }
 
-// expose is one entry of the with block's expose list: a container port
+// expose is one entry of the with block's expose map: a container port
 // reachable from the host, either published directly as raw TCP or UDP, or
-// routed through the environment's relay.
+// routed through the environment's relay. The map key is its name.
 type expose struct {
 	Port     int    `json:"port"`
-	Name     string `json:"name"`
 	Protocol string `json:"protocol"`
 	HostPort int    `json:"host_port"`
 	Relay    bool   `json:"relay"`
@@ -153,9 +152,12 @@ func (Container) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitt
 
 // buildPorts is the full list of ports to publish: the step's own ports:
 // list, plus one entry per expose declaration that isn't relay-routed.
+// Iterates cfg.Expose in name order, so a rebuilt --publish list stays
+// stable run to run despite Go's randomized map iteration.
 func buildPorts(cfg config) []string {
 	ports := slices.Clone(cfg.Ports)
-	for _, e := range cfg.Expose {
+	for _, name := range slices.Sorted(maps.Keys(cfg.Expose)) {
+		e := cfg.Expose[name]
 		if e.Relay {
 			continue
 		}
@@ -191,13 +193,13 @@ func stepDetails(exposed []plugin.ExposedPort) []plugin.Detail {
 // exposedPorts reports the host-reachable endpoints that this step's Up
 // makes available, from its expose declarations - either published
 // directly to the host, or routed through the environment's relay.
+// Iterates cfg.Expose in name order, so the reported list (and the card/log
+// output built from it) stays stable run to run despite Go's randomized
+// map iteration.
 func exposedPorts(cfg config, info cri.Container, step, relaySOCKS5Addr string) ([]plugin.ExposedPort, error) {
 	out := make([]plugin.ExposedPort, 0, len(cfg.Expose))
-	for _, e := range cfg.Expose {
-		name := e.Name
-		if name == "" {
-			name = strconv.Itoa(e.Port)
-		}
+	for _, name := range slices.Sorted(maps.Keys(cfg.Expose)) {
+		e := cfg.Expose[name]
 		if e.Relay {
 			if relaySOCKS5Addr == "" {
 				return nil, plugin.Wrap(
@@ -364,17 +366,14 @@ func decode(data []byte) (config, error) {
 		return cfg, fmt.Errorf("container: decode config: %w", err)
 	}
 	// Repeat schema.cue's per-entry default too, for the same reason.
-	for i, e := range cfg.Expose {
+	for name, e := range cfg.Expose {
 		if e.Protocol == "" {
-			cfg.Expose[i].Protocol = "tcp"
+			e.Protocol = "tcp"
+			cfg.Expose[name] = e
 		}
 	}
-	for _, e := range cfg.Expose {
+	for name, e := range cfg.Expose {
 		if e.Relay && e.Protocol == "udp" {
-			name := e.Name
-			if name == "" {
-				name = strconv.Itoa(e.Port)
-			}
 			return cfg, plugin.Wrap(
 				fmt.Errorf("container: expose %s: relay with udp: %w", name, ErrRelayUDP),
 				"expose %q combines relay with udp - the relay's SOCKS5 gateway only carries TCP; drop relay or set protocol to \"tcp\"", name)

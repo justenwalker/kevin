@@ -64,24 +64,24 @@ func TestDecode(t *testing.T) {
 	t.Run("reads expose", func(t *testing.T) {
 		cfg, err := decode([]byte(`{
 			"image": "postgres:16",
-			"expose": [
-				{"port": 5432, "name": "postgres", "protocol": "tcp", "host_port": 15432},
-				{"port": 53, "protocol": "udp"}
-			]
+			"expose": {
+				"postgres": {"port": 5432, "protocol": "tcp", "host_port": 15432},
+				"dns": {"port": 53, "protocol": "udp"}
+			}
 		}`))
 		require.NoError(t, err)
 
 		require.Len(t, cfg.Expose, 2)
-		assert.Equal(t, expose{Port: 5432, Name: "postgres", Protocol: "tcp", HostPort: 15432}, cfg.Expose[0])
-		assert.Equal(t, expose{Port: 53, Protocol: "udp"}, cfg.Expose[1])
+		assert.Equal(t, expose{Port: 5432, Protocol: "tcp", HostPort: 15432}, cfg.Expose["postgres"])
+		assert.Equal(t, expose{Port: 53, Protocol: "udp"}, cfg.Expose["dns"])
 	})
 
 	t.Run("defaults expose protocol to tcp", func(t *testing.T) {
-		cfg, err := decode([]byte(`{"image": "postgres:16", "expose": [{"port": 5432}]}`))
+		cfg, err := decode([]byte(`{"image": "postgres:16", "expose": {"postgres": {"port": 5432}}}`))
 		require.NoError(t, err)
 
 		require.Len(t, cfg.Expose, 1)
-		assert.Equal(t, "tcp", cfg.Expose[0].Protocol, "the Go side repeats schema.cue's default for a caller that bypasses CUE")
+		assert.Equal(t, "tcp", cfg.Expose["postgres"].Protocol, "the Go side repeats schema.cue's default for a caller that bypasses CUE")
 	})
 
 	t.Run("reports broken JSON", func(t *testing.T) {
@@ -91,7 +91,7 @@ func TestDecode(t *testing.T) {
 	})
 
 	t.Run("rejects relay combined with udp", func(t *testing.T) {
-		_, err := decode([]byte(`{"image": "postgres:16", "expose": [{"port": 53, "protocol": "udp", "relay": true}]}`))
+		_, err := decode([]byte(`{"image": "postgres:16", "expose": {"dns": {"port": 53, "protocol": "udp", "relay": true}}}`))
 		require.ErrorIs(t, err, ErrRelayUDP)
 	})
 }
@@ -212,10 +212,10 @@ func TestPublishSpec(t *testing.T) {
 }
 
 func TestExposedPorts(t *testing.T) {
-	t.Run("collects every published port", func(t *testing.T) {
-		cfg := config{Expose: []expose{
-			{Port: 5432, Name: "postgres", Protocol: "tcp"},
-			{Port: 53, Protocol: "udp"},
+	t.Run("collects every published port, sorted by name", func(t *testing.T) {
+		cfg := config{Expose: map[string]expose{
+			"postgres": {Port: 5432, Protocol: "tcp"},
+			"dns":      {Port: 53, Protocol: "udp"},
 		}}
 		info := cri.Container{Ports: map[string]string{
 			"5432/tcp": "127.0.0.1:49001",
@@ -225,13 +225,12 @@ func TestExposedPorts(t *testing.T) {
 		got, err := exposedPorts(cfg, info, "db", "")
 		require.NoError(t, err)
 		require.Len(t, got, 2)
-		assert.Equal(t, plugin.ExposedPort{Name: "postgres", Protocol: "tcp", Upstream: "127.0.0.1:49001"}, got[0])
-		assert.Equal(t, plugin.ExposedPort{Name: "53", Protocol: "udp", Upstream: "127.0.0.1:49002"}, got[1],
-			"an entry with no name defaults to the port number")
+		assert.Equal(t, plugin.ExposedPort{Name: "dns", Protocol: "udp", Upstream: "127.0.0.1:49002"}, got[0])
+		assert.Equal(t, plugin.ExposedPort{Name: "postgres", Protocol: "tcp", Upstream: "127.0.0.1:49001"}, got[1])
 	})
 
 	t.Run("reports an unpublished port", func(t *testing.T) {
-		cfg := config{Expose: []expose{{Port: 5432, Protocol: "tcp"}}}
+		cfg := config{Expose: map[string]expose{"postgres": {Port: 5432, Protocol: "tcp"}}}
 
 		_, err := exposedPorts(cfg, cri.Container{Ports: map[string]string{}}, "db", "")
 
@@ -242,7 +241,7 @@ func TestExposedPorts(t *testing.T) {
 	})
 
 	t.Run("builds a socks5 upstream for a relay entry", func(t *testing.T) {
-		cfg := config{Expose: []expose{{Port: 5432, Name: "postgres", Protocol: "tcp", Relay: true}}}
+		cfg := config{Expose: map[string]expose{"postgres": {Port: 5432, Protocol: "tcp", Relay: true}}}
 
 		got, err := exposedPorts(cfg, cri.Container{}, "db", "127.0.0.1:54321")
 		require.NoError(t, err)
@@ -251,7 +250,7 @@ func TestExposedPorts(t *testing.T) {
 	})
 
 	t.Run("reports a relay entry with no relay address", func(t *testing.T) {
-		cfg := config{Expose: []expose{{Port: 5432, Protocol: "tcp", Relay: true}}}
+		cfg := config{Expose: map[string]expose{"postgres": {Port: 5432, Protocol: "tcp", Relay: true}}}
 
 		_, err := exposedPorts(cfg, cri.Container{}, "db", "")
 
@@ -262,9 +261,9 @@ func TestExposedPorts(t *testing.T) {
 func TestBuildPorts(t *testing.T) {
 	cfg := config{
 		Ports: []string{"8080:80"},
-		Expose: []expose{
-			{Port: 5432, Protocol: "tcp"},
-			{Port: 6379, Protocol: "tcp", Relay: true},
+		Expose: map[string]expose{
+			"postgres": {Port: 5432, Protocol: "tcp"},
+			"cache":    {Port: 6379, Protocol: "tcp", Relay: true},
 		},
 	}
 
@@ -328,7 +327,7 @@ func TestUp(t *testing.T) {
 		result, err := Container{}.Up(t.Context(), &plugin.UpRequest{
 			Step:   "web",
 			Env:    env,
-			Config: []byte(`{"image":"nginx:alpine","expose":[{"port":80,"name":"http"}]}`),
+			Config: []byte(`{"image":"nginx:alpine","expose":{"http":{"port":80}}}`),
 		}, &noopEmitter{})
 		require.NoError(t, err)
 
@@ -371,7 +370,7 @@ func TestUp(t *testing.T) {
 		result, err := Container{}.Up(t.Context(), &plugin.UpRequest{
 			Step:   "web",
 			Env:    env,
-			Config: []byte(`{"image":"nginx:alpine","expose":[{"port":80,"name":"http"}]}`),
+			Config: []byte(`{"image":"nginx:alpine","expose":{"http":{"port":80}}}`),
 		}, &noopEmitter{})
 		require.NoError(t, err)
 
@@ -562,9 +561,9 @@ func TestUpWithFakeEngine(t *testing.T) {
 		result, err := Container{}.Up(t.Context(), &plugin.UpRequest{
 			Step: "db",
 			Env:  plugin.Env{RelaySOCKS5Addr: "127.0.0.1:54321"},
-			Config: []byte(`{"image":"postgres:16","expose":[
-				{"port": 5432, "name": "postgres", "relay": true}
-			]}`),
+			Config: []byte(`{"image":"postgres:16","expose":{
+				"postgres": {"port": 5432, "relay": true}
+			}}`),
 		}, &noopEmitter{})
 		require.NoError(t, err)
 
