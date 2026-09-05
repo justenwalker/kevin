@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -434,8 +435,9 @@ func prepare(ctx context.Context, cfg *config.Config) (string, *ca.CA, error) {
 	if err := dockerClient.Available(ctx); err != nil {
 		return "", nil, err
 	}
-	if err := dockerClient.NetworkCreate(ctx, NetworkName(cfg.Project), map[string]string{
-		cri.LabelProject: cfg.Project,
+	if err := dockerClient.NetworkCreate(ctx, NetworkName(cfg.Project), cri.NetworkOptions{
+		Labels: map[string]string{cri.LabelProject: cfg.Project},
+		IPv6:   true,
 	}); err != nil {
 		return "", nil, err
 	}
@@ -510,19 +512,29 @@ func startProxy(ctx context.Context, authority *ca.CA, opts proxyOptions) (*prox
 
 	listeners := []net.Listener{ln}
 	gatewayAddr := ln.Addr().String()
-	gatewayLn, err := lc.Listen(ctx, "tcp", net.JoinHostPort(gateway.String(), strconv.Itoa(opts.GatewayPort)))
-	switch {
-	case err == nil:
-		listeners = append(listeners, gatewayLn)
-		gatewayAddr = gatewayLn.Addr().String()
-	case errors.Is(err, syscall.EADDRNOTAVAIL):
-		// Docker Desktop on macOS and Windows runs the daemon inside a VM.
-		// The gateway address exists only inside that VM, and the host
-		// cannot bind it there. host.docker.internal already reaches a
-		// listener on the host loopback, so the primary listener covers the
-		// relay too.
-	default:
-		return nil, fmt.Errorf("supervisor: listen on %s: %w", net.JoinHostPort(gateway.String(), strconv.Itoa(opts.GatewayPort)), err)
+	if gateway.V4.IsValid() {
+		gatewayLn, bindErr := bindGatewayAddr(ctx, &lc, gateway.V4, opts.GatewayPort)
+		switch {
+		case bindErr == nil:
+			listeners = append(listeners, gatewayLn)
+			gatewayAddr = gatewayLn.Addr().String()
+		case errors.Is(bindErr, syscall.EADDRNOTAVAIL):
+			// Docker Desktop on macOS and Windows runs the daemon inside a VM.
+			// The gateway address exists only inside that VM, and the host
+			// cannot bind it there. host.docker.internal already reaches a
+			// listener on the host loopback, so the primary listener covers
+			// the relay too.
+		default:
+			return nil, bindErr
+		}
+	}
+	if gateway.V6.IsValid() {
+		// Best-effort: a relay reaches the proxy over host.docker.internal
+		// or the v4 gateway bind above regardless, so a v6 bind failure here
+		// is not fatal.
+		if gatewayLn, bindErr := bindGatewayAddr(ctx, &lc, gateway.V6, opts.GatewayPort); bindErr == nil {
+			listeners = append(listeners, gatewayLn)
+		}
 	}
 
 	// The proxy must outlive an interrupt, because removal of a step can still
@@ -538,6 +550,17 @@ func startProxy(ctx context.Context, authority *ca.CA, opts proxyOptions) (*prox
 		stop:        stop,
 		done:        done,
 	}, nil
+}
+
+// bindGatewayAddr listens on addr:port, for a proxy listener on one of a
+// docker network's gateway addresses.
+func bindGatewayAddr(ctx context.Context, lc *net.ListenConfig, addr netip.Addr, port int) (net.Listener, error) {
+	hostPort := net.JoinHostPort(addr.String(), strconv.Itoa(port))
+	ln, err := lc.Listen(ctx, "tcp", hostPort)
+	if err != nil {
+		return nil, fmt.Errorf("supervisor: listen on %s: %w", hostPort, err)
+	}
+	return ln, nil
 }
 
 // Close stops the proxy and reports how serving ended. Close is idempotent.

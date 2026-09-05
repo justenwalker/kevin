@@ -56,16 +56,22 @@ func (Client) Available(ctx context.Context) error {
 }
 
 // NetworkCreate implements [cri.Runtime] for docker.
-func (Client) NetworkCreate(ctx context.Context, name string, labels map[string]string) error {
+func (Client) NetworkCreate(ctx context.Context, name string, opts cri.NetworkOptions) error {
 	if ok, err := networkExists(ctx, name); err != nil {
 		return err
 	} else if ok {
 		return nil
 	}
 
-	labels2 := labelArgs(labels)
-	args := make([]string, 0, len(labels2)+3)
+	labels2 := labelArgs(opts.Labels)
+	args := make([]string, 0, len(labels2)+4)
 	args = append(args, "network", "create")
+	if opts.IPv6 {
+		// Docker >= 26 auto-assigns a ULA subnet for --ipv6 with no
+		// --subnet given. An older daemon needs an explicit subnet or this
+		// fails - surfaced as a plain docker error below, not guessed at.
+		args = append(args, "--ipv6")
+	}
 	args = append(args, labels2...)
 	args = append(args, name)
 
@@ -122,39 +128,57 @@ func networkExists(ctx context.Context, name string) (bool, error) {
 	return slices.Contains(strings.Split(strings.TrimSpace(out), "\n"), name), nil
 }
 
-// NetworkGateway returns the IPv4 gateway address of a network.
+// Gateway holds a network's gateway address in each address family it
+// carries one for. A zero [netip.Addr] means that family has no gateway.
+type Gateway struct {
+	V4 netip.Addr
+	V6 netip.Addr
+}
+
+// NetworkGateway returns the gateway addresses of a network.
 // NetworkGateway returns [cri.ErrNotFound] when the network does not exist,
-// and [cri.ErrNoGateway] when the network carries no IPv4 gateway.
-func (Client) NetworkGateway(ctx context.Context, name string) (netip.Addr, error) {
+// and [cri.ErrNoGateway] when the network carries no gateway in either
+// address family.
+func (Client) NetworkGateway(ctx context.Context, name string) (Gateway, error) {
 	out, err := run(ctx, nil, "network", "inspect", name,
 		"--format", "{{range .IPAM.Config}}{{.Gateway}} {{end}}")
 	if err != nil {
 		if ok, existsErr := networkExists(ctx, name); existsErr == nil && !ok {
-			return netip.Addr{}, fmt.Errorf("docker: inspect network %q: %w", name, cri.ErrNotFound)
+			return Gateway{}, fmt.Errorf("docker: inspect network %q: %w", name, cri.ErrNotFound)
 		}
-		return netip.Addr{}, fmt.Errorf("docker: inspect network %q: %w", name, err)
+		return Gateway{}, fmt.Errorf("docker: inspect network %q: %w", name, err)
 	}
 
 	gateway, err := gatewayFromInspect(out)
 	if err != nil {
-		return netip.Addr{}, fmt.Errorf("docker: inspect network %q: %w", name, err)
+		return Gateway{}, fmt.Errorf("docker: inspect network %q: %w", name, err)
 	}
 	return gateway, nil
 }
 
-// gatewayFromInspect finds the first IPv4 address in the space-separated
-// list that a gateway template produces.
-func gatewayFromInspect(out string) (netip.Addr, error) {
+// gatewayFromInspect finds the first IPv4 and first IPv6 address in the
+// space-separated list that a gateway template produces.
+func gatewayFromInspect(out string) (Gateway, error) {
+	var gw Gateway
 	for field := range strings.FieldsSeq(out) {
 		addr, err := netip.ParseAddr(field)
 		if err != nil {
 			continue
 		}
 		if addr.Is4() {
-			return addr, nil
+			if !gw.V4.IsValid() {
+				gw.V4 = addr
+			}
+			continue
+		}
+		if !gw.V6.IsValid() {
+			gw.V6 = addr
 		}
 	}
-	return netip.Addr{}, cri.ErrNoGateway
+	if !gw.V4.IsValid() && !gw.V6.IsValid() {
+		return Gateway{}, cri.ErrNoGateway
+	}
+	return gw, nil
 }
 
 // NetworkConnect joins a container to a network. A container that is on the network already is not an error.
@@ -220,6 +244,9 @@ func runArgs(spec cri.RunSpec) []string {
 	}
 	for _, h := range spec.AddHosts {
 		args = append(args, "--add-host", h)
+	}
+	for _, c := range spec.CapAdd {
+		args = append(args, "--cap-add", c)
 	}
 
 	args = append(args, spec.Image)
@@ -307,8 +334,10 @@ type inspectResult struct {
 		Labels map[string]string
 	}
 	NetworkSettings struct {
-		Networks map[string]struct {
-			IPAddress string
+		SandboxKey string
+		Networks   map[string]struct {
+			IPAddress         string
+			GlobalIPv6Address string
 		}
 		Ports map[string][]struct {
 			HostIP   string
@@ -337,17 +366,22 @@ func (Client) Inspect(ctx context.Context, name string) (cri.Container, error) {
 
 func fromInspect(raw inspectResult) cri.Container {
 	c := cri.Container{
-		ID:       raw.ID,
-		Name:     strings.TrimPrefix(raw.Name, "/"),
-		Running:  raw.State.Running,
-		ExitCode: raw.State.ExitCode,
-		IPs:      map[string]string{},
-		Ports:    map[string]string{},
-		Labels:   raw.Config.Labels,
+		ID:        raw.ID,
+		Name:      strings.TrimPrefix(raw.Name, "/"),
+		Running:   raw.State.Running,
+		ExitCode:  raw.State.ExitCode,
+		IPs:       map[string]string{},
+		IPv6:      map[string]string{},
+		NetnsPath: raw.NetworkSettings.SandboxKey,
+		Ports:     map[string]string{},
+		Labels:    raw.Config.Labels,
 	}
 	for network, settings := range raw.NetworkSettings.Networks {
 		if settings.IPAddress != "" {
 			c.IPs[network] = settings.IPAddress
+		}
+		if settings.GlobalIPv6Address != "" {
+			c.IPv6[network] = settings.GlobalIPv6Address
 		}
 	}
 	for port, bindings := range raw.NetworkSettings.Ports {

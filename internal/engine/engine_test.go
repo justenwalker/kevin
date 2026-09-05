@@ -1398,7 +1398,7 @@ func TestStartProxyGatewayPort(t *testing.T) {
 
 		// Reserve a free port on the gateway address, then free it again -
 		// startProxy is asked to bind exactly that port back.
-		probe := bindGatewayPort(t, gateway)
+		probe := bindGatewayPort(t, gateway.V4)
 		wantPort := mustPort(t, probe.Addr().String())
 		require.NoError(t, probe.Close())
 
@@ -1428,7 +1428,7 @@ func TestStartProxyGatewayPort(t *testing.T) {
 		gateway, err := dockerClient.NetworkGateway(t.Context(), network)
 		require.NoError(t, err)
 
-		held := bindGatewayPort(t, gateway)
+		held := bindGatewayPort(t, gateway.V4)
 		defer func() { _ = held.Close() }()
 		heldPort := mustPort(t, held.Addr().String())
 

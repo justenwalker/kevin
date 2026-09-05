@@ -23,7 +23,7 @@ const dnsTimeout = 5 * time.Second
 // intercept host, and forwards every other query to the upstream resolver.
 type dnsRelay struct {
 	domain   string
-	self     string
+	self     selfAddrs
 	upstream string
 	client   dns.Client
 
@@ -32,10 +32,11 @@ type dnsRelay struct {
 	wildcards  map[string]struct{} // ".suffix" of a "*."-prefixed entry, lowercased
 }
 
-// newDNSRelay builds a relay for domain. self is the address that an A
-// query under domain, or under a host added with [dnsRelay.AddIntercept],
-// resolves to. upstream is the resolver for every other query.
-func newDNSRelay(domain, self, upstream string) *dnsRelay {
+// newDNSRelay builds a relay for domain. self is the address (or addresses,
+// for a dual-stack relay) that an A or AAAA query under domain, or under a
+// host added with [dnsRelay.AddIntercept], resolves to. upstream is the
+// resolver for every other query.
+func newDNSRelay(domain string, self selfAddrs, upstream string) *dnsRelay {
 	return &dnsRelay{
 		domain:     normalizeDomain(domain),
 		self:       self,
@@ -104,18 +105,23 @@ func (r *dnsRelay) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 }
 
 // answer builds the reply for a query under the domain. A qtype of A
-// resolves to self. Every other qtype gets an empty NOERROR answer: an
-// empty AAAA is what makes a dual-stack client fall back to the A record
-// instead of failing.
+// resolves to self.V4, and AAAA to self.V6. A family the relay has no
+// address for gets an empty NOERROR answer instead: for AAAA on an
+// IPv4-only relay, that's what makes a dual-stack client fall back to the A
+// record instead of failing.
 func (r *dnsRelay) answer(req *dns.Msg) *dns.Msg {
 	m := new(dns.Msg)
 	m.SetReply(req)
 	m.Authoritative = true
 
 	q := req.Question[0]
-	if q.Qtype == dns.TypeA {
-		rr, err := dns.NewRR(fmt.Sprintf("%s %d IN A %s", q.Name, dnsTTL, r.self))
-		if err == nil {
+	switch {
+	case q.Qtype == dns.TypeA && r.self.V4 != "":
+		if rr, err := dns.NewRR(fmt.Sprintf("%s %d IN A %s", q.Name, dnsTTL, r.self.V4)); err == nil {
+			m.Answer = append(m.Answer, rr)
+		}
+	case q.Qtype == dns.TypeAAAA && r.self.V6 != "":
+		if rr, err := dns.NewRR(fmt.Sprintf("%s %d IN AAAA %s", q.Name, dnsTTL, r.self.V6)); err == nil {
 			m.Answer = append(m.Answer, rr)
 		}
 	}

@@ -66,6 +66,9 @@ type RunSpec struct {
 	// "web.kevin.home:172.20.0.5".
 	AddHosts []string
 
+	// CapAdd adds a Linux capability to the container, such as "NET_ADMIN".
+	CapAdd []string
+
 	// Cmd replaces the command of the image.
 	Cmd []string
 
@@ -92,11 +95,29 @@ type Container struct {
 	// IPs maps a network name to the address of the container on it.
 	IPs map[string]string
 
+	// IPv6 maps a network name to the IPv6 address of the container on it.
+	// A network with no IPv6 address carries no entry.
+	IPv6 map[string]string
+
+	// NetnsPath is the host path of the container's network namespace, such
+	// as "/var/run/docker/netns/1234abcd". Empty when the container shares
+	// another container's or the host's namespace.
+	NetnsPath string
+
 	// Ports maps a container port such as "80/tcp" to the host address.
 	Ports map[string]string
 
 	// Labels holds every label that the container carries.
 	Labels map[string]string
+}
+
+// NetworkOptions configures [Runtime.NetworkCreate].
+type NetworkOptions struct {
+	// Labels mark the network as owned by kevin.
+	Labels map[string]string
+
+	// IPv6 enables IPv6 addressing on the network, alongside IPv4.
+	IPv6 bool
 }
 
 // Runtime is a container engine. internal/docker implements Runtime by
@@ -140,7 +161,7 @@ type Runtime interface {
 
 	// NetworkCreate creates the network that every step of a project
 	// joins. The call succeeds when the network exists already.
-	NetworkCreate(ctx context.Context, name string, labels map[string]string) error
+	NetworkCreate(ctx context.Context, name string, opts NetworkOptions) error
 
 	// NetworkRemove removes a project's network. A network that is absent
 	// is not an error.

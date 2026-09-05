@@ -48,8 +48,8 @@ func (s *RelaySuite) SetupSuite() {
 	ensureRelayImage(t)
 
 	s.network = "kevin-" + relayProject
-	s.Require().NoError(dockerClient.NetworkCreate(t.Context(), s.network, map[string]string{
-		cri.LabelProject: relayProject,
+	s.Require().NoError(dockerClient.NetworkCreate(t.Context(), s.network, cri.NetworkOptions{
+		Labels: map[string]string{cri.LabelProject: relayProject},
 	}))
 
 	r, err := relay.Start(t.Context(), relay.Options{

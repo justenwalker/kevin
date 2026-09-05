@@ -179,8 +179,8 @@ type relayProcess struct {
 // reads back an ephemeral address with dnsAddr, httpAddr, httpsAddr, or
 // socks5Addr before run starts.
 func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
-	self := cfg.self
-	if self == "" {
+	self := selfAddrs{V4: cfg.self}
+	if cfg.self == "" {
 		addr, err := resolveSelf()
 		if err != nil {
 			return nil, err
@@ -213,7 +213,7 @@ func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
 	}
 
 	log.Ctx(ctx).Info("relay starting",
-		"domain", cfg.domain, "self", self, "proxy", cfg.proxyAddr,
+		"domain", cfg.domain, "self_v4", self.V4, "self_v6", self.V6, "proxy", cfg.proxyAddr,
 		"dns_listen", dnsSrv.addr(), "http_listen", httpLn.Addr(), "https_listen", httpsLn.Addr(),
 		"socks5_listen", socks5Ln.Addr(), "control_listen", controlLn.Addr())
 
@@ -254,30 +254,55 @@ func (p *relayProcess) socks5Addr() string { return p.socks5Ln.Addr().String() }
 // controlAddr is the bound address of the intercept control endpoint.
 func (p *relayProcess) controlAddr() string { return p.controlLn.Addr().String() }
 
-// resolveSelf picks the address that the DNS server answers with when -self
-// is empty.
-func resolveSelf() (string, error) {
+// selfAddrs holds the address the DNS server answers a matching A or AAAA
+// query with, in each address family an interface carries one for. An empty
+// field means the relay has no usable address in that family - the AAAA
+// side of dnsRelay.answer falls back to an empty NOERROR when V6 is empty,
+// same as an IPv4-only relay always has.
+type selfAddrs struct {
+	V4 string
+	V6 string
+}
+
+// resolveSelf picks the addresses that the DNS server answers with when
+// -self is empty.
+func resolveSelf() (selfAddrs, error) {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		return "", fmt.Errorf("relay: list network interfaces: %w", err)
+		return selfAddrs{}, fmt.Errorf("relay: list network interfaces: %w", err)
 	}
 	return pickAddress(addrs)
 }
 
-// pickAddress returns the first non-loopback IPv4 address in addrs.
-func pickAddress(addrs []net.Addr) (string, error) {
+// pickAddress returns the first non-loopback, non-link-local address of
+// each family in addrs. A link-local address (169.254.0.0/16, fe80::/10) is
+// skipped: it needs a zone/scope id to dial, and other containers on the
+// network reach the relay by a routable address instead.
+func pickAddress(addrs []net.Addr) (selfAddrs, error) {
+	var out selfAddrs
 	for _, a := range addrs {
 		ipNet, ok := a.(*net.IPNet)
 		if !ok {
 			continue
 		}
-		ip4 := ipNet.IP.To4()
-		if ip4 == nil || ip4.IsLoopback() {
+		ip := ipNet.IP
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() {
 			continue
 		}
-		return ip4.String(), nil
+		if ip4 := ip.To4(); ip4 != nil {
+			if out.V4 == "" {
+				out.V4 = ip4.String()
+			}
+			continue
+		}
+		if out.V6 == "" {
+			out.V6 = ip.String()
+		}
 	}
-	return "", ErrNoAddress
+	if out.V4 == "" && out.V6 == "" {
+		return selfAddrs{}, ErrNoAddress
+	}
+	return out, nil
 }
 
 // acceptLoop accepts a connection from ln until ctx is done, and runs handle

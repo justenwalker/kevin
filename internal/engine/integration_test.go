@@ -120,8 +120,8 @@ func (s *RelaySuite) TestReapLeavesALiveRelayInPlace() {
 	const project = "kevin-it-super-reap"
 	network := NetworkName(project)
 
-	s.Require().NoError(dockerClient.NetworkCreate(ctx, network, map[string]string{
-		cri.LabelProject: project,
+	s.Require().NoError(dockerClient.NetworkCreate(ctx, network, cri.NetworkOptions{
+		Labels: map[string]string{cri.LabelProject: project},
 	}))
 	t.Cleanup(func() { _ = dockerClient.NetworkRemove(context.WithoutCancel(context.Background()), network) })
 

@@ -85,6 +85,7 @@ func TestRunArgs(t *testing.T) {
 			Volumes:  []string{"/ca:/etc/ssl/kevin:ro"},
 			DNS:      []string{"172.20.0.1", "127.0.0.11"},
 			AddHosts: []string{"web.kevin.home:172.20.0.5", "api.kevin.home:172.20.0.6"},
+			CapAdd:   []string{"NET_ADMIN", "SYS_ADMIN"},
 			Cmd:      []string{"nginx", "-g", "daemon off;"},
 		})
 
@@ -103,6 +104,8 @@ func TestRunArgs(t *testing.T) {
 			"--dns", "127.0.0.11",
 			"--add-host", "web.kevin.home:172.20.0.5",
 			"--add-host", "api.kevin.home:172.20.0.6",
+			"--cap-add", "NET_ADMIN",
+			"--cap-add", "SYS_ADMIN",
 			"nginx:1",
 			"nginx", "-g", "daemon off;",
 		}, args)
@@ -157,8 +160,9 @@ const inspectFixture = `{
   "Name": "/kevin-demo-api",
   "State": {"Running": true, "ExitCode": 0},
   "NetworkSettings": {
+    "SandboxKey": "/var/run/docker/netns/9f2c4a",
     "Networks": {
-      "kevin-demo": {"IPAddress": "172.20.0.3"},
+      "kevin-demo": {"IPAddress": "172.20.0.3", "GlobalIPv6Address": "fd00::3"},
       "bridge": {"IPAddress": ""}
     },
     "Ports": {
@@ -182,6 +186,9 @@ func TestFromInspect(t *testing.T) {
 
 		assert.Equal(t, map[string]string{"kevin-demo": "172.20.0.3"}, c.IPs,
 			"a network without an address must not appear")
+		assert.Equal(t, map[string]string{"kevin-demo": "fd00::3"}, c.IPv6,
+			"a network without an ipv6 address must not appear")
+		assert.Equal(t, "/var/run/docker/netns/9f2c4a", c.NetnsPath)
 
 		assert.Equal(t, map[string]string{
 			"80/tcp":  "127.0.0.1:32768",
@@ -199,6 +206,7 @@ func TestFromInspect(t *testing.T) {
 		assert.False(t, c.Running)
 		assert.Equal(t, 137, c.ExitCode)
 		assert.Empty(t, c.IPs)
+		assert.Empty(t, c.IPv6)
 		assert.Empty(t, c.Ports)
 	})
 }
@@ -207,25 +215,31 @@ func TestGatewayFromInspect(t *testing.T) {
 	tests := []struct {
 		name    string
 		out     string
-		want    netip.Addr
+		want    Gateway
 		wantErr error
 	}{
-		{name: "a single ipv4 gateway", out: "172.20.0.1 \n", want: netip.MustParseAddr("172.20.0.1")},
-		{name: "an ipv4 gateway before an ipv6 gateway", out: "172.20.0.1 fe80::1 ", want: netip.MustParseAddr("172.20.0.1")},
-		{name: "an ipv6 gateway before an ipv4 gateway", out: "fe80::1 172.20.0.1 ", want: netip.MustParseAddr("172.20.0.1")},
+		{name: "a single ipv4 gateway", out: "172.20.0.1 \n", want: Gateway{V4: netip.MustParseAddr("172.20.0.1")}},
+		{
+			name: "an ipv4 gateway before an ipv6 gateway", out: "172.20.0.1 fe80::1 ",
+			want: Gateway{V4: netip.MustParseAddr("172.20.0.1"), V6: netip.MustParseAddr("fe80::1")},
+		},
+		{
+			name: "an ipv6 gateway before an ipv4 gateway", out: "fe80::1 172.20.0.1 ",
+			want: Gateway{V4: netip.MustParseAddr("172.20.0.1"), V6: netip.MustParseAddr("fe80::1")},
+		},
 		{name: "no gateway", out: "", wantErr: cri.ErrNoGateway},
-		{name: "only an ipv6 gateway", out: "fe80::1 ", wantErr: cri.ErrNoGateway},
+		{name: "only an ipv6 gateway", out: "fe80::1 ", want: Gateway{V6: netip.MustParseAddr("fe80::1")}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := gatewayFromInspect(tt.out)
 			if tt.wantErr != nil {
-				require.ErrorIs(t, err, tt.wantErr, "an absent ipv4 gateway must report ErrNoGateway")
+				require.ErrorIs(t, err, tt.wantErr, "no gateway in either family must report ErrNoGateway")
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, got, "the first ipv4 address in the list must win")
+			assert.Equal(t, tt.want, got, "the first address of each family must win")
 		})
 	}
 }
@@ -284,7 +298,7 @@ func TestNetworkConnect(t *testing.T) {
 	c := Client{}
 
 	network := "kevin-docker-network-connect-test"
-	require.NoError(t, c.NetworkCreate(t.Context(), network, nil))
+	require.NoError(t, c.NetworkCreate(t.Context(), network, cri.NetworkOptions{}))
 	t.Cleanup(func() { _ = c.NetworkRemove(context.WithoutCancel(t.Context()), network) })
 
 	name := "kevin-docker-network-connect-test-container"
@@ -313,7 +327,7 @@ func TestNetworkRemoveToleratesActiveEndpoints(t *testing.T) {
 	c := Client{}
 
 	network := "kevin-docker-network-remove-in-use-test"
-	require.NoError(t, c.NetworkCreate(t.Context(), network, nil))
+	require.NoError(t, c.NetworkCreate(t.Context(), network, cri.NetworkOptions{}))
 	t.Cleanup(func() { _ = c.NetworkRemove(context.WithoutCancel(t.Context()), network) })
 
 	name := "kevin-docker-network-remove-in-use-test-container"
@@ -365,12 +379,23 @@ func TestNetworkGateway(t *testing.T) {
 
 	t.Run("returns the network's ipv4 gateway", func(t *testing.T) {
 		network := "kevin-docker-network-gateway-test"
-		require.NoError(t, c.NetworkCreate(t.Context(), network, nil))
+		require.NoError(t, c.NetworkCreate(t.Context(), network, cri.NetworkOptions{}))
 		t.Cleanup(func() { _ = c.NetworkRemove(context.WithoutCancel(t.Context()), network) })
 
 		gw, err := c.NetworkGateway(t.Context(), network)
 		require.NoError(t, err)
-		assert.True(t, gw.Is4(), "the gateway must be an ipv4 address")
+		assert.True(t, gw.V4.IsValid(), "the gateway must carry an ipv4 address")
+	})
+
+	t.Run("returns both gateways for a dual-stack network", func(t *testing.T) {
+		network := "kevin-docker-network-gateway-v6-test"
+		require.NoError(t, c.NetworkCreate(t.Context(), network, cri.NetworkOptions{IPv6: true}))
+		t.Cleanup(func() { _ = c.NetworkRemove(context.WithoutCancel(t.Context()), network) })
+
+		gw, err := c.NetworkGateway(t.Context(), network)
+		require.NoError(t, err)
+		assert.True(t, gw.V4.IsValid(), "a dual-stack network must still carry an ipv4 gateway")
+		assert.True(t, gw.V6.IsValid(), "a dual-stack network must carry an ipv6 gateway")
 	})
 
 	t.Run("reports ErrNotFound for a missing network", func(t *testing.T) {

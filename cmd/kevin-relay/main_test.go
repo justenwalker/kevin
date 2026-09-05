@@ -88,7 +88,7 @@ func TestPickAddressSkipsLoopbackAndIPv6(t *testing.T) {
 	tests := []struct {
 		name    string
 		addrs   []net.Addr
-		want    string
+		want    selfAddrs
 		wantErr error
 	}{
 		{
@@ -97,15 +97,23 @@ func TestPickAddressSkipsLoopbackAndIPv6(t *testing.T) {
 				&net.IPNet{IP: net.ParseIP("127.0.0.1"), Mask: net.CIDRMask(8, 32)},
 				&net.IPNet{IP: net.ParseIP("172.20.0.9"), Mask: net.CIDRMask(16, 32)},
 			},
-			want: "172.20.0.9",
+			want: selfAddrs{V4: "172.20.0.9"},
 		},
 		{
-			name: "an ipv6 address before the ipv4 address",
+			name: "a link-local ipv6 address before the ipv4 address",
 			addrs: []net.Addr{
 				&net.IPNet{IP: net.ParseIP("fe80::1"), Mask: net.CIDRMask(64, 128)},
 				&net.IPNet{IP: net.ParseIP("172.20.0.9"), Mask: net.CIDRMask(16, 32)},
 			},
-			want: "172.20.0.9",
+			want: selfAddrs{V4: "172.20.0.9"},
+		},
+		{
+			name: "a dual-stack interface",
+			addrs: []net.Addr{
+				&net.IPNet{IP: net.ParseIP("172.20.0.9"), Mask: net.CIDRMask(16, 32)},
+				&net.IPNet{IP: net.ParseIP("fd00::9"), Mask: net.CIDRMask(64, 128)},
+			},
+			want: selfAddrs{V4: "172.20.0.9", V6: "fd00::9"},
 		},
 		{
 			name:    "only loopback",

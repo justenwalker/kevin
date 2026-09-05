@@ -26,8 +26,8 @@ func requireDocker(t *testing.T) {
 func newTestNetwork(t *testing.T, project string) string {
 	t.Helper()
 	network := NetworkName(project)
-	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, map[string]string{
-		cri.LabelProject: project,
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, cri.NetworkOptions{
+		Labels: map[string]string{cri.LabelProject: project},
 	}))
 	t.Cleanup(func() {
 		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)

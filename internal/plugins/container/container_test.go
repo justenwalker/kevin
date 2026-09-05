@@ -299,8 +299,8 @@ func testEnv(t *testing.T) plugin.Env {
 	}
 	client, err := docker.New(nil)
 	require.NoError(t, err)
-	require.NoError(t, client.NetworkCreate(t.Context(), env.Network, map[string]string{
-		cri.LabelProject: env.Project,
+	require.NoError(t, client.NetworkCreate(t.Context(), env.Network, cri.NetworkOptions{
+		Labels: map[string]string{cri.LabelProject: env.Project},
 	}))
 	t.Cleanup(func() {
 		_ = client.NetworkRemove(context.WithoutCancel(t.Context()), env.Network)
@@ -424,7 +424,7 @@ func (f fakeRuntime) Inspect(ctx context.Context, name string) (cri.Container, e
 	return f.inspect(ctx, name)
 }
 
-func (fakeRuntime) NetworkCreate(context.Context, string, map[string]string) error { return nil }
+func (fakeRuntime) NetworkCreate(context.Context, string, cri.NetworkOptions) error { return nil }
 
 func (fakeRuntime) NetworkRemove(context.Context, string) error { return nil }
 

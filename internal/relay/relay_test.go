@@ -137,8 +137,8 @@ func TestStartAndClose(t *testing.T) {
 	image := fixtureImage(t)
 
 	network := "kevin-relay-test"
-	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, map[string]string{
-		cri.LabelProject: "relay-test",
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, cri.NetworkOptions{
+		Labels: map[string]string{cri.LabelProject: "relay-test"},
 	}))
 	t.Cleanup(func() {
 		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
@@ -183,8 +183,8 @@ func TestStartReusesRunningContainer(t *testing.T) {
 	image := fixtureImage(t)
 
 	network := "kevin-relay-reuse-test"
-	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, map[string]string{
-		cri.LabelProject: "relay-reuse-test",
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, cri.NetworkOptions{
+		Labels: map[string]string{cri.LabelProject: "relay-reuse-test"},
 	}))
 	t.Cleanup(func() {
 		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
@@ -227,8 +227,8 @@ func TestStartReplacesADriftedContainer(t *testing.T) {
 	image := fixtureImage(t)
 
 	network := "kevin-relay-drift-test"
-	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, map[string]string{
-		cri.LabelProject: "relay-drift-test",
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, cri.NetworkOptions{
+		Labels: map[string]string{cri.LabelProject: "relay-drift-test"},
 	}))
 	t.Cleanup(func() {
 		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
@@ -269,8 +269,8 @@ func TestLookup(t *testing.T) {
 	image := fixtureImage(t)
 
 	network := "kevin-relay-lookup-test"
-	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, map[string]string{
-		cri.LabelProject: "relay-lookup-test",
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, cri.NetworkOptions{
+		Labels: map[string]string{cri.LabelProject: "relay-lookup-test"},
 	}))
 	t.Cleanup(func() {
 		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
