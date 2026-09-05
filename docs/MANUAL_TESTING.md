@@ -277,6 +277,25 @@ kevin -C examples/kind run
       steps remain in this example - `kevin ca uninstall` manages CA trust
       separately, see section 4.)
 
+Node-level transparent capture (see [Transparent
+capture]({{< relref "/docs/concepts/relay#transparent-capture" >}})):
+`capture_probe` is a Pod that dials the real `kubernetes.default` Service
+and `example.com`, neither of which has a route registered, so any
+interception can only come from capture at the node, not from the relay's
+DNS-based intercept.
+
+- [ ] `KUBECONFIG=examples/kind/.kevin/kubeconfig/kind-example-cluster kubectl logs pod/capture-probe`
+      shows two responses.
+- [ ] The `kubernetes.default.svc.cluster.local` response is the real API
+      server's own body (no `kevin blocked a request to` text) - the
+      cluster's pod/service CIDR exclusion held, so in-cluster traffic
+      wasn't touched.
+- [ ] The `example.com` response is kevin's own deny page
+      (`kevin blocked a request to example.com`), not the real site - the
+      Pod's request on a captured port was redirected to kevin before it
+      ever left the node, with no `hostAliases`, no proxy environment
+      variable, and no route registered for the host.
+
 Add `extra_mounts: [{host_path: "/tmp/some-dir", container_path: "/host-src"}]`
 to `cluster`'s `with` block, alongside `relay: true` or an `expose` entry:
 

@@ -126,6 +126,45 @@ env: {
 			routes: [{host: "app", address: "app.default.svc.cluster.local:80"}]
 		}
 	}
+	capture_probe: {
+		uses:  "builtin:kubectl"
+		label: "Capture Probe"
+		needs: ["cluster", "app_ready"]
+		with: {
+			kubeconfig: "${needs.cluster.out.kubeconfig}"
+			context:    "${needs.cluster.out.context}"
+			manifest: """
+				apiVersion: v1
+				kind: Pod
+				metadata:
+				  name: capture-probe
+				spec:
+				  restartPolicy: Never
+				  containers:
+				  - name: probe
+				    image: curlimages/curl
+				    command: ["sh", "-c"]
+				    args:
+				    - |
+				      echo in-cluster:; curl -sk --max-time 5 https://kubernetes.default.svc.cluster.local/
+				      echo external:; curl -sk --max-time 5 https://example.com/
+				"""
+		}
+	}
+	capture_probe_done: {
+		uses:  "builtin:wait"
+		label: "Capture Probe Done"
+		needs: ["cluster", "capture_probe"]
+		with: {
+			timeout: "30s"
+			kubectl: {
+				kubeconfig: "${needs.cluster.out.kubeconfig}"
+				context:    "${needs.cluster.out.context}"
+				resource:   "pod/capture-probe"
+				for:        "jsonpath={.status.phase}=Succeeded"
+			}
+		}
+	}
 }
 
 commands: {
@@ -170,6 +209,7 @@ func (s *KindSuite) SetupSuite() {
 	s.p = s.startKevin(s.dir, "-C", s.dir, "run")
 	s.waitFor(s.p, stepLine("app_route", "ready"), kindTimeout)
 	s.waitFor(s.p, stepLine("chart_ready", "ready"), kindTimeout)
+	s.waitFor(s.p, stepLine("capture_probe_done", "ready"), kindTimeout)
 	s.out = s.p.buf.String()
 }
 
@@ -189,9 +229,39 @@ func (s *KindSuite) TestClusterAndDeploymentsReady() {
 	for _, step := range []string{
 		"registry", "registry_ready", "cluster", "apiserver_ready",
 		"app", "app_ready", "chart", "chart_ready", "app_route",
+		"capture_probe", "capture_probe_done",
 	} {
 		s.Contains(s.out, stepLine(step, "ready"), "%s must reach ready", step)
 	}
+}
+
+// TestNodeLevelCaptureRedirectsPodEgressButSparesClusterTraffic proves the
+// node-level capture docs/site/content/docs/concepts/relay.md's "Transparent
+// capture" section describes: capture_probe (SetupSuite) is a Pod that
+// dials the real kubernetes.default Service and the real example.com, with
+// no route registered for either - so any interception here can only come
+// from node-level capture, not from the relay's DNS-based intercept
+// mechanism. The Service request must reach the real API server (its
+// response body never carries kevin's own deny-page marker, proving the
+// pod/service CIDR exclusion holds); the external request must land on
+// kevin's proxy instead of the real internet (its response body does carry
+// that marker, proving the redirect itself fired).
+func (s *KindSuite) TestNodeLevelCaptureRedirectsPodEgressButSparesClusterTraffic() {
+	if _, err := exec.LookPath("kubectl"); err != nil {
+		s.T().Skip("kubectl not found on PATH")
+	}
+	kubeconfig := filepath.Join(s.dir, ".kevin", "kubeconfig", "kevin-e2e-kind-cluster")
+
+	out, err := exec.CommandContext(s.T().Context(), "kubectl",
+		"--kubeconfig", kubeconfig, "logs", "pod/capture-probe").CombinedOutput()
+	s.Require().NoError(err, "output:\n%s", out)
+
+	inCluster, external, ok := strings.Cut(string(out), "external:\n")
+	s.Require().True(ok, "capture-probe log must carry both probes, got:\n%s", out)
+
+	const denyMarker = "kevin blocked a request to"
+	s.NotContains(inCluster, denyMarker, "a pod's own request to a cluster Service must reach it directly, not the proxy's deny page")
+	s.Contains(external, denyMarker, "a pod's request to an unregistered external host on a captured port must land on the proxy, not the real internet")
 }
 
 // TestKubectlGetNodesThroughWrittenKubeconfig covers the doc's own
