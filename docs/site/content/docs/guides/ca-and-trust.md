@@ -15,6 +15,8 @@ kevin signs every certificate the proxy presents with its own CA, so it never ne
 
 Only the root ever reaches a trust store, and it's installed there once for the whole machine, so a trust store holds one kevin anchor no matter how many kevin projects exist. Each project's own authority lives in the project directory and goes away with it.
 
+A [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) entry with `skip_mitm: true` never touches this CA at all: its traffic tunnels straight through to the upstream's own certificate instead of a kevin-signed leaf, so a client needs the upstream's own CA trusted, not kevin's.
+
 ## Trust setup
 
 To drop `--cacert` from every `curl` and have your browser trust the environment automatically, install the root into the trust stores of the machine:

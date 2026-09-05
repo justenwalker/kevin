@@ -384,6 +384,12 @@ message Route {
   // client dials it on - unset means host is a subdomain of the
   // environment domain, not a real-world hostname.
   External external = 4;
+
+  // SkipMitm is true when this route's TLS should pass straight through to
+  // the client undecrypted instead of being terminated and re-signed with
+  // kevin's own leaf, so the client validates the upstream's real
+  // certificate directly. Only meaningful when Tls is true.
+  bool skip_mitm = 5;
 }
 
 // External is a Route's external-ness: present, it names host a real-world

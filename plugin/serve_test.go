@@ -322,7 +322,7 @@ func TestServerUp(t *testing.T) {
 					"password": Sensitive{String("hunter2")},
 				},
 				Routes: []Route{
-					{Host: "api.test", Upstream: "api:8080", TLS: true},
+					{Host: "api.test", Upstream: "api:8080", TLS: true, SkipMITM: true},
 					{Host: "s3.amazonaws.com", Upstream: "127.0.0.1:9090", External: &RouteExternal{Ports: []int{443}}},
 				},
 				ExposedPorts: []ExposedPort{{Name: "postgres", Protocol: "tcp", Upstream: "127.0.0.1:54321", HostPort: 54321}},
@@ -401,6 +401,7 @@ func TestServerUp(t *testing.T) {
 		assert.Equal(t, "api.test", result.GetRoutes()[0].GetHost())
 		assert.Equal(t, "api:8080", result.GetRoutes()[0].GetUpstream())
 		assert.True(t, result.GetRoutes()[0].GetTls())
+		assert.True(t, result.GetRoutes()[0].GetSkipMitm())
 		assert.Nil(t, result.GetRoutes()[0].GetExternal(), "a route with no External must not gain one in translation")
 
 		require.NotNil(t, result.GetRoutes()[1].GetExternal())

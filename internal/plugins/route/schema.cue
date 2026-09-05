@@ -42,4 +42,17 @@
 	// overwhelming common case for a TLS API. Ignored unless external is
 	// true.
 	ports?: [...int] | *[443]
+
+	// skip_mitm is true when this route's TLS should pass straight through
+	// to the client undecrypted instead of kevin terminating and re-signing
+	// it with its own leaf, so the client validates the target's real
+	// certificate directly - useful for testing a workload's own TLS, such
+	// as a Service fronted by cert-manager inside a builtin:kind cluster.
+	// Only valid alongside tls: true; a plain-HTTP target has no
+	// certificate to preserve and always needs kevin's MITM to serve HTTPS
+	// to the client at all.
+	skip_mitm: bool | *false
+	if skip_mitm {
+		tls: true
+	}
 }

@@ -87,6 +87,12 @@ type Route struct {
 
 	// TLS is true when the upstream itself speaks TLS.
 	TLS bool
+
+	// SkipMITM is true when this route's TLS should pass straight through to
+	// the client undecrypted instead of being terminated and re-signed with
+	// kevin's own leaf, so the client validates the upstream's real
+	// certificate directly. Only meaningful when TLS is true.
+	SkipMITM bool
 }
 
 // Proxy is the kevin proxy. A Proxy is safe for concurrent use.

@@ -1286,6 +1286,7 @@ func (r *run) addRoutes(ctx context.Context, name string, routes []*pb.Route) er
 			Host:     route.GetHost(),
 			Upstream: route.GetUpstream(),
 			TLS:      route.GetTls(),
+			SkipMITM: route.GetSkipMitm(),
 		})
 		r.emit(name, "serving https://"+route.GetHost())
 

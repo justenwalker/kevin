@@ -100,6 +100,7 @@ genuine (if unauthenticated) S3 API response.
 | `tls` | `bool` | - | True when the target itself speaks TLS, such as a Service fronting HTTPS on its port. |
 | `external` | `bool` | - | True when host is a real-world hostname to intercept, rather than a subdomain of the environment domain - traffic meant for that real service transparently lands on address instead, such as a local fake running behind a container step. |
 | `ports` | `[...int]` | `[443]` | Lists the ports a client actually dials host on, so a workload's own DNS also resolves host to kevin's relay - defaults to 443, the overwhelming common case for a TLS API. Ignored unless external is true. |
+| `skip_mitm` | `bool` | `false` | True when this route's TLS should pass straight through to the client undecrypted instead of kevin terminating and re-signing it with its own leaf, so the client validates the target's real certificate directly - useful for testing a workload's own TLS, such as a Service fronted by cert-manager inside a builtin:kind cluster. Only valid alongside tls: true; a plain-HTTP target has no certificate to preserve and always needs kevin's MITM to serve HTTPS to the client at all. |
 
 ## Publishes
 

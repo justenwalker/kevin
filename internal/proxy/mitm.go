@@ -15,8 +15,16 @@ import (
 // It hijacks the connection and terminates TLS with a leaf it mints on the fly.
 // It also serves whatever http version the client negotiates: HTTP/2 or HTTP/1.1 over ALPN.
 // Requests are forwarded to the matching workload.
+//
+// A route whose upstream already speaks TLS may ask to skip this and be
+// tunneled through raw instead - see tunnelRoute.
 func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	host := hostOnly(r.Host)
+
+	if target, routed := p.Lookup(host); routed && target.TLS && target.SkipMITM {
+		p.tunnelRoute(w, r, target)
+		return
+	}
 
 	hj, ok := w.(http.Hijacker)
 	if !ok {

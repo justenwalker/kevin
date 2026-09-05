@@ -1715,7 +1715,12 @@ type Route struct {
 	// than a subdomain of the environment domain, and carries the ports a
 	// client dials it on - unset means host is a subdomain of the
 	// environment domain, not a real-world hostname.
-	External      *External `protobuf:"bytes,4,opt,name=external,proto3" json:"external,omitempty"`
+	External *External `protobuf:"bytes,4,opt,name=external,proto3" json:"external,omitempty"`
+	// SkipMitm is true when this route's TLS should pass straight through to
+	// the client undecrypted instead of being terminated and re-signed with
+	// kevin's own leaf, so the client validates the upstream's real
+	// certificate directly. Only meaningful when Tls is true.
+	SkipMitm      bool `protobuf:"varint,5,opt,name=skip_mitm,json=skipMitm,proto3" json:"skip_mitm,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1776,6 +1781,13 @@ func (x *Route) GetExternal() *External {
 		return x.External
 	}
 	return nil
+}
+
+func (x *Route) GetSkipMitm() bool {
+	if x != nil {
+		return x.SkipMitm
+	}
+	return false
 }
 
 // External is a Route's external-ness: present, it names host a real-world
@@ -2021,12 +2033,13 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x10ToolCallResponse\x12\x18\n" +
 	"\acontent\x18\x01 \x01(\fR\acontent\x12\x19\n" +
 	"\bis_error\x18\x02 \x01(\bR\aisError\x12#\n" +
-	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\"\x80\x01\n" +
+	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\"\x9d\x01\n" +
 	"\x05Route\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x1a\n" +
 	"\bupstream\x18\x02 \x01(\tR\bupstream\x12\x10\n" +
 	"\x03tls\x18\x03 \x01(\bR\x03tls\x125\n" +
-	"\bexternal\x18\x04 \x01(\v2\x19.kevin.plugin.v1.ExternalR\bexternal\" \n" +
+	"\bexternal\x18\x04 \x01(\v2\x19.kevin.plugin.v1.ExternalR\bexternal\x12\x1b\n" +
+	"\tskip_mitm\x18\x05 \x01(\bR\bskipMitm\" \n" +
 	"\bExternal\x12\x14\n" +
 	"\x05ports\x18\x01 \x03(\x05R\x05ports\"3\n" +
 	"\vUserMessage\x12\x10\n" +

@@ -3,6 +3,8 @@ package route
 import (
 	"testing"
 
+	"cuelang.org/go/cue"
+	"cuelang.org/go/cue/cuecontext"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -52,13 +54,14 @@ func TestUpBuildsARouteAndDetailPerEntry(t *testing.T) {
 			"relay": "127.0.0.1:54321",
 			"routes": [
 				{"host": "myapp", "address": "myapp.default.svc.cluster.local:80"},
-				{"host": "other", "address": "other.default.svc.cluster.local:8443", "tls": true}
+				{"host": "other", "address": "other.default.svc.cluster.local:8443", "tls": true},
+				{"host": "certmanager", "address": "certmanager.default.svc.cluster.local:8443", "tls": true, "skip_mitm": true}
 			]
 		}`),
 	}, &noopEmitter{})
 	require.NoError(t, err)
 
-	require.Len(t, result.Routes, 2)
+	require.Len(t, result.Routes, 3)
 	assert.Equal(t, plugin.Route{
 		Host:     "myapp.kevin.home",
 		Upstream: "socks5://127.0.0.1:54321/myapp.default.svc.cluster.local:80",
@@ -68,10 +71,17 @@ func TestUpBuildsARouteAndDetailPerEntry(t *testing.T) {
 		Upstream: "socks5://127.0.0.1:54321/other.default.svc.cluster.local:8443",
 		TLS:      true,
 	}, result.Routes[1])
+	assert.Equal(t, plugin.Route{
+		Host:     "certmanager.kevin.home",
+		Upstream: "socks5://127.0.0.1:54321/certmanager.default.svc.cluster.local:8443",
+		TLS:      true,
+		SkipMITM: true,
+	}, result.Routes[2])
 
-	require.Len(t, result.Details, 2)
+	require.Len(t, result.Details, 3)
 	assert.Equal(t, result.Routes[0].Detail(), result.Details[0])
 	assert.Equal(t, result.Routes[1].Detail(), result.Details[1])
+	assert.Equal(t, result.Routes[2].Detail(), result.Details[2])
 }
 
 func TestUpWithExternalSkipsTheDomainSuffix(t *testing.T) {
@@ -123,6 +133,37 @@ func TestUpWithAWildcardHostSuffixesTheDomainBeforeTheProxySeesIt(t *testing.T) 
 		Host:     "*.foo.kevin.home",
 		Upstream: "127.0.0.1:9090",
 	}, result.Routes[0], "a wildcard host must keep its leading *. through the domain suffix, matching anything.foo.kevin.home")
+}
+
+func TestSchemaSkipMITM(t *testing.T) {
+	ctx := cuecontext.New()
+	v := ctx.CompileBytes(Step{}.Schema(), cue.Filename("route/schema.cue"))
+	require.NoError(t, v.Err())
+	route := v.LookupPath(cue.ParsePath("#Route"))
+
+	t.Run("skip_mitm alone fills tls: true", func(t *testing.T) {
+		with := ctx.CompileString(`{host: "a", address: "b:1", skip_mitm: true}`)
+		merged := route.Unify(with)
+		require.NoError(t, merged.Err())
+		tls, err := merged.LookupPath(cue.ParsePath("tls")).Bool()
+		require.NoError(t, err)
+		assert.True(t, tls, "skip_mitm implies tls: true")
+	})
+
+	t.Run("skip_mitm true with tls false conflicts", func(t *testing.T) {
+		with := ctx.CompileString(`{host: "a", address: "b:1", tls: false, skip_mitm: true}`)
+		merged := route.Unify(with)
+		assert.Error(t, merged.Err(), "a plain-HTTP target has no certificate to preserve")
+	})
+
+	t.Run("tls without skip_mitm needs no change", func(t *testing.T) {
+		with := ctx.CompileString(`{host: "a", address: "b:1", tls: true}`)
+		merged := route.Unify(with)
+		require.NoError(t, merged.Err())
+		skipMITM, err := merged.LookupPath(cue.ParsePath("skip_mitm")).Bool()
+		require.NoError(t, err)
+		assert.False(t, skipMITM)
+	})
 }
 
 type noopEmitter struct{}
