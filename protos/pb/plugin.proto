@@ -279,6 +279,13 @@ message Result {
 
   // Details are the rows that this step shows on its web console card.
   repeated Detail details = 5;
+
+  // NetnsPath is the host path of this step's container network namespace,
+  // such as "/var/run/docker/netns/1234abcd" - empty for a step with no
+  // container workload of its own (kind, exec, a resourceless step). The
+  // engine forwards it to the relay so the container's egress can be
+  // transparently redirected there.
+  string netns_path = 6;
 }
 
 // ExposedPort is a raw TCP or UDP endpoint that a step publishes directly to
@@ -396,8 +403,10 @@ message Route {
 // hostname to intercept, rather than a subdomain of the environment
 // domain.
 message External {
-  // Ports lists the ports a client dials host on, for a workload's own DNS
-  // to also resolve host to the relay.
+  // Ports lists the ports a client dials host on, beyond the relay's
+  // always-on 80 and 443 - the relay opens a listener on each and
+  // transparently redirects a captured container's traffic there, since it
+  // carries no DNS record of host to spoof.
   repeated int32 ports = 1;
 }
 

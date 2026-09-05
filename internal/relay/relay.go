@@ -247,6 +247,27 @@ func create(ctx context.Context, client docker.Client, name string, opts Options
 		// Docker Desktop resolves host.docker.internal on its own. Plain Linux
 		// Docker does not, so the relay needs the entry to reach the host proxy.
 		AddHosts: []string{hostGateway + ":host-gateway"},
+		// CAP_SYS_ADMIN lets the relay setns() into a target container's own
+		// network namespace; CAP_NET_ADMIN lets it install nftables rules
+		// once there. PidHost is what makes a namespace reachable by path at
+		// all: a container's own /proc/<pid>/ns/net, opened by a PID the
+		// relay's own host-shared PID namespace can see - not a bind mount
+		// of /var/run/docker/netns, which on at least one Docker runtime
+		// (OrbStack) can't setns() into a path that appeared in that
+		// directory after the mount was already attached, only read it.
+		// CAP_SYS_PTRACE is what actually lets that open succeed against a
+		// --privileged target (a builtin:kind node, say): the kernel's
+		// cross-process /proc/<pid>/ns/* access check treats a privileged
+		// container's process as non-dumpable, which blocks it without that
+		// capability even though CAP_SYS_ADMIN plus PidHost alone are enough
+		// for an ordinary container. Accepted, not solved here: a
+		// compromised relay could in principle setns() into an unrelated,
+		// non-kevin process's namespace on the same host, since none of
+		// these capabilities carry a finer-grained ACL. Relay only ever
+		// acts on a path the engine itself handed it over the control
+		// channel.
+		CapAdd:  []string{"NET_ADMIN", "SYS_ADMIN", "SYS_PTRACE"},
+		PidHost: true,
 		Env: map[string]string{
 			tlsCertEnv:     serverCert,
 			tlsKeyEnv:      serverKey,

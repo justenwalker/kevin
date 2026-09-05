@@ -1202,7 +1202,13 @@ type Result struct {
 	// ExposedPorts do not go through the HTTP proxy.
 	ExposedPorts []*ExposedPort `protobuf:"bytes,4,rep,name=exposed_ports,json=exposedPorts,proto3" json:"exposed_ports,omitempty"`
 	// Details are the rows that this step shows on its web console card.
-	Details       []*Detail `protobuf:"bytes,5,rep,name=details,proto3" json:"details,omitempty"`
+	Details []*Detail `protobuf:"bytes,5,rep,name=details,proto3" json:"details,omitempty"`
+	// NetnsPath is the host path of this step's container network namespace,
+	// such as "/var/run/docker/netns/1234abcd" - empty for a step with no
+	// container workload of its own (kind, exec, a resourceless step). The
+	// engine forwards it to the relay so the container's egress can be
+	// transparently redirected there.
+	NetnsPath     string `protobuf:"bytes,6,opt,name=netns_path,json=netnsPath,proto3" json:"netns_path,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1270,6 +1276,13 @@ func (x *Result) GetDetails() []*Detail {
 		return x.Details
 	}
 	return nil
+}
+
+func (x *Result) GetNetnsPath() string {
+	if x != nil {
+		return x.NetnsPath
+	}
+	return ""
 }
 
 // ExposedPort is a raw TCP or UDP endpoint that a step publishes directly to
@@ -1795,8 +1808,10 @@ func (x *Route) GetSkipMitm() bool {
 // domain.
 type External struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Ports lists the ports a client dials host on, for a workload's own DNS
-	// to also resolve host to the relay.
+	// Ports lists the ports a client dials host on, beyond the relay's
+	// always-on 80 and 443 - the relay opens a listener on each and
+	// transparently redirects a captured container's traffic there, since it
+	// carries no DNS record of host to spoof.
 	Ports         []int32 `protobuf:"varint,1,rep,packed,name=ports,proto3" json:"ports,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1995,13 +2010,15 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\bProgress\x12\x14\n" +
 	"\x05label\x18\x01 \x01(\tR\x05label\x12\x18\n" +
 	"\acurrent\x18\x02 \x01(\x03R\acurrent\x12\x14\n" +
-	"\x05total\x18\x03 \x01(\x03R\x05total\"\x85\x02\n" +
+	"\x05total\x18\x03 \x01(\x03R\x05total\"\xa4\x02\n" +
 	"\x06Result\x122\n" +
 	"\aoutputs\x18\x01 \x01(\v2\x18.kevin.plugin.v1.OutputsR\aoutputs\x12.\n" +
 	"\x06routes\x18\x02 \x03(\v2\x16.kevin.plugin.v1.RouteR\x06routes\x12!\n" +
 	"\fegress_allow\x18\x03 \x03(\tR\vegressAllow\x12A\n" +
 	"\rexposed_ports\x18\x04 \x03(\v2\x1c.kevin.plugin.v1.ExposedPortR\fexposedPorts\x121\n" +
-	"\adetails\x18\x05 \x03(\v2\x17.kevin.plugin.v1.DetailR\adetails\"v\n" +
+	"\adetails\x18\x05 \x03(\v2\x17.kevin.plugin.v1.DetailR\adetails\x12\x1d\n" +
+	"\n" +
+	"netns_path\x18\x06 \x01(\tR\tnetnsPath\"v\n" +
 	"\vExposedPort\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\bprotocol\x18\x02 \x01(\tR\bprotocol\x12\x1a\n" +

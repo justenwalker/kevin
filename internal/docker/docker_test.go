@@ -86,6 +86,7 @@ func TestRunArgs(t *testing.T) {
 			DNS:      []string{"172.20.0.1", "127.0.0.11"},
 			AddHosts: []string{"web.kevin.home:172.20.0.5", "api.kevin.home:172.20.0.6"},
 			CapAdd:   []string{"NET_ADMIN", "SYS_ADMIN"},
+			PidHost:  true,
 			Cmd:      []string{"nginx", "-g", "daemon off;"},
 		})
 
@@ -106,6 +107,7 @@ func TestRunArgs(t *testing.T) {
 			"--add-host", "api.kevin.home:172.20.0.6",
 			"--cap-add", "NET_ADMIN",
 			"--cap-add", "SYS_ADMIN",
+			"--pid", "host",
 			"nginx:1",
 			"nginx", "-g", "daemon off;",
 		}, args)
@@ -150,6 +152,7 @@ func TestRunArgs(t *testing.T) {
 		assert.Equal(t, []string{"run", "--detach", "--name", "c", "busybox"}, args)
 		assert.NotContains(t, args, "--network")
 		assert.NotContains(t, args, "--pull")
+		assert.NotContains(t, args, "--pid")
 	})
 }
 
@@ -158,9 +161,8 @@ func TestRunArgs(t *testing.T) {
 const inspectFixture = `{
   "Id": "9f2c4a",
   "Name": "/kevin-demo-api",
-  "State": {"Running": true, "ExitCode": 0},
+  "State": {"Running": true, "ExitCode": 0, "Pid": 4242},
   "NetworkSettings": {
-    "SandboxKey": "/var/run/docker/netns/9f2c4a",
     "Networks": {
       "kevin-demo": {"IPAddress": "172.20.0.3", "GlobalIPv6Address": "fd00::3"},
       "bridge": {"IPAddress": ""}
@@ -188,7 +190,7 @@ func TestFromInspect(t *testing.T) {
 			"a network without an address must not appear")
 		assert.Equal(t, map[string]string{"kevin-demo": "fd00::3"}, c.IPv6,
 			"a network without an ipv6 address must not appear")
-		assert.Equal(t, "/var/run/docker/netns/9f2c4a", c.NetnsPath)
+		assert.Equal(t, "/proc/4242/ns/net", c.NetnsPath)
 
 		assert.Equal(t, map[string]string{
 			"80/tcp":  "127.0.0.1:32768",
@@ -208,6 +210,7 @@ func TestFromInspect(t *testing.T) {
 		assert.Empty(t, c.IPs)
 		assert.Empty(t, c.IPv6)
 		assert.Empty(t, c.Ports)
+		assert.Empty(t, c.NetnsPath, "no pid means no namespace to reach")
 	})
 }
 

@@ -28,4 +28,8 @@ const (
 	// ErrInvalidControlClientCA reports that the client CA material the
 	// engine embedded in the environment carries no usable certificate.
 	ErrInvalidControlClientCA = Error("relay: the control client ca is invalid")
+
+	// ErrCaptureUnsupported reports that this relay build cannot install
+	// transparent-capture rules - only a linux build can.
+	ErrCaptureUnsupported = Error("relay: transparent capture requires linux")
 )

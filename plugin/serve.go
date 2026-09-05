@@ -188,6 +188,7 @@ func (s *server) Up(req *pb.UpRequest, stream grpc.ServerStreamingServer[pb.Even
 		ExposedPorts: exposedPorts,
 		EgressAllow:  result.EgressAllow,
 		Details:      details,
+		NetnsPath:    result.NetnsPath,
 	}}}); err != nil {
 		return fmt.Errorf("plugin: send the result: %w", err)
 	}

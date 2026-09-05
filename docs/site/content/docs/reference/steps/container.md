@@ -29,7 +29,7 @@ web: {
 | `env` | `[string]: string` | - | Holds extra environment variables for the container. |
 | `ports` | `[...string]` | - | Publish a container port on the host, such as `"8080:80"`. A workload reaches another workload through the docker network, thus a published port is a convenience for a tool on the host. |
 | `volumes` | `[...string]` | - | Mount a host path, such as `"/src:/dst:ro"`. |
-| `proxy` | `bool` | `true` | Adds the proxy variables and the CA to the container, so that the egress of the container is visible. |
+| `proxy` | `bool` | `true` | Installs kevin's CA into the container, so a request the proxy terminates verifies. The container's egress is captured regardless of this setting; proxy only controls whether it trusts the result. |
 | `egress` | `[...string]` | - | Lists the external hosts that this container can reach. The proxy denies egress by default. |
 | `start_timeout` | `string` | `"30s"` | The time to wait for the container to run. The value is a Go duration. |
 | `expose` | `[string]: #Expose` | - | Publishes a container port on the host loopback, keyed by a name that labels the entry in the console and the ready log line. This is the only way this step makes a port reachable outside the docker network. Nothing routes by name here; the console and the ready log report the address directly, and Outputs carries it too, as host_80 for port 80 and so on. Pair it with a builtin:route step to put a subdomain of the environment domain in front of it. A map, not a list, so one entry can be added or changed without replacing the whole set. |

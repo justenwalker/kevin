@@ -69,6 +69,11 @@ type RunSpec struct {
 	// CapAdd adds a Linux capability to the container, such as "NET_ADMIN".
 	CapAdd []string
 
+	// PidHost puts the container in the host's PID namespace, so it can
+	// reach another container's namespace by PID (see [Container.NetnsPath])
+	// regardless of when that container was created.
+	PidHost bool
+
 	// Cmd replaces the command of the image.
 	Cmd []string
 
@@ -99,9 +104,11 @@ type Container struct {
 	// A network with no IPv6 address carries no entry.
 	IPv6 map[string]string
 
-	// NetnsPath is the host path of the container's network namespace, such
-	// as "/var/run/docker/netns/1234abcd". Empty when the container shares
-	// another container's or the host's namespace.
+	// NetnsPath is a path a caller in the host's PID namespace (see
+	// [RunSpec.PidHost]) can open to reach the container's network
+	// namespace, such as "/proc/1234/ns/net". Empty when the container
+	// isn't running, or shares another container's or the host's
+	// namespace.
 	NetnsPath string
 
 	// Ports maps a container port such as "80/tcp" to the host address.

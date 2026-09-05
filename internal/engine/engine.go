@@ -1249,8 +1249,8 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 		return nil, upErr
 	}
 
-	if addErr := r.addRoutes(ctx, name, result.GetRoutes()); addErr != nil {
-		return nil, addErr
+	if relayErr := r.wireRelay(ctx, name, result); relayErr != nil {
+		return nil, relayErr
 	}
 	systemThis := dag.Outputs{}
 	for _, ep := range result.GetExposedPorts() {
@@ -1300,6 +1300,24 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	out := outputsFromProto(result.GetOutputs())
 	r.mergeCompleted(map[string]dag.Outputs{name: out})
 	return out, nil
+}
+
+// wireRelay registers result's routes with the host proxy, and - when the
+// step has a container workload of its own - tells the relay to
+// transparently capture its egress. A step with no container workload
+// (kind, exec, a resourceless step) reports an empty netns path, and there
+// is nothing to register.
+func (r *run) wireRelay(ctx context.Context, name string, result *pb.Result) error {
+	if err := r.addRoutes(ctx, name, result.GetRoutes()); err != nil {
+		return err
+	}
+	if netnsPath := result.GetNetnsPath(); netnsPath != "" {
+		if err := r.relay.RegisterCapture(ctx, name, netnsPath); err != nil {
+			r.reportUpFailure(ctx, name, err)
+			return err
+		}
+	}
+	return nil
 }
 
 // addRoutes registers each of routes with the host proxy, and, for one

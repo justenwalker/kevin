@@ -147,6 +147,7 @@ func (Container) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitt
 		ExposedPorts: exposed,
 		EgressAllow:  cfg.Egress,
 		Details:      stepDetails(exposed),
+		NetnsPath:    info.NetnsPath,
 	}, nil
 }
 
@@ -281,18 +282,13 @@ func containerName(project, step string) string {
 	return "kevin-" + project + "-" + step
 }
 
-// buildEnv merges the environment of the step with the proxy variables.
-// Step variables take precedence over proxy variables.
+// buildEnv merges the environment of the step with SSL_CERT_FILE, when the
+// step trusts kevin's CA. Step variables take precedence.
 func buildEnv(cfg config, req *plugin.UpRequest) map[string]string {
-	env := make(map[string]string, len(cfg.Env)+len(req.Env.ProxyEnv)+1)
+	env := make(map[string]string, len(cfg.Env)+1)
 	maps.Copy(env, cfg.Env)
 	if !cfg.Proxy {
 		return env
-	}
-	for k, v := range req.Env.ProxyEnv {
-		if _, ok := env[k]; !ok {
-			env[k] = v
-		}
 	}
 	if req.Env.CAPath != "" {
 		if _, ok := env["SSL_CERT_FILE"]; !ok {

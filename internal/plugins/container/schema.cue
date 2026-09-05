@@ -23,8 +23,9 @@
 	// volumes mount a host path, such as "/src:/dst:ro".
 	volumes?: [...string]
 
-	// proxy adds the proxy variables and the CA to the container, so that the
-	// egress of the container is visible.
+	// proxy installs kevin's CA into the container, so a request the proxy
+	// terminates verifies. The container's egress is captured regardless of
+	// this setting; proxy only controls whether it trusts the result.
 	proxy?: bool | *true
 
 	// egress lists the external hosts that this container can reach. The proxy

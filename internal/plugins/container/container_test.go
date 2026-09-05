@@ -97,11 +97,6 @@ func TestDecode(t *testing.T) {
 }
 
 func TestBuildEnv(t *testing.T) {
-	proxyEnv := map[string]string{
-		"HTTP_PROXY": "http://127.0.0.1:8080",
-		"NO_PROXY":   "localhost",
-	}
-
 	tests := []struct {
 		name   string
 		cfg    config
@@ -109,24 +104,16 @@ func TestBuildEnv(t *testing.T) {
 		want   map[string]string
 	}{
 		{
-			name: "the proxy variables and the CA arrive",
-			cfg:  config{Proxy: true, Env: map[string]string{"APP": "1"}},
-			want: map[string]string{
-				"APP":           "1",
-				"HTTP_PROXY":    "http://127.0.0.1:8080",
-				"NO_PROXY":      "localhost",
-				"SSL_CERT_FILE": caPath,
-			},
+			name:   "the CA arrives",
+			cfg:    config{Proxy: true, Env: map[string]string{"APP": "1"}},
 			capath: "/home/user/.kevin/root.crt",
+			want:   map[string]string{"APP": "1", "SSL_CERT_FILE": caPath},
 		},
 		{
-			name:   "a step variable wins over a proxy variable",
-			cfg:    config{Proxy: true, Env: map[string]string{"HTTP_PROXY": "http://elsewhere"}},
-			capath: "",
-			want: map[string]string{
-				"HTTP_PROXY": "http://elsewhere",
-				"NO_PROXY":   "localhost",
-			},
+			name:   "a step variable wins over SSL_CERT_FILE",
+			cfg:    config{Proxy: true, Env: map[string]string{"SSL_CERT_FILE": "/elsewhere"}},
+			capath: "/home/user/.kevin/root.crt",
+			want:   map[string]string{"SSL_CERT_FILE": "/elsewhere"},
 		},
 		{
 			name:   "proxy false keeps the step environment alone",
@@ -138,18 +125,13 @@ func TestBuildEnv(t *testing.T) {
 			name:   "no CA means no SSL_CERT_FILE",
 			cfg:    config{Proxy: true},
 			capath: "",
-			want: map[string]string{
-				"HTTP_PROXY": "http://127.0.0.1:8080",
-				"NO_PROXY":   "localhost",
-			},
+			want:   map[string]string{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildEnv(tt.cfg, &plugin.UpRequest{
-				Env: plugin.Env{ProxyEnv: proxyEnv, CAPath: tt.capath},
-			})
+			got := buildEnv(tt.cfg, &plugin.UpRequest{Env: plugin.Env{CAPath: tt.capath}})
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -157,7 +139,7 @@ func TestBuildEnv(t *testing.T) {
 	t.Run("does not change the step config", func(t *testing.T) {
 		cfg := config{Proxy: true, Env: map[string]string{"APP": "1"}}
 
-		buildEnv(cfg, &plugin.UpRequest{Env: plugin.Env{ProxyEnv: map[string]string{"HTTP_PROXY": "x"}}})
+		buildEnv(cfg, &plugin.UpRequest{Env: plugin.Env{CAPath: "/home/user/.kevin/root.crt"}})
 
 		assert.Equal(t, map[string]string{"APP": "1"}, cfg.Env, "the config map must stay untouched")
 	})
@@ -340,6 +322,7 @@ func TestUp(t *testing.T) {
 		require.Len(t, result.ExposedPorts, 1)
 		require.Len(t, result.Details, 1, "every exposed port must also appear on the card")
 		assert.Equal(t, result.ExposedPorts[0].Detail(), result.Details[0])
+		assert.NotEmpty(t, result.NetnsPath, "the relay needs this to transparently capture the container's egress")
 
 		info, err := (docker.Client{}).Inspect(t.Context(), name)
 		require.NoError(t, err)

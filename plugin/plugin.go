@@ -323,6 +323,13 @@ type Result struct {
 	// routing, port publishing) and do not themselves auto-populate the
 	// card.
 	Details []Detail
+
+	// NetnsPath is the host path of this step's container network
+	// namespace, such as "/var/run/docker/netns/1234abcd" - empty for a
+	// step with no container workload of its own. The engine forwards it to
+	// the relay so the container's egress can be transparently redirected
+	// there.
+	NetnsPath string
 }
 
 // Emitter reports progress while a step runs. Everything that a Step emits

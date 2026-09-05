@@ -248,6 +248,9 @@ func runArgs(spec cri.RunSpec) []string {
 	for _, c := range spec.CapAdd {
 		args = append(args, "--cap-add", c)
 	}
+	if spec.PidHost {
+		args = append(args, "--pid", "host")
+	}
 
 	args = append(args, spec.Image)
 	if len(spec.Entrypoint) > 1 {
@@ -329,13 +332,13 @@ type inspectResult struct {
 	State struct {
 		Running  bool
 		ExitCode int
+		Pid      int
 	}
 	Config struct {
 		Labels map[string]string
 	}
 	NetworkSettings struct {
-		SandboxKey string
-		Networks   map[string]struct {
+		Networks map[string]struct {
 			IPAddress         string
 			GlobalIPv6Address string
 		}
@@ -366,15 +369,17 @@ func (Client) Inspect(ctx context.Context, name string) (cri.Container, error) {
 
 func fromInspect(raw inspectResult) cri.Container {
 	c := cri.Container{
-		ID:        raw.ID,
-		Name:      strings.TrimPrefix(raw.Name, "/"),
-		Running:   raw.State.Running,
-		ExitCode:  raw.State.ExitCode,
-		IPs:       map[string]string{},
-		IPv6:      map[string]string{},
-		NetnsPath: raw.NetworkSettings.SandboxKey,
-		Ports:     map[string]string{},
-		Labels:    raw.Config.Labels,
+		ID:       raw.ID,
+		Name:     strings.TrimPrefix(raw.Name, "/"),
+		Running:  raw.State.Running,
+		ExitCode: raw.State.ExitCode,
+		IPs:      map[string]string{},
+		IPv6:     map[string]string{},
+		Ports:    map[string]string{},
+		Labels:   raw.Config.Labels,
+	}
+	if raw.State.Pid != 0 {
+		c.NetnsPath = fmt.Sprintf("/proc/%d/ns/net", raw.State.Pid)
 	}
 	for network, settings := range raw.NetworkSettings.Networks {
 		if settings.IPAddress != "" {

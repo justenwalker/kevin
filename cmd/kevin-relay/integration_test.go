@@ -548,10 +548,15 @@ func (s *RelayProcessSuite) TestRegisterCaptureRecordsTheNetnsPath() {
 	s.Require().NoError(err)
 	defer func() { _ = conn.Close() }()
 
-	_, err = pb.NewRelayControlClient(conn).RegisterCapture(t.Context(), &pb.RegisterCaptureRequest{
+	// The path is fake, so applyCapture necessarily fails here - on any
+	// platform, a real container's netns is what applyCapture itself is
+	// tested against (see netcapture_linux_test.go and the real container
+	// this suite's other tests run against). This test only proves the
+	// bookkeeping half: the path is recorded regardless of whether applying
+	// it succeeded.
+	_, _ = pb.NewRelayControlClient(conn).RegisterCapture(t.Context(), &pb.RegisterCaptureRequest{
 		Id: "web", NetnsPath: "/var/run/docker/netns/abc123",
 	})
-	s.Require().NoError(err)
 
 	proc.mu.Lock()
 	got := proc.netnsPaths["web"]
