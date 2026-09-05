@@ -67,6 +67,22 @@ app_route: {
 
 A brand-new route needs no DNS setup either. The proxy's `proxy.pac` already sends the whole environment domain through the proxy by string suffix, so it's reachable from a PAC-configured browser the moment the step registers it, the same as any other route.
 
+## External hostnames
+
+An `external: true` route (see the [route reference]({{< relref "/docs/reference/steps/route" >}})) reaches a pod's own DNS too, with no `hostAliases` entry or proxy environment variable of its own - the relay self-answers for that real-world hostname alongside the environment domain, on whichever port the route's `ports` list names (443 by default):
+
+```cue
+s3_intercept: {
+    uses: "builtin:route"
+    with: routes: [{
+        host: "s3.us-east-1.amazonaws.com", external: true,
+        address: "ministack.default.svc.cluster.local:4566",
+    }]
+}
+```
+
+A `builtin:kind` cluster's nodes resolve through the relay for anything outside `cluster.local` (their own `/etc/resolv.conf` names it directly, so `kubernetes cluster.local` in CoreDNS's Corefile is never touched), so a pod's own query for `s3.us-east-1.amazonaws.com` reaches this registration the same way its query for the environment domain already does.
+
 ## Limits
 
-The relay resolves names; it does not control egress. A workload that resolves an external name through the relay reaches the internet directly. Egress control still needs the proxy environment variables on that workload. See [Proxy and egress]({{< relref "proxy-and-egress" >}}).
+The relay resolves the environment domain and whatever `external: true` registers; it does not control egress generally. A workload that resolves some other external name still reaches the internet directly. Egress control still needs the proxy environment variables on that workload. See [Proxy and egress]({{< relref "proxy-and-egress" >}}).

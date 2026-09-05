@@ -36,4 +36,10 @@
 	// for that real service transparently lands on address instead, such
 	// as a local fake running behind a container step.
 	external?: bool
+
+	// ports lists the ports a client actually dials host on, so a workload's
+	// own DNS also resolves host to kevin's relay - defaults to 443, the
+	// overwhelming common case for a TLS API. Ignored unless external is
+	// true.
+	ports?: [...int] | *[443]
 }

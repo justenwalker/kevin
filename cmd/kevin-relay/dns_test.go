@@ -66,6 +66,47 @@ func TestDNSRelayAnswers(t *testing.T) {
 	})
 }
 
+func TestDNSRelayIntercept(t *testing.T) {
+	t.Run("an exact intercepted host", func(t *testing.T) {
+		relay := newDNSRelay("kevin.home", "10.0.0.5", "127.0.0.11:53")
+		relay.AddIntercept("s3.us-east-1.amazonaws.com")
+
+		assert.True(t, relay.matchesIntercept("s3.us-east-1.amazonaws.com."))
+		assert.False(t, relay.matchesIntercept("other.example.com."))
+	})
+
+	t.Run("a wildcard intercepted host", func(t *testing.T) {
+		relay := newDNSRelay("kevin.home", "10.0.0.5", "127.0.0.11:53")
+		relay.AddIntercept("*.s3.us-east-1.amazonaws.com")
+
+		assert.True(t, relay.matchesIntercept("bucket.s3.us-east-1.amazonaws.com."))
+		assert.False(t, relay.matchesIntercept("s3.us-east-1.amazonaws.com."),
+			"a wildcard must not match the bare domain")
+	})
+
+	t.Run("adding the same host twice is a no-op", func(t *testing.T) {
+		relay := newDNSRelay("kevin.home", "10.0.0.5", "127.0.0.11:53")
+		relay.AddIntercept("s3.us-east-1.amazonaws.com")
+		relay.AddIntercept("s3.us-east-1.amazonaws.com")
+
+		assert.Len(t, relay.intercepts, 1)
+	})
+
+	t.Run("an intercepted host answers the same way the domain does", func(t *testing.T) {
+		relay := newDNSRelay("kevin.home", "10.0.0.5", "127.0.0.11:53")
+		relay.AddIntercept("s3.us-east-1.amazonaws.com")
+
+		req := new(dns.Msg)
+		req.SetQuestion("s3.us-east-1.amazonaws.com.", dns.TypeA)
+		reply := relay.answer(req)
+
+		require.Len(t, reply.Answer, 1)
+		a, ok := reply.Answer[0].(*dns.A)
+		require.True(t, ok)
+		assert.Equal(t, "10.0.0.5", a.A.String())
+	})
+}
+
 func TestDNSServerForwardsAQueryOutsideTheDomain(t *testing.T) {
 	upstream := startFakeUpstreamDNS(t)
 

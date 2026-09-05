@@ -1710,7 +1710,12 @@ type Route struct {
 	// Upstream is the address to forward to. The address must be reachable on the docker network.
 	Upstream string `protobuf:"bytes,2,opt,name=upstream,proto3" json:"upstream,omitempty"`
 	// Tls is true when the upstream itself speaks TLS.
-	Tls           bool `protobuf:"varint,3,opt,name=tls,proto3" json:"tls,omitempty"`
+	Tls bool `protobuf:"varint,3,opt,name=tls,proto3" json:"tls,omitempty"`
+	// External marks host as a real-world hostname being intercepted, rather
+	// than a subdomain of the environment domain, and carries the ports a
+	// client dials it on - unset means host is a subdomain of the
+	// environment domain, not a real-world hostname.
+	External      *External `protobuf:"bytes,4,opt,name=external,proto3" json:"external,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1766,6 +1771,62 @@ func (x *Route) GetTls() bool {
 	return false
 }
 
+func (x *Route) GetExternal() *External {
+	if x != nil {
+		return x.External
+	}
+	return nil
+}
+
+// External is a Route's external-ness: present, it names host a real-world
+// hostname to intercept, rather than a subdomain of the environment
+// domain.
+type External struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Ports lists the ports a client dials host on, for a workload's own DNS
+	// to also resolve host to the relay.
+	Ports         []int32 `protobuf:"varint,1,rep,packed,name=ports,proto3" json:"ports,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *External) Reset() {
+	*x = External{}
+	mi := &file_pb_plugin_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *External) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*External) ProtoMessage() {}
+
+func (x *External) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_plugin_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use External.ProtoReflect.Descriptor instead.
+func (*External) Descriptor() ([]byte, []int) {
+	return file_pb_plugin_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *External) GetPorts() []int32 {
+	if x != nil {
+		return x.Ports
+	}
+	return nil
+}
+
 // UserMessage carries a human-facing error message as a detail on the gRPC
 // status of a failed Configure, Up, Down, or Export call. A plugin attaches
 // one when its step wraps an error with a message meant for a human, so the
@@ -1787,7 +1848,7 @@ type UserMessage struct {
 
 func (x *UserMessage) Reset() {
 	*x = UserMessage{}
-	mi := &file_pb_plugin_proto_msgTypes[23]
+	mi := &file_pb_plugin_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1799,7 +1860,7 @@ func (x *UserMessage) String() string {
 func (*UserMessage) ProtoMessage() {}
 
 func (x *UserMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[23]
+	mi := &file_pb_plugin_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1812,7 +1873,7 @@ func (x *UserMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserMessage.ProtoReflect.Descriptor instead.
 func (*UserMessage) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{23}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *UserMessage) GetKey() string {
@@ -1960,11 +2021,14 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x10ToolCallResponse\x12\x18\n" +
 	"\acontent\x18\x01 \x01(\fR\acontent\x12\x19\n" +
 	"\bis_error\x18\x02 \x01(\bR\aisError\x12#\n" +
-	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\"I\n" +
+	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\"\x80\x01\n" +
 	"\x05Route\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x1a\n" +
 	"\bupstream\x18\x02 \x01(\tR\bupstream\x12\x10\n" +
-	"\x03tls\x18\x03 \x01(\bR\x03tls\"3\n" +
+	"\x03tls\x18\x03 \x01(\bR\x03tls\x125\n" +
+	"\bexternal\x18\x04 \x01(\v2\x19.kevin.plugin.v1.ExternalR\bexternal\" \n" +
+	"\bExternal\x12\x14\n" +
+	"\x05ports\x18\x01 \x03(\x05R\x05ports\"3\n" +
 	"\vUserMessage\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x12\n" +
 	"\x04args\x18\x02 \x03(\tR\x04args*h\n" +
@@ -1994,7 +2058,7 @@ func file_pb_plugin_proto_rawDescGZIP() []byte {
 }
 
 var file_pb_plugin_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_pb_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_pb_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_pb_plugin_proto_goTypes = []any{
 	(StepKind)(0),              // 0: kevin.plugin.v1.StepKind
 	(*InfoRequest)(nil),        // 1: kevin.plugin.v1.InfoRequest
@@ -2020,24 +2084,25 @@ var file_pb_plugin_proto_goTypes = []any{
 	(*ToolCallRequest)(nil),    // 21: kevin.plugin.v1.ToolCallRequest
 	(*ToolCallResponse)(nil),   // 22: kevin.plugin.v1.ToolCallResponse
 	(*Route)(nil),              // 23: kevin.plugin.v1.Route
-	(*UserMessage)(nil),        // 24: kevin.plugin.v1.UserMessage
-	nil,                        // 25: kevin.plugin.v1.Environment.ProxyEnvEntry
-	nil,                        // 26: kevin.plugin.v1.Outputs.ValuesEntry
-	nil,                        // 27: kevin.plugin.v1.UpRequest.DepsEntry
-	nil,                        // 28: kevin.plugin.v1.DownRequest.DepsEntry
-	nil,                        // 29: kevin.plugin.v1.ToolCallRequest.DepsEntry
+	(*External)(nil),           // 24: kevin.plugin.v1.External
+	(*UserMessage)(nil),        // 25: kevin.plugin.v1.UserMessage
+	nil,                        // 26: kevin.plugin.v1.Environment.ProxyEnvEntry
+	nil,                        // 27: kevin.plugin.v1.Outputs.ValuesEntry
+	nil,                        // 28: kevin.plugin.v1.UpRequest.DepsEntry
+	nil,                        // 29: kevin.plugin.v1.DownRequest.DepsEntry
+	nil,                        // 30: kevin.plugin.v1.ToolCallRequest.DepsEntry
 }
 var file_pb_plugin_proto_depIdxs = []int32{
 	3,  // 0: kevin.plugin.v1.InfoResponse.steps:type_name -> kevin.plugin.v1.StepType
 	0,  // 1: kevin.plugin.v1.StepType.kind:type_name -> kevin.plugin.v1.StepKind
 	4,  // 2: kevin.plugin.v1.StepType.tools:type_name -> kevin.plugin.v1.ToolDefinition
 	7,  // 3: kevin.plugin.v1.ConfigureRequest.env:type_name -> kevin.plugin.v1.Environment
-	25, // 4: kevin.plugin.v1.Environment.proxy_env:type_name -> kevin.plugin.v1.Environment.ProxyEnvEntry
-	26, // 5: kevin.plugin.v1.Outputs.values:type_name -> kevin.plugin.v1.Outputs.ValuesEntry
+	26, // 4: kevin.plugin.v1.Environment.proxy_env:type_name -> kevin.plugin.v1.Environment.ProxyEnvEntry
+	27, // 5: kevin.plugin.v1.Outputs.values:type_name -> kevin.plugin.v1.Outputs.ValuesEntry
 	7,  // 6: kevin.plugin.v1.UpRequest.env:type_name -> kevin.plugin.v1.Environment
-	27, // 7: kevin.plugin.v1.UpRequest.deps:type_name -> kevin.plugin.v1.UpRequest.DepsEntry
+	28, // 7: kevin.plugin.v1.UpRequest.deps:type_name -> kevin.plugin.v1.UpRequest.DepsEntry
 	7,  // 8: kevin.plugin.v1.DownRequest.env:type_name -> kevin.plugin.v1.Environment
-	28, // 9: kevin.plugin.v1.DownRequest.deps:type_name -> kevin.plugin.v1.DownRequest.DepsEntry
+	29, // 9: kevin.plugin.v1.DownRequest.deps:type_name -> kevin.plugin.v1.DownRequest.DepsEntry
 	10, // 10: kevin.plugin.v1.DownRequest.outputs:type_name -> kevin.plugin.v1.Outputs
 	14, // 11: kevin.plugin.v1.Event.log:type_name -> kevin.plugin.v1.LogLine
 	15, // 12: kevin.plugin.v1.Event.progress:type_name -> kevin.plugin.v1.Progress
@@ -2050,28 +2115,29 @@ var file_pb_plugin_proto_depIdxs = []int32{
 	7,  // 19: kevin.plugin.v1.ExportRequest.env:type_name -> kevin.plugin.v1.Environment
 	10, // 20: kevin.plugin.v1.ExportResponse.out:type_name -> kevin.plugin.v1.Outputs
 	7,  // 21: kevin.plugin.v1.ToolCallRequest.env:type_name -> kevin.plugin.v1.Environment
-	29, // 22: kevin.plugin.v1.ToolCallRequest.deps:type_name -> kevin.plugin.v1.ToolCallRequest.DepsEntry
-	9,  // 23: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
-	10, // 24: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	10, // 25: kevin.plugin.v1.DownRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	10, // 26: kevin.plugin.v1.ToolCallRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	1,  // 27: kevin.plugin.v1.Plugin.Info:input_type -> kevin.plugin.v1.InfoRequest
-	5,  // 28: kevin.plugin.v1.Plugin.Configure:input_type -> kevin.plugin.v1.ConfigureRequest
-	11, // 29: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
-	12, // 30: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
-	19, // 31: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
-	21, // 32: kevin.plugin.v1.Plugin.CallTool:input_type -> kevin.plugin.v1.ToolCallRequest
-	2,  // 33: kevin.plugin.v1.Plugin.Info:output_type -> kevin.plugin.v1.InfoResponse
-	6,  // 34: kevin.plugin.v1.Plugin.Configure:output_type -> kevin.plugin.v1.ConfigureResponse
-	13, // 35: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
-	13, // 36: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
-	20, // 37: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
-	22, // 38: kevin.plugin.v1.Plugin.CallTool:output_type -> kevin.plugin.v1.ToolCallResponse
-	33, // [33:39] is the sub-list for method output_type
-	27, // [27:33] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	30, // 22: kevin.plugin.v1.ToolCallRequest.deps:type_name -> kevin.plugin.v1.ToolCallRequest.DepsEntry
+	24, // 23: kevin.plugin.v1.Route.external:type_name -> kevin.plugin.v1.External
+	9,  // 24: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
+	10, // 25: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	10, // 26: kevin.plugin.v1.DownRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	10, // 27: kevin.plugin.v1.ToolCallRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	1,  // 28: kevin.plugin.v1.Plugin.Info:input_type -> kevin.plugin.v1.InfoRequest
+	5,  // 29: kevin.plugin.v1.Plugin.Configure:input_type -> kevin.plugin.v1.ConfigureRequest
+	11, // 30: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
+	12, // 31: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
+	19, // 32: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
+	21, // 33: kevin.plugin.v1.Plugin.CallTool:input_type -> kevin.plugin.v1.ToolCallRequest
+	2,  // 34: kevin.plugin.v1.Plugin.Info:output_type -> kevin.plugin.v1.InfoResponse
+	6,  // 35: kevin.plugin.v1.Plugin.Configure:output_type -> kevin.plugin.v1.ConfigureResponse
+	13, // 36: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
+	13, // 37: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
+	20, // 38: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
+	22, // 39: kevin.plugin.v1.Plugin.CallTool:output_type -> kevin.plugin.v1.ToolCallResponse
+	34, // [34:40] is the sub-list for method output_type
+	28, // [28:34] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_pb_plugin_proto_init() }
@@ -2093,7 +2159,7 @@ func file_pb_plugin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pb_plugin_proto_rawDesc), len(file_pb_plugin_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   29,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

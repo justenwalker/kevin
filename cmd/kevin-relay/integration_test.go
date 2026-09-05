@@ -58,14 +58,15 @@ func (s *RelayProcessSuite) SetupSuite() {
 	}))
 
 	proc, err := newRelayProcess(t.Context(), config{
-		domain:       relayTestDomain,
-		proxyAddr:    s.proxyStub.Listener.Addr().String(),
-		self:         "10.20.30.40",
-		dnsListen:    "127.0.0.1:0",
-		httpListen:   "127.0.0.1:0",
-		httpsListen:  "127.0.0.1:0",
-		socks5Listen: "127.0.0.1:0",
-		upstreamDNS:  s.upstreamPC.LocalAddr().String(),
+		domain:        relayTestDomain,
+		proxyAddr:     s.proxyStub.Listener.Addr().String(),
+		self:          "10.20.30.40",
+		dnsListen:     "127.0.0.1:0",
+		httpListen:    "127.0.0.1:0",
+		httpsListen:   "127.0.0.1:0",
+		socks5Listen:  "127.0.0.1:0",
+		controlListen: "127.0.0.1:0",
+		upstreamDNS:   s.upstreamPC.LocalAddr().String(),
 	})
 	s.Require().NoError(err)
 	s.proc = proc
@@ -316,14 +317,15 @@ func (s *RelayProcessSuite) TestHTTPSForwarderRelaysTheClientHello() {
 	defer cancel()
 
 	proc, err := newRelayProcess(ctx, config{
-		domain:       relayTestDomain,
-		proxyAddr:    connectLn.Addr().String(),
-		self:         "10.20.30.40",
-		dnsListen:    "127.0.0.1:0",
-		httpListen:   "127.0.0.1:0",
-		httpsListen:  "127.0.0.1:0",
-		socks5Listen: "127.0.0.1:0",
-		upstreamDNS:  s.upstreamPC.LocalAddr().String(),
+		domain:        relayTestDomain,
+		proxyAddr:     connectLn.Addr().String(),
+		self:          "10.20.30.40",
+		dnsListen:     "127.0.0.1:0",
+		httpListen:    "127.0.0.1:0",
+		httpsListen:   "127.0.0.1:0",
+		socks5Listen:  "127.0.0.1:0",
+		controlListen: "127.0.0.1:0",
+		upstreamDNS:   s.upstreamPC.LocalAddr().String(),
 	})
 	s.Require().NoError(err)
 
@@ -356,6 +358,70 @@ func (s *RelayProcessSuite) TestHTTPSForwarderRelaysTheClientHello() {
 
 	echoed := rec.snapshot()
 	s.Equal(byte(0x16), echoed[0], "the echoed record must start with the tls handshake record type")
+
+	_ = raw.Close()
+	<-handshakeDone
+	cancel()
+	s.Require().NoError(<-done)
+}
+
+// TestInterceptOpensAListenerForADeclaredPort proves a POST /intercept call
+// both registers the host with the DNS matcher and opens a listener for a
+// declared port beyond the fixed :80/:443 pair, dispatching a TLS
+// connection on it the same way the fixed :443 listener does - CONNECTing
+// to the proxy for the declared port, not a literal 443.
+func (s *RelayProcessSuite) TestInterceptOpensAListenerForADeclaredPort() {
+	t := s.T()
+
+	connectLine := make(chan string, 1)
+	connectLn := startConnectStub(t, connectLine)
+	defer func() { _ = connectLn.Close() }()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	proc, err := newRelayProcess(ctx, config{
+		domain:        relayTestDomain,
+		proxyAddr:     connectLn.Addr().String(),
+		self:          "10.20.30.40",
+		dnsListen:     "127.0.0.1:0",
+		httpListen:    "127.0.0.1:0",
+		httpsListen:   "127.0.0.1:0",
+		socks5Listen:  "127.0.0.1:0",
+		controlListen: "127.0.0.1:0",
+		upstreamDNS:   s.upstreamPC.LocalAddr().String(),
+	})
+	s.Require().NoError(err)
+
+	done := make(chan error, 1)
+	go func() { done <- proc.run(ctx) }()
+
+	const host = "s3.us-east-1.amazonaws.com"
+	interceptReq, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+proc.controlAddr()+"/intercept",
+		strings.NewReader(`{"host":"`+host+`","ports":[8443]}`))
+	s.Require().NoError(err)
+	resp, err := http.DefaultClient.Do(interceptReq)
+	s.Require().NoError(err)
+	_ = resp.Body.Close()
+	s.Equal(http.StatusNoContent, resp.StatusCode)
+
+	var d net.Dialer
+	raw, err := d.DialContext(t.Context(), "tcp", "127.0.0.1:8443")
+	s.Require().NoError(err)
+
+	tlsConn := tls.Client(raw, &tls.Config{ServerName: host, InsecureSkipVerify: true})
+	handshakeDone := make(chan struct{})
+	go func() {
+		_ = tlsConn.HandshakeContext(t.Context())
+		close(handshakeDone)
+	}()
+
+	select {
+	case line := <-connectLine:
+		s.Equal("CONNECT "+host+":8443 HTTP/1.1", line, "the declared port, not a literal 443, must reach the proxy")
+	case <-time.After(2 * time.Second):
+		s.Fail("the stub proxy never saw a CONNECT request")
+	}
 
 	_ = raw.Close()
 	<-handshakeDone

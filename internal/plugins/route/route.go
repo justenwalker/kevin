@@ -41,6 +41,7 @@ type routeConfig struct {
 	Address  string `json:"address"`
 	TLS      bool   `json:"tls"`
 	External bool   `json:"external"`
+	Ports    []int  `json:"ports"`
 }
 
 // Step is the route step.
@@ -89,6 +90,9 @@ func (Step) Up(_ context.Context, req *plugin.UpRequest, out plugin.Emitter) (*p
 			upstream = fmt.Sprintf("socks5://%s/%s", cfg.Relay, e.Address)
 		}
 		r := plugin.Route{Host: host, Upstream: upstream, TLS: e.TLS}
+		if e.External {
+			r.External = &plugin.RouteExternal{Ports: e.Ports}
+		}
 		routes = append(routes, r)
 		details = append(details, r.Detail())
 		out.Log("stdout", "routing "+host+" to "+e.Address)

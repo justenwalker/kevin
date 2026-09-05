@@ -321,7 +321,10 @@ func TestServerUp(t *testing.T) {
 					"endpoint": String("10.0.0.2:5000"),
 					"password": Sensitive{String("hunter2")},
 				},
-				Routes:       []Route{{Host: "api.test", Upstream: "api:8080", TLS: true}},
+				Routes: []Route{
+					{Host: "api.test", Upstream: "api:8080", TLS: true},
+					{Host: "s3.amazonaws.com", Upstream: "127.0.0.1:9090", External: &RouteExternal{Ports: []int{443}}},
+				},
 				ExposedPorts: []ExposedPort{{Name: "postgres", Protocol: "tcp", Upstream: "127.0.0.1:54321", HostPort: 54321}},
 				EgressAllow:  []string{"proxy.golang.org"},
 				Details:      []Detail{{Label: "admin password", Value: Sensitive{String("hunter2")}, Copyable: true, Href: "https://api.test/admin"}},
@@ -394,10 +397,14 @@ func TestServerUp(t *testing.T) {
 		assert.Equal(t, "hunter2", result.GetOutputs().GetValues()["password"].GetStringValue())
 		assert.True(t, result.GetOutputs().GetValues()["password"].GetSensitive())
 		assert.Equal(t, []string{"proxy.golang.org"}, result.GetEgressAllow())
-		require.Len(t, result.GetRoutes(), 1)
+		require.Len(t, result.GetRoutes(), 2)
 		assert.Equal(t, "api.test", result.GetRoutes()[0].GetHost())
 		assert.Equal(t, "api:8080", result.GetRoutes()[0].GetUpstream())
 		assert.True(t, result.GetRoutes()[0].GetTls())
+		assert.Nil(t, result.GetRoutes()[0].GetExternal(), "a route with no External must not gain one in translation")
+
+		require.NotNil(t, result.GetRoutes()[1].GetExternal())
+		assert.Equal(t, []int32{443}, result.GetRoutes()[1].GetExternal().GetPorts())
 
 		require.Len(t, result.GetExposedPorts(), 1)
 		assert.Equal(t, "postgres", result.GetExposedPorts()[0].GetName())

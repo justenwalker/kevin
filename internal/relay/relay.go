@@ -15,9 +15,12 @@
 package relay
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
@@ -140,11 +143,20 @@ type Options struct {
 // listens on, published to the host loopback on an OS-assigned port.
 const socks5Port = "1080/tcp"
 
+// controlPort is the fixed container port the relay's intercept control
+// endpoint listens on, published to the host loopback on an OS-assigned
+// port - the same reason socks5Port is published rather than reached over
+// the docker network: the engine calling AddIntercept is a native host
+// process, with the same VM-boundary limits that keep it from dialing a
+// container's docker-network address directly.
+const controlPort = "8053/tcp"
+
 // Relay is a running relay container.
 type Relay struct {
-	name       string
-	addr       string
-	socks5Addr string
+	name        string
+	addr        string
+	socks5Addr  string
+	controlAddr string
 }
 
 // Start creates the relay container, or reuses one already running for
@@ -180,10 +192,11 @@ func Start(ctx context.Context, opts Options) (*Relay, error) {
 		// Docker does not, so the relay needs the entry to reach the host proxy.
 		AddHosts: []string{hostGateway + ":host-gateway"},
 		Cmd:      []string{"forward", "--domain", opts.Domain, "--proxy", opts.ProxyAddr},
-		// The SOCKS5 gateway is the one thing on the relay a host process
-		// needs to dial directly - everything else (DNS, HTTP/HTTPS
-		// forwarding) is reached only from inside the docker network.
-		Ports: []string{"127.0.0.1::1080"},
+		// The SOCKS5 gateway and the intercept control endpoint are the two
+		// things on the relay a host process needs to dial directly -
+		// everything else (DNS, HTTP/HTTPS forwarding) is reached only from
+		// inside the docker network.
+		Ports: []string{"127.0.0.1::1080", "127.0.0.1::8053"},
 	}
 	if _, err := client.Run(ctx, spec); err != nil {
 		return nil, err
@@ -193,16 +206,7 @@ func Start(ctx context.Context, opts Options) (*Relay, error) {
 	if err != nil {
 		return nil, err
 	}
-	addr, ok := info.IPs[opts.Network]
-	if !ok {
-		return nil, fmt.Errorf("relay: %w", ErrNoAddress)
-	}
-	socks5Addr, ok := info.Ports[socks5Port]
-	if !ok {
-		return nil, fmt.Errorf("relay: %w", ErrNoSOCKS5Addr)
-	}
-
-	return &Relay{name: name, addr: addr, socks5Addr: socks5Addr}, nil
+	return relayFromInfo(name, opts.Network, info)
 }
 
 // Lookup reports the relay container already running for project, without
@@ -221,15 +225,7 @@ func lookup(ctx context.Context, client docker.Client, name, network string) (*R
 	if err != nil || info == nil {
 		return nil, err
 	}
-	addr, ok := info.IPs[network]
-	if !ok {
-		return nil, fmt.Errorf("relay: %w", ErrNoAddress)
-	}
-	socks5Addr, ok := info.Ports[socks5Port]
-	if !ok {
-		return nil, fmt.Errorf("relay: %w", ErrNoSOCKS5Addr)
-	}
-	return &Relay{name: name, addr: addr, socks5Addr: socks5Addr}, nil
+	return relayFromInfo(name, network, *info)
 }
 
 // reusable reports the relay container already running for name when its
@@ -242,15 +238,7 @@ func reusable(ctx context.Context, client docker.Client, name string, opts Optio
 	if info.Labels[domainLabel] != opts.Domain || info.Labels[proxyAddrLabel] != opts.ProxyAddr {
 		return nil, nil //nolint:nilnil // a drifted container is not reusable, same as an absent one
 	}
-	addr, ok := info.IPs[opts.Network]
-	if !ok {
-		return nil, fmt.Errorf("relay: %w", ErrNoAddress)
-	}
-	socks5Addr, ok := info.Ports[socks5Port]
-	if !ok {
-		return nil, fmt.Errorf("relay: %w", ErrNoSOCKS5Addr)
-	}
-	return &Relay{name: name, addr: addr, socks5Addr: socks5Addr}, nil
+	return relayFromInfo(name, opts.Network, *info)
 }
 
 // inspectRunning reports name's container info, or (nil, nil) when it is
@@ -269,6 +257,25 @@ func inspectRunning(ctx context.Context, client docker.Client, name string) (*cr
 	return &info, nil
 }
 
+// relayFromInfo builds a Relay from name's inspected container info,
+// reporting the address and published ports every caller (Start, lookup,
+// reusable) needs.
+func relayFromInfo(name, network string, info cri.Container) (*Relay, error) {
+	addr, ok := info.IPs[network]
+	if !ok {
+		return nil, fmt.Errorf("relay: %w", ErrNoAddress)
+	}
+	socks5Addr, ok := info.Ports[socks5Port]
+	if !ok {
+		return nil, fmt.Errorf("relay: %w", ErrNoSOCKS5Addr)
+	}
+	controlAddr, ok := info.Ports[controlPort]
+	if !ok {
+		return nil, fmt.Errorf("relay: %w", ErrNoControlAddr)
+	}
+	return &Relay{name: name, addr: addr, socks5Addr: socks5Addr, controlAddr: controlAddr}, nil
+}
+
 // Addr is the address of the relay container on the shared network. A
 // workload uses it for DNS.
 func (r *Relay) Addr() string { return r.addr }
@@ -281,6 +288,41 @@ func (r *Relay) SOCKS5Addr() string { return r.socks5Addr }
 
 // Close removes the relay container. Close is idempotent.
 func (r *Relay) Close() error { return (docker.Client{}).Remove(context.Background(), r.name) }
+
+// interceptRequest is the body AddIntercept POSTs to the relay's control
+// endpoint. Mirrors cmd/kevin-relay's identical type - not importable here,
+// relay sits below the plugin binaries in the dependency graph.
+type interceptRequest struct {
+	Host  string `json:"host"`
+	Ports []int  `json:"ports"`
+}
+
+// AddIntercept tells the relay to also resolve host - exactly or, with a
+// "*." prefix, by wildcard - to itself, and to forward traffic on each of
+// ports to the host proxy.
+func (r *Relay) AddIntercept(ctx context.Context, host string, ports []int) error {
+	body, err := json.Marshal(interceptRequest{Host: host, Ports: ports})
+	if err != nil {
+		return fmt.Errorf("relay: encode intercept request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+r.controlAddr+"/intercept", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("relay: build intercept request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("relay: call intercept endpoint: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("%w: status %s", ErrInterceptRejected, resp.Status)
+	}
+	return nil
+}
 
 // containerName builds the container name for the relay of one project.
 func containerName(project string) string { return "kevin-" + project + "-relay" }

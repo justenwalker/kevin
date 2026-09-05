@@ -60,10 +60,16 @@ The proxy's own outbound dial logic reads one piece of request-scoped context: w
 
 `builtin:route` itself does no Kubernetes work at all. It isn't `kind`-specific, only convention-compatible with it. It takes a relay address and a list of host/address pairs, and returns one `Route` per pair with `Upstream` built in that same `socks5://` shape. Because `kind`'s relay Pod deploys only when `expose` is non-empty, `kind` gained a `relay: bool` field to opt in to the Pod with no `expose` entries, and publishes the relay's address as a `relay_addr` output for a downstream `route` step to read, keeping `kind` itself decoupled from whatever `kubectl`/`helm` step actually deploys the routed service. DAG ordering (`route`'s `needs` naming both the cluster and the deploying step) is what makes the target address meaningful by the time `route`'s `Up` runs.
 
+## External interception
+
+An `external: true` route entry (see the [route reference]({{< relref "/docs/reference/steps/route" >}})) registers its real-world hostname with the domain relay's own DNS matcher too, not just the host proxy's route table - the engine calls the relay's intercept endpoint right after adding the route, over the same published loopback port the SOCKS5 gateway already uses (the relay is a native-host-unreachable docker-network container otherwise, same reasoning as the Gateway bind section above). The relay then self-answers a query for that host - exactly or by `*.` wildcard, the same rule `builtin:route` itself applies - with its own address, alongside the environment domain it already answers for.
+
+This is what lets a workload's own DNS resolution reach the interception with no `hostAliases` entry or proxy environment variable of its own: it dials the real hostname, on whichever port the route's `ports` list names (443 by default), the relay accepts the connection on a listener for that port and forwards it into the same proxy dial path the host proxy already uses for any other client. A `builtin:kind` cluster additionally points every node's own `/etc/resolv.conf` at the relay (not a CoreDNS Corefile edit - CoreDNS's default zone already forwards unmatched queries to the node's own resolver, so this reaches it without touching the `kubernetes cluster.local` plugin directive at all), so a Pod's query for a registered external hostname reaches the relay the same way its query for the environment domain already does.
+
 ## Limits
 
-The relay resolves a name. It does not control egress. A workload that resolves an external name through the relay gets the real address of that name, and connects to the internet directly.
+The relay resolves a name. Only a name a `builtin:route` registered - the environment domain, or an `external: true` entry's own host - gets this treatment. Any other external name still resolves normally and reaches the real internet directly; the relay carries no general-purpose egress control.
 
-Egress control still needs the proxy environment variables on a workload. A step still needs the allow list to reach an external host.
+Egress control still needs the proxy environment variables on a workload that isn't reaching an intercepted host. A step still needs the allow list to reach an external host outright (an image pull, say).
 
 Published ports remain necessary. The host proxy reaches a workload through the loopback address that the container plugin publishes. The proxy runs on the host and cannot resolve a network alias.

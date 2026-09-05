@@ -99,6 +99,7 @@ genuine (if unauthenticated) S3 API response.
 | `address` | `string` | - | **Required.** The target: a Kubernetes Service DNS name and port when relay is set (`"myapp.default.svc.cluster.local:80"`), or a host-reachable address the proxy process can dial directly otherwise (`"127.0.0.1:8080"`). |
 | `tls` | `bool` | - | True when the target itself speaks TLS, such as a Service fronting HTTPS on its port. |
 | `external` | `bool` | - | True when host is a real-world hostname to intercept, rather than a subdomain of the environment domain - traffic meant for that real service transparently lands on address instead, such as a local fake running behind a container step. |
+| `ports` | `[...int]` | `[443]` | Lists the ports a client actually dials host on, so a workload's own DNS also resolves host to kevin's relay - defaults to 443, the overwhelming common case for a TLS API. Ignored unless external is true. |
 
 ## Publishes
 

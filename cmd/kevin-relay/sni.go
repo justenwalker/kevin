@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 )
 
 // TLS wire constants that the ClientHello parser reads. kevin-relay never
@@ -23,9 +24,9 @@ const (
 const maxClientHello = 5 + 16384
 
 // handleHTTPS reads the TLS ClientHello of conn without terminating TLS,
-// opens a CONNECT tunnel to proxyAddr for the SNI host, and pipes the
-// connection through it.
-func handleHTTPS(ctx context.Context, conn net.Conn, proxyAddr string) {
+// opens a CONNECT tunnel to proxyAddr for the SNI host on port, and pipes
+// the connection through it.
+func handleHTTPS(ctx context.Context, conn net.Conn, proxyAddr string, port int) {
 	defer func() { _ = conn.Close() }()
 
 	client := bufio.NewReaderSize(conn, maxClientHello)
@@ -41,7 +42,7 @@ func handleHTTPS(ctx context.Context, conn net.Conn, proxyAddr string) {
 		return
 	}
 
-	upstream, upstreamReader, err := connectProxy(ctx, proxyAddr, sni)
+	upstream, upstreamReader, err := connectProxy(ctx, proxyAddr, sni, port)
 	if err != nil {
 		log.Ctx(ctx).Debug("relay: https: connect to proxy failed", "error", err, "sni", sni)
 		return
@@ -91,17 +92,17 @@ func readClientHello(r *bufio.Reader) ([]byte, error) {
 	return hello, nil
 }
 
-// connectProxy opens a CONNECT tunnel to proxyAddr for host on port 443.
-// It returns the upstream connection and a reader that carries any byte the
+// connectProxy opens a CONNECT tunnel to proxyAddr for host on port. It
+// returns the upstream connection and a reader that carries any byte the
 // proxy already sent along with the response headers.
-func connectProxy(ctx context.Context, proxyAddr, host string) (net.Conn, *bufio.Reader, error) {
+func connectProxy(ctx context.Context, proxyAddr, host string, port int) (net.Conn, *bufio.Reader, error) {
 	var d net.Dialer
 	upstream, err := d.DialContext(ctx, "tcp", proxyAddr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("relay: dial proxy: %w", err)
 	}
 
-	target := host + ":443"
+	target := host + ":" + strconv.Itoa(port)
 	req := "CONNECT " + target + " HTTP/1.1\r\nHost: " + target + "\r\n\r\n"
 	if _, err = io.WriteString(upstream, req); err != nil {
 		_ = upstream.Close()

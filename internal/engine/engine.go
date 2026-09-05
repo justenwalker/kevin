@@ -267,6 +267,7 @@ func Run(ctx context.Context, opts Options) error {
 		Scope:           opts.Scope,
 	}
 	r.env = env
+	r.relay = rl
 	r.project = ca.ProjectVars(cfg.Dir, cfg.Name)
 	r.project["http_proxy_addr"] = server.addr
 	r.project["relay"] = rl.Addr()
@@ -898,6 +899,7 @@ type run struct {
 	caps       map[string]pluginhost.Info
 	env        *pb.Environment
 	project    map[string]string
+	relay      *relay.Relay
 	toolRoutes map[string]toolRoute
 	events     io.Writer
 	timings    *timingStore
@@ -1223,13 +1225,8 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 		return nil, upErr
 	}
 
-	for _, route := range result.GetRoutes() {
-		r.proxy.AddRoutes(proxy.Route{
-			Host:     route.GetHost(),
-			Upstream: route.GetUpstream(),
-			TLS:      route.GetTls(),
-		})
-		r.emit(name, "serving https://"+route.GetHost())
+	if addErr := r.addRoutes(ctx, name, result.GetRoutes()); addErr != nil {
+		return nil, addErr
 	}
 	systemThis := dag.Outputs{}
 	for _, ep := range result.GetExposedPorts() {
@@ -1279,6 +1276,33 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	out := outputsFromProto(result.GetOutputs())
 	r.mergeCompleted(map[string]dag.Outputs{name: out})
 	return out, nil
+}
+
+// addRoutes registers each of routes with the host proxy, and, for one
+// marked External, also with the relay's own DNS matcher.
+func (r *run) addRoutes(ctx context.Context, name string, routes []*pb.Route) error {
+	for _, route := range routes {
+		r.proxy.AddRoutes(proxy.Route{
+			Host:     route.GetHost(),
+			Upstream: route.GetUpstream(),
+			TLS:      route.GetTls(),
+		})
+		r.emit(name, "serving https://"+route.GetHost())
+
+		ext := route.GetExternal()
+		if ext == nil {
+			continue
+		}
+		ports := make([]int, len(ext.GetPorts()))
+		for i, p := range ext.GetPorts() {
+			ports[i] = int(p)
+		}
+		if err := r.relay.AddIntercept(ctx, route.GetHost(), ports); err != nil {
+			r.reportUpFailure(ctx, name, err)
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *run) up(ctx context.Context) error {

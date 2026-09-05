@@ -229,6 +229,21 @@ type Route struct {
 
 	// TLS is true when the upstream itself speaks TLS.
 	TLS bool
+
+	// External marks Host a real-world hostname being intercepted, rather
+	// than a subdomain of the environment domain, and carries the ports a
+	// client dials it on. Nil means Host is a subdomain of the environment
+	// domain, not a real-world hostname.
+	External *RouteExternal
+}
+
+// RouteExternal is a Route's external-ness: present, it names Host a
+// real-world hostname to intercept, rather than a subdomain of the
+// environment domain.
+type RouteExternal struct {
+	// Ports lists the ports a client dials Host on, for a workload's own
+	// DNS to also resolve Host to the relay.
+	Ports []int
 }
 
 // ExposedPort is a raw TCP or UDP endpoint that a step publishes directly to

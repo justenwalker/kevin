@@ -27,6 +27,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -39,14 +40,15 @@ var log = logging.New("relay")
 
 // config holds the flags that configure one relay process.
 type config struct {
-	domain       string
-	proxyAddr    string
-	self         string
-	dnsListen    string
-	httpListen   string
-	httpsListen  string
-	socks5Listen string
-	upstreamDNS  string
+	domain        string
+	proxyAddr     string
+	self          string
+	dnsListen     string
+	httpListen    string
+	httpsListen   string
+	socks5Listen  string
+	controlListen string
+	upstreamDNS   string
 }
 
 func main() {
@@ -118,6 +120,7 @@ func bindForwardFlags(fs *pflag.FlagSet, cfg *config) {
 	fs.StringVar(&cfg.httpListen, "http-listen", ":80", "the address the HTTP forwarder listens on")
 	fs.StringVar(&cfg.httpsListen, "https-listen", ":443", "the address the HTTPS forwarder listens on")
 	fs.StringVar(&cfg.socks5Listen, "socks5-listen", ":1080", "the address the SOCKS5 gateway listens on")
+	fs.StringVar(&cfg.controlListen, "control-listen", ":8053", "the address the intercept control endpoint listens on")
 	fs.StringVar(&cfg.upstreamDNS, "upstream-dns", "127.0.0.11:53", "the DNS server for a query outside the domain")
 }
 
@@ -163,13 +166,18 @@ type relayProcess struct {
 	httpsLn   net.Listener
 	httpLn    net.Listener
 	socks5Ln  net.Listener
+	controlLn net.Listener
 	proxyAddr string
+	intercept *dnsRelay
+
+	mu       sync.Mutex
+	extraLns map[int]net.Listener // opened on demand, for a port beyond :80/:443
 }
 
 // newRelayProcess resolves self when cfg.self is empty, then binds the DNS,
-// the HTTP, the HTTPS, and the SOCKS5 listeners. A caller reads back an
-// ephemeral address with dnsAddr, httpAddr, httpsAddr, or socks5Addr before
-// run starts.
+// the HTTP, the HTTPS, the SOCKS5, and the control listeners. A caller
+// reads back an ephemeral address with dnsAddr, httpAddr, httpsAddr, or
+// socks5Addr before run starts.
 func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
 	self := cfg.self
 	if self == "" {
@@ -193,6 +201,10 @@ func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
 	if err != nil {
 		return nil, fmt.Errorf("relay: listen socks5: %w", err)
 	}
+	controlLn, err := lc.Listen(ctx, "tcp", cfg.controlListen)
+	if err != nil {
+		return nil, fmt.Errorf("relay: listen control: %w", err)
+	}
 
 	relay := newDNSRelay(cfg.domain, self, cfg.upstreamDNS)
 	dnsSrv, err := bindDNSServer(ctx, cfg.dnsListen, relay)
@@ -203,25 +215,27 @@ func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
 	log.Ctx(ctx).Info("relay starting",
 		"domain", cfg.domain, "self", self, "proxy", cfg.proxyAddr,
 		"dns_listen", dnsSrv.addr(), "http_listen", httpLn.Addr(), "https_listen", httpsLn.Addr(),
-		"socks5_listen", socks5Ln.Addr())
+		"socks5_listen", socks5Ln.Addr(), "control_listen", controlLn.Addr())
 
 	return &relayProcess{
-		dns: dnsSrv, httpsLn: httpsLn, httpLn: httpLn, socks5Ln: socks5Ln, proxyAddr: cfg.proxyAddr,
+		dns: dnsSrv, httpsLn: httpsLn, httpLn: httpLn, socks5Ln: socks5Ln, controlLn: controlLn,
+		proxyAddr: cfg.proxyAddr, intercept: relay,
 	}, nil
 }
 
-// run serves DNS, HTTP, HTTPS, and the SOCKS5 gateway until ctx is done or
-// one of them fails.
+// run serves DNS, HTTP, HTTPS, the SOCKS5 gateway, and the intercept
+// control endpoint until ctx is done or one of them fails.
 func (p *relayProcess) run(ctx context.Context) error {
 	grp, ctx := errgroup.WithContext(ctx)
 	grp.Go(func() error { return p.dns.run(ctx) })
 	grp.Go(func() error {
-		return acceptLoop(ctx, p.httpsLn, func(conn net.Conn) { handleHTTPS(ctx, conn, p.proxyAddr) })
+		return acceptLoop(ctx, p.httpsLn, func(conn net.Conn) { handleHTTPS(ctx, conn, p.proxyAddr, 443) })
 	})
 	grp.Go(func() error {
 		return acceptLoop(ctx, p.httpLn, func(conn net.Conn) { handleHTTP(ctx, conn, p.proxyAddr) })
 	})
 	grp.Go(func() error { return serveSOCKS5(ctx, p.socks5Ln) })
+	grp.Go(func() error { return p.serveControl(ctx, grp) })
 	return grp.Wait() //nolint:wrapcheck // each sub-server already wraps its own error; wrapping again here would double it
 }
 
@@ -236,6 +250,9 @@ func (p *relayProcess) httpsAddr() string { return p.httpsLn.Addr().String() }
 
 // socks5Addr is the bound address of the SOCKS5 gateway.
 func (p *relayProcess) socks5Addr() string { return p.socks5Ln.Addr().String() }
+
+// controlAddr is the bound address of the intercept control endpoint.
+func (p *relayProcess) controlAddr() string { return p.controlLn.Addr().String() }
 
 // resolveSelf picks the address that the DNS server answers with when -self
 // is empty.

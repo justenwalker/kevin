@@ -158,7 +158,15 @@ func (s *server) Up(req *pb.UpRequest, stream grpc.ServerStreamingServer[pb.Even
 
 	routes := make([]*pb.Route, 0, len(result.Routes))
 	for _, r := range result.Routes {
-		routes = append(routes, &pb.Route{Host: r.Host, Upstream: r.Upstream, Tls: r.TLS})
+		pr := &pb.Route{Host: r.Host, Upstream: r.Upstream, Tls: r.TLS}
+		if r.External != nil {
+			ports := make([]int32, len(r.External.Ports))
+			for i, p := range r.External.Ports {
+				ports[i] = int32(p) //nolint:gosec // a port is always within int32 range
+			}
+			pr.External = &pb.External{Ports: ports}
+		}
+		routes = append(routes, pr)
 	}
 
 	exposedPorts := make([]*pb.ExposedPort, 0, len(result.ExposedPorts))

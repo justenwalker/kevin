@@ -80,8 +80,8 @@ func TestUpWithExternalSkipsTheDomainSuffix(t *testing.T) {
 		Env:  plugin.Env{Domain: "kevin.home"},
 		Config: []byte(`{
 			"routes": [
-				{"host": "s3.amazonaws.com", "address": "127.0.0.1:9090", "external": true},
-				{"host": "*.s3.amazonaws.com", "address": "127.0.0.1:9090", "tls": true, "external": true}
+				{"host": "s3.amazonaws.com", "address": "127.0.0.1:9090", "external": true, "ports": [443]},
+				{"host": "*.s3.amazonaws.com", "address": "127.0.0.1:9090", "tls": true, "external": true, "ports": [443]}
 			]
 		}`),
 	}, &noopEmitter{})
@@ -91,11 +91,13 @@ func TestUpWithExternalSkipsTheDomainSuffix(t *testing.T) {
 	assert.Equal(t, plugin.Route{
 		Host:     "s3.amazonaws.com",
 		Upstream: "127.0.0.1:9090",
+		External: &plugin.RouteExternal{Ports: []int{443}},
 	}, result.Routes[0], "external must use the host verbatim, not suffixed with the environment domain")
 	assert.Equal(t, plugin.Route{
 		Host:     "*.s3.amazonaws.com",
 		Upstream: "127.0.0.1:9090",
 		TLS:      true,
+		External: &plugin.RouteExternal{Ports: []int{443}},
 	}, result.Routes[1])
 }
 

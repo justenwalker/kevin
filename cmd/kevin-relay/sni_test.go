@@ -184,7 +184,7 @@ func TestHandleHTTPSPipesTheClientHelloAndTheDataAfterIt(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		handleHTTPS(t.Context(), serverConn, ln.Addr().String())
+		handleHTTPS(t.Context(), serverConn, ln.Addr().String(), 443)
 		close(done)
 	}()
 

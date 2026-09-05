@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/miekg/dns"
@@ -18,36 +19,77 @@ const dnsTTL = 30
 // dnsTimeout bounds a forwarded query to the upstream resolver.
 const dnsTimeout = 5 * time.Second
 
-// dnsRelay answers a query for the environment domain, and forwards every
-// other query to the upstream resolver.
+// dnsRelay answers a query for the environment domain or a registered
+// intercept host, and forwards every other query to the upstream resolver.
 type dnsRelay struct {
 	domain   string
 	self     string
 	upstream string
 	client   dns.Client
+
+	mu         sync.Mutex
+	intercepts map[string]struct{} // exact hostname, lowercased
+	wildcards  map[string]struct{} // ".suffix" of a "*."-prefixed entry, lowercased
 }
 
 // newDNSRelay builds a relay for domain. self is the address that an A
-// query under domain resolves to. upstream is the resolver for every other
-// query.
+// query under domain, or under a host added with [dnsRelay.AddIntercept],
+// resolves to. upstream is the resolver for every other query.
 func newDNSRelay(domain, self, upstream string) *dnsRelay {
 	return &dnsRelay{
-		domain:   normalizeDomain(domain),
-		self:     self,
-		upstream: upstream,
-		client:   dns.Client{Timeout: dnsTimeout},
+		domain:     normalizeDomain(domain),
+		self:       self,
+		upstream:   upstream,
+		client:     dns.Client{Timeout: dnsTimeout},
+		intercepts: make(map[string]struct{}),
+		wildcards:  make(map[string]struct{}),
 	}
+}
+
+// AddIntercept registers host to also resolve to self, alongside the
+// configured domain. A "*." prefix matches any subdomain, the same
+// wildcard convention kevin's own host proxy uses for its route table.
+// Adding the same host twice is a no-op.
+func (r *dnsRelay) AddIntercept(host string) {
+	host = normalizeDomain(host)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if suffix, ok := strings.CutPrefix(host, "*."); ok {
+		r.wildcards["."+suffix] = struct{}{}
+		return
+	}
+	r.intercepts[host] = struct{}{}
+}
+
+// matchesIntercept reports whether name matches a host [dnsRelay.AddIntercept]
+// registered, exactly or through a wildcard.
+func (r *dnsRelay) matchesIntercept(name string) bool {
+	name = normalizeDomain(name)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.intercepts[name]; ok {
+		return true
+	}
+	for suffix := range r.wildcards {
+		if strings.HasSuffix(name, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // ServeDNS implements [dns.Handler].
 func (r *dnsRelay) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	ctx := context.Background()
 
-	if len(req.Question) == 1 && matchesDomain(req.Question[0].Name, r.domain) {
-		if err := w.WriteMsg(r.answer(req)); err != nil {
-			log.Ctx(ctx).Debug("relay: dns: write answer failed", "error", err)
+	if len(req.Question) == 1 {
+		name := req.Question[0].Name
+		if matchesDomain(name, r.domain) || r.matchesIntercept(name) {
+			if err := w.WriteMsg(r.answer(req)); err != nil {
+				log.Ctx(ctx).Debug("relay: dns: write answer failed", "error", err)
+			}
+			return
 		}
-		return
 	}
 
 	reply, err := r.forward(w, req)
