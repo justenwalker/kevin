@@ -8,6 +8,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -364,6 +365,67 @@ func TestCA_TLSCertificate(t *testing.T) {
 
 		_, err = mismatched.TLSCertificate()
 		require.Error(t, err)
+	})
+}
+
+func TestCA_NewLeaf(t *testing.T) {
+	t.Run("sets a DNS SAN for a hostname, chained to the root", func(t *testing.T) {
+		m, root, _ := newManagerWithRoot(t)
+		project, err := m.LoadOrGenerateIntermediate()
+		require.NoError(t, err)
+
+		signer, err := project.NewLeaf("kevin-relay-control", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, time.Hour)
+		require.NoError(t, err)
+		require.Len(t, signer.Certificate, 3, "leaf, then the intermediate, then the root")
+
+		leaf, err := x509.ParseCertificate(signer.Certificate[0])
+		require.NoError(t, err)
+		assert.Equal(t, "kevin-relay-control", leaf.Subject.CommonName)
+		assert.Equal(t, []string{"kevin-relay-control"}, leaf.DNSNames)
+		assert.Empty(t, leaf.IPAddresses)
+		assert.Equal(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, leaf.ExtKeyUsage)
+		assert.WithinDuration(t, time.Now().Add(time.Hour), leaf.NotAfter, time.Minute)
+
+		intermediates := x509.NewCertPool()
+		for _, der := range signer.Certificate[1:] {
+			cert, parseErr := x509.ParseCertificate(der)
+			require.NoError(t, parseErr)
+			intermediates.AddCert(cert)
+		}
+		_, err = leaf.Verify(x509.VerifyOptions{
+			Roots:         root.Pool(),
+			Intermediates: intermediates,
+			KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		})
+		require.NoError(t, err, "the leaf must verify against the root alone")
+	})
+
+	t.Run("sets an IP SAN for an IP host", func(t *testing.T) {
+		m, _, _ := newManagerWithRoot(t)
+		project, err := m.LoadOrGenerateIntermediate()
+		require.NoError(t, err)
+
+		signer, err := project.NewLeaf("127.0.0.1", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, time.Hour)
+		require.NoError(t, err)
+
+		leaf, err := x509.ParseCertificate(signer.Certificate[0])
+		require.NoError(t, err)
+		require.Len(t, leaf.IPAddresses, 1)
+		assert.True(t, leaf.IPAddresses[0].Equal(net.ParseIP("127.0.0.1")))
+		assert.Empty(t, leaf.DNSNames)
+	})
+
+	t.Run("sets the requested extended key usage", func(t *testing.T) {
+		m, _, _ := newManagerWithRoot(t)
+		project, err := m.LoadOrGenerateIntermediate()
+		require.NoError(t, err)
+
+		signer, err := project.NewLeaf("kevin-engine", []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, time.Hour)
+		require.NoError(t, err)
+
+		leaf, err := x509.ParseCertificate(signer.Certificate[0])
+		require.NoError(t, err)
+		assert.Equal(t, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, leaf.ExtKeyUsage)
 	})
 }
 

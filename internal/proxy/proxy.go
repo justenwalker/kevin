@@ -138,14 +138,7 @@ const PACPath = "/proxy.pac"
 // that [Proxy.AllowEgress] adds later. When deny is true, the proxy blocks a
 // host that no route and no allow entry covers.
 func New(authority *ca.CA, domain string, allow []string, deny bool) (*Proxy, error) {
-	signer, err := authority.TLSCertificate()
-	if err != nil {
-		return nil, err
-	}
-	certs, err := newCertSigner(signer)
-	if err != nil {
-		return nil, err
-	}
+	certs := newCertSigner(authority)
 
 	// x509.SystemCertPool returns a fresh clone, safe to extend in place -
 	// it never affects the process-wide default pool. A platform that

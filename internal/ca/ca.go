@@ -16,6 +16,8 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -120,6 +122,9 @@ const (
 	// inside a container.
 	backdate = time.Hour
 )
+
+// LeafLifetime is how long a leaf that [CA.NewLeaf] mints is valid.
+const LeafLifetime = 7 * 24 * time.Hour
 
 // CA is a certificate authority. A CA is safe for concurrent use.
 type CA struct {
@@ -372,4 +377,50 @@ func (c *CA) TLSCertificate() (tls.Certificate, error) {
 		return tls.Certificate{}, fmt.Errorf("ca: build the signing certificate: %w", err)
 	}
 	return cert, nil
+}
+
+// NewLeaf mints a short-lived leaf certificate for commonName - a hostname
+// or an IP address, either becomes the matching SAN type - signed by this
+// authority, chained after it (and, for an intermediate, the root in turn).
+// eku sets the leaf's extended key usage: ServerAuth for a certificate this
+// authority's owner presents to a caller, ClientAuth for one it presents as
+// its own identity to another party.
+func (c *CA) NewLeaf(commonName string, eku []x509.ExtKeyUsage, lifetime time.Duration) (tls.Certificate, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("ca: generate leaf key for %q: %w", commonName, err)
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("ca: leaf serial for %q: %w", commonName, err)
+	}
+
+	now := time.Now()
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: commonName},
+		NotBefore:    now.Add(-backdate),
+		NotAfter:     now.Add(lifetime),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  eku,
+	}
+	if ip := net.ParseIP(commonName); ip != nil {
+		template.IPAddresses = []net.IP{ip}
+	} else {
+		template.DNSNames = []string{commonName}
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, c.cert, &key.PublicKey, c.key)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("ca: sign leaf for %q: %w", commonName, err)
+	}
+
+	signer, err := c.TLSCertificate()
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	chain := make([][]byte, 0, 1+len(signer.Certificate))
+	chain = append(chain, der)
+	chain = append(chain, signer.Certificate...)
+	return tls.Certificate{Certificate: chain, PrivateKey: key}, nil
 }

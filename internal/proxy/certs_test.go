@@ -1,46 +1,16 @@
 package proxy
 
 import (
-	"crypto"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
-	"math/big"
 	"net"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/justenwalker/kevin/internal/ca"
+	"github.com/justenwalker/kevin/internal/state"
 )
-
-func TestNewCertSigner(t *testing.T) {
-	t.Run("rejects a signer with no certificate", func(t *testing.T) {
-		_, err := newCertSigner(tls.Certificate{})
-		assert.ErrorIs(t, err, ErrNoSigningCertificate)
-	})
-
-	t.Run("rejects a non-ECDSA signing key", func(t *testing.T) {
-		key, err := rsa.GenerateKey(rand.Reader, 2048)
-		require.NoError(t, err)
-
-		_, err = newCertSigner(newTestTLSCertificate(t, "kevin test root", key))
-		assert.ErrorIs(t, err, ErrUnsupportedSigningKey)
-	})
-
-	t.Run("builds from an ECDSA signer", func(t *testing.T) {
-		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		require.NoError(t, err)
-
-		cs, err := newCertSigner(newTestTLSCertificate(t, "kevin test root", key))
-		require.NoError(t, err)
-		assert.Equal(t, "kevin test root", cs.issuer.Subject.CommonName)
-	})
-}
 
 func TestCertSignerLeafFor(t *testing.T) {
 	t.Run("mints a leaf chained to the issuer", func(t *testing.T) {
@@ -48,13 +18,12 @@ func TestCertSignerLeafFor(t *testing.T) {
 
 		cert, err := cs.leafFor("example.kevin.test")
 		require.NoError(t, err)
-		require.Len(t, cert.Certificate, 2, "leaf plus the issuer appended after it")
+		require.Len(t, cert.Certificate, 3, "leaf, then the intermediate, then the root")
 
 		leaf, err := x509.ParseCertificate(cert.Certificate[0])
 		require.NoError(t, err)
 		assert.Equal(t, "example.kevin.test", leaf.Subject.CommonName)
-		assert.Equal(t, "kevin test root", leaf.Issuer.CommonName)
-		assert.Equal(t, cs.chain[0], cert.Certificate[1], "the issuer's own certificate must follow the leaf")
+		assert.Equal(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, leaf.ExtKeyUsage)
 	})
 
 	t.Run("sets a DNS SAN for a hostname", func(t *testing.T) {
@@ -91,34 +60,16 @@ func TestCertSignerLeafFor(t *testing.T) {
 	})
 }
 
-// newTestCertSigner builds a certSigner for testing with a self-signed CA.
+// newTestCertSigner builds a certSigner from a freshly generated project
+// authority.
 func newTestCertSigner(t *testing.T) *certSigner {
 	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	t.Setenv(state.UserStateDirEnv, t.TempDir())
+	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+
+	m := ca.NewManager("cwd", "", "demo", ca.Options{})
+	authority, err := m.LoadOrGenerateIntermediate()
 	require.NoError(t, err)
 
-	cs, err := newCertSigner(newTestTLSCertificate(t, "kevin test root", key))
-	require.NoError(t, err)
-	return cs
-}
-
-// newTestTLSCertificate creates a tls.Certificate with a self-signed CA certificate.
-func newTestTLSCertificate(t *testing.T, cn string, key crypto.Signer) tls.Certificate {
-	t.Helper()
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	require.NoError(t, err)
-
-	now := time.Now()
-	template := &x509.Certificate{
-		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: cn},
-		NotBefore:             now.Add(-time.Hour),
-		NotAfter:              now.Add(24 * time.Hour),
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
-		BasicConstraintsValid: true,
-		IsCA:                  true,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, template, template, key.Public(), key)
-	require.NoError(t, err)
-	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+	return newCertSigner(authority)
 }
