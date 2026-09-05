@@ -113,13 +113,35 @@ plugins: close({[=~"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"]: #Plugin})
 	label?: string
 }
 
+#StepGroup: {
+	// steps declares the group's member steps. A member's own needs may name
+	// a sibling member by that member's bare name - the group joins that
+	// edge internally, a member never spells out the group's own name.
+	steps!: [string]: #Step
+
+	// needs lists the steps every member of the group implicitly depends on,
+	// in addition to its own needs - a member does not redeclare these.
+	needs?: [...string]
+
+	// outputs computes the group's own outputs from its members', so a step
+	// outside the group can needs the group as a single unit - a member is
+	// not addressable from outside the group. Each value is a "${...}"
+	// expression using the same needs.<member>.out.<key> convention a
+	// member's own with block uses, scoped to this group's own members.
+	outputs?: [string]: string
+
+	// label is a friendly name for the console. Unset means the console
+	// shows the group's own key instead.
+	label?: string
+}
+
 // setup steps persist across runs. `kevin setup` starts them, and
 // `kevin teardown` removes them.
-setup: [string]: #Step
+setup: [string]: #Step | #StepGroup
 
 // env steps are ephemeral. `kevin run` starts them, and removes them again on
 // exit.
-env: [string]: #Step
+env: [string]: #Step | #StepGroup
 
 #Command: {
 	// needs lists the steps whose exported environment this command's run

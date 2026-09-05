@@ -39,6 +39,16 @@ type Step struct {
 	// line instead of a full card: a probe, or builtin:route.
 	Compact bool
 
+	// Group is the step group this step is a member of, "" if none. The
+	// sidebar nests a member under its group's own row, hidden until
+	// expanded.
+	Group string
+
+	// IsGroup marks this Step as a group's own row - a container with no
+	// plugin behind it, rendered as a collapsible header with its members
+	// nested inside instead of a plain step card.
+	IsGroup bool
+
 	// Provider names the plugin that backs this step, e.g. "builtin" -
 	// the alt text for Icon.
 	Provider string

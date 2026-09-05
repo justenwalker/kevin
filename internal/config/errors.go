@@ -48,6 +48,16 @@ const (
 	// step that the step's own needs list does not declare.
 	ErrUndeclaredNeed = Error("config: with block references a step its needs list does not declare")
 
+	// ErrReservedKeyChar reports a step, group, or group member key
+	// containing '.' - reserved for a group member's own internal
+	// "<group>.<member>" name.
+	ErrReservedKeyChar = Error("config: key may not contain '.', that syntax is reserved for a group member's internal name")
+
+	// ErrUnaddressableMember reports a needs entry that names a group
+	// member's internal "<group>.<member>" name directly - a group's
+	// members are addressable only through the group's own name.
+	ErrUnaddressableMember = Error("config: needs references a group member by its internal name, a group is addressable only by its own name")
+
 	// ErrUnknownStep reports a command's needs list naming a step that does
 	// not exist in the scope the entry implies.
 	ErrUnknownStep = Error("config: needs references a step that does not exist")

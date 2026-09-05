@@ -828,3 +828,35 @@ domain: *"kevin.home" | string
       while `mirrors.cue` keeps `package kevin` fails clearly, naming
       `mirrors.cue`.
 
+## 22. Step groups (`examples/groups`)
+
+_Not yet automated._
+
+```sh
+kevin -C examples/groups run
+```
+
+- [ ] `net` starts first. Group `db`'s own `needs: ["net"]` reaches both
+      `primary` and `replica` without either redeclaring it - both start
+      only after `net` is `Ready`.
+- [ ] `replica` additionally waits for `primary` (`needs: ["primary"]`,
+      the sibling's own bare name, not `db.primary`).
+- [ ] `db` itself becomes `Ready` only once both members are - its own
+      `outputs.addr` is computed from `primary`'s output
+      (`${needs.primary.out.addr}`).
+- [ ] `web`, outside the group, reads `db`'s computed output
+      (`${needs.db.out.addr}`) the same way it would read a plain step's.
+- [ ] Console sidebar: `db` renders as one collapsed row; clicking it
+      reveals `primary` and `replica` nested inside, collapsed again by
+      default on the next page load.
+- [ ] Dependency arrows in the sidebar still route correctly to/from a
+      group's members whether the group is expanded or collapsed.
+- [ ] `Ctrl-C` removes `hold`, `web`, `db.replica`, `db.primary`, `net` in
+      reverse order; `db`'s own row has nothing to tear down.
+
+Edit `examples/groups/kevin.cue` temporarily: add `needs: ["db.primary"]`
+to `web` instead of `needs: ["db"]`.
+
+- [ ] `kevin validate` fails clearly, naming the unaddressable member -
+      a group's members are reachable only through the group's own name.
+

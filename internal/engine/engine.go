@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -213,6 +214,7 @@ func Run(ctx context.Context, opts Options) error {
 		store:   store,
 		scope:   opts.Scope,
 		steps:   cfg.Steps(opts.Scope),
+		groups:  cfg.Groups(opts.Scope),
 		plugins: plugins,
 		caps:    caps,
 		events:  opts.Events,
@@ -273,17 +275,8 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	// Topological order, not map order: the sidebar and the card grid then
-	// read roughly as installation order, a dependency after what it needs.
-	for _, name := range r.graph().TopoSort() {
-		step := r.steps[name]
-		ref, refErr := config.ParseStepRef(step.Uses)
-		if refErr != nil {
-			return refErr
-		}
-		kindLabel := stepKindLabel(stepKind(r.caps[ref.Plugin], ref.Step))
-		store.AddStep(name, step.Label, kindLabel, ref.Plugin, r.caps[ref.Plugin].Icon, step.Needs, isCompactStep(kindLabel, ref.Plugin, ref.Step))
-		store.SetStepIdempotent(name, stepIdempotent(r.caps[ref.Plugin], ref.Step))
+	if err := r.registerScopeSteps(store); err != nil {
+		return err
 	}
 
 	if live {
@@ -662,6 +655,7 @@ func Teardown(ctx context.Context, opts Options) error {
 		cfg:     cfg,
 		scope:   config.ScopeSetup,
 		steps:   steps,
+		groups:  cfg.Groups(config.ScopeSetup),
 		plugins: plugins,
 		caps:    caps,
 		events:  opts.Events,
@@ -698,15 +692,8 @@ func Teardown(ctx context.Context, opts Options) error {
 		}
 	}
 
-	for _, name := range r.graph().TopoSort() {
-		step := r.steps[name]
-		ref, refErr := config.ParseStepRef(step.Uses)
-		if refErr != nil {
-			return refErr
-		}
-		kindLabel := stepKindLabel(stepKind(r.caps[ref.Plugin], ref.Step))
-		r.store.AddStep(name, step.Label, kindLabel, ref.Plugin, r.caps[ref.Plugin].Icon, step.Needs, isCompactStep(kindLabel, ref.Plugin, ref.Step))
-		r.store.SetStepIdempotent(name, stepIdempotent(r.caps[ref.Plugin], ref.Step))
+	if err := r.registerScopeSteps(r.store); err != nil {
+		return err
 	}
 
 	if live {
@@ -905,6 +892,7 @@ type run struct {
 	store      *session.Store
 	scope      string
 	steps      map[string]config.Step
+	groups     map[string]config.Group
 	plugins    map[string]*pluginhost.Client
 	caps       map[string]pluginhost.Info
 	env        *pb.Environment
@@ -1024,17 +1012,8 @@ func validateNeeds(cfg *config.Config) error {
 
 		for _, name := range names {
 			for _, dep := range steps[name].Needs {
-				if setupName, ok := strings.CutPrefix(dep, setupPrefix); ok {
-					if scope != config.ScopeEnv {
-						return fmt.Errorf("%s: needs %q: only an env step can use a %q dependency", name, dep, setupPrefix)
-					}
-					if _, ok := cfg.Setup[setupName]; !ok {
-						return fmt.Errorf("%s: needs %q: no such step in scope %q", name, dep, config.ScopeSetup)
-					}
-					continue
-				}
-				if _, ok := steps[dep]; !ok {
-					return fmt.Errorf("%s: needs %q: no such step in scope %q", name, dep, scope)
+				if err := validateNeedsEntry(cfg, scope, name, dep); err != nil {
+					return err
 				}
 			}
 		}
@@ -1042,20 +1021,56 @@ func validateNeeds(cfg *config.Config) error {
 	return nil
 }
 
+// validateNeedsEntry checks that dep, one needs entry of name in scope,
+// resolves to a real step or group - same-scope, or (only for an env
+// step) a "setup.<name>" cross-scope entry.
+func validateNeedsEntry(cfg *config.Config, scope, name, dep string) error {
+	if setupName, ok := strings.CutPrefix(dep, setupPrefix); ok {
+		if scope != config.ScopeEnv {
+			return fmt.Errorf("%s: needs %q: only an env step can use a %q dependency", name, dep, setupPrefix)
+		}
+		if _, ok := cfg.Setup[setupName]; ok {
+			return nil
+		}
+		if _, ok := cfg.Groups(config.ScopeSetup)[setupName]; ok {
+			return nil
+		}
+		return fmt.Errorf("%s: needs %q: no such step in scope %q", name, dep, config.ScopeSetup)
+	}
+	if group, _, ok := strings.Cut(name, groupSep); ok && slices.Contains(cfg.Groups(scope)[group].Members, dep) {
+		return nil
+	}
+	if _, ok := cfg.Steps(scope)[dep]; ok {
+		return nil
+	}
+	if _, ok := cfg.Groups(scope)[dep]; ok {
+		return nil
+	}
+	return fmt.Errorf("%s: needs %q: no such step in scope %q", name, dep, scope)
+}
+
 // graph builds the DAG for r's own scope, keeping only needs entries that
-// name a step in this scope's own step map. A "setup."-prefixed
-// cross-scope entry is dropped here and resolved separately by
-// crossScopeDeps.
+// name a step or group in this scope. A "setup."-prefixed cross-scope
+// entry is dropped here and resolved separately by crossScopeDeps. Every
+// group gets an entry too, needing all its own members - the virtual "the
+// whole group is done" node, whether or not anything actually needs it.
 func (r *run) graph() *dag.Graph {
-	needs := make(map[string][]string, len(r.steps))
+	needs := make(map[string][]string, len(r.steps)+len(r.groups))
 	for name, step := range r.steps {
 		filtered := make([]string, 0, len(step.Needs))
 		for _, dep := range step.Needs {
-			if _, ok := r.steps[dep]; ok {
-				filtered = append(filtered, dep)
+			if resolved, ok := r.resolveNeed(name, dep); ok {
+				filtered = append(filtered, resolved)
 			}
 		}
 		needs[name] = filtered
+	}
+	for name, grp := range r.groups {
+		deps := make([]string, 0, len(grp.Members))
+		for _, member := range grp.Members {
+			deps = append(deps, memberName(name, member))
+		}
+		needs[name] = deps
 	}
 	return dag.New(needs)
 }
@@ -1105,6 +1120,14 @@ func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[stri
 	}
 	r.systemMu.Unlock()
 
+	// A group member's own needs/with block names a sibling by that
+	// sibling's bare name (graph() joins the DAG edge to its
+	// "<group>.<sibling>" node internally) - expose it under that bare
+	// name here too, so needs.<sibling>... resolves the way the member
+	// actually wrote it.
+	deps = localizeDeps(name, deps)
+	system = localizeDeps(name, system)
+
 	with, err := expr.Render(step.With, name, expr.Scopes{Needs: deps, System: system, Setup: setupDeps, Project: r.project})
 	if err != nil {
 		return nil, fmt.Errorf("%s: with: %w", name, err)
@@ -1130,6 +1153,10 @@ func (r *run) reportUpFailure(ctx context.Context, name string, err error) {
 // registration, egress allow, detail/progress reporting, and timing history
 // exactly like the first attempt.
 func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outputs) (dag.Outputs, error) {
+	if grp, ok := r.groups[name]; ok {
+		return r.upGroup(ctx, name, grp, deps)
+	}
+
 	mu := r.stepLock(name)
 	if !mu.TryLock() {
 		return nil, fmt.Errorf("%s: %w", name, session.ErrStepBusy)
@@ -1365,6 +1392,9 @@ func (r *run) callTool(ctx context.Context, name, tool string, args json.RawMess
 // Up on again. An unparseable step.Uses reports false - the same as any
 // step type that never declared IdempotentStep.
 func (r *run) idempotent(step string) bool {
+	if _, ok := r.groups[step]; ok {
+		return true
+	}
 	ref, err := config.ParseStepRef(r.steps[step].Uses)
 	if err != nil {
 		return false
@@ -1398,71 +1428,106 @@ func (r *run) down(ctx context.Context) error {
 		return nil
 	}
 
-	// Remove only the steps that came up, in reverse dependency order.
+	// Remove only the steps (and groups) that came up, in reverse
+	// dependency order - a name absent from completed never ran (or
+	// failed), so it must not be walked here at all, not just have its
+	// edges filtered.
+	needs := r.downNeeds(completed)
+
+	_, err := dag.New(needs).Reverse().Walk(ctx, func(ctx context.Context, name string, _ map[string]dag.Outputs) (dag.Outputs, error) {
+		return r.downStep(ctx, name, needs[name], completed)
+	})
+	return err
+}
+
+// downNeeds builds down's reduced needs map: only the steps and groups
+// that actually came up (are keys in completed), each with only the needs
+// edges among those.
+func (r *run) downNeeds(completed map[string]dag.Outputs) map[string][]string {
 	needs := make(map[string][]string, len(completed))
 	for name := range completed {
 		var deps []string
-		for _, dep := range r.steps[name].Needs {
-			if _, ok := completed[dep]; ok {
-				deps = append(deps, dep)
+		if grp, ok := r.groups[name]; ok {
+			for _, member := range grp.Members {
+				dotted := memberName(name, member)
+				if _, ok := completed[dotted]; ok {
+					deps = append(deps, dotted)
+				}
+			}
+		} else {
+			for _, dep := range r.steps[name].Needs {
+				resolved, ok := r.resolveNeed(name, dep)
+				if !ok {
+					continue
+				}
+				if _, ok := completed[resolved]; ok {
+					deps = append(deps, resolved)
+				}
 			}
 		}
 		needs[name] = deps
 	}
+	return needs
+}
 
-	_, err := dag.New(needs).Reverse().Walk(ctx, func(ctx context.Context, name string, _ map[string]dag.Outputs) (dag.Outputs, error) {
-		step := r.steps[name]
-		ref, refErr := config.ParseStepRef(step.Uses)
-		if refErr != nil {
-			return nil, refErr
-		}
-		client := r.plugins[ref.Plugin]
-
-		if !stepImplementsDown(r.caps[ref.Plugin], ref.Step) {
-			r.store.SetStep(name, session.Removed, "")
-			return nil, nil //nolint:nilnil // a nil dag.Outputs is a valid empty result, not the caller ever mistaking it for "not found"
-		}
-
-		deps := make(map[string]dag.Outputs, len(needs[name]))
-		for _, dep := range needs[name] {
-			deps[dep] = completed[dep]
-		}
-		setupDeps, err := r.crossScopeDeps(ctx, name)
-		if err != nil {
-			return nil, err
-		}
-		with, renderErr := r.renderWith(name, step, deps, setupDeps)
-		if renderErr != nil {
-			return nil, renderErr
-		}
-
-		estimate, _ := r.timings.EstimateDown(name, ref.String())
-		start := time.Now()
-		stop := r.trackProgress(ctx, name, estimate)
-		defer stop()
-
-		r.emit(name, "down")
-		r.store.SetStep(name, session.Removing, "")
-
-		downErr := client.Down(ctx, &pb.DownRequest{
-			Step:    name,
-			Type:    ref.Step,
-			Env:     r.env,
-			Config:  with,
-			Outputs: outputsToProto(completed[name]),
-		}, r.onEvent(name))
-		if downErr != nil {
-			downMsg := uerr.Display(downErr)
-			r.emit(name, "teardown failed: "+downMsg)
-			r.store.SetStep(name, session.Failed, downMsg)
-			return nil, downErr
-		}
-		r.emit(name, "removed")
+// downStep removes one step or group, the dag.NodeFunc down's reversed
+// walk runs per node. deps is name's own downNeeds entry.
+func (r *run) downStep(ctx context.Context, name string, deps []string, completed map[string]dag.Outputs) (dag.Outputs, error) {
+	if _, ok := r.groups[name]; ok {
 		r.store.SetStep(name, session.Removed, "")
-		r.timings.RecordDown(ctx, name, ref.String(), time.Since(start))
 		return nil, nil //nolint:nilnil // a nil dag.Outputs is a valid empty result, not the caller ever mistaking it for "not found"
-	})
-	return err
+	}
+
+	step := r.steps[name]
+	ref, refErr := config.ParseStepRef(step.Uses)
+	if refErr != nil {
+		return nil, refErr
+	}
+	client := r.plugins[ref.Plugin]
+
+	if !stepImplementsDown(r.caps[ref.Plugin], ref.Step) {
+		r.store.SetStep(name, session.Removed, "")
+		return nil, nil //nolint:nilnil // a nil dag.Outputs is a valid empty result, not the caller ever mistaking it for "not found"
+	}
+
+	depOutputs := make(map[string]dag.Outputs, len(deps))
+	for _, dep := range deps {
+		depOutputs[dep] = completed[dep]
+	}
+	setupDeps, err := r.crossScopeDeps(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	with, renderErr := r.renderWith(name, step, depOutputs, setupDeps)
+	if renderErr != nil {
+		return nil, renderErr
+	}
+
+	estimate, _ := r.timings.EstimateDown(name, ref.String())
+	start := time.Now()
+	stop := r.trackProgress(ctx, name, estimate)
+	defer stop()
+
+	r.emit(name, "down")
+	r.store.SetStep(name, session.Removing, "")
+
+	downErr := client.Down(ctx, &pb.DownRequest{
+		Step:    name,
+		Type:    ref.Step,
+		Env:     r.env,
+		Config:  with,
+		Outputs: outputsToProto(completed[name]),
+	}, r.onEvent(name))
+	if downErr != nil {
+		downMsg := uerr.Display(downErr)
+		r.emit(name, "teardown failed: "+downMsg)
+		r.store.SetStep(name, session.Failed, downMsg)
+		return nil, downErr
+	}
+	r.emit(name, "removed")
+	r.store.SetStep(name, session.Removed, "")
+	r.timings.RecordDown(ctx, name, ref.String(), time.Since(start))
+	return nil, nil //nolint:nilnil // a nil dag.Outputs is a valid empty result, not the caller ever mistaking it for "not found"
 }
 
 // onEvent returns a handler that renders the log and progress events of one
@@ -1557,6 +1622,9 @@ func stepExports(info pluginhost.Info, name string) bool {
 // with the "setup." prefix already stripped.
 func (r *run) exportCrossScopeStep(ctx context.Context, setupName string) (dag.Outputs, error) {
 	v, err, _ := r.exportGroup.Do(setupName, func() (any, error) {
+		if grp, ok := r.cfg.Groups(config.ScopeSetup)[setupName]; ok {
+			return r.doExportCrossScopeGroup(ctx, setupName, grp)
+		}
 		return r.doExportCrossScopeStep(ctx, setupName)
 	})
 	if err != nil {
@@ -1626,14 +1694,18 @@ func (r *run) sameScopeDeps(name string) map[string]dag.Outputs {
 		if strings.HasPrefix(dep, setupPrefix) {
 			continue // cross-scope, resolved by crossScopeDeps instead.
 		}
-		outputs, ok := completed[dep]
+		resolved, ok := r.resolveNeed(name, dep)
+		if !ok {
+			continue
+		}
+		outputs, ok := completed[resolved]
 		if !ok {
 			continue
 		}
 		if out == nil {
 			out = make(map[string]dag.Outputs)
 		}
-		out[dep] = outputs
+		out[resolved] = outputs
 	}
 	return out
 }

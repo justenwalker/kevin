@@ -158,6 +158,12 @@ type Config struct {
 	Proxy   Proxy   `json:"proxy"`
 	Console Console `json:"console"`
 	Relay   Relay   `json:"relay"`
+
+	// groups holds each scope's step groups by their own bare name,
+	// populated by [File.Config] - a group's member Steps already live in
+	// Setup/Env at "<group>.<member>", groups carries only a group's own
+	// metadata.
+	groups map[string]map[string]Group
 }
 
 // Steps returns the steps of one scope. The scope is "setup" or "env".
@@ -166,6 +172,14 @@ func (c *Config) Steps(scope string) map[string]Step {
 		return c.Setup
 	}
 	return c.Env
+}
+
+// Groups returns the step groups of one scope, by their own bare name -
+// the same "setup"/"env" convention [Config.Steps] uses. A group's member
+// Step already appears in [Config.Steps] at "<group>.<member>"; Groups
+// exists for a group's own metadata (needs, outputs, label).
+func (c *Config) Groups(scope string) map[string]Group {
+	return c.groups[scope]
 }
 
 // Scopes are the two independent DAGs in an environment.
@@ -486,26 +500,20 @@ func (f *File) Plugins() (map[string]PluginSpec, error) {
 }
 
 // StepPlugins reports the distinct plugin name that a step in either scope
-// uses. Call StepPlugins before [File.Plugins] starts a plugin.
+// uses, including a step that only appears inside a group. Call
+// StepPlugins before [File.Plugins] starts a plugin.
 func (f *File) StepPlugins() ([]string, error) {
-	var out struct {
-		Setup map[string]Step `json:"setup"`
-		Env   map[string]Step `json:"env"`
-	}
-	if err := f.decode(&out); err != nil {
-		return nil, err
-	}
-
 	seen := make(map[string]struct{})
-	for _, scope := range []struct {
-		name  string
-		steps map[string]Step
-	}{{ScopeSetup, out.Setup}, {ScopeEnv, out.Env}} {
-		for step, spec := range scope.steps {
+	for _, scopeName := range []string{ScopeSetup, ScopeEnv} {
+		entries, err := f.decodeScope(scopeName)
+		if err != nil {
+			return nil, err
+		}
+		for step, spec := range entries.Steps {
 			ref, err := ParseStepRef(spec.Uses)
 			if err != nil {
-				pos := f.value.LookupPath(cue.MakePath(cue.Str(scope.name), cue.Str(step), cue.Str("uses"))).Pos()
-				return nil, f.invalid(cueerrors.Wrapf(fmt.Errorf("config: step names step type %q: %w", spec.Uses, err), pos, ""))
+				return nil, f.wrapAt(entries.Paths[step].Append(cue.Str("uses")),
+					fmt.Errorf("config: step names step type %q: %w", spec.Uses, err))
 			}
 			seen[ref.Plugin] = struct{}{}
 		}
@@ -553,9 +561,16 @@ func (f *File) Validate(schemas map[string]PluginSchemas) error {
 		return err
 	}
 
+	setupEntries, err := f.decodeScope(ScopeSetup)
+	if err != nil {
+		return err
+	}
+	envEntries, err := f.decodeScope(ScopeEnv)
+	if err != nil {
+		return err
+	}
+
 	var out struct {
-		Setup    map[string]Step    `json:"setup"`
-		Env      map[string]Step    `json:"env"`
 		Commands map[string]Command `json:"commands"`
 	}
 	// f.Plugins above already decoded f.value once and succeeded, so this
@@ -563,18 +578,18 @@ func (f *File) Validate(schemas map[string]PluginSchemas) error {
 	_ = f.decode(&out)
 
 	for _, scope := range []struct {
-		name  string
-		steps map[string]Step
-	}{{ScopeSetup, out.Setup}, {ScopeEnv, out.Env}} {
-		for step, spec := range scope.steps {
-			if err := f.validateStep(scope.name, step, spec, plugins, schemas); err != nil {
+		name    string
+		entries scopeEntries
+	}{{ScopeSetup, setupEntries}, {ScopeEnv, envEntries}} {
+		for step, spec := range scope.entries.Steps {
+			if err := f.validateStep(scope.name, step, scope.entries.Paths[step], spec, plugins, schemas); err != nil {
 				return err
 			}
 		}
 	}
 
 	for name, cmd := range out.Commands {
-		if err := f.validateCommand(name, cmd, out.Env, out.Setup, schemas); err != nil {
+		if err := f.validateCommand(name, cmd, envEntries.Steps, setupEntries.Steps, schemas); err != nil {
 			return err
 		}
 	}
@@ -616,9 +631,11 @@ func (f *File) compileSchema(label string, src []byte) (cue.Value, bool, error) 
 }
 
 // validateStep checks that a step names a step type that resolves, then
-// unifies the step's with block against the schema of that step type.
-func (f *File) validateStep(scopeName, step string, spec Step, plugins map[string]PluginSpec, schemas map[string]PluginSchemas) error {
-	pos := f.value.LookupPath(cue.MakePath(cue.Str(scopeName), cue.Str(step), cue.Str("uses"))).Pos()
+// unifies the step's with block against the schema of that step type. path
+// is the step's own CUE source path - a plain step's own key, or a
+// flattened group member's "<scope>.<group>.steps.<member>" path.
+func (f *File) validateStep(scopeName, step string, path cue.Path, spec Step, plugins map[string]PluginSpec, schemas map[string]PluginSchemas) error {
+	pos := f.value.LookupPath(path.Append(cue.Str("uses"))).Pos()
 
 	ref, err := ParseStepRef(spec.Uses)
 	if err != nil {
@@ -641,7 +658,7 @@ func (f *File) validateStep(scopeName, step string, spec Step, plugins map[strin
 		return f.invalid(cueerrors.Wrapf(stepErr, pos, ""))
 	}
 
-	with := f.value.LookupPath(cue.MakePath(cue.Str(scopeName), cue.Str(step), cue.Str("with")))
+	with := f.value.LookupPath(path.Append(cue.Str("with")))
 	if !with.Exists() {
 		with = f.ctx.CompileString("{}")
 	}
@@ -720,6 +737,10 @@ func validateNeedsReferences(scopeName, step, field string, needs []string, raw 
 // block gets.
 func (f *File) validateCommand(name string, cmd Command, env, setup map[string]Step, schemas map[string]PluginSchemas) error {
 	pos := f.value.LookupPath(cue.MakePath(cue.Str("commands"), cue.Str(name), cue.Str("needs"))).Pos()
+
+	if err := validateNeedsSyntax(cmd.Needs); err != nil {
+		return f.invalid(cueerrors.Wrapf(fmt.Errorf("config: commands.%s.needs: %w", name, err), pos, ""))
+	}
 
 	for _, n := range cmd.Needs {
 		scopeName, scope, stepName := ScopeEnv, env, n
@@ -800,6 +821,22 @@ func (f *File) Config() (*Config, error) {
 	// The Validate(cue.Concrete(true)) above already proved f.value decodes
 	// cleanly, so this cannot fail.
 	_ = f.decode(cfg)
+
+	setupEntries, err := f.decodeScope(ScopeSetup)
+	if err != nil {
+		return nil, err
+	}
+	envEntries, err := f.decodeScope(ScopeEnv)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Setup = setupEntries.Steps
+	cfg.Env = envEntries.Steps
+	cfg.groups = map[string]map[string]Group{
+		ScopeSetup: setupEntries.Groups,
+		ScopeEnv:   envEntries.Groups,
+	}
+
 	cfg.Name = SlugName(f.name)
 	if cfg.Project == "" {
 		cfg.Project = projectName(f.dir)

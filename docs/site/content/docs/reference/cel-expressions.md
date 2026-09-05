@@ -34,6 +34,12 @@ Four top-level scopes: [`needs`](#needs), [`setup`](#setup), [`env`](#env),
 | `out` | `${needs.cluster.out.kubeconfig}` | `<step>`'s `Result.Outputs` (plugin-authored). See [Cross-step values]({{< relref "/docs/environment-file#cross-step-values" >}}). |
 | `system` | `${needs.cluster.system.expose_postgres}` | A value kevin computes itself for `<step>`, namespaced apart from `out` so it never collides with a plugin-chosen key - currently `expose_<name>`/`forward_<name>` for that step's `ExposedPort` entries. See [Cluster tunnel]({{< relref "/docs/concepts/relay#cluster-tunnel" >}}). |
 
+Inside a [step group]({{< relref "/docs/environment-file#step-groups" >}}),
+`<step>` can also name a sibling member by that member's own bare name - the
+group joins the edge internally, never spelled out as `<group>.<member>`. A
+group's own `outputs` block uses this exact same syntax, scoped to its own
+members, to compute what the group exposes to the outside.
+
 ## `setup`
 
 `setup.<name>.out.<key>` - a `setup`-scope step's `Export` output, for an

@@ -8,7 +8,7 @@ weight: 6
 
 The console renders with templ and updates with htmx over SSE. Both scripts ship embedded in the binary, thus the console needs no network.
 
-The page renders the state that the server holds, then opens **one** stream. Every later change arrives on that stream as a fragment that names its own target: a step row replaces itself with `hx-swap-oob`, and a log line or a request row arrives inside an `hx-partial` that names the region and the swap.
+The page renders the state that the server holds, then opens **one** stream. Every later change arrives on that stream as a fragment that names its own target: a step row replaces itself with `hx-swap-oob`, and a log line or a request row arrives inside an `hx-partial` that names the region and the swap. A [step group]({{< relref "/docs/environment-file#step-groups" >}})'s own row is the one exception: only its header fragment swaps out of band, never the whole row, since the row also holds the checkbox that tracks whether the group reads expanded or collapsed - replacing the whole thing on every state change would silently re-collapse an already-expanded group.
 
 htmx 4 removed `sse-swap`. An unnamed message swaps into the element that opened the connection, and a named event dispatches a DOM event instead. One connection carrying out of band fragments therefore replaces the per-element subscriptions of htmx 2.
 

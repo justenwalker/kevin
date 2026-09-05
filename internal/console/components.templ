@@ -52,7 +52,13 @@ templ Page(v View) {
 					</svg>
 					<ul id="steps">
 						for _, s := range v.Steps {
-							@StepItem(s)
+							if s.Group == "" {
+								if s.IsGroup {
+									@GroupItem(s, stepsByGroup(v.Steps)[s.Name])
+								} else {
+									@StepItem(s)
+								}
+							}
 						}
 					</ul>
 				</aside>
@@ -205,6 +211,18 @@ func pacURL(proxyAddr string) string {
 	return "http://" + proxyAddr + proxy.PACPath
 }
 
+// stepsByGroup groups steps by their own Group field, preserving each
+// group's member order.
+func stepsByGroup(steps []Step) map[string][]Step {
+	m := make(map[string][]Step)
+	for _, s := range steps {
+		if s.Group != "" {
+			m[s.Group] = append(m[s.Group], s)
+		}
+	}
+	return m
+}
+
 // kindIcon returns the icon that marks a step's kind, or "" for none.
 func kindIcon(kind string) string {
 	switch kind {
@@ -280,6 +298,40 @@ templ compactStepItem(s Step) {
 	</li>
 }
 
+// GroupItem is a step group's own row: a checkbox+label toggle (the same
+// technique the tab bar uses, no JS needed for the show/hide itself) with
+// its members nested inside, collapsed by default. Unlike a plain step's
+// row, this outer <li> is never itself replaced by an OOB update - only
+// its header (see groupHeader) - so a later state change never re-collapses
+// an already-expanded group by replacing its checkbox out from under it.
+templ GroupItem(s Step, members []Step) {
+	<li id={ "step-" + s.Name } class="group" data-needs={ strings.Join(s.Needs, ",") }>
+		<input type="checkbox" id={ "group-toggle-" + s.Name } class="group-toggle" onchange="drawDepLines()"/>
+		<label for={ "group-toggle-" + s.Name } class="group-header">
+			@groupHeader(s)
+		</label>
+		<ul class="group-members">
+			for _, m := range members {
+				@StepItem(m)
+			}
+		</ul>
+	</li>
+}
+
+// groupHeader is a group's own state row - the part of GroupItem an OOB
+// update replaces on its own, leaving the toggle checkbox (and so whether
+// the group reads expanded or collapsed) untouched.
+templ groupHeader(s Step) {
+	<span id={ "group-header-" + s.Name } hx-swap-oob="true" class={ "group-header-content", "state-" + string(s.State) }>
+		<span class="disclosure">▸</span>
+		<span class="name">{ s.Label }</span>
+		<span class="pill">{ string(s.State) }</span>
+		if s.Message != "" {
+			<span class="msg">{ s.Message }</span>
+		}
+	</span>
+}
+
 // idempotentBadge marks a step whose type is safe to call Up on again - it
 // may be swept into a cascading rerun of a step it depends on, not just
 // rerun directly.
@@ -346,9 +398,14 @@ templ StepCard(s Step) {
 
 // StepUpdate is everything that changes about a step: its sidebar entry and
 // its card. Every mutator publishes this, one call per event, so the two
-// regions never drift out of sync.
+// regions never drift out of sync. A group's sidebar entry is its header
+// alone (see groupHeader) - its outer row is never replaced whole.
 templ StepUpdate(s Step) {
-	@StepItem(s)
+	if s.IsGroup {
+		@groupHeader(s)
+	} else {
+		@StepItem(s)
+	}
 	@StepCard(s)
 }
 
@@ -474,6 +531,17 @@ templ styles() {
 		}
 		#sidebar li.compact .name { font-weight: 400; }
 		#sidebar li.compact .pill { padding: 0; background: none; }
+		/* Step group: a checkbox+label toggle, collapsed by default, no JS
+		   needed for the show/hide itself - drawDepLines still runs on
+		   toggle since a ":checked" change trips no DOM mutation. */
+		#sidebar li.group { padding: 0; }
+		.group-toggle { position: absolute; opacity: 0; pointer-events: none; }
+		.group-header { display: flex; align-items: center; gap: .4rem; cursor: pointer; padding: .5rem .6rem; }
+		.group-header-content { display: contents; }
+		.disclosure { display: inline-block; color: var(--muted); transition: transform .15s; }
+		.group-toggle:checked ~ .group-header .disclosure { transform: rotate(90deg); }
+		#sidebar ul.group-members { display: none; margin: 0; padding: 0 .6rem .5rem 1.3rem; }
+		#sidebar .group-toggle:checked ~ ul.group-members { display: flex; }
 		#dep-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 		.dep-edge { fill: none; stroke: var(--muted); stroke-width: 1.5; opacity: .55; }
 		#dep-arrow path { fill: var(--muted); }
@@ -583,12 +651,17 @@ templ scripts() {
 			g.innerHTML = '';
 
 			var order = {};
-			document.querySelectorAll('#steps > li').forEach(function (li, i) {
+			document.querySelectorAll('#steps li').forEach(function (li, i) {
 				order[li.id.slice('step-'.length)] = i;
 			});
 
 			var edges = [];
-			document.querySelectorAll('#steps > li[data-needs]').forEach(function (li) {
+			document.querySelectorAll('#steps li[data-needs]').forEach(function (li) {
+				// A collapsed group's members are display:none - getClientRects
+				// is empty for one, and its getBoundingClientRect would
+				// otherwise measure as a zero-sized box pinned at (0,0),
+				// drawing an edge far off in the corner instead of skipping it.
+				if (li.getClientRects().length === 0) return;
 				var needs = li.getAttribute('data-needs');
 				if (!needs) return;
 				var tRect = li.getBoundingClientRect();
@@ -596,7 +669,7 @@ templ scripts() {
 				needs.split(',').forEach(function (name) {
 					if (!name) return;
 					var src = document.getElementById('step-' + name);
-					if (!src) return;
+					if (!src || src.getClientRects().length === 0) return;
 					var sRect = src.getBoundingClientRect();
 					var sy = sRect.top - sbRect.top + sRect.height / 2;
 					edges.push({ sy: sy, ty: ty, lo: Math.min(sy, ty), hi: Math.max(sy, ty), source: order[name] });

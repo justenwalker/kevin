@@ -299,6 +299,36 @@ Two things differ from a same-scope reference. First, the `needs` entry itself c
 
 This only works for a step type that implements `Export` (`Info` reports which ones do), and only from `env` toward `setup` - never the reverse, since `setup` is provisioned independently of any `env` run. A plain `kevin run` never brings the `setup` scope up in that process, so kevin calls the setup step's `Export` RPC to resolve the value instead of walking it as a normal dependency.
 
+## Step groups
+
+A step group is a container with no behavior of its own: instead of `uses`, it declares `steps`, a nested map of ordinary steps. Two things make a group more than just a naming convention. First, `needs` on the group is implicit for every member - a member picks it up without redeclaring it. Second, an `outputs` block computes the group's own outputs from its members', so a step outside the group can `needs` the group as a single unit, the same way it needs a plain step:
+
+```cue
+env: {
+    net: uses: "builtin:route"
+    db: {
+        needs: ["net"]
+        steps: {
+            primary: uses: "builtin:container"
+            replica: {
+                uses:  "builtin:container"
+                needs: ["primary"]
+            }
+        }
+        outputs: addr: "${needs.primary.out.address}"
+    }
+    app: {
+        uses:  "builtin:container"
+        needs: ["db"]
+        with:  registry: "${needs.db.out.addr}"
+    }
+}
+```
+
+`primary` and `replica` both get `net` as an implicit dependency, on top of whatever they declare themselves - `replica`'s own `needs: ["primary"]` names a sibling by that sibling's bare name, not `db.primary`; the group joins that edge internally. `db.outputs` uses the same `needs.<member>.out.<key>` convention a member's own `with` block uses, just scoped to the group's own members. `app` reads `needs.db.out.addr` exactly like it would read a plain step's outputs.
+
+A group is a black box: `primary` and `replica` are not addressable from outside `db` - only `db`'s own name and its computed outputs are. `kevin validate` rejects a needs entry that spells out a member directly, the same way it rejects any other undeclared reference. The console sidebar collapses a group's members under its own row, expanded on click.
+
 ## Commands
 
 `commands` declares named, reusable actions to run against a live environment with `kevin do <name>`. A command has its own `needs` list (the same `<step>` / `setup.<name>` convention a step's `needs` uses) and a `run` argv kevin execs in place of itself, inheriting the caller's terminal:

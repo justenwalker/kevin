@@ -18,6 +18,8 @@ A step's own plugin code always gets every upstream output through the wire requ
 
 This is implemented with [CEL](https://github.com/google/cel-go), called once per step at exactly the point in the DAG walk where the upstream outputs for that step are already assembled, so it needs no separate resolution phase and no reordering of validate-then-walk: schema validation of the `with` block still happens once, globally, before the walk starts, and only ever sees the `${...}` placeholder as a plain string. The mechanism itself is generic: any step type's `with` block can use it, builtin or third-party. See [CEL expressions]({{< relref "/docs/reference/cel-expressions" >}}) for the full syntax reference.
 
+A [step group]({{< relref "/docs/environment-file#step-groups" >}})'s own `outputs` block reuses this exact same mechanism, scoped to just that group's members: `${needs.<member>.out.<key>}` there means the same thing it means inside a member's own `with` block. A group's members are otherwise not addressable from outside it - only the group's own name and its computed outputs are.
+
 ### Crossing scopes with `needs`
 
 An `env` step's `needs` may name a `setup` step, one-way only - never the reverse, since `setup` is provisioned independently of any `env` run. The entry carries a literal `setup.` prefix, e.g. `needs: ["setup.cluster"]`: a bare name always means same-scope, so there is never a fallback search into the other scope and never any ambiguity if the same name happens to exist in both.

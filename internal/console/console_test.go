@@ -62,7 +62,7 @@ func TestPage(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.SetProxyAddr("127.0.0.1:8080")
-		store.AddStep("web", "", "", "", nil, nil, false)
+		store.AddStep("web", "", "", "", nil, nil, false, "", false)
 		store.SetStep("web", Ready, "")
 		store.AddStepDetail("web", Detail{Value: "web.kevin.test", Href: "https://web.kevin.test"})
 		store.Log("web", "stdout", "hello")
@@ -92,7 +92,7 @@ func TestPage(t *testing.T) {
 	t.Run("a sensitive detail is masked but stays copyable", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("db", "", "", "", nil, nil, false)
+		store.AddStep("db", "", "", "", nil, nil, false, "", false)
 		store.SetStep("db", Ready, "")
 		store.AddStepDetail("db", Detail{
 			Label: "admin password", Value: "hunter2", Href: "https://admin.kevin.test", Copyable: true, Sensitive: true,
@@ -114,8 +114,8 @@ func TestPage(t *testing.T) {
 	t.Run("a step item carries needs for the dependency lines", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("a", "", "", "", nil, nil, false)
-		store.AddStep("b", "", "", "", nil, []string{"a"}, false)
+		store.AddStep("a", "", "", "", nil, nil, false, "", false)
+		store.AddStep("b", "", "", "", nil, []string{"a"}, false, "", false)
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -123,6 +123,24 @@ func TestPage(t *testing.T) {
 		body := rec.Body.String()
 		assert.Contains(t, body, `data-needs="a"`, "the js reads this to draw a line from b to a")
 		assert.Contains(t, body, `data-needs=""`, "a step with no dependencies still carries the attribute, just empty")
+	})
+
+	t.Run("a group nests its members, collapsed by default", func(t *testing.T) {
+		store := session.NewStore()
+		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
+		store.AddStep("db", "", "group", "", nil, []string{"net"}, false, "", true)
+		store.AddStep("db.primary", "", "", "echo", nil, nil, false, "db", false)
+
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
+
+		body := rec.Body.String()
+		assert.Contains(t, body, `<li id="step-db" class="group"`, "the group gets its own collapsible row")
+		assert.Contains(t, body, `id="group-header-db"`)
+		assert.Contains(t, body, `<li id="step-db.primary"`, "a member nests inside its group's row")
+		assert.Contains(t, body, `<input type="checkbox" id="group-toggle-db" class="group-toggle" onchange="drawDepLines()">`,
+			"collapsed by default: the toggle carries no checked attribute")
+		assert.Equal(t, 1, strings.Count(body, `id="step-db.primary"`), "a member never appears a second time at the top level")
 	})
 
 	t.Run("a denied request renders differently from an allowed one", func(t *testing.T) {
@@ -207,7 +225,7 @@ func TestEvents(t *testing.T) {
 	t.Run("sends a snapshot at once", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("web", "", "", "", nil, nil, false)
+		store.AddStep("web", "", "", "", nil, nil, false, "", false)
 		store.SetStep("web", Ready, "")
 		store.Log("web", "stdout", "already here")
 
@@ -259,6 +277,45 @@ func TestEvents(t *testing.T) {
 		body := rec.String()
 		assert.Contains(t, body, `hx-swap-oob="true"`, "a step row replaces itself out of band")
 		assert.Contains(t, body, `hx-swap="afterbegin"`, "a request goes to the top of the table")
+	})
+
+	t.Run("a group's state change swaps only its header, not the whole row", func(t *testing.T) {
+		store := session.NewStore()
+		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
+		store.AddStep("db", "", "group", "", nil, nil, false, "", true)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		rec := &syncRecorder{}
+		req := httptest.NewRequestWithContext(ctx, "GET", "/events", nil)
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			s.Handler().ServeHTTP(rec, req)
+		}()
+
+		require.Eventually(t, func() bool {
+			s.clientsMu.Lock()
+			defer s.clientsMu.Unlock()
+			return len(s.clients) == 1
+		}, time.Second, 5*time.Millisecond)
+
+		store.SetStep("db", Ready, "")
+
+		require.Eventually(t, func() bool {
+			return strings.Contains(rec.String(), "group-header-db")
+		}, 2*time.Second, 10*time.Millisecond)
+
+		cancel()
+		<-done
+
+		body := rec.String()
+		assert.Contains(t, body, `id="group-header-db" hx-swap-oob="true"`,
+			"only the header swaps, so an already-expanded group's checkbox is never replaced")
+		assert.NotContains(t, body, `<li id="step-db"`,
+			"the group's outer row must never be replaced whole - that would reset its expand/collapse state")
 	})
 
 	t.Run("a log line routes to both the all panel and the step's own panel", func(t *testing.T) {

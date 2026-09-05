@@ -85,8 +85,10 @@ func validIcon(icon []byte) []byte {
 // shows name instead. provider names the plugin that backs the step, icon
 // is that plugin's own PNG bytes, or nil for none, needs are the names of
 // the steps it depends on, and compact marks a gate-like step the sidebar
-// renders as a single muted line.
-func (s *Store) AddStep(name, label, kind, provider string, icon []byte, needs []string, compact bool) {
+// renders as a single muted line. group names the step group this step is
+// a member of ("" for none), and isGroup marks this Step as a group's own
+// row rather than a plain step.
+func (s *Store) AddStep(name, label, kind, provider string, icon []byte, needs []string, compact bool, group string, isGroup bool) {
 	if label == "" {
 		label = name
 	}
@@ -95,6 +97,7 @@ func (s *Store) AddStep(name, label, kind, provider string, icon []byte, needs [
 		s.steps[name] = &Step{
 			Name: name, Label: label, State: Pending, Kind: kind, Provider: provider,
 			Icon: validIcon(icon), Needs: append([]string(nil), needs...), Compact: compact,
+			Group: group, IsGroup: isGroup,
 		}
 		s.order = append(s.order, name)
 	}
