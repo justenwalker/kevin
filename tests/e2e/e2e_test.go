@@ -40,7 +40,64 @@ const defaultTimeout = 60 * time.Second
 var (
 	kevinBinOnce      = sync.OnceValues(buildKevin)
 	echoPluginBinOnce = sync.OnceValues(buildEchoPlugin)
+	relayDevImageOnce = sync.OnceValues(buildRelayDevImage)
 )
+
+// buildRelayDevImage cross-compiles kevin-relay for linux/GOARCH and builds
+// it into kevin-relay:dev, the same way build/main.go's relay-image gnob
+// target does - reimplemented here, self-contained, so "go test -tags e2e"
+// needs no gnob bootstrap first.
+//
+// This is required, not optional, whenever internal/relay's own
+// version-derived default (relay.Image) would otherwise resolve to the
+// ghcr.io image matching this checkout's internal/version/VERSION - a real
+// released tag that predates whatever relay change is still unreleased on
+// this branch. startKevinWithEnv injects it for every suite for exactly
+// this reason: any builtin:container or builtin:kind step registers for
+// capture unconditionally, so any suite bringing either up depends on the
+// relay actually matching this checkout's control protocol, not the last
+// released one.
+func buildRelayDevImage() (string, error) {
+	dir, err := os.MkdirTemp("", "kevin-e2e-relay-image")
+	if err != nil {
+		return "", fmt.Errorf("e2e: mkdir temp: %w", err)
+	}
+	defer os.RemoveAll(dir) //nolint:errcheck // best effort cleanup of a temp directory
+
+	bin := filepath.Join(dir, "linux", runtime.GOARCH, "kevin-relay")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		return "", err
+	}
+
+	build := exec.CommandContext(context.Background(), "go", "build", "-o", bin, "./cmd/kevin-relay")
+	build.Dir = repoRoot()
+	build.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+runtime.GOARCH, "CGO_ENABLED=0")
+	if out, err := build.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("e2e: build kevin-relay: %w: %s", err, out)
+	}
+
+	const tag = "kevin-relay:dev"
+	dockerBuild := exec.CommandContext(context.Background(), "docker", "build",
+		"-f", filepath.Join(repoRoot(), "build", "relay.Dockerfile"),
+		"--build-arg", "TARGETARCH="+runtime.GOARCH,
+		"-t", tag, dir)
+	if out, err := dockerBuild.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("e2e: docker build kevin-relay image: %w: %s", err, out)
+	}
+	return tag, nil
+}
+
+// hasEnvKey reports whether env already carries a "key=..." entry, so
+// startKevinWithEnv's own default doesn't shadow a caller that deliberately
+// wants a different relay image (an older release, say).
+func hasEnvKey(env []string, key string) bool {
+	for _, kv := range env {
+		if k, _, ok := strings.Cut(kv, "="); ok && k == key {
+			return true
+		}
+	}
+	return false
+}
 
 // repoRoot locates the repository root from this file's own path, so the
 // go build subprocesses below work regardless of the test binary's working
@@ -248,12 +305,20 @@ func (s *e2eSuite) startKevinWithEnv(dir string, extraEnv []string, args ...stri
 	t := s.T()
 	t.Helper()
 
+	env := append(os.Environ(), "NO_COLOR=1")
+	if !hasEnvKey(extraEnv, "KEVIN_RELAY_IMAGE") {
+		image, err := relayDevImageOnce()
+		require.NoError(t, err)
+		env = append(env, "KEVIN_RELAY_IMAGE="+image)
+	}
+	env = append(env, extraEnv...)
+
 	buf := &syncBuffer{}
 	cmd := exec.CommandContext(context.Background(), s.kevinBin(), args...)
 	cmd.Dir = dir
 	cmd.Stdout = buf
 	cmd.Stderr = buf
-	cmd.Env = append(append(os.Environ(), "NO_COLOR=1"), extraEnv...)
+	cmd.Env = env
 	require.NoError(t, cmd.Start(), "start kevin")
 
 	p := &kevinProc{cmd: cmd, buf: buf, waitCh: make(chan struct{})}

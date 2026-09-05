@@ -128,6 +128,21 @@ leaves no tag or GitHub release behind.
   step's `external: true` fakes out a real-world hostname with a local
   container). `kevin ca install`/`uninstall` manages the CA trust store;
   it needs no project (see the quickstart's "Trust the CA" section).
+- **Any unreleased change touching the relay** (`cmd/kevin-relay`,
+  `internal/relay`, the control channel protocol) needs
+  `export KEVIN_RELAY_IMAGE=kevin-relay:dev` (after `./build/gnob
+  relay-image`) before a manual `kevin run` - `internal/relay`'s own
+  default picks the image by `internal/version/VERSION`, and this repo's
+  release commits always leave that file holding the last released
+  version, never `dev`, so without the override a real run silently talks
+  to the last *released* relay instead of this checkout's. Hit repeatedly
+  as a symptom that looks unrelated to whatever's actually being tested: a
+  step's `Up` fails immediately with something like `authentication
+  handshake failed: tls: first record does not look like a TLS handshake`,
+  or just hangs. `tests/e2e` (`go test -tags e2e ./tests/e2e/...`) never
+  hits this - every suite injects the override itself, see
+  `relayDevImageOnce` in `tests/e2e/e2e_test.go` - only manual testing
+  needs to set it by hand (see docs/MANUAL_TESTING.md's prerequisites).
 
 ## Definition of Done
 

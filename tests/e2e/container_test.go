@@ -4,60 +4,12 @@ package e2e
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
-	"sync"
 	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
 )
-
-// relayDevImageOnce builds kevin-relay:dev once for the whole run.
-var relayDevImageOnce = sync.OnceValues(buildRelayDevImage)
-
-// buildRelayDevImage cross-compiles kevin-relay for linux/GOARCH and builds
-// it into kevin-relay:dev, the same way build/main.go's relay-image gnob
-// target does - reimplemented here, self-contained, so "go test -tags e2e"
-// needs no gnob bootstrap first.
-//
-// This is required, not optional, whenever internal/relay's own
-// version-derived default (relay.Image) would otherwise resolve to the
-// ghcr.io image matching this checkout's internal/version/VERSION - a real
-// released tag that predates whatever relay feature is still unreleased on
-// this branch, container relay routing included.
-func buildRelayDevImage() (string, error) {
-	dir, err := os.MkdirTemp("", "kevin-e2e-relay-image")
-	if err != nil {
-		return "", fmt.Errorf("e2e: mkdir temp: %w", err)
-	}
-	defer os.RemoveAll(dir) //nolint:errcheck // best effort cleanup of a temp directory
-
-	bin := filepath.Join(dir, "linux", runtime.GOARCH, "kevin-relay")
-	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
-		return "", err
-	}
-
-	build := exec.CommandContext(context.Background(), "go", "build", "-o", bin, "./cmd/kevin-relay")
-	build.Dir = repoRoot()
-	build.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+runtime.GOARCH, "CGO_ENABLED=0")
-	if out, err := build.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("e2e: build kevin-relay: %w: %s", err, out)
-	}
-
-	const tag = "kevin-relay:dev"
-	dockerBuild := exec.CommandContext(context.Background(), "docker", "build",
-		"-f", filepath.Join(repoRoot(), "build", "relay.Dockerfile"),
-		"--build-arg", "TARGETARCH="+runtime.GOARCH,
-		"-t", tag, dir)
-	if out, err := dockerBuild.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("e2e: docker build kevin-relay image: %w: %s", err, out)
-	}
-	return tag, nil
-}
 
 // containerRelayCUE brings up a real nginx container with an expose entry
 // routed through the environment's relay (relay: true) instead of a
@@ -119,13 +71,10 @@ func TestContainerRelaySuite(t *testing.T) {
 func (s *ContainerRelaySuite) TestRelayEntryReachesContainerAndSkipsPublish() {
 	s.requireDocker()
 
-	relayImage, err := relayDevImageOnce()
-	s.Require().NoError(err)
-
 	project := "kevin-e2e-container-relay"
 	dir := s.project(project, containerRelayCUE)
 
-	p := s.startKevinWithEnv(dir, []string{"KEVIN_RELAY_IMAGE=" + relayImage}, "-C", dir, "run")
+	p := s.startKevin(dir, "-C", dir, "run")
 	s.waitFor(p, stepLine("check", "ready"), defaultTimeout)
 
 	// Checked while still up - Down removes the container, taking its

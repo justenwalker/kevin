@@ -20,6 +20,31 @@ export PATH="$PWD/bin:$PATH"
 (`./build/gnob relay-image`, tagged `kevin-relay:dev`), used inside
 containers, never as a host binary.
 
+**If the branch under test has any unreleased relay change** (anything
+touching `cmd/kevin-relay`, `internal/relay`, or the control channel
+protocol - capture included), build that image and pin it explicitly:
+
+```sh
+./build/gnob relay-image
+export KEVIN_RELAY_IMAGE=kevin-relay:dev
+```
+
+`internal/relay`'s own default picks the image by `internal/version/VERSION`
+(`ghcr.io/justenwalker/kevin/relay:<version>`) unless that file literally
+reads `dev` - and this repo's release process always commits the
+just-released version number there, never `dev`, so on a normal feature
+branch that default silently resolves to the last *released* relay image.
+Skipping the export above means every step's `Up` talks to that old relay
+instead of the one built from this checkout - hit repeatedly this way: a
+released relay predating the mTLS control channel answers
+`RegisterCapture`/`EnsureListener` with garbage instead of a real TLS
+handshake, so a step fails immediately with something like
+`authentication handshake failed: tls: first record does not look like a
+TLS handshake`, or the run just hangs waiting on a step that never
+reports ready. `tests/e2e` never hits this - every suite injects
+`KEVIN_RELAY_IMAGE=kevin-relay:dev` itself (see `relayDevImageOnce` in
+`tests/e2e/e2e_test.go`) - but manual testing has to do it by hand.
+
 Before starting, clear any leftover state from previous manual runs so a
 stale workspace doesn't mask a real bug:
 
