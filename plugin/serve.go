@@ -182,6 +182,11 @@ func (s *server) Up(req *pb.UpRequest, stream grpc.ServerStreamingServer[pb.Even
 		details = append(details, &pb.Detail{Label: d.Label, Value: valueToProto(d.Value), Copyable: d.Copyable, Href: d.Href})
 	}
 
+	netnsTargets := make([]*pb.NetnsTarget, 0, len(result.NetnsTargets))
+	for _, t := range result.NetnsTargets {
+		netnsTargets = append(netnsTargets, &pb.NetnsTarget{Id: t.ID, NetnsPath: t.NetnsPath, ExcludeCidrs: t.ExcludeCIDRs})
+	}
+
 	if err := stream.Send(&pb.Event{Event: &pb.Event_Result{Result: &pb.Result{
 		Outputs:      &pb.Outputs{Values: outputsToProto(result.Outputs)},
 		Routes:       routes,
@@ -189,6 +194,7 @@ func (s *server) Up(req *pb.UpRequest, stream grpc.ServerStreamingServer[pb.Even
 		EgressAllow:  result.EgressAllow,
 		Details:      details,
 		NetnsPath:    result.NetnsPath,
+		NetnsTargets: netnsTargets,
 	}}}); err != nil {
 		return fmt.Errorf("plugin: send the result: %w", err)
 	}

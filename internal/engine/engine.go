@@ -1302,17 +1302,24 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	return out, nil
 }
 
-// wireRelay registers result's routes with the host proxy, and - when the
-// step has a container workload of its own - tells the relay to
-// transparently capture its egress. A step with no container workload
-// (kind, exec, a resourceless step) reports an empty netns path, and there
-// is nothing to register.
+// wireRelay registers result's routes with the host proxy, and tells the
+// relay to transparently capture the step's egress: at result's own netns
+// path when it has a single container workload, and at each of
+// result's NetnsTargets when it manages several (a builtin:kind cluster's
+// nodes). A step with neither (exec, a resourceless step) has nothing to
+// register.
 func (r *run) wireRelay(ctx context.Context, name string, result *pb.Result) error {
 	if err := r.addRoutes(ctx, name, result.GetRoutes()); err != nil {
 		return err
 	}
 	if netnsPath := result.GetNetnsPath(); netnsPath != "" {
-		if err := r.relay.RegisterCapture(ctx, name, netnsPath); err != nil {
+		if err := r.relay.RegisterCapture(ctx, name, netnsPath, nil); err != nil {
+			r.reportUpFailure(ctx, name, err)
+			return err
+		}
+	}
+	for _, t := range result.GetNetnsTargets() {
+		if err := r.relay.RegisterCapture(ctx, t.GetId(), t.GetNetnsPath(), t.GetExcludeCidrs()); err != nil {
 			r.reportUpFailure(ctx, name, err)
 			return err
 		}

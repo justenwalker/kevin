@@ -394,11 +394,14 @@ func (r *Relay) EnsureListener(ctx context.Context, host string, ports []int) er
 	return nil
 }
 
-// RegisterCapture tells the relay to redirect the outbound traffic of the
-// container at netnsPath to itself, so id's egress is captured
-// transparently.
-func (r *Relay) RegisterCapture(ctx context.Context, id, netnsPath string) error {
-	req := &pb.RegisterCaptureRequest{Id: id, NetnsPath: netnsPath}
+// RegisterCapture tells the relay to redirect traffic through the
+// namespace at netnsPath to itself, so id's egress is captured
+// transparently. With no excludeCIDRs, netnsPath is a single workload's own
+// namespace. With excludeCIDRs set, netnsPath routes traffic for others - a
+// builtin:kind node - and is captured at what transits it instead, skipping
+// any destination in excludeCIDRs.
+func (r *Relay) RegisterCapture(ctx context.Context, id, netnsPath string, excludeCIDRs []string) error {
+	req := &pb.RegisterCaptureRequest{Id: id, NetnsPath: netnsPath, ExcludeCidrs: excludeCIDRs}
 	if _, err := r.client.RegisterCapture(ctx, req); err != nil {
 		return fmt.Errorf("relay: register capture for %q: %w", id, err)
 	}

@@ -32,10 +32,15 @@ const (
 // holding a client certificate signed by the project's own intermediate
 // authority can call it.
 type RelayControlClient interface {
-	// RegisterCapture tells the relay to redirect the outbound traffic of the
-	// container at netns_path to itself, so its egress is captured
-	// transparently - regardless of whether the container resolves the
-	// relay's own DNS or honors a proxy environment variable.
+	// RegisterCapture tells the relay to redirect traffic through the
+	// namespace at netns_path to itself, so egress is captured transparently
+	// - regardless of whether a workload resolves the relay's own DNS or
+	// honors a proxy environment variable. With no exclude_cidrs, netns_path
+	// is a single workload's own namespace, captured at its own outbound
+	// connections (a builtin:container step). With exclude_cidrs set,
+	// netns_path routes traffic for others - a builtin:kind node - and is
+	// captured at what transits it instead, skipping any destination in
+	// exclude_cidrs so pod-to-pod and pod-to-service traffic isn't touched.
 	RegisterCapture(ctx context.Context, in *RegisterCaptureRequest, opts ...grpc.CallOption) (*RegisterCaptureResponse, error)
 	// EnsureListener registers an External route: it answers the relay's own
 	// DNS for host - exactly, or by "*." wildcard, the same rule builtin:route
@@ -85,10 +90,15 @@ func (c *relayControlClient) EnsureListener(ctx context.Context, in *EnsureListe
 // holding a client certificate signed by the project's own intermediate
 // authority can call it.
 type RelayControlServer interface {
-	// RegisterCapture tells the relay to redirect the outbound traffic of the
-	// container at netns_path to itself, so its egress is captured
-	// transparently - regardless of whether the container resolves the
-	// relay's own DNS or honors a proxy environment variable.
+	// RegisterCapture tells the relay to redirect traffic through the
+	// namespace at netns_path to itself, so egress is captured transparently
+	// - regardless of whether a workload resolves the relay's own DNS or
+	// honors a proxy environment variable. With no exclude_cidrs, netns_path
+	// is a single workload's own namespace, captured at its own outbound
+	// connections (a builtin:container step). With exclude_cidrs set,
+	// netns_path routes traffic for others - a builtin:kind node - and is
+	// captured at what transits it instead, skipping any destination in
+	// exclude_cidrs so pod-to-pod and pod-to-service traffic isn't touched.
 	RegisterCapture(context.Context, *RegisterCaptureRequest) (*RegisterCaptureResponse, error)
 	// EnsureListener registers an External route: it answers the relay's own
 	// DNS for host - exactly, or by "*." wildcard, the same rule builtin:route

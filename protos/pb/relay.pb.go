@@ -23,11 +23,16 @@ const (
 
 type RegisterCaptureRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// ID names the step whose container this is, for logging.
+	// ID names the step (and, for a multi-node step, the node) this
+	// namespace belongs to, for logging.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// NetnsPath is the host path of the container's network namespace, such
-	// as "/var/run/docker/netns/1234abcd".
-	NetnsPath     string `protobuf:"bytes,2,opt,name=netns_path,json=netnsPath,proto3" json:"netns_path,omitempty"`
+	// NetnsPath is the host path of the network namespace, such as
+	// "/var/run/docker/netns/1234abcd".
+	NetnsPath string `protobuf:"bytes,2,opt,name=netns_path,json=netnsPath,proto3" json:"netns_path,omitempty"`
+	// ExcludeCIDRs lists destination CIDRs that must never be redirected to
+	// the relay. See the RegisterCapture RPC comment for what its presence
+	// means.
+	ExcludeCidrs  []string `protobuf:"bytes,3,rep,name=exclude_cidrs,json=excludeCidrs,proto3" json:"exclude_cidrs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -74,6 +79,13 @@ func (x *RegisterCaptureRequest) GetNetnsPath() string {
 		return x.NetnsPath
 	}
 	return ""
+}
+
+func (x *RegisterCaptureRequest) GetExcludeCidrs() []string {
+	if x != nil {
+		return x.ExcludeCidrs
+	}
+	return nil
 }
 
 type RegisterCaptureResponse struct {
@@ -209,11 +221,12 @@ var File_pb_relay_proto protoreflect.FileDescriptor
 
 const file_pb_relay_proto_rawDesc = "" +
 	"\n" +
-	"\x0epb/relay.proto\x12\x0ekevin.relay.v1\"G\n" +
+	"\x0epb/relay.proto\x12\x0ekevin.relay.v1\"l\n" +
 	"\x16RegisterCaptureRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
-	"netns_path\x18\x02 \x01(\tR\tnetnsPath\"\x19\n" +
+	"netns_path\x18\x02 \x01(\tR\tnetnsPath\x12#\n" +
+	"\rexclude_cidrs\x18\x03 \x03(\tR\fexcludeCidrs\"\x19\n" +
 	"\x17RegisterCaptureResponse\"A\n" +
 	"\x15EnsureListenerRequest\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x14\n" +

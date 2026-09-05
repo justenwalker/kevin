@@ -207,6 +207,24 @@ func (s *KindSuite) TestNodeDNSPointsAtRelay() {
 	s.Contains(out, "nameserver "+s.relay.Addr())
 }
 
+// TestNetnsTargetsRegisterOneCaptureTargetPerNode proves that Up populates
+// NetnsTargets with one entry per node, each carrying the cluster's real pod
+// and service CIDRs read from kubeadm-config - the actual kubectl round
+// trip capture.go's unit tests can't exercise without a live cluster.
+func (s *KindSuite) TestNetnsTargetsRegisterOneCaptureTargetPerNode() {
+	t := s.T()
+	nodeList := strings.Split(s.up.Outputs["nodes"].Reveal(), ",")
+
+	wantCIDRs, err := podAndServiceCIDRs(t.Context(), s.controlPlaneNode())
+	s.Require().NoError(err)
+
+	s.Require().Len(s.up.NetnsTargets, len(nodeList))
+	for _, target := range s.up.NetnsTargets {
+		s.NotEmpty(target.NetnsPath)
+		s.Equal(wantCIDRs, target.ExcludeCIDRs)
+	}
+}
+
 // TestNodeTrustsTheKevinRoot proves that Up installs the kevin root
 // certificate into the control plane node.
 func (s *KindSuite) TestNodeTrustsTheKevinRoot() {

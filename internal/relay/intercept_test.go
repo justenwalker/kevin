@@ -90,14 +90,28 @@ func TestRelayEnsureListener(t *testing.T) {
 }
 
 func TestRelayRegisterCapture(t *testing.T) {
-	fake := &fakeControlServer{}
-	r := newTestRelay(t, fake)
+	t.Run("a workload namespace, no exclusions", func(t *testing.T) {
+		fake := &fakeControlServer{}
+		r := newTestRelay(t, fake)
 
-	err := r.RegisterCapture(t.Context(), "web", "/var/run/docker/netns/abc123")
-	require.NoError(t, err)
-	require.NotNil(t, fake.lastRegisterCapture)
-	assert.Equal(t, "web", fake.lastRegisterCapture.GetId())
-	assert.Equal(t, "/var/run/docker/netns/abc123", fake.lastRegisterCapture.GetNetnsPath())
+		err := r.RegisterCapture(t.Context(), "web", "/var/run/docker/netns/abc123", nil)
+		require.NoError(t, err)
+		require.NotNil(t, fake.lastRegisterCapture)
+		assert.Equal(t, "web", fake.lastRegisterCapture.GetId())
+		assert.Equal(t, "/var/run/docker/netns/abc123", fake.lastRegisterCapture.GetNetnsPath())
+		assert.Empty(t, fake.lastRegisterCapture.GetExcludeCidrs())
+	})
+
+	t.Run("a router namespace, with exclusions", func(t *testing.T) {
+		fake := &fakeControlServer{}
+		r := newTestRelay(t, fake)
+
+		err := r.RegisterCapture(t.Context(), "cluster/node1", "/var/run/docker/netns/def456",
+			[]string{"10.244.0.0/16", "10.96.0.0/12"})
+		require.NoError(t, err)
+		require.NotNil(t, fake.lastRegisterCapture)
+		assert.Equal(t, []string{"10.244.0.0/16", "10.96.0.0/12"}, fake.lastRegisterCapture.GetExcludeCidrs())
+	})
 }
 
 func TestDialControl(t *testing.T) {

@@ -10,23 +10,33 @@ import (
 	"github.com/justenwalker/kevin/protos/pb"
 )
 
+// captureTarget is one registered network namespace: the path applyCapture
+// needs to reach it, and the exclusion list that shapes which ruleset it
+// gets - see applyCapture's own doc comment for what an empty vs.
+// non-empty list means.
+type captureTarget struct {
+	netnsPath    string
+	excludeCIDRs []string
+}
+
 // RegisterCapture implements [pb.RelayControlServer]. It installs the
 // transparent-capture ruleset for id's network namespace, for every port
-// currently captured, and records the path only once that succeeds - a
+// currently captured, and records the target only once that succeeds - a
 // failed call leaves nothing behind for reapplyCapture to retry against.
 func (p *relayProcess) RegisterCapture(ctx context.Context, req *pb.RegisterCaptureRequest) (*pb.RegisterCaptureResponse, error) {
-	if err := applyCapture(req.GetNetnsPath(), p.capturePorts(), p.self); err != nil {
+	target := captureTarget{netnsPath: req.GetNetnsPath(), excludeCIDRs: req.GetExcludeCidrs()}
+	if err := applyCapture(target.netnsPath, p.capturePorts(), p.self, target.excludeCIDRs); err != nil {
 		return nil, fmt.Errorf("relay: apply capture for %q: %w", req.GetId(), err)
 	}
 
 	p.mu.Lock()
 	if p.netnsPaths == nil {
-		p.netnsPaths = make(map[string]string)
+		p.netnsPaths = make(map[string]captureTarget)
 	}
-	p.netnsPaths[req.GetId()] = req.GetNetnsPath()
+	p.netnsPaths[req.GetId()] = target
 	p.mu.Unlock()
 
-	log.Ctx(ctx).Debug("relay: registered capture", "id", req.GetId(), "netns_path", req.GetNetnsPath())
+	log.Ctx(ctx).Debug("relay: registered capture", "id", req.GetId(), "netns_path", target.netnsPath)
 	return &pb.RegisterCaptureResponse{}, nil
 }
 
@@ -64,19 +74,19 @@ func (p *relayProcess) capturePorts() []int {
 }
 
 // reapplyCapture re-installs the capture ruleset for every registered
-// container with the current port set. A container whose netns is gone -
-// it was removed since RegisterCapture ran - fails silently and is evicted,
+// namespace with the current port set. A target whose netns is gone - it
+// was removed since RegisterCapture ran - fails silently and is evicted,
 // rather than failing the caller.
 func (p *relayProcess) reapplyCapture(ctx context.Context) {
 	p.mu.Lock()
-	netnsPaths := make(map[string]string, len(p.netnsPaths))
-	maps.Copy(netnsPaths, p.netnsPaths)
+	targets := make(map[string]captureTarget, len(p.netnsPaths))
+	maps.Copy(targets, p.netnsPaths)
 	p.mu.Unlock()
 
 	ports := p.capturePorts()
-	for id, path := range netnsPaths {
-		if err := applyCapture(path, ports, p.self); err != nil {
-			log.Ctx(ctx).Debug("relay: re-apply capture failed, evicting", "error", err, "id", id, "netns_path", path)
+	for id, target := range targets {
+		if err := applyCapture(target.netnsPath, ports, p.self, target.excludeCIDRs); err != nil {
+			log.Ctx(ctx).Debug("relay: re-apply capture failed, evicting", "error", err, "id", id, "netns_path", target.netnsPath)
 			p.mu.Lock()
 			delete(p.netnsPaths, id)
 			p.mu.Unlock()

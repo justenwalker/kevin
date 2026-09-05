@@ -1208,7 +1208,12 @@ type Result struct {
 	// container workload of its own (kind, exec, a resourceless step). The
 	// engine forwards it to the relay so the container's egress can be
 	// transparently redirected there.
-	NetnsPath     string `protobuf:"bytes,6,opt,name=netns_path,json=netnsPath,proto3" json:"netns_path,omitempty"`
+	NetnsPath string `protobuf:"bytes,6,opt,name=netns_path,json=netnsPath,proto3" json:"netns_path,omitempty"`
+	// NetnsTargets carries one network namespace per node of a step that
+	// manages several, such as a builtin:kind cluster's control-plane and
+	// worker nodes - a namespace it captures as a router, not a single
+	// workload's own namespace, unlike netns_path above.
+	NetnsTargets  []*NetnsTarget `protobuf:"bytes,7,rep,name=netns_targets,json=netnsTargets,proto3" json:"netns_targets,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1285,6 +1290,85 @@ func (x *Result) GetNetnsPath() string {
 	return ""
 }
 
+func (x *Result) GetNetnsTargets() []*NetnsTarget {
+	if x != nil {
+		return x.NetnsTargets
+	}
+	return nil
+}
+
+// NetnsTarget is one network namespace the relay should capture, for a step
+// that manages more than one - see Result.netns_targets.
+type NetnsTarget struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// ID identifies this network namespace for the relay's own bookkeeping
+	// and logs, such as "<step>/<node>" for one of a kind cluster's nodes.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// NetnsPath is the host path of the network namespace, such as
+	// "/var/run/docker/netns/1234abcd".
+	NetnsPath string `protobuf:"bytes,2,opt,name=netns_path,json=netnsPath,proto3" json:"netns_path,omitempty"`
+	// ExcludeCIDRs lists destination CIDRs that must never be redirected to
+	// the relay - a Kubernetes cluster's own pod and service subnets, so
+	// pod-to-pod and pod-to-service traffic keeps working normally. A
+	// non-empty list is also what tells the relay this namespace routes
+	// traffic for others rather than only generating its own, so it captures
+	// what transits the namespace instead of what originates in it.
+	ExcludeCidrs  []string `protobuf:"bytes,3,rep,name=exclude_cidrs,json=excludeCidrs,proto3" json:"exclude_cidrs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NetnsTarget) Reset() {
+	*x = NetnsTarget{}
+	mi := &file_pb_plugin_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NetnsTarget) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NetnsTarget) ProtoMessage() {}
+
+func (x *NetnsTarget) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_plugin_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NetnsTarget.ProtoReflect.Descriptor instead.
+func (*NetnsTarget) Descriptor() ([]byte, []int) {
+	return file_pb_plugin_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *NetnsTarget) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *NetnsTarget) GetNetnsPath() string {
+	if x != nil {
+		return x.NetnsPath
+	}
+	return ""
+}
+
+func (x *NetnsTarget) GetExcludeCidrs() []string {
+	if x != nil {
+		return x.ExcludeCidrs
+	}
+	return nil
+}
+
 // ExposedPort is a raw TCP or UDP endpoint that a step publishes directly to
 // the host.
 type ExposedPort struct {
@@ -1303,7 +1387,7 @@ type ExposedPort struct {
 
 func (x *ExposedPort) Reset() {
 	*x = ExposedPort{}
-	mi := &file_pb_plugin_proto_msgTypes[16]
+	mi := &file_pb_plugin_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1315,7 +1399,7 @@ func (x *ExposedPort) String() string {
 func (*ExposedPort) ProtoMessage() {}
 
 func (x *ExposedPort) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[16]
+	mi := &file_pb_plugin_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1328,7 +1412,7 @@ func (x *ExposedPort) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExposedPort.ProtoReflect.Descriptor instead.
 func (*ExposedPort) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{16}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ExposedPort) GetName() string {
@@ -1377,7 +1461,7 @@ type Detail struct {
 
 func (x *Detail) Reset() {
 	*x = Detail{}
-	mi := &file_pb_plugin_proto_msgTypes[17]
+	mi := &file_pb_plugin_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1389,7 +1473,7 @@ func (x *Detail) String() string {
 func (*Detail) ProtoMessage() {}
 
 func (x *Detail) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[17]
+	mi := &file_pb_plugin_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1402,7 +1486,7 @@ func (x *Detail) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Detail.ProtoReflect.Descriptor instead.
 func (*Detail) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{17}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Detail) GetLabel() string {
@@ -1448,7 +1532,7 @@ type ExportRequest struct {
 
 func (x *ExportRequest) Reset() {
 	*x = ExportRequest{}
-	mi := &file_pb_plugin_proto_msgTypes[18]
+	mi := &file_pb_plugin_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1460,7 +1544,7 @@ func (x *ExportRequest) String() string {
 func (*ExportRequest) ProtoMessage() {}
 
 func (x *ExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[18]
+	mi := &file_pb_plugin_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1473,7 +1557,7 @@ func (x *ExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportRequest.ProtoReflect.Descriptor instead.
 func (*ExportRequest) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{18}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ExportRequest) GetStep() string {
@@ -1517,7 +1601,7 @@ type ExportResponse struct {
 
 func (x *ExportResponse) Reset() {
 	*x = ExportResponse{}
-	mi := &file_pb_plugin_proto_msgTypes[19]
+	mi := &file_pb_plugin_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1529,7 +1613,7 @@ func (x *ExportResponse) String() string {
 func (*ExportResponse) ProtoMessage() {}
 
 func (x *ExportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[19]
+	mi := &file_pb_plugin_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1542,7 +1626,7 @@ func (x *ExportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportResponse.ProtoReflect.Descriptor instead.
 func (*ExportResponse) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{19}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ExportResponse) GetOut() *Outputs {
@@ -1575,7 +1659,7 @@ type ToolCallRequest struct {
 
 func (x *ToolCallRequest) Reset() {
 	*x = ToolCallRequest{}
-	mi := &file_pb_plugin_proto_msgTypes[20]
+	mi := &file_pb_plugin_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1587,7 +1671,7 @@ func (x *ToolCallRequest) String() string {
 func (*ToolCallRequest) ProtoMessage() {}
 
 func (x *ToolCallRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[20]
+	mi := &file_pb_plugin_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1600,7 +1684,7 @@ func (x *ToolCallRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolCallRequest.ProtoReflect.Descriptor instead.
 func (*ToolCallRequest) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{20}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ToolCallRequest) GetStep() string {
@@ -1667,7 +1751,7 @@ type ToolCallResponse struct {
 
 func (x *ToolCallResponse) Reset() {
 	*x = ToolCallResponse{}
-	mi := &file_pb_plugin_proto_msgTypes[21]
+	mi := &file_pb_plugin_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1679,7 +1763,7 @@ func (x *ToolCallResponse) String() string {
 func (*ToolCallResponse) ProtoMessage() {}
 
 func (x *ToolCallResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[21]
+	mi := &file_pb_plugin_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1692,7 +1776,7 @@ func (x *ToolCallResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolCallResponse.ProtoReflect.Descriptor instead.
 func (*ToolCallResponse) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{21}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ToolCallResponse) GetContent() []byte {
@@ -1740,7 +1824,7 @@ type Route struct {
 
 func (x *Route) Reset() {
 	*x = Route{}
-	mi := &file_pb_plugin_proto_msgTypes[22]
+	mi := &file_pb_plugin_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1752,7 +1836,7 @@ func (x *Route) String() string {
 func (*Route) ProtoMessage() {}
 
 func (x *Route) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[22]
+	mi := &file_pb_plugin_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1765,7 +1849,7 @@ func (x *Route) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Route.ProtoReflect.Descriptor instead.
 func (*Route) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{22}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *Route) GetHost() string {
@@ -1819,7 +1903,7 @@ type External struct {
 
 func (x *External) Reset() {
 	*x = External{}
-	mi := &file_pb_plugin_proto_msgTypes[23]
+	mi := &file_pb_plugin_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1831,7 +1915,7 @@ func (x *External) String() string {
 func (*External) ProtoMessage() {}
 
 func (x *External) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[23]
+	mi := &file_pb_plugin_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1844,7 +1928,7 @@ func (x *External) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use External.ProtoReflect.Descriptor instead.
 func (*External) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{23}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *External) GetPorts() []int32 {
@@ -1875,7 +1959,7 @@ type UserMessage struct {
 
 func (x *UserMessage) Reset() {
 	*x = UserMessage{}
-	mi := &file_pb_plugin_proto_msgTypes[24]
+	mi := &file_pb_plugin_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1887,7 +1971,7 @@ func (x *UserMessage) String() string {
 func (*UserMessage) ProtoMessage() {}
 
 func (x *UserMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[24]
+	mi := &file_pb_plugin_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1900,7 +1984,7 @@ func (x *UserMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserMessage.ProtoReflect.Descriptor instead.
 func (*UserMessage) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{24}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *UserMessage) GetKey() string {
@@ -2010,7 +2094,7 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\bProgress\x12\x14\n" +
 	"\x05label\x18\x01 \x01(\tR\x05label\x12\x18\n" +
 	"\acurrent\x18\x02 \x01(\x03R\acurrent\x12\x14\n" +
-	"\x05total\x18\x03 \x01(\x03R\x05total\"\xa4\x02\n" +
+	"\x05total\x18\x03 \x01(\x03R\x05total\"\xe7\x02\n" +
 	"\x06Result\x122\n" +
 	"\aoutputs\x18\x01 \x01(\v2\x18.kevin.plugin.v1.OutputsR\aoutputs\x12.\n" +
 	"\x06routes\x18\x02 \x03(\v2\x16.kevin.plugin.v1.RouteR\x06routes\x12!\n" +
@@ -2018,7 +2102,13 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\rexposed_ports\x18\x04 \x03(\v2\x1c.kevin.plugin.v1.ExposedPortR\fexposedPorts\x121\n" +
 	"\adetails\x18\x05 \x03(\v2\x17.kevin.plugin.v1.DetailR\adetails\x12\x1d\n" +
 	"\n" +
-	"netns_path\x18\x06 \x01(\tR\tnetnsPath\"v\n" +
+	"netns_path\x18\x06 \x01(\tR\tnetnsPath\x12A\n" +
+	"\rnetns_targets\x18\a \x03(\v2\x1c.kevin.plugin.v1.NetnsTargetR\fnetnsTargets\"a\n" +
+	"\vNetnsTarget\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"netns_path\x18\x02 \x01(\tR\tnetnsPath\x12#\n" +
+	"\rexclude_cidrs\x18\x03 \x03(\tR\fexcludeCidrs\"v\n" +
 	"\vExposedPort\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\bprotocol\x18\x02 \x01(\tR\bprotocol\x12\x1a\n" +
@@ -2088,7 +2178,7 @@ func file_pb_plugin_proto_rawDescGZIP() []byte {
 }
 
 var file_pb_plugin_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_pb_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_pb_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_pb_plugin_proto_goTypes = []any{
 	(StepKind)(0),              // 0: kevin.plugin.v1.StepKind
 	(*InfoRequest)(nil),        // 1: kevin.plugin.v1.InfoRequest
@@ -2107,67 +2197,69 @@ var file_pb_plugin_proto_goTypes = []any{
 	(*LogLine)(nil),            // 14: kevin.plugin.v1.LogLine
 	(*Progress)(nil),           // 15: kevin.plugin.v1.Progress
 	(*Result)(nil),             // 16: kevin.plugin.v1.Result
-	(*ExposedPort)(nil),        // 17: kevin.plugin.v1.ExposedPort
-	(*Detail)(nil),             // 18: kevin.plugin.v1.Detail
-	(*ExportRequest)(nil),      // 19: kevin.plugin.v1.ExportRequest
-	(*ExportResponse)(nil),     // 20: kevin.plugin.v1.ExportResponse
-	(*ToolCallRequest)(nil),    // 21: kevin.plugin.v1.ToolCallRequest
-	(*ToolCallResponse)(nil),   // 22: kevin.plugin.v1.ToolCallResponse
-	(*Route)(nil),              // 23: kevin.plugin.v1.Route
-	(*External)(nil),           // 24: kevin.plugin.v1.External
-	(*UserMessage)(nil),        // 25: kevin.plugin.v1.UserMessage
-	nil,                        // 26: kevin.plugin.v1.Environment.ProxyEnvEntry
-	nil,                        // 27: kevin.plugin.v1.Outputs.ValuesEntry
-	nil,                        // 28: kevin.plugin.v1.UpRequest.DepsEntry
-	nil,                        // 29: kevin.plugin.v1.DownRequest.DepsEntry
-	nil,                        // 30: kevin.plugin.v1.ToolCallRequest.DepsEntry
+	(*NetnsTarget)(nil),        // 17: kevin.plugin.v1.NetnsTarget
+	(*ExposedPort)(nil),        // 18: kevin.plugin.v1.ExposedPort
+	(*Detail)(nil),             // 19: kevin.plugin.v1.Detail
+	(*ExportRequest)(nil),      // 20: kevin.plugin.v1.ExportRequest
+	(*ExportResponse)(nil),     // 21: kevin.plugin.v1.ExportResponse
+	(*ToolCallRequest)(nil),    // 22: kevin.plugin.v1.ToolCallRequest
+	(*ToolCallResponse)(nil),   // 23: kevin.plugin.v1.ToolCallResponse
+	(*Route)(nil),              // 24: kevin.plugin.v1.Route
+	(*External)(nil),           // 25: kevin.plugin.v1.External
+	(*UserMessage)(nil),        // 26: kevin.plugin.v1.UserMessage
+	nil,                        // 27: kevin.plugin.v1.Environment.ProxyEnvEntry
+	nil,                        // 28: kevin.plugin.v1.Outputs.ValuesEntry
+	nil,                        // 29: kevin.plugin.v1.UpRequest.DepsEntry
+	nil,                        // 30: kevin.plugin.v1.DownRequest.DepsEntry
+	nil,                        // 31: kevin.plugin.v1.ToolCallRequest.DepsEntry
 }
 var file_pb_plugin_proto_depIdxs = []int32{
 	3,  // 0: kevin.plugin.v1.InfoResponse.steps:type_name -> kevin.plugin.v1.StepType
 	0,  // 1: kevin.plugin.v1.StepType.kind:type_name -> kevin.plugin.v1.StepKind
 	4,  // 2: kevin.plugin.v1.StepType.tools:type_name -> kevin.plugin.v1.ToolDefinition
 	7,  // 3: kevin.plugin.v1.ConfigureRequest.env:type_name -> kevin.plugin.v1.Environment
-	26, // 4: kevin.plugin.v1.Environment.proxy_env:type_name -> kevin.plugin.v1.Environment.ProxyEnvEntry
-	27, // 5: kevin.plugin.v1.Outputs.values:type_name -> kevin.plugin.v1.Outputs.ValuesEntry
+	27, // 4: kevin.plugin.v1.Environment.proxy_env:type_name -> kevin.plugin.v1.Environment.ProxyEnvEntry
+	28, // 5: kevin.plugin.v1.Outputs.values:type_name -> kevin.plugin.v1.Outputs.ValuesEntry
 	7,  // 6: kevin.plugin.v1.UpRequest.env:type_name -> kevin.plugin.v1.Environment
-	28, // 7: kevin.plugin.v1.UpRequest.deps:type_name -> kevin.plugin.v1.UpRequest.DepsEntry
+	29, // 7: kevin.plugin.v1.UpRequest.deps:type_name -> kevin.plugin.v1.UpRequest.DepsEntry
 	7,  // 8: kevin.plugin.v1.DownRequest.env:type_name -> kevin.plugin.v1.Environment
-	29, // 9: kevin.plugin.v1.DownRequest.deps:type_name -> kevin.plugin.v1.DownRequest.DepsEntry
+	30, // 9: kevin.plugin.v1.DownRequest.deps:type_name -> kevin.plugin.v1.DownRequest.DepsEntry
 	10, // 10: kevin.plugin.v1.DownRequest.outputs:type_name -> kevin.plugin.v1.Outputs
 	14, // 11: kevin.plugin.v1.Event.log:type_name -> kevin.plugin.v1.LogLine
 	15, // 12: kevin.plugin.v1.Event.progress:type_name -> kevin.plugin.v1.Progress
 	16, // 13: kevin.plugin.v1.Event.result:type_name -> kevin.plugin.v1.Result
 	10, // 14: kevin.plugin.v1.Result.outputs:type_name -> kevin.plugin.v1.Outputs
-	23, // 15: kevin.plugin.v1.Result.routes:type_name -> kevin.plugin.v1.Route
-	17, // 16: kevin.plugin.v1.Result.exposed_ports:type_name -> kevin.plugin.v1.ExposedPort
-	18, // 17: kevin.plugin.v1.Result.details:type_name -> kevin.plugin.v1.Detail
-	9,  // 18: kevin.plugin.v1.Detail.value:type_name -> kevin.plugin.v1.Value
-	7,  // 19: kevin.plugin.v1.ExportRequest.env:type_name -> kevin.plugin.v1.Environment
-	10, // 20: kevin.plugin.v1.ExportResponse.out:type_name -> kevin.plugin.v1.Outputs
-	7,  // 21: kevin.plugin.v1.ToolCallRequest.env:type_name -> kevin.plugin.v1.Environment
-	30, // 22: kevin.plugin.v1.ToolCallRequest.deps:type_name -> kevin.plugin.v1.ToolCallRequest.DepsEntry
-	24, // 23: kevin.plugin.v1.Route.external:type_name -> kevin.plugin.v1.External
-	9,  // 24: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
-	10, // 25: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	10, // 26: kevin.plugin.v1.DownRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	10, // 27: kevin.plugin.v1.ToolCallRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	1,  // 28: kevin.plugin.v1.Plugin.Info:input_type -> kevin.plugin.v1.InfoRequest
-	5,  // 29: kevin.plugin.v1.Plugin.Configure:input_type -> kevin.plugin.v1.ConfigureRequest
-	11, // 30: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
-	12, // 31: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
-	19, // 32: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
-	21, // 33: kevin.plugin.v1.Plugin.CallTool:input_type -> kevin.plugin.v1.ToolCallRequest
-	2,  // 34: kevin.plugin.v1.Plugin.Info:output_type -> kevin.plugin.v1.InfoResponse
-	6,  // 35: kevin.plugin.v1.Plugin.Configure:output_type -> kevin.plugin.v1.ConfigureResponse
-	13, // 36: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
-	13, // 37: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
-	20, // 38: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
-	22, // 39: kevin.plugin.v1.Plugin.CallTool:output_type -> kevin.plugin.v1.ToolCallResponse
-	34, // [34:40] is the sub-list for method output_type
-	28, // [28:34] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	24, // 15: kevin.plugin.v1.Result.routes:type_name -> kevin.plugin.v1.Route
+	18, // 16: kevin.plugin.v1.Result.exposed_ports:type_name -> kevin.plugin.v1.ExposedPort
+	19, // 17: kevin.plugin.v1.Result.details:type_name -> kevin.plugin.v1.Detail
+	17, // 18: kevin.plugin.v1.Result.netns_targets:type_name -> kevin.plugin.v1.NetnsTarget
+	9,  // 19: kevin.plugin.v1.Detail.value:type_name -> kevin.plugin.v1.Value
+	7,  // 20: kevin.plugin.v1.ExportRequest.env:type_name -> kevin.plugin.v1.Environment
+	10, // 21: kevin.plugin.v1.ExportResponse.out:type_name -> kevin.plugin.v1.Outputs
+	7,  // 22: kevin.plugin.v1.ToolCallRequest.env:type_name -> kevin.plugin.v1.Environment
+	31, // 23: kevin.plugin.v1.ToolCallRequest.deps:type_name -> kevin.plugin.v1.ToolCallRequest.DepsEntry
+	25, // 24: kevin.plugin.v1.Route.external:type_name -> kevin.plugin.v1.External
+	9,  // 25: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
+	10, // 26: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	10, // 27: kevin.plugin.v1.DownRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	10, // 28: kevin.plugin.v1.ToolCallRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	1,  // 29: kevin.plugin.v1.Plugin.Info:input_type -> kevin.plugin.v1.InfoRequest
+	5,  // 30: kevin.plugin.v1.Plugin.Configure:input_type -> kevin.plugin.v1.ConfigureRequest
+	11, // 31: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
+	12, // 32: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
+	20, // 33: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
+	22, // 34: kevin.plugin.v1.Plugin.CallTool:input_type -> kevin.plugin.v1.ToolCallRequest
+	2,  // 35: kevin.plugin.v1.Plugin.Info:output_type -> kevin.plugin.v1.InfoResponse
+	6,  // 36: kevin.plugin.v1.Plugin.Configure:output_type -> kevin.plugin.v1.ConfigureResponse
+	13, // 37: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
+	13, // 38: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
+	21, // 39: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
+	23, // 40: kevin.plugin.v1.Plugin.CallTool:output_type -> kevin.plugin.v1.ToolCallResponse
+	35, // [35:41] is the sub-list for method output_type
+	29, // [29:35] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_pb_plugin_proto_init() }
@@ -2189,7 +2281,7 @@ func file_pb_plugin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pb_plugin_proto_rawDesc), len(file_pb_plugin_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   30,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

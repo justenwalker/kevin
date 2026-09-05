@@ -9,10 +9,15 @@ option go_package = "github.com/justenwalker/kevin/protos/pb;pb";
 // holding a client certificate signed by the project's own intermediate
 // authority can call it.
 service RelayControl {
-  // RegisterCapture tells the relay to redirect the outbound traffic of the
-  // container at netns_path to itself, so its egress is captured
-  // transparently - regardless of whether the container resolves the
-  // relay's own DNS or honors a proxy environment variable.
+  // RegisterCapture tells the relay to redirect traffic through the
+  // namespace at netns_path to itself, so egress is captured transparently
+  // - regardless of whether a workload resolves the relay's own DNS or
+  // honors a proxy environment variable. With no exclude_cidrs, netns_path
+  // is a single workload's own namespace, captured at its own outbound
+  // connections (a builtin:container step). With exclude_cidrs set,
+  // netns_path routes traffic for others - a builtin:kind node - and is
+  // captured at what transits it instead, skipping any destination in
+  // exclude_cidrs so pod-to-pod and pod-to-service traffic isn't touched.
   rpc RegisterCapture(RegisterCaptureRequest) returns (RegisterCaptureResponse);
 
   // EnsureListener registers an External route: it answers the relay's own
@@ -27,12 +32,18 @@ service RelayControl {
 }
 
 message RegisterCaptureRequest {
-  // ID names the step whose container this is, for logging.
+  // ID names the step (and, for a multi-node step, the node) this
+  // namespace belongs to, for logging.
   string id = 1;
 
-  // NetnsPath is the host path of the container's network namespace, such
-  // as "/var/run/docker/netns/1234abcd".
+  // NetnsPath is the host path of the network namespace, such as
+  // "/var/run/docker/netns/1234abcd".
   string netns_path = 2;
+
+  // ExcludeCIDRs lists destination CIDRs that must never be redirected to
+  // the relay. See the RegisterCapture RPC comment for what its presence
+  // means.
+  repeated string exclude_cidrs = 3;
 }
 
 message RegisterCaptureResponse {}

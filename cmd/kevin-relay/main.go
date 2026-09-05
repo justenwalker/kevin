@@ -183,8 +183,8 @@ type relayProcess struct {
 	runGrp *errgroup.Group
 
 	mu         sync.Mutex
-	extraLns   map[int]net.Listener // opened on demand, for a port beyond :80/:443
-	netnsPaths map[string]string    // step id -> container network namespace path
+	extraLns   map[int]net.Listener     // opened on demand, for a port beyond :80/:443
+	netnsPaths map[string]captureTarget // registration id -> network namespace target
 }
 
 // newRelayProcess resolves self when cfg.self is empty, then binds the DNS,

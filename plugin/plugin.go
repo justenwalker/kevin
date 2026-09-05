@@ -330,6 +330,33 @@ type Result struct {
 	// the relay so the container's egress can be transparently redirected
 	// there.
 	NetnsPath string
+
+	// NetnsTargets carries one network namespace per node of a step that
+	// manages several, such as a builtin:kind cluster's control-plane and
+	// worker nodes. Use this instead of NetnsPath for a step whose workload
+	// isn't a single container the namespace itself belongs to.
+	NetnsTargets []NetnsTarget
+}
+
+// NetnsTarget is one network namespace the relay should capture, for a step
+// that manages more than one - see Result.NetnsTargets.
+type NetnsTarget struct {
+	// ID identifies this network namespace for the relay's own bookkeeping
+	// and logs, such as "<step>/<node>" for one of a kind cluster's nodes.
+	ID string
+
+	// NetnsPath is the host path of the network namespace, such as
+	// "/var/run/docker/netns/1234abcd".
+	NetnsPath string
+
+	// ExcludeCIDRs lists destination CIDRs that must never be redirected to
+	// the relay - a Kubernetes cluster's own pod and service subnets, so
+	// pod-to-pod and pod-to-service traffic keeps working normally. A
+	// non-empty list is also what tells the relay this namespace routes
+	// traffic for others rather than only generating its own, so it
+	// captures what transits the namespace instead of what originates in
+	// it.
+	ExcludeCIDRs []string
 }
 
 // Emitter reports progress while a step runs. Everything that a Step emits

@@ -286,6 +286,32 @@ message Result {
   // engine forwards it to the relay so the container's egress can be
   // transparently redirected there.
   string netns_path = 6;
+
+  // NetnsTargets carries one network namespace per node of a step that
+  // manages several, such as a builtin:kind cluster's control-plane and
+  // worker nodes - a namespace it captures as a router, not a single
+  // workload's own namespace, unlike netns_path above.
+  repeated NetnsTarget netns_targets = 7;
+}
+
+// NetnsTarget is one network namespace the relay should capture, for a step
+// that manages more than one - see Result.netns_targets.
+message NetnsTarget {
+  // ID identifies this network namespace for the relay's own bookkeeping
+  // and logs, such as "<step>/<node>" for one of a kind cluster's nodes.
+  string id = 1;
+
+  // NetnsPath is the host path of the network namespace, such as
+  // "/var/run/docker/netns/1234abcd".
+  string netns_path = 2;
+
+  // ExcludeCIDRs lists destination CIDRs that must never be redirected to
+  // the relay - a Kubernetes cluster's own pod and service subnets, so
+  // pod-to-pod and pod-to-service traffic keeps working normally. A
+  // non-empty list is also what tells the relay this namespace routes
+  // traffic for others rather than only generating its own, so it captures
+  // what transits the namespace instead of what originates in it.
+  repeated string exclude_cidrs = 3;
 }
 
 // ExposedPort is a raw TCP or UDP endpoint that a step publishes directly to

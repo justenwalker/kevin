@@ -118,7 +118,7 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 		relayAddress = relayAddr(relayHostPort)
 	}
 
-	exposedPorts, err := finishClusterSetup(ctx, cfg, req, name, nodeList, relayAddress, useRelay, out)
+	exposedPorts, captureTargets, err := finishClusterSetup(ctx, cfg, req, name, nodeList, relayAddress, useRelay, out)
 	if err != nil {
 		return nil, err
 	}
@@ -138,6 +138,7 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 		Outputs:      plugin.StringMap(outputs),
 		EgressAllow:  cfg.Egress,
 		Details:      exposedPortDetails(exposedPorts),
+		NetnsTargets: captureTargets,
 	}, nil
 }
 
@@ -294,14 +295,15 @@ func proxyEnv(cfg config, env plugin.Env) map[string]string {
 	return env.ProxyEnv
 }
 
-// finishClusterSetup installs the trust CA, patches CoreDNS, and finishes
-// the relay, each only when the config wants it.
-func finishClusterSetup(ctx context.Context, cfg config, req *plugin.UpRequest, name string, nodeList []string, relayAddress string, useRelay bool, out plugin.Emitter) ([]plugin.ExposedPort, error) {
+// finishClusterSetup installs the trust CA, patches CoreDNS, registers
+// egress capture, and finishes the relay, each only when the config wants
+// it.
+func finishClusterSetup(ctx context.Context, cfg config, req *plugin.UpRequest, name string, nodeList []string, relayAddress string, useRelay bool, out plugin.Emitter) ([]plugin.ExposedPort, []plugin.NetnsTarget, error) {
 	// The proxy intercepts TLS for a pull. A node trusts the kevin root
 	// certificate, so the pull verifies.
 	if wantsTrustCA(cfg, req.Env) {
 		if err := trustCAFromPath(ctx, nodeList, req.Env.CAPath, out); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -309,14 +311,26 @@ func finishClusterSetup(ctx context.Context, cfg config, req *plugin.UpRequest, 
 	// cluster must still come up in that case.
 	if wantsCoreDNSPatch(cfg, req.Env) {
 		if err := patchCoreDNS(ctx, nodeList, req.Env.Domain, req.Env.Relay, out); err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+	}
+
+	var targets []plugin.NetnsTarget
+	if wantsCapture(req.Env) {
+		var err error
+		if targets, err = netnsTargets(ctx, req.Step, nodeList, out); err != nil {
+			return nil, nil, err
 		}
 	}
 
 	if !useRelay {
-		return nil, nil
+		return nil, targets, nil
 	}
-	return finishRelay(ctx, cfg, name, nodeList, relayAddress, out)
+	exposedPorts, err := finishRelay(ctx, cfg, name, nodeList, relayAddress, out)
+	if err != nil {
+		return nil, nil, err
+	}
+	return exposedPorts, targets, nil
 }
 
 // clusterOutputs builds the values that Up publishes for dependent steps.

@@ -20,3 +20,8 @@ const ErrNotTrusted = Error("kind: the node does not trust the kevin root certif
 // ErrNoControlPlaneNode reports that no node's name matched the
 // control-plane naming convention.
 const ErrNoControlPlaneNode = Error("kind: no control-plane node found")
+
+// ErrNoClusterCIDRs reports that the kubeadm-config configmap carries no
+// podSubnet or serviceSubnet - capture cannot safely exclude cluster-internal
+// traffic without both.
+const ErrNoClusterCIDRs = Error("kind: the cluster reports no pod or service subnet")
