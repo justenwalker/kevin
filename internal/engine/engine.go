@@ -1321,7 +1321,8 @@ func (r *run) wireRelay(ctx context.Context, name string, result *pb.Result) err
 }
 
 // addRoutes registers each of routes with the host proxy, and, for one
-// marked External, opens a listener on the relay for its declared ports.
+// marked External, registers it with the relay too - its own DNS answers
+// for the host, and it opens a listener for the route's declared ports.
 func (r *run) addRoutes(ctx context.Context, name string, routes []*pb.Route) error {
 	for _, route := range routes {
 		r.proxy.AddRoutes(proxy.Route{
@@ -1340,7 +1341,7 @@ func (r *run) addRoutes(ctx context.Context, name string, routes []*pb.Route) er
 		for i, p := range ext.GetPorts() {
 			ports[i] = int(p)
 		}
-		if err := r.relay.EnsureListener(ctx, ports); err != nil {
+		if err := r.relay.EnsureListener(ctx, route.GetHost(), ports); err != nil {
 			r.reportUpFailure(ctx, name, err)
 			return err
 		}

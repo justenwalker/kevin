@@ -42,11 +42,14 @@ graph TD
     ENG -->|network, GC| CRI
     STEPC -.->|publishes| LOOP
     STEPC -.->|resolves, forwards| RELAY
+    RELAY -.->|dnat capture| STEPC
     RELAY -.->|socks5| LOOP
     PROXY -.->|dials| LOOP
     RELAY -->|forwards| PROXY
     ENG -->|starts| PROXY
+    ENG -.->|RegisterCapture, mTLS| RELAY
     CA -->|signs leaf| PROXY
+    CA -.->|signs control leaves| RELAY
     CRI -.->|creates, attaches| RELAY
     CRI -.->|creates, attaches| STEPC
     RELAY -.->|socks5 dial| STEPC
@@ -69,4 +72,4 @@ graph TD
 | Console       | Shows the DAG state, the logs, and the proxy traffic.         |
 | MCP server    | Exposes the running session to an MCP client over Streamable HTTP, mounted at `/_mcp` on the console's own listener. |
 | CA            | Creates the CA and mints a leaf certificate for the proxy.    |
-| Relay         | In-network DNS + TLS/HTTP forwarder for name resolution with no host changes, plus a SOCKS5 gateway a host process can dial to reach a step directly. |
+| Relay         | In-network DNS + TLS/HTTP forwarder for name resolution with no host changes; transparently captures a container's egress to the proxy by installing nftables rules in its network namespace, regardless of DNS or proxy-variable cooperation; plus a SOCKS5 gateway a host process can dial to reach a step directly. |

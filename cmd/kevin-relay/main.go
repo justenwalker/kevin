@@ -173,6 +173,7 @@ type relayProcess struct {
 	controlSrv *grpc.Server
 	proxyAddr  string
 	self       selfAddrs
+	intercept  *dnsRelay
 
 	// runCtx and runGrp let a control RPC handler (RegisterCapture,
 	// EnsureListener), dispatched on its own goroutine by controlSrv, join
@@ -237,7 +238,8 @@ func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
 
 	p := &relayProcess{
 		dns: dnsSrv, httpsLn: httpsLn, httpLn: httpLn, socks5Ln: socks5Ln,
-		controlLn: controlLn, controlSrv: controlSrv, proxyAddr: cfg.proxyAddr, self: self,
+		controlLn: controlLn, controlSrv: controlSrv, proxyAddr: cfg.proxyAddr,
+		self: self, intercept: relay,
 	}
 	pb.RegisterRelayControlServer(controlSrv, p)
 	return p, nil

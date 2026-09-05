@@ -37,10 +37,9 @@
 	// as a local fake running behind a container step.
 	external?: bool
 
-	// ports lists the ports a client actually dials host on, so a workload's
-	// own DNS also resolves host to kevin's relay - defaults to 443, the
-	// overwhelming common case for a TLS API. Ignored unless external is
-	// true.
+	// ports lists the ports a client actually dials host on, beyond 443,
+	// which the relay always listens on - defaults to 443, the overwhelming
+	// common case for a TLS API. Ignored unless external is true.
 	ports?: [...int] | *[443]
 
 	// skip_mitm is true when this route's TLS should pass straight through

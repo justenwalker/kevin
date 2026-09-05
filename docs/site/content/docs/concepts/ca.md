@@ -13,11 +13,11 @@ There are two levels.
 | Level | Location | Subject | Signs |
 | --- | --- | --- | --- |
 | Root | `~/.kevin/` | `Kevin Local Root CA` | the authority of a project |
-| Project | `./.kevin/` (`./.kevin/<name>/` for a named environment) | `Kevin Local Intermediate CA - Project <name>` | a leaf for each host |
+| Project | `./.kevin/` (`./.kevin/<name>/` for a named environment) | `Kevin Local Intermediate CA - Project <name>` | a leaf for each MITM'd host, plus the relay's control-channel server/client leaves |
 
 Only the root reaches a trust store, and it reaches it one time for the machine. A trust store therefore holds one kevin anchor however many projects exist. Each project signs with its own key, which lives in the project directory and goes when the directory goes.
 
-The certificate file of a project holds the chain: the authority of the project, then the root. The proxy appends this same chain after every leaf it mints, thus a client that trusts the root alone can build the chain.
+The certificate file of a project holds the chain: the authority of the project, then the root. The proxy appends this same chain after every leaf it mints, thus a client that trusts the root alone can build the chain. The relay's control channel (see [Relay]({{< relref "/docs/concepts/relay#transparent-capture" >}})) reuses this same signing path for a different purpose: a short-lived `ServerAuth` leaf for the relay and a `ClientAuth` leaf for the engine itself, both off the project authority, so only a caller holding a certificate chained to this project's own root can drive the relay's control endpoint.
 
 kevin checks the signature of the authority of the project against the root on every use. A user who deletes the home directory gets a new root, and the stale authority of the project is replaced rather than served.
 

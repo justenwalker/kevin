@@ -10,10 +10,15 @@ import (
 	"github.com/justenwalker/kevin/protos/pb"
 )
 
-// RegisterCapture implements [pb.RelayControlServer]. It records id's
-// network namespace path, and installs the transparent-capture ruleset in
-// it for every port currently captured.
+// RegisterCapture implements [pb.RelayControlServer]. It installs the
+// transparent-capture ruleset for id's network namespace, for every port
+// currently captured, and records the path only once that succeeds - a
+// failed call leaves nothing behind for reapplyCapture to retry against.
 func (p *relayProcess) RegisterCapture(ctx context.Context, req *pb.RegisterCaptureRequest) (*pb.RegisterCaptureResponse, error) {
+	if err := applyCapture(req.GetNetnsPath(), p.capturePorts(), p.self); err != nil {
+		return nil, fmt.Errorf("relay: apply capture for %q: %w", req.GetId(), err)
+	}
+
 	p.mu.Lock()
 	if p.netnsPaths == nil {
 		p.netnsPaths = make(map[string]string)
@@ -21,19 +26,21 @@ func (p *relayProcess) RegisterCapture(ctx context.Context, req *pb.RegisterCapt
 	p.netnsPaths[req.GetId()] = req.GetNetnsPath()
 	p.mu.Unlock()
 
-	if err := applyCapture(req.GetNetnsPath(), p.capturePorts(), p.self); err != nil {
-		return nil, fmt.Errorf("relay: apply capture for %q: %w", req.GetId(), err)
-	}
-
 	log.Ctx(ctx).Debug("relay: registered capture", "id", req.GetId(), "netns_path", req.GetNetnsPath())
 	return &pb.RegisterCaptureResponse{}, nil
 }
 
-// EnsureListener implements [pb.RelayControlServer]. It opens a listener for
-// each of req.Ports beyond the relay's always-on 80 and 443, then re-applies
-// capture to every already-registered container - so a route's External
-// ports, declared after some containers already exist, still reach them.
+// EnsureListener implements [pb.RelayControlServer]. It registers an
+// External route: when req.Host is set, the relay's own DNS answers a query
+// for it - the only way a workload with no network namespace the relay can
+// capture (a kind pod) reaches the interception. It opens a listener for
+// each of req.Ports beyond the relay's always-on 80 and 443, then
+// re-applies capture to every already-registered container - so a route
+// declared after some containers already exist still reaches them.
 func (p *relayProcess) EnsureListener(ctx context.Context, req *pb.EnsureListenerRequest) (*pb.EnsureListenerResponse, error) {
+	if host := req.GetHost(); host != "" {
+		p.intercept.AddIntercept(host)
+	}
 	for _, port := range req.GetPorts() {
 		if err := p.ensureListener(int(port)); err != nil {
 			return nil, fmt.Errorf("relay: open listener for port %d: %w", port, err)

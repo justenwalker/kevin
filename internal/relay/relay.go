@@ -377,14 +377,18 @@ func (r *Relay) Close() error {
 	return (docker.Client{}).Remove(context.Background(), r.name)
 }
 
-// EnsureListener tells the relay to open a listener for each of ports
-// beyond its always-on 80 and 443, for a route's External entry.
-func (r *Relay) EnsureListener(ctx context.Context, ports []int) error {
+// EnsureListener registers a route's External entry with the relay: host
+// resolves to the relay's own address - the only way a workload with no
+// network namespace the relay can capture (a kind pod) reaches the
+// interception - and the relay opens a listener for each of ports beyond
+// its always-on 80 and 443.
+func (r *Relay) EnsureListener(ctx context.Context, host string, ports []int) error {
 	ports32 := make([]int32, len(ports))
 	for i, p := range ports {
 		ports32[i] = int32(p) //nolint:gosec // a port number always fits in int32
 	}
-	if _, err := r.client.EnsureListener(ctx, &pb.EnsureListenerRequest{Ports: ports32}); err != nil {
+	req := &pb.EnsureListenerRequest{Host: host, Ports: ports32}
+	if _, err := r.client.EnsureListener(ctx, req); err != nil {
 		return fmt.Errorf("relay: ensure listener: %w", err)
 	}
 	return nil

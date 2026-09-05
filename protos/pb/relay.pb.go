@@ -114,9 +114,13 @@ func (*RegisterCaptureResponse) Descriptor() ([]byte, []int) {
 
 type EnsureListenerRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// Host is the real-world hostname an External route names. Empty for a
+	// step whose egress the relay already captures directly, which needs no
+	// DNS answer of its own.
+	Host string `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
 	// Ports lists the ports a route's External entry names, beyond the
 	// relay's always-open 80 and 443.
-	Ports         []int32 `protobuf:"varint,1,rep,packed,name=ports,proto3" json:"ports,omitempty"`
+	Ports         []int32 `protobuf:"varint,2,rep,packed,name=ports,proto3" json:"ports,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -149,6 +153,13 @@ func (x *EnsureListenerRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use EnsureListenerRequest.ProtoReflect.Descriptor instead.
 func (*EnsureListenerRequest) Descriptor() ([]byte, []int) {
 	return file_pb_relay_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *EnsureListenerRequest) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
 }
 
 func (x *EnsureListenerRequest) GetPorts() []int32 {
@@ -203,9 +214,10 @@ const file_pb_relay_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
 	"netns_path\x18\x02 \x01(\tR\tnetnsPath\"\x19\n" +
-	"\x17RegisterCaptureResponse\"-\n" +
-	"\x15EnsureListenerRequest\x12\x14\n" +
-	"\x05ports\x18\x01 \x03(\x05R\x05ports\"\x18\n" +
+	"\x17RegisterCaptureResponse\"A\n" +
+	"\x15EnsureListenerRequest\x12\x12\n" +
+	"\x04host\x18\x01 \x01(\tR\x04host\x12\x14\n" +
+	"\x05ports\x18\x02 \x03(\x05R\x05ports\"\x18\n" +
 	"\x16EnsureListenerResponse2\xd3\x01\n" +
 	"\fRelayControl\x12b\n" +
 	"\x0fRegisterCapture\x12&.kevin.relay.v1.RegisterCaptureRequest\x1a'.kevin.relay.v1.RegisterCaptureResponse\x12_\n" +

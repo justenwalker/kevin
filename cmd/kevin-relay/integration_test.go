@@ -485,10 +485,20 @@ func (s *RelayProcessSuite) TestEnsureListenerOpensADeclaredPort() {
 	s.Require().NoError(err)
 	defer func() { _ = conn.Close() }()
 
-	_, err = pb.NewRelayControlClient(conn).EnsureListener(t.Context(), &pb.EnsureListenerRequest{Ports: []int32{8443}})
+	const sni = "s3.us-east-1.amazonaws.com"
+	_, err = pb.NewRelayControlClient(conn).EnsureListener(t.Context(), &pb.EnsureListenerRequest{Host: sni, Ports: []int32{8443}})
 	s.Require().NoError(err)
 
-	const sni = "s3.us-east-1.amazonaws.com"
+	dnsClient := dns.Client{Timeout: 2 * time.Second}
+	dnsReq := new(dns.Msg)
+	dnsReq.SetQuestion(sni+".", dns.TypeA)
+	dnsReply, _, err := dnsClient.Exchange(dnsReq, proc.dnsAddr())
+	s.Require().NoError(err)
+	s.Require().Len(dnsReply.Answer, 1, "a kind pod with no netns the relay can capture needs the relay's own DNS answer to reach the interception")
+	a, ok := dnsReply.Answer[0].(*dns.A)
+	s.Require().True(ok)
+	s.Equal("10.20.30.40", a.A.String())
+
 	var d net.Dialer
 	raw, err := d.DialContext(t.Context(), "tcp", "127.0.0.1:8443")
 	s.Require().NoError(err)
@@ -513,10 +523,15 @@ func (s *RelayProcessSuite) TestEnsureListenerOpensADeclaredPort() {
 	s.Require().NoError(<-done)
 }
 
-// TestRegisterCaptureRecordsTheNetnsPath proves a RegisterCapture control
-// call records the container's network namespace path, ready for the
-// coming transparent-capture mechanism to act on.
-func (s *RelayProcessSuite) TestRegisterCaptureRecordsTheNetnsPath() {
+// TestRegisterCaptureDoesNotRecordOnFailure proves a RegisterCapture call
+// that fails to apply - a fake netns path, here; a container that's been
+// removed since, in production - records nothing, so reapplyCapture never
+// retries against a path that was never actually captured. Success is
+// covered separately, empirically, against a real container's netns (see
+// cmd/kevin-relay/netcapture_linux.go's doc comment and the relay
+// integration commit's own verification notes) - this suite has no real
+// container to hand applyCapture on any platform.
+func (s *RelayProcessSuite) TestRegisterCaptureDoesNotRecordOnFailure() {
 	t := s.T()
 
 	clientTLS := newTestControlEnv(t)
@@ -548,18 +563,13 @@ func (s *RelayProcessSuite) TestRegisterCaptureRecordsTheNetnsPath() {
 	s.Require().NoError(err)
 	defer func() { _ = conn.Close() }()
 
-	// The path is fake, so applyCapture necessarily fails here - on any
-	// platform, a real container's netns is what applyCapture itself is
-	// tested against (see netcapture_linux_test.go and the real container
-	// this suite's other tests run against). This test only proves the
-	// bookkeeping half: the path is recorded regardless of whether applying
-	// it succeeded.
-	_, _ = pb.NewRelayControlClient(conn).RegisterCapture(t.Context(), &pb.RegisterCaptureRequest{
+	_, err = pb.NewRelayControlClient(conn).RegisterCapture(t.Context(), &pb.RegisterCaptureRequest{
 		Id: "web", NetnsPath: "/var/run/docker/netns/abc123",
 	})
+	s.Require().Error(err, "the fake path must fail to apply, on any platform")
 
 	proc.mu.Lock()
-	got := proc.netnsPaths["web"]
+	_, ok := proc.netnsPaths["web"]
 	proc.mu.Unlock()
-	s.Equal("/var/run/docker/netns/abc123", got)
+	s.False(ok, "a failed apply must not be recorded")
 }

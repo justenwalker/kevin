@@ -67,13 +67,14 @@ func newTestRelay(t *testing.T, fake *fakeControlServer) *Relay {
 }
 
 func TestRelayEnsureListener(t *testing.T) {
-	t.Run("sends the requested ports", func(t *testing.T) {
+	t.Run("sends the host and the requested ports", func(t *testing.T) {
 		fake := &fakeControlServer{}
 		r := newTestRelay(t, fake)
 
-		err := r.EnsureListener(t.Context(), []int{443, 8443})
+		err := r.EnsureListener(t.Context(), "s3.us-east-1.amazonaws.com", []int{443, 8443})
 		require.NoError(t, err)
 		require.NotNil(t, fake.lastEnsureListener)
+		assert.Equal(t, "s3.us-east-1.amazonaws.com", fake.lastEnsureListener.GetHost())
 		assert.Equal(t, []int32{443, 8443}, fake.lastEnsureListener.GetPorts())
 	})
 
@@ -82,7 +83,7 @@ func TestRelayEnsureListener(t *testing.T) {
 		fake := &fakeControlServer{err: wantErr}
 		r := newTestRelay(t, fake)
 
-		err := r.EnsureListener(t.Context(), []int{443})
+		err := r.EnsureListener(t.Context(), "", []int{443})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "boom")
 	})

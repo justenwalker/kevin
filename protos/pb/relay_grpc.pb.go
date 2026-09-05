@@ -37,10 +37,14 @@ type RelayControlClient interface {
 	// transparently - regardless of whether the container resolves the
 	// relay's own DNS or honors a proxy environment variable.
 	RegisterCapture(ctx context.Context, in *RegisterCaptureRequest, opts ...grpc.CallOption) (*RegisterCaptureResponse, error)
-	// EnsureListener opens a listener for each of ports beyond the relay's
-	// always-on 80 and 443, and re-applies capture on every container
-	// RegisterCapture has already registered - so a route's External ports,
-	// declared after some containers already exist, still reach them.
+	// EnsureListener registers an External route: it answers the relay's own
+	// DNS for host - exactly, or by "*." wildcard, the same rule builtin:route
+	// itself applies - since a workload with no network namespace the relay
+	// can capture (a kind pod) has no other way to reach the interception; it
+	// also opens a listener for each of ports beyond the relay's always-on 80
+	// and 443, and re-applies capture on every container RegisterCapture has
+	// already registered - so a route declared after some containers already
+	// exist still reaches them.
 	EnsureListener(ctx context.Context, in *EnsureListenerRequest, opts ...grpc.CallOption) (*EnsureListenerResponse, error)
 }
 
@@ -86,10 +90,14 @@ type RelayControlServer interface {
 	// transparently - regardless of whether the container resolves the
 	// relay's own DNS or honors a proxy environment variable.
 	RegisterCapture(context.Context, *RegisterCaptureRequest) (*RegisterCaptureResponse, error)
-	// EnsureListener opens a listener for each of ports beyond the relay's
-	// always-on 80 and 443, and re-applies capture on every container
-	// RegisterCapture has already registered - so a route's External ports,
-	// declared after some containers already exist, still reach them.
+	// EnsureListener registers an External route: it answers the relay's own
+	// DNS for host - exactly, or by "*." wildcard, the same rule builtin:route
+	// itself applies - since a workload with no network namespace the relay
+	// can capture (a kind pod) has no other way to reach the interception; it
+	// also opens a listener for each of ports beyond the relay's always-on 80
+	// and 443, and re-applies capture on every container RegisterCapture has
+	// already registered - so a route declared after some containers already
+	// exist still reaches them.
 	EnsureListener(context.Context, *EnsureListenerRequest) (*EnsureListenerResponse, error)
 }
 

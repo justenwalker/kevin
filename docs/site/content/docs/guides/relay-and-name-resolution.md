@@ -83,6 +83,8 @@ s3_intercept: {
 
 A `builtin:kind` cluster's nodes resolve through the relay for anything outside `cluster.local` (their own `/etc/resolv.conf` names it directly, so `kubernetes cluster.local` in CoreDNS's Corefile is never touched), so a pod's own query for `s3.us-east-1.amazonaws.com` reaches this registration the same way its query for the environment domain already does.
 
+This DNS registration is what a kind pod needs, specifically because a pod has no network namespace the relay can reach from outside the cluster. A `builtin:container` step needs none of it: its egress is captured transparently regardless of any route, DNS answer, or proxy variable - see [Transparent capture]({{< relref "/docs/concepts/relay#transparent-capture" >}}).
+
 ## Limits
 
-The relay resolves the environment domain and whatever `external: true` registers; it does not control egress generally. A workload that resolves some other external name still reaches the internet directly. Egress control still needs the proxy environment variables on that workload. See [Proxy and egress]({{< relref "proxy-and-egress" >}}).
+A container step's egress is captured unconditionally; a kind pod's is not. The relay resolves the environment domain and whatever `external: true` registers for a pod's own DNS, but a pod's query for any other external name still reaches the internet directly - egress control for a kind pod still needs the proxy environment variables described in [Proxy and egress]({{< relref "proxy-and-egress" >}}).
