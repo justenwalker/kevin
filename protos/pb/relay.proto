@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package kevin.relay.v1;
+
+option go_package = "github.com/justenwalker/kevin/protos/pb;pb";
+
+// RelayControl is the control channel between kevin's engine and one
+// project's relay container. It is served over mutual TLS: only a caller
+// holding a client certificate signed by the project's own intermediate
+// authority can call it.
+service RelayControl {
+  // RegisterCapture tells the relay to redirect the outbound traffic of the
+  // container at netns_path to itself, so its egress is captured
+  // transparently - regardless of whether the container resolves the
+  // relay's own DNS or honors a proxy environment variable.
+  rpc RegisterCapture(RegisterCaptureRequest) returns (RegisterCaptureResponse);
+
+  // EnsureListener opens a listener for each of ports beyond the relay's
+  // always-on 80 and 443, and re-applies capture on every container
+  // RegisterCapture has already registered - so a route's External ports,
+  // declared after some containers already exist, still reach them.
+  rpc EnsureListener(EnsureListenerRequest) returns (EnsureListenerResponse);
+}
+
+message RegisterCaptureRequest {
+  // ID names the step whose container this is, for logging.
+  string id = 1;
+
+  // NetnsPath is the host path of the container's network namespace, such
+  // as "/var/run/docker/netns/1234abcd".
+  string netns_path = 2;
+}
+
+message RegisterCaptureResponse {}
+
+message EnsureListenerRequest {
+  // Ports lists the ports a route's External entry names, beyond the
+  // relay's always-open 80 and 443.
+  repeated int32 ports = 1;
+}
+
+message EnsureListenerResponse {}

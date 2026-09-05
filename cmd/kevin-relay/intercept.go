@@ -3,60 +3,43 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
-	"net/http"
 
-	"golang.org/x/sync/errgroup"
-
-	"github.com/justenwalker/kevin/internal/httpserver"
+	"github.com/justenwalker/kevin/protos/pb"
 )
 
-// interceptRequest is the body a control call POSTs to add a host. Mirrors
-// internal/relay's identical type - not importable here, the relay binary
-// sits above internal/relay in the dependency graph.
-type interceptRequest struct {
-	Host  string `json:"host"`
-	Ports []int  `json:"ports"`
-}
-
-// serveControl runs the intercept control endpoint until ctx is done. A
-// registration adds host to p.intercept's DNS matcher, then opens whichever
-// of ports isn't already served by a listener - grp, so a newly-opened
-// listener's accept loop joins the same lifecycle as everything else run
-// already started.
-func (p *relayProcess) serveControl(ctx context.Context, grp *errgroup.Group) error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /intercept", func(w http.ResponseWriter, r *http.Request) {
-		p.handleIntercept(ctx, grp, w, r)
-	})
-	return httpserver.Serve(ctx, p.controlLn, mux)
-}
-
-// handleIntercept decodes one interceptRequest and applies it.
-func (p *relayProcess) handleIntercept(ctx context.Context, grp *errgroup.Group, w http.ResponseWriter, r *http.Request) {
-	var req interceptRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+// RegisterCapture implements [pb.RelayControlServer]. It records id's
+// network namespace path for the coming transparent-capture mechanism; the
+// path is not yet acted on.
+func (p *relayProcess) RegisterCapture(ctx context.Context, req *pb.RegisterCaptureRequest) (*pb.RegisterCaptureResponse, error) {
+	p.mu.Lock()
+	if p.netnsPaths == nil {
+		p.netnsPaths = make(map[string]string)
 	}
+	p.netnsPaths[req.GetId()] = req.GetNetnsPath()
+	p.mu.Unlock()
 
-	p.intercept.AddIntercept(req.Host)
-	for _, port := range req.Ports {
-		if err := p.ensureListener(ctx, grp, port); err != nil {
-			log.Ctx(ctx).Debug("relay: intercept: open listener failed", "error", err, "port", port)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+	log.Ctx(ctx).Debug("relay: registered capture", "id", req.GetId(), "netns_path", req.GetNetnsPath())
+	return &pb.RegisterCaptureResponse{}, nil
+}
+
+// EnsureListener implements [pb.RelayControlServer]. It opens a listener for
+// each of req.Ports beyond the relay's always-on 80 and 443.
+func (p *relayProcess) EnsureListener(_ context.Context, req *pb.EnsureListenerRequest) (*pb.EnsureListenerResponse, error) {
+	for _, port := range req.GetPorts() {
+		if err := p.ensureListener(int(port)); err != nil {
+			return nil, fmt.Errorf("relay: open listener for port %d: %w", port, err)
 		}
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return &pb.EnsureListenerResponse{}, nil
 }
 
-// ensureListener opens a listener on port and serves it via grp, unless
-// port is already served - by the fixed :80/:443 listeners, or by an
-// earlier ensureListener call for the same port.
-func (p *relayProcess) ensureListener(ctx context.Context, grp *errgroup.Group, port int) error {
+// ensureListener opens a listener on port and serves it on the run
+// goroutine group, unless port is already served - by the fixed :80/:443
+// listeners, or by an earlier ensureListener call for the same port. It
+// must not be called before run has set runCtx/runGrp.
+func (p *relayProcess) ensureListener(port int) error {
 	if port == 80 || port == 443 {
 		return nil
 	}
@@ -71,12 +54,12 @@ func (p *relayProcess) ensureListener(ctx context.Context, grp *errgroup.Group, 
 	}
 
 	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf(":%d", port))
+	ln, err := lc.Listen(p.runCtx, "tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return fmt.Errorf("relay: listen intercept port %d: %w", port, err)
 	}
 	p.extraLns[port] = ln
-	grp.Go(func() error { return serveIntercept(ctx, ln, p.proxyAddr, port) })
+	p.runGrp.Go(func() error { return serveIntercept(p.runCtx, ln, p.proxyAddr, port) })
 	return nil
 }
 

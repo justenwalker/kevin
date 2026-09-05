@@ -180,7 +180,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	log.Ctx(ctx).Info("proxy listening", "addr", server.addr)
 
-	rl, err := startRelay(ctx, cfg, network, server.gatewayAddr, opts.Scope)
+	rl, err := startRelay(ctx, cfg, network, server.gatewayAddr, opts.Scope, authority)
 	if err != nil {
 		return err
 	}
@@ -355,7 +355,7 @@ func (r *run) finalStepErr() error {
 }
 
 // startRelay starts the relay.
-func startRelay(ctx context.Context, cfg *config.Config, network, gatewayAddr, scope string) (*relay.Relay, error) {
+func startRelay(ctx context.Context, cfg *config.Config, network, gatewayAddr, scope string, authority *ca.CA) (*relay.Relay, error) {
 	rl, err := relay.Start(ctx, relay.Options{
 		Project:   cfg.Project,
 		Network:   network,
@@ -363,6 +363,7 @@ func startRelay(ctx context.Context, cfg *config.Config, network, gatewayAddr, s
 		ProxyAddr: HostGateway + ":" + portOf(gatewayAddr),
 		Image:     relay.Ref(cfg.Relay.Image),
 		Scope:     scope,
+		Authority: authority,
 	})
 	if err != nil {
 		return nil, err
@@ -1302,7 +1303,7 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 }
 
 // addRoutes registers each of routes with the host proxy, and, for one
-// marked External, also with the relay's own DNS matcher.
+// marked External, opens a listener on the relay for its declared ports.
 func (r *run) addRoutes(ctx context.Context, name string, routes []*pb.Route) error {
 	for _, route := range routes {
 		r.proxy.AddRoutes(proxy.Route{
@@ -1321,7 +1322,7 @@ func (r *run) addRoutes(ctx context.Context, name string, routes []*pb.Route) er
 		for i, p := range ext.GetPorts() {
 			ports[i] = int(p)
 		}
-		if err := r.relay.AddIntercept(ctx, route.GetHost(), ports); err != nil {
+		if err := r.relay.EnsureListener(ctx, ports); err != nil {
 			r.reportUpFailure(ctx, name, err)
 			return err
 		}

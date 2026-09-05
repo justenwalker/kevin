@@ -17,6 +17,7 @@ const ErrNoSOCKS5Addr = Error("relay: the relay container publishes no socks5 ad
 // for its intercept control endpoint.
 const ErrNoControlAddr = Error("relay: the relay container publishes no control address")
 
-// ErrInterceptRejected reports that the relay's control endpoint did not
-// accept an AddIntercept call.
-const ErrInterceptRejected = Error("relay: the relay rejected an intercept registration")
+// ErrUnsupportedControlKey reports that a minted control-channel
+// certificate's private key is not ECDSA - every leaf [ca.CA.NewLeaf]
+// mints is, so this should not happen.
+const ErrUnsupportedControlKey = Error("relay: the control certificate's key is not ecdsa")

@@ -24,4 +24,8 @@ const (
 	// ErrProxyRejected reports that the host proxy did not answer a CONNECT
 	// request with a 200 status.
 	ErrProxyRejected = Error("relay: the proxy rejected the connect request")
+
+	// ErrInvalidControlClientCA reports that the client CA material the
+	// engine embedded in the environment carries no usable certificate.
+	ErrInvalidControlClientCA = Error("relay: the control client ca is invalid")
 )

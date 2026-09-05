@@ -58,6 +58,7 @@ func (s *RelaySuite) SetupSuite() {
 		Domain:    relayDomain,
 		ProxyAddr: "host.docker.internal:18080",
 		Image:     relay.Ref(""),
+		Authority: newTestAuthority(t),
 	})
 	s.Require().NoError(err)
 	s.relay = r
@@ -148,6 +149,7 @@ func (s *RelaySuite) TestCloseIsIdempotent() {
 		Domain:    relayDomain,
 		ProxyAddr: "host.docker.internal:18080",
 		Image:     relay.Ref(""),
+		Authority: newTestAuthority(t),
 	})
 	s.Require().NoError(err)
 

@@ -32,8 +32,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/justenwalker/kevin/internal/logging"
+	"github.com/justenwalker/kevin/protos/pb"
 )
 
 var log = logging.New("relay")
@@ -162,16 +165,24 @@ func serveForward(ctx context.Context, cfg config) error {
 // relayProcess holds every listener that the relay binds before it starts
 // serving traffic.
 type relayProcess struct {
-	dns       *dnsServer
-	httpsLn   net.Listener
-	httpLn    net.Listener
-	socks5Ln  net.Listener
-	controlLn net.Listener
-	proxyAddr string
-	intercept *dnsRelay
+	dns        *dnsServer
+	httpsLn    net.Listener
+	httpLn     net.Listener
+	socks5Ln   net.Listener
+	controlLn  net.Listener
+	controlSrv *grpc.Server
+	proxyAddr  string
 
-	mu       sync.Mutex
-	extraLns map[int]net.Listener // opened on demand, for a port beyond :80/:443
+	// runCtx and runGrp let a control RPC handler (RegisterCapture,
+	// EnsureListener), dispatched on its own goroutine by controlSrv, join
+	// the same lifecycle and goroutine group run started. Set once by run,
+	// before controlSrv starts accepting.
+	runCtx context.Context //nolint:containedctx // set once by run, read-only afterward; see the field doc
+	runGrp *errgroup.Group
+
+	mu         sync.Mutex
+	extraLns   map[int]net.Listener // opened on demand, for a port beyond :80/:443
+	netnsPaths map[string]string    // step id -> container network namespace path
 }
 
 // newRelayProcess resolves self when cfg.self is empty, then binds the DNS,
@@ -206,6 +217,12 @@ func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
 		return nil, fmt.Errorf("relay: listen control: %w", err)
 	}
 
+	controlTLS, err := controlTLSConfig()
+	if err != nil {
+		return nil, err
+	}
+	controlSrv := grpc.NewServer(grpc.Creds(credentials.NewTLS(controlTLS)))
+
 	relay := newDNSRelay(cfg.domain, self, cfg.upstreamDNS)
 	dnsSrv, err := bindDNSServer(ctx, cfg.dnsListen, relay)
 	if err != nil {
@@ -217,16 +234,19 @@ func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
 		"dns_listen", dnsSrv.addr(), "http_listen", httpLn.Addr(), "https_listen", httpsLn.Addr(),
 		"socks5_listen", socks5Ln.Addr(), "control_listen", controlLn.Addr())
 
-	return &relayProcess{
-		dns: dnsSrv, httpsLn: httpsLn, httpLn: httpLn, socks5Ln: socks5Ln, controlLn: controlLn,
-		proxyAddr: cfg.proxyAddr, intercept: relay,
-	}, nil
+	p := &relayProcess{
+		dns: dnsSrv, httpsLn: httpsLn, httpLn: httpLn, socks5Ln: socks5Ln,
+		controlLn: controlLn, controlSrv: controlSrv, proxyAddr: cfg.proxyAddr,
+	}
+	pb.RegisterRelayControlServer(controlSrv, p)
+	return p, nil
 }
 
-// run serves DNS, HTTP, HTTPS, the SOCKS5 gateway, and the intercept
-// control endpoint until ctx is done or one of them fails.
+// run serves DNS, HTTP, HTTPS, the SOCKS5 gateway, and the control gRPC
+// server until ctx is done or one of them fails.
 func (p *relayProcess) run(ctx context.Context) error {
 	grp, ctx := errgroup.WithContext(ctx)
+	p.runCtx, p.runGrp = ctx, grp
 	grp.Go(func() error { return p.dns.run(ctx) })
 	grp.Go(func() error {
 		return acceptLoop(ctx, p.httpsLn, func(conn net.Conn) { handleHTTPS(ctx, conn, p.proxyAddr, 443) })
@@ -235,8 +255,26 @@ func (p *relayProcess) run(ctx context.Context) error {
 		return acceptLoop(ctx, p.httpLn, func(conn net.Conn) { handleHTTP(ctx, conn, p.proxyAddr) })
 	})
 	grp.Go(func() error { return serveSOCKS5(ctx, p.socks5Ln) })
-	grp.Go(func() error { return p.serveControl(ctx, grp) })
+	grp.Go(func() error { return p.runControl(ctx) })
 	return grp.Wait() //nolint:wrapcheck // each sub-server already wraps its own error; wrapping again here would double it
+}
+
+// runControl serves the control gRPC server until ctx is done or it fails.
+func (p *relayProcess) runControl(ctx context.Context) error {
+	errCh := make(chan error, 1)
+	go func() { errCh <- p.controlSrv.Serve(p.controlLn) }()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return fmt.Errorf("relay: control server: %w", err)
+		}
+		return nil
+	case <-ctx.Done():
+		p.controlSrv.GracefulStop()
+		<-errCh
+		return nil
+	}
 }
 
 // dnsAddr is the bound address of the DNS listener.

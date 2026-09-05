@@ -73,25 +73,26 @@ func (s *KindSuite) SetupSuite() {
 		Labels: map[string]string{cri.LabelProject: kindProject},
 	}))
 
+	t.Setenv(state.UserStateDirEnv, t.TempDir())
+	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+
+	m := ca.NewManager("cwd", "", kindProject, ca.Options{})
+	_, err := m.LoadOrGenerateRoot()
+	s.Require().NoError(err)
+	intermediate, err := m.LoadOrGenerateIntermediate()
+	s.Require().NoError(err)
+	s.caPEM = intermediate.RootPEM()
+
 	r, err := relay.Start(t.Context(), relay.Options{
 		Project:   kindProject,
 		Network:   s.network,
 		Domain:    kindDomain,
 		ProxyAddr: "host.docker.internal:18080",
 		Image:     relay.Ref(""),
+		Authority: intermediate,
 	})
 	s.Require().NoError(err)
 	s.relay = r
-
-	t.Setenv(state.UserStateDirEnv, t.TempDir())
-	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
-
-	m := ca.NewManager("cwd", "", kindProject, ca.Options{})
-	_, err = m.LoadOrGenerateRoot()
-	s.Require().NoError(err)
-	intermediate, err := m.LoadOrGenerateIntermediate()
-	s.Require().NoError(err)
-	s.caPEM = intermediate.RootPEM()
 
 	requireKind(t)
 	s.workspace = t.TempDir()

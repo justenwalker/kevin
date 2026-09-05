@@ -10,23 +10,30 @@
 //		Domain:    "kevin.home",
 //		ProxyAddr: "host.docker.internal:18080",
 //		Image:     relay.Ref(""),
+//		Authority: authority,
 //	})
 //	defer r.Close()
 package relay
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"crypto/ecdsa"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+
+	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/docker"
 	"github.com/justenwalker/kevin/internal/version"
+	"github.com/justenwalker/kevin/protos/pb"
 )
 
 // imageRepo is the registry path .goreleaser.yaml publishes kevin-relay to.
@@ -137,18 +144,44 @@ type Options struct {
 	// Scope is which DAG started this relay ("setup" or "env"), recorded
 	// as the "kevin.scope" label. A reused container keeps its original.
 	Scope string
+
+	// Authority signs the relay's control-channel server certificate, and
+	// the client certificate Start uses to call it - both leaves off the
+	// project's own intermediate authority, the same one that signs MITM
+	// leaves.
+	Authority *ca.CA
 }
+
+// controlServerCN and controlClientCN name the leaves Start mints for the
+// control channel's mutual TLS. controlServerCN also doubles as the TLS
+// ServerName a caller dials with, since the dialed address is always a
+// loopback port, never a name the certificate itself could carry. Mirrors
+// cmd/kevin-relay's identical constants - not importable there, the relay
+// binary sits below this package in the dependency graph.
+const (
+	controlServerCN = "kevin-relay-control"
+	controlClientCN = "kevin-engine-control"
+)
+
+// Environment variables Start embeds in the relay container's environment
+// to carry its control-channel TLS material. Mirrors cmd/kevin-relay's
+// identical constants.
+const (
+	tlsCertEnv     = "KEVIN_RELAY_TLS_CERT"
+	tlsKeyEnv      = "KEVIN_RELAY_TLS_KEY"
+	tlsClientCAEnv = "KEVIN_RELAY_TLS_CLIENT_CA"
+)
 
 // socks5Port is the fixed container port the relay's SOCKS5 gateway
 // listens on, published to the host loopback on an OS-assigned port.
 const socks5Port = "1080/tcp"
 
-// controlPort is the fixed container port the relay's intercept control
-// endpoint listens on, published to the host loopback on an OS-assigned
-// port - the same reason socks5Port is published rather than reached over
-// the docker network: the engine calling AddIntercept is a native host
-// process, with the same VM-boundary limits that keep it from dialing a
-// container's docker-network address directly.
+// controlPort is the fixed container port the relay's control gRPC server
+// listens on, published to the host loopback on an OS-assigned port - the
+// same reason socks5Port is published rather than reached over the docker
+// network: the engine calling EnsureListener or RegisterCapture is a native
+// host process, with the same VM-boundary limits that keep it from dialing
+// a container's docker-network address directly.
 const controlPort = "8053/tcp"
 
 // Relay is a running relay container.
@@ -157,23 +190,46 @@ type Relay struct {
 	addr        string
 	socks5Addr  string
 	controlAddr string
+
+	conn   *grpc.ClientConn
+	client pb.RelayControlClient
 }
 
 // Start creates the relay container, or reuses one already running for
-// opts.Project whose recorded Domain/ProxyAddr still match (see reusable).
+// opts.Project whose recorded Domain/ProxyAddr still match (see reusable),
+// then dials its control channel.
 func Start(ctx context.Context, opts Options) (*Relay, error) {
 	name := containerName(opts.Project)
 	client := docker.Client{}
 
-	if r, err := reusable(ctx, client, name, opts); err != nil {
+	r, err := reusable(ctx, client, name, opts)
+	if err != nil {
 		return nil, err
-	} else if r != nil {
-		return r, nil
+	}
+	if r == nil {
+		r, err = create(ctx, client, name, opts)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// Absent, stopped, or drifted - remove it first, so a second Start does
-	// not fail on the name.
+	if err := r.dialControl(opts.Authority); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// create removes any absent, stopped, or drifted container behind name,
+// then starts a fresh relay container for opts.
+func create(ctx context.Context, client docker.Client, name string, opts Options) (*Relay, error) {
+	// Absent, stopped, or drifted - remove it first, so Run does not fail on
+	// the name.
 	if err := client.Remove(ctx, name); err != nil {
+		return nil, err
+	}
+
+	serverCert, serverKey, err := controlServerPEM(opts.Authority)
+	if err != nil {
 		return nil, err
 	}
 
@@ -191,15 +247,20 @@ func Start(ctx context.Context, opts Options) (*Relay, error) {
 		// Docker Desktop resolves host.docker.internal on its own. Plain Linux
 		// Docker does not, so the relay needs the entry to reach the host proxy.
 		AddHosts: []string{hostGateway + ":host-gateway"},
-		Cmd:      []string{"forward", "--domain", opts.Domain, "--proxy", opts.ProxyAddr},
-		// The SOCKS5 gateway and the intercept control endpoint are the two
-		// things on the relay a host process needs to dial directly -
-		// everything else (DNS, HTTP/HTTPS forwarding) is reached only from
-		// inside the docker network.
+		Env: map[string]string{
+			tlsCertEnv:     serverCert,
+			tlsKeyEnv:      serverKey,
+			tlsClientCAEnv: opts.Authority.RootPEM(),
+		},
+		Cmd: []string{"forward", "--domain", opts.Domain, "--proxy", opts.ProxyAddr},
+		// The SOCKS5 gateway and the control endpoint are the two things on
+		// the relay a host process needs to dial directly - everything else
+		// (DNS, HTTP/HTTPS forwarding) is reached only from inside the
+		// docker network.
 		Ports: []string{"127.0.0.1::1080", "127.0.0.1::8053"},
 	}
-	if _, err := client.Run(ctx, spec); err != nil {
-		return nil, err
+	if _, runErr := client.Run(ctx, spec); runErr != nil {
+		return nil, runErr
 	}
 
 	info, err := client.Inspect(ctx, name)
@@ -286,42 +347,92 @@ func (r *Relay) Addr() string { return r.addr }
 // dedicated published port.
 func (r *Relay) SOCKS5Addr() string { return r.socks5Addr }
 
-// Close removes the relay container. Close is idempotent.
-func (r *Relay) Close() error { return (docker.Client{}).Remove(context.Background(), r.name) }
-
-// interceptRequest is the body AddIntercept POSTs to the relay's control
-// endpoint. Mirrors cmd/kevin-relay's identical type - not importable here,
-// relay sits below the plugin binaries in the dependency graph.
-type interceptRequest struct {
-	Host  string `json:"host"`
-	Ports []int  `json:"ports"`
+// Close removes the relay container, and the control channel's client
+// connection, if one was dialed. Close is idempotent.
+func (r *Relay) Close() error {
+	if r.conn != nil {
+		_ = r.conn.Close()
+	}
+	return (docker.Client{}).Remove(context.Background(), r.name)
 }
 
-// AddIntercept tells the relay to also resolve host - exactly or, with a
-// "*." prefix, by wildcard - to itself, and to forward traffic on each of
-// ports to the host proxy.
-func (r *Relay) AddIntercept(ctx context.Context, host string, ports []int) error {
-	body, err := json.Marshal(interceptRequest{Host: host, Ports: ports})
-	if err != nil {
-		return fmt.Errorf("relay: encode intercept request: %w", err)
+// EnsureListener tells the relay to open a listener for each of ports
+// beyond its always-on 80 and 443, for a route's External entry.
+func (r *Relay) EnsureListener(ctx context.Context, ports []int) error {
+	ports32 := make([]int32, len(ports))
+	for i, p := range ports {
+		ports32[i] = int32(p) //nolint:gosec // a port number always fits in int32
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+r.controlAddr+"/intercept", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("relay: build intercept request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("relay: call intercept endpoint: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("%w: status %s", ErrInterceptRejected, resp.Status)
+	if _, err := r.client.EnsureListener(ctx, &pb.EnsureListenerRequest{Ports: ports32}); err != nil {
+		return fmt.Errorf("relay: ensure listener: %w", err)
 	}
 	return nil
+}
+
+// RegisterCapture tells the relay to redirect the outbound traffic of the
+// container at netnsPath to itself, so id's egress is captured
+// transparently.
+func (r *Relay) RegisterCapture(ctx context.Context, id, netnsPath string) error {
+	req := &pb.RegisterCaptureRequest{Id: id, NetnsPath: netnsPath}
+	if _, err := r.client.RegisterCapture(ctx, req); err != nil {
+		return fmt.Errorf("relay: register capture for %q: %w", id, err)
+	}
+	return nil
+}
+
+// dialControl mints a client leaf off authority and dials the relay's
+// control endpoint with it, verifying the relay's own leaf against
+// authority's root. Lazy: grpc.NewClient does not block on a connection, so
+// this succeeds even against a relay whose control server isn't actually
+// serving - such as the fixture image relay_test.go runs against - and any
+// real failure only surfaces on the first RPC.
+func (r *Relay) dialControl(authority *ca.CA) error {
+	clientCert, err := authority.NewLeaf(controlClientCN, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, ca.LeafLifetime)
+	if err != nil {
+		return fmt.Errorf("relay: mint control client certificate: %w", err)
+	}
+
+	tlsCfg := &tls.Config{
+		Certificates: []tls.Certificate{clientCert},
+		RootCAs:      authority.Pool(),
+		ServerName:   controlServerCN,
+	}
+	conn, err := grpc.NewClient(r.controlAddr, grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)))
+	if err != nil {
+		return fmt.Errorf("relay: dial control endpoint: %w", err)
+	}
+	r.conn = conn
+	r.client = pb.NewRelayControlClient(conn)
+	return nil
+}
+
+// controlServerPEM mints the relay's control-channel server leaf off
+// authority, and PEM-encodes its certificate chain and key for embedding in
+// the container's environment.
+func controlServerPEM(authority *ca.CA) (string, string, error) {
+	cert, err := authority.NewLeaf(controlServerCN, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, ca.LeafLifetime)
+	if err != nil {
+		return "", "", fmt.Errorf("relay: mint control server certificate: %w", err)
+	}
+
+	var certBuf strings.Builder
+	for _, der := range cert.Certificate {
+		if encErr := pem.Encode(&certBuf, &pem.Block{Type: "CERTIFICATE", Bytes: der}); encErr != nil {
+			return "", "", fmt.Errorf("relay: encode control server certificate: %w", encErr)
+		}
+	}
+
+	key, ok := cert.PrivateKey.(*ecdsa.PrivateKey)
+	if !ok {
+		return "", "", fmt.Errorf("relay: %w", ErrUnsupportedControlKey)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return "", "", fmt.Errorf("relay: marshal control server key: %w", err)
+	}
+	keyPEMBytes := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+
+	return certBuf.String(), string(keyPEMBytes), nil
 }
 
 // containerName builds the container name for the relay of one project.

@@ -15,13 +15,29 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
+	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/relay"
+	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/protos/pb"
 )
+
+// newTestAuthority builds a fresh project authority for a test - relay.Start
+// mints the control channel's certificates off it.
+func newTestAuthority(t *testing.T) *ca.CA {
+	t.Helper()
+	t.Setenv(state.UserStateDirEnv, t.TempDir())
+	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+
+	m := ca.NewManager("cwd", "", "demo", ca.Options{})
+	authority, err := m.LoadOrGenerateIntermediate()
+	require.NoError(t, err)
+	return authority
+}
 
 // RelaySuite runs a full engine.Run against a real docker daemon.
 type RelaySuite struct {
@@ -131,6 +147,7 @@ func (s *RelaySuite) TestReapLeavesALiveRelayInPlace() {
 		Domain:    "kevin.home",
 		ProxyAddr: "host.docker.internal:18080",
 		Image:     relay.Ref(""),
+		Authority: newTestAuthority(t),
 	})
 	s.Require().NoError(err)
 	t.Cleanup(func() { _ = rl.Close() })

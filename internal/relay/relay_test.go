@@ -11,10 +11,25 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/docker"
 	"github.com/justenwalker/kevin/internal/relay"
+	"github.com/justenwalker/kevin/internal/state"
 )
+
+// newTestAuthority builds a fresh project authority for a test - Start
+// mints the control channel's certificates off it.
+func newTestAuthority(t *testing.T) *ca.CA {
+	t.Helper()
+	t.Setenv(state.UserStateDirEnv, t.TempDir())
+	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+
+	m := ca.NewManager("cwd", "", "demo", ca.Options{})
+	authority, err := m.LoadOrGenerateIntermediate()
+	require.NoError(t, err)
+	return authority
+}
 
 var dockerClient = docker.Client{}
 
@@ -153,6 +168,7 @@ func TestStartAndClose(t *testing.T) {
 		Domain:    "kevin.home",
 		ProxyAddr: "host.docker.internal:18080",
 		Image:     image,
+		Authority: newTestAuthority(t),
 	})
 	require.NoError(t, err)
 
@@ -199,6 +215,7 @@ func TestStartReusesRunningContainer(t *testing.T) {
 		Domain:    "kevin.home",
 		ProxyAddr: "host.docker.internal:18080",
 		Image:     image,
+		Authority: newTestAuthority(t),
 	}
 
 	first, err := relay.Start(t.Context(), opts)
@@ -237,12 +254,14 @@ func TestStartReplacesADriftedContainer(t *testing.T) {
 	name := "kevin-relay-drift-test-relay"
 	t.Cleanup(func() { _ = dockerClient.Remove(context.WithoutCancel(t.Context()), name) })
 
+	authority := newTestAuthority(t)
 	_, err := relay.Start(t.Context(), relay.Options{
 		Project:   "relay-drift-test",
 		Network:   network,
 		Domain:    "kevin.home",
 		ProxyAddr: "host.docker.internal:18080",
 		Image:     image,
+		Authority: authority,
 	})
 	require.NoError(t, err)
 	firstID, err := dockerClient.Inspect(t.Context(), name)
@@ -254,6 +273,7 @@ func TestStartReplacesADriftedContainer(t *testing.T) {
 		Domain:    "kevin.home",
 		ProxyAddr: "host.docker.internal:29090", // a different process's proxy port
 		Image:     image,
+		Authority: authority,
 	})
 	require.NoError(t, err)
 
@@ -289,6 +309,7 @@ func TestLookup(t *testing.T) {
 		Domain:    "kevin.home",
 		ProxyAddr: "host.docker.internal:18080",
 		Image:     image,
+		Authority: newTestAuthority(t),
 	})
 	require.NoError(t, err)
 

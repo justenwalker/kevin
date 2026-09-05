@@ -5,8 +5,15 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +26,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/net/proxy"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+
+	"github.com/justenwalker/kevin/protos/pb"
 )
 
 // relayTestDomain is the environment domain that the suite's relay answers
@@ -39,6 +50,10 @@ type RelayProcessSuite struct {
 
 	proxyStub  *httptest.Server
 	proxyLines chan string
+
+	// clientTLS lets the suite's own tests dial the relay's control gRPC
+	// server as an authenticated caller would.
+	clientTLS *tls.Config
 }
 
 func TestRelayProcessSuite(t *testing.T) {
@@ -56,6 +71,8 @@ func (s *RelayProcessSuite) SetupSuite() {
 	s.proxyStub = httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		s.proxyLines <- r.Method + " " + r.RequestURI + " " + r.Proto
 	}))
+
+	s.clientTLS = newTestControlEnv(t)
 
 	proc, err := newRelayProcess(t.Context(), config{
 		domain:        relayTestDomain,
@@ -164,6 +181,73 @@ func serveConnectStub(conn net.Conn, lines chan<- string) {
 		return
 	}
 	_, _ = io.Copy(conn, br)
+}
+
+// newTestControlEnv mints a throwaway root, a server leaf for the relay,
+// and a client leaf for the caller, sets the KEVIN_RELAY_TLS_* env vars
+// controlTLSConfig reads from - so newRelayProcess's control gRPC server
+// comes up with real mTLS material - and returns a client tls.Config that
+// authenticates against it.
+func newTestControlEnv(t *testing.T) *tls.Config {
+	t.Helper()
+
+	rootKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	rootTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "kevin relay test root"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	rootDER, err := x509.CreateCertificate(rand.Reader, rootTemplate, rootTemplate, &rootKey.PublicKey, rootKey)
+	require.NoError(t, err)
+	rootCert, err := x509.ParseCertificate(rootDER)
+	require.NoError(t, err)
+	rootPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootDER})
+
+	// mintLeaf signs a leaf for cn, chained to the root, and returns it
+	// alongside its PEM-encoded certificate and key.
+	mintLeaf := func(cn string, eku x509.ExtKeyUsage) (tls.Certificate, []byte, []byte) {
+		key, keyErr := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		require.NoError(t, keyErr)
+		template := &x509.Certificate{
+			SerialNumber: big.NewInt(2), //nolint:mnd // distinct from the root's serial only, not meaningful otherwise
+			Subject:      pkix.Name{CommonName: cn},
+			NotBefore:    time.Now().Add(-time.Hour),
+			NotAfter:     time.Now().Add(time.Hour),
+			KeyUsage:     x509.KeyUsageDigitalSignature,
+			ExtKeyUsage:  []x509.ExtKeyUsage{eku},
+			DNSNames:     []string{cn},
+		}
+		der, derErr := x509.CreateCertificate(rand.Reader, template, rootCert, &key.PublicKey, rootKey)
+		require.NoError(t, derErr)
+		keyDER, keyDERErr := x509.MarshalECPrivateKey(key)
+		require.NoError(t, keyDERErr)
+
+		cert := tls.Certificate{Certificate: [][]byte{der, rootDER}, PrivateKey: key}
+		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+		return cert, certPEM, keyPEM
+	}
+
+	_, serverCertPEM, serverKeyPEM := mintLeaf(controlServerCN, x509.ExtKeyUsageServerAuth)
+	clientLeaf, _, _ := mintLeaf("kevin-engine-test", x509.ExtKeyUsageClientAuth)
+
+	t.Setenv(tlsCertEnv, string(serverCertPEM))
+	t.Setenv(tlsKeyEnv, string(serverKeyPEM))
+	t.Setenv(tlsClientCAEnv, string(rootPEM))
+
+	rootPool := x509.NewCertPool()
+	rootPool.AddCert(rootCert)
+
+	return &tls.Config{
+		Certificates: []tls.Certificate{clientLeaf},
+		RootCAs:      rootPool,
+		ServerName:   controlServerCN,
+	}
 }
 
 // TestDNSAnswersUnderTheDomainWithSelf proves that a name under the domain
@@ -365,17 +449,18 @@ func (s *RelayProcessSuite) TestHTTPSForwarderRelaysTheClientHello() {
 	s.Require().NoError(<-done)
 }
 
-// TestInterceptOpensAListenerForADeclaredPort proves a POST /intercept call
-// both registers the host with the DNS matcher and opens a listener for a
-// declared port beyond the fixed :80/:443 pair, dispatching a TLS
-// connection on it the same way the fixed :443 listener does - CONNECTing
-// to the proxy for the declared port, not a literal 443.
-func (s *RelayProcessSuite) TestInterceptOpensAListenerForADeclaredPort() {
+// TestEnsureListenerOpensADeclaredPort proves an EnsureListener control call
+// opens a listener for a declared port beyond the fixed :80/:443 pair,
+// dispatching a TLS connection on it the same way the fixed :443 listener
+// does - CONNECTing to the proxy for the declared port, not a literal 443.
+func (s *RelayProcessSuite) TestEnsureListenerOpensADeclaredPort() {
 	t := s.T()
 
 	connectLine := make(chan string, 1)
 	connectLn := startConnectStub(t, connectLine)
 	defer func() { _ = connectLn.Close() }()
+
+	clientTLS := newTestControlEnv(t)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -396,20 +481,19 @@ func (s *RelayProcessSuite) TestInterceptOpensAListenerForADeclaredPort() {
 	done := make(chan error, 1)
 	go func() { done <- proc.run(ctx) }()
 
-	const host = "s3.us-east-1.amazonaws.com"
-	interceptReq, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+proc.controlAddr()+"/intercept",
-		strings.NewReader(`{"host":"`+host+`","ports":[8443]}`))
+	conn, err := grpc.NewClient(proc.controlAddr(), grpc.WithTransportCredentials(credentials.NewTLS(clientTLS)))
 	s.Require().NoError(err)
-	resp, err := http.DefaultClient.Do(interceptReq)
-	s.Require().NoError(err)
-	_ = resp.Body.Close()
-	s.Equal(http.StatusNoContent, resp.StatusCode)
+	defer func() { _ = conn.Close() }()
 
+	_, err = pb.NewRelayControlClient(conn).EnsureListener(t.Context(), &pb.EnsureListenerRequest{Ports: []int32{8443}})
+	s.Require().NoError(err)
+
+	const sni = "s3.us-east-1.amazonaws.com"
 	var d net.Dialer
 	raw, err := d.DialContext(t.Context(), "tcp", "127.0.0.1:8443")
 	s.Require().NoError(err)
 
-	tlsConn := tls.Client(raw, &tls.Config{ServerName: host, InsecureSkipVerify: true})
+	tlsConn := tls.Client(raw, &tls.Config{ServerName: sni, InsecureSkipVerify: true})
 	handshakeDone := make(chan struct{})
 	go func() {
 		_ = tlsConn.HandshakeContext(t.Context())
@@ -418,7 +502,7 @@ func (s *RelayProcessSuite) TestInterceptOpensAListenerForADeclaredPort() {
 
 	select {
 	case line := <-connectLine:
-		s.Equal("CONNECT "+host+":8443 HTTP/1.1", line, "the declared port, not a literal 443, must reach the proxy")
+		s.Equal("CONNECT "+sni+":8443 HTTP/1.1", line, "the declared port, not a literal 443, must reach the proxy")
 	case <-time.After(2 * time.Second):
 		s.Fail("the stub proxy never saw a CONNECT request")
 	}
@@ -427,4 +511,50 @@ func (s *RelayProcessSuite) TestInterceptOpensAListenerForADeclaredPort() {
 	<-handshakeDone
 	cancel()
 	s.Require().NoError(<-done)
+}
+
+// TestRegisterCaptureRecordsTheNetnsPath proves a RegisterCapture control
+// call records the container's network namespace path, ready for the
+// coming transparent-capture mechanism to act on.
+func (s *RelayProcessSuite) TestRegisterCaptureRecordsTheNetnsPath() {
+	t := s.T()
+
+	clientTLS := newTestControlEnv(t)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	proc, err := newRelayProcess(ctx, config{
+		domain:        relayTestDomain,
+		proxyAddr:     s.proxyStub.Listener.Addr().String(),
+		self:          "10.20.30.40",
+		dnsListen:     "127.0.0.1:0",
+		httpListen:    "127.0.0.1:0",
+		httpsListen:   "127.0.0.1:0",
+		socks5Listen:  "127.0.0.1:0",
+		controlListen: "127.0.0.1:0",
+		upstreamDNS:   s.upstreamPC.LocalAddr().String(),
+	})
+	s.Require().NoError(err)
+
+	done := make(chan error, 1)
+	go func() { done <- proc.run(ctx) }()
+	defer func() {
+		cancel()
+		s.Require().NoError(<-done)
+	}()
+
+	conn, err := grpc.NewClient(proc.controlAddr(), grpc.WithTransportCredentials(credentials.NewTLS(clientTLS)))
+	s.Require().NoError(err)
+	defer func() { _ = conn.Close() }()
+
+	_, err = pb.NewRelayControlClient(conn).RegisterCapture(t.Context(), &pb.RegisterCaptureRequest{
+		Id: "web", NetnsPath: "/var/run/docker/netns/abc123",
+	})
+	s.Require().NoError(err)
+
+	proc.mu.Lock()
+	got := proc.netnsPaths["web"]
+	proc.mu.Unlock()
+	s.Equal("/var/run/docker/netns/abc123", got)
 }
