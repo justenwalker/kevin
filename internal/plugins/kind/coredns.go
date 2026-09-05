@@ -12,8 +12,10 @@ import (
 const adminKubeconfig = "/etc/kubernetes/admin.conf"
 
 // patchCoreDNS adds a forward zone for domain to the CoreDNS Corefile of the
-// cluster, so that a pod resolves a step through the relay. patchCoreDNS is
-// idempotent: it replaces an existing zone for domain instead of adding one.
+// cluster, and points every node's own /etc/resolv.conf at relay too.
+// patchCoreDNS is idempotent: it replaces an existing zone for domain
+// instead of adding one, and a resolv.conf rewrite is naturally idempotent
+// too.
 func patchCoreDNS(ctx context.Context, allNodes []string, domain, relay string, out plugin.Emitter) error {
 	container, err := bootstrapControlPlaneNode(allNodes)
 	if err != nil {
@@ -42,6 +44,15 @@ func patchCoreDNS(ctx context.Context, allNodes []string, domain, relay string, 
 		return fmt.Errorf("kind: replace the coredns configmap: %w", err)
 	}
 
+	// CoreDNS's own default "." zone forwards anything outside cluster.local
+	// to the node's own resolv.conf (kubelet wires it in directly under
+	// dnsPolicy: Default) - rewriting that file reaches the relay for
+	// anything else without an edit to that zone, which also runs the
+	// kubernetes plugin cluster.local depends on.
+	if err = pointNodeDNSAtRelay(ctx, allNodes, relay); err != nil {
+		return err
+	}
+
 	out.Log("stdout", "restarting coredns")
 	if _, err = kubectl(ctx, container, "-n", "kube-system", "rollout", "restart", "deployment/coredns"); err != nil {
 		return fmt.Errorf("kind: restart coredns: %w", err)
@@ -52,6 +63,17 @@ func patchCoreDNS(ctx context.Context, allNodes []string, domain, relay string, 
 	}
 
 	out.Log("stdout", "coredns resolves *."+domain)
+	return nil
+}
+
+// pointNodeDNSAtRelay rewrites every node's own /etc/resolv.conf to name
+// relay as its only nameserver.
+func pointNodeDNSAtRelay(ctx context.Context, allNodes []string, relay string) error {
+	for _, node := range allNodes {
+		if _, err := dockerClient.Exec(ctx, node, "sh", "-c", "echo nameserver "+relay+" > /etc/resolv.conf"); err != nil {
+			return fmt.Errorf("kind: point %s's dns at the relay: %w", node, err)
+		}
+	}
 	return nil
 }
 

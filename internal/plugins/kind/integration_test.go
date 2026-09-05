@@ -191,6 +191,21 @@ func (s *KindSuite) TestCoreDNSCarriesTheForwardZone() {
 	s.Contains(out, ".:53 {", "the patch must not remove the original block")
 }
 
+// TestNodeDNSPointsAtRelay proves that Up rewrites the control plane node's
+// own resolv.conf to name the relay as its only nameserver - so CoreDNS's
+// own default "forward . /etc/resolv.conf" fallback (untouched by the
+// Corefile patch, which only ever edits the domain's own zone) reaches the
+// relay too, for anything a builtin:route external: true entry registers.
+func (s *KindSuite) TestNodeDNSPointsAtRelay() {
+	t := s.T()
+	container := s.controlPlaneNode()
+
+	out, err := dockerClient.Exec(t.Context(), container, "cat", "/etc/resolv.conf")
+	s.Require().NoError(err)
+
+	s.Contains(out, "nameserver "+s.relay.Addr())
+}
+
 // TestNodeTrustsTheKevinRoot proves that Up installs the kevin root
 // certificate into the control plane node.
 func (s *KindSuite) TestNodeTrustsTheKevinRoot() {
