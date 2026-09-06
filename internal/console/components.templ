@@ -577,11 +577,15 @@ templ styles() {
 		#sidebar li.compact .pill { padding: 0; background: none; }
 		/* Step group: a checkbox+label toggle, collapsed by default, no JS
 		   needed for the show/hide itself - drawDepLines still runs on
-		   toggle since a ":checked" change trips no DOM mutation. */
-		#sidebar li.group { padding: 0; }
+		   toggle since a ":checked" change trips no DOM mutation. A left
+		   accent bar and a bold label set it apart from a plain step card -
+		   not a background tint, which would sit under the header's own
+		   state pill at the same color .pill already uses and hide it. */
+		#sidebar li.group { padding: 0; border-left: 3px solid var(--fg); }
 		.group-toggle { position: absolute; opacity: 0; pointer-events: none; }
 		.group-header { display: flex; align-items: center; gap: .4rem; cursor: pointer; padding: .5rem .6rem; }
 		.group-header-content { display: contents; }
+		.group-header .name { font-weight: 700; }
 		.disclosure { display: inline-block; color: var(--muted); transition: transform .15s; }
 		.group-toggle:checked ~ .group-header .disclosure { transform: rotate(90deg); }
 		#sidebar ul.group-members { display: none; margin: 0; padding: 0 .6rem .5rem 1.3rem; }

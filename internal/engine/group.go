@@ -69,6 +69,25 @@ func localizeDeps(name string, deps map[string]dag.Outputs) map[string]dag.Outpu
 	return out
 }
 
+// subtractNeeds returns needs with every entry in exclude removed,
+// preserving order.
+func subtractNeeds(needs, exclude []string) []string {
+	if len(exclude) == 0 {
+		return needs
+	}
+	skip := make(map[string]bool, len(exclude))
+	for _, n := range exclude {
+		skip[n] = true
+	}
+	out := make([]string, 0, len(needs))
+	for _, n := range needs {
+		if !skip[n] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // registerScopeSteps adds every step and group in r's own scope to store,
 // each with the display fields its console row needs. A group's own row
 // comes from its Group metadata directly, with no plugin to ask about
@@ -102,7 +121,17 @@ func (r *run) registerScopeSteps(store *session.Store) error {
 			}
 		}
 
-		store.AddStep(name, label, kindLabel, ref.Plugin, r.caps[ref.Plugin].Icon, step.Needs,
+		needs := step.Needs
+		if group != "" {
+			// A member's needs always includes its group's own shared needs
+			// (config/group.go's unionNeeds) - drop only those, since the
+			// group's own row already draws that edge. What's left (a
+			// sibling reference, or a need unique to this member, e.g. its
+			// own "setup.<name>") is real information the group's row
+			// doesn't carry, so it still reaches the console.
+			needs = subtractNeeds(needs, r.groups[group].Needs)
+		}
+		store.AddStep(name, label, kindLabel, ref.Plugin, r.caps[ref.Plugin].Icon, needs,
 			isCompactStep(kindLabel, ref.Plugin, ref.Step), group, false)
 		store.SetStepIdempotent(name, stepIdempotent(r.caps[ref.Plugin], ref.Step))
 	}
