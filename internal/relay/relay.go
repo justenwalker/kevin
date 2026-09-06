@@ -150,6 +150,11 @@ type Options struct {
 	// project's own intermediate authority, the same one that signs MITM
 	// leaves.
 	Authority *ca.CA
+
+	// FakeIPv4Range and FakeIPv6Range are the address pools a registered
+	// external route's synthetic IP is allocated from.
+	FakeIPv4Range string
+	FakeIPv6Range string
 }
 
 // controlServerCN and controlClientCN name the leaves Start mints for the
@@ -273,7 +278,7 @@ func create(ctx context.Context, client docker.Client, name string, opts Options
 			tlsKeyEnv:      serverKey,
 			tlsClientCAEnv: opts.Authority.RootPEM(),
 		},
-		Cmd: []string{"forward", "--domain", opts.Domain, "--proxy", opts.ProxyAddr},
+		Cmd: fakeIPArgs(opts, []string{"forward", "--domain", opts.Domain, "--proxy", opts.ProxyAddr}),
 		// The SOCKS5 gateway and the control endpoint are the two things on
 		// the relay a host process needs to dial directly - everything else
 		// (DNS, HTTP/HTTPS forwarding) is reached only from inside the
@@ -289,6 +294,22 @@ func create(ctx context.Context, client docker.Client, name string, opts Options
 		return nil, err
 	}
 	return relayFromInfo(name, opts.Network, info)
+}
+
+// fakeIPArgs appends --fake-ipv4-range/--fake-ipv6-range to args for
+// whichever of opts.FakeIPv4Range/FakeIPv6Range is set, leaving the
+// relay's own flag defaults in place for the other - so a caller that
+// builds Options directly (a test, say) without setting either still gets
+// a working relay, and kevin.cue's configured value only overrides what it
+// actually names.
+func fakeIPArgs(opts Options, args []string) []string {
+	if opts.FakeIPv4Range != "" {
+		args = append(args, "--fake-ipv4-range", opts.FakeIPv4Range)
+	}
+	if opts.FakeIPv6Range != "" {
+		args = append(args, "--fake-ipv6-range", opts.FakeIPv6Range)
+	}
+	return args
 }
 
 // Lookup reports the relay container already running for project, without

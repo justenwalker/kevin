@@ -130,7 +130,15 @@ type Console struct {
 
 // Relay configures the in-network relay.
 type Relay struct {
-	Image string `json:"image"`
+	Image     string         `json:"image"`
+	Intercept RelayIntercept `json:"intercept"`
+}
+
+// RelayIntercept configures the address pools a registered external
+// route's synthetic IP is allocated from.
+type RelayIntercept struct {
+	IPv4Range string `json:"ipv4_range"`
+	IPv6Range string `json:"ipv6_range"`
 }
 
 // Config is a valid environment.

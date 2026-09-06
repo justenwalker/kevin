@@ -357,13 +357,15 @@ func (r *run) finalStepErr() error {
 // startRelay starts the relay.
 func startRelay(ctx context.Context, cfg *config.Config, network, gatewayAddr, scope string, authority *ca.CA) (*relay.Relay, error) {
 	rl, err := relay.Start(ctx, relay.Options{
-		Project:   cfg.Project,
-		Network:   network,
-		Domain:    cfg.Domain,
-		ProxyAddr: HostGateway + ":" + portOf(gatewayAddr),
-		Image:     relay.Ref(cfg.Relay.Image),
-		Scope:     scope,
-		Authority: authority,
+		Project:       cfg.Project,
+		Network:       network,
+		Domain:        cfg.Domain,
+		ProxyAddr:     HostGateway + ":" + portOf(gatewayAddr),
+		Image:         relay.Ref(cfg.Relay.Image),
+		Scope:         scope,
+		Authority:     authority,
+		FakeIPv4Range: cfg.Relay.Intercept.IPv4Range,
+		FakeIPv6Range: cfg.Relay.Intercept.IPv6Range,
 	})
 	if err != nil {
 		return nil, err

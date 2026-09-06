@@ -52,6 +52,8 @@ type config struct {
 	socks5Listen  string
 	controlListen string
 	upstreamDNS   string
+	fakeIPv4Range string
+	fakeIPv6Range string
 }
 
 func main() {
@@ -125,6 +127,8 @@ func bindForwardFlags(fs *pflag.FlagSet, cfg *config) {
 	fs.StringVar(&cfg.socks5Listen, "socks5-listen", ":1080", "the address the SOCKS5 gateway listens on")
 	fs.StringVar(&cfg.controlListen, "control-listen", ":8053", "the address the intercept control endpoint listens on")
 	fs.StringVar(&cfg.upstreamDNS, "upstream-dns", "127.0.0.11:53", "the DNS server for a query outside the domain")
+	fs.StringVar(&cfg.fakeIPv4Range, "fake-ipv4-range", "198.18.0.0/15", "the IPv4 pool a registered external route's synthetic address is allocated from")
+	fs.StringVar(&cfg.fakeIPv6Range, "fake-ipv6-range", "100::/64", "the IPv6 pool a registered external route's synthetic address is allocated from")
 }
 
 // socks5GatewayCommand runs a SOCKS5 relay for a client outside a kind

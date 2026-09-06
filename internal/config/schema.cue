@@ -203,4 +203,20 @@ console: {
 relay: {
 	// image is the relay image. KEVIN_RELAY_IMAGE overrides it.
 	image?: string
+
+	intercept: {
+		// ipv4_range is the address pool a registered external route's
+		// synthetic IPv4 address is allocated from - never a real address a
+		// workload could otherwise dial, so a captured connection to one is
+		// unambiguously a registered intercept. Defaults to 198.18.0.0/15,
+		// IANA-reserved for benchmark testing (RFC 2544) and never a real
+		// internet address.
+		ipv4_range: string & =~"^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/[0-9]+$" | *"198.18.0.0/15"
+
+		// ipv6_range is the IPv6 equivalent of ipv4_range. Defaults to
+		// 100::/64, the RFC 6666 Discard-Only prefix - traffic to it is
+		// defined to be discarded, and it shares no space with Docker's own
+		// fd00::/8 ULA allocation for the project network's real addresses.
+		ipv6_range: string & =~"^[0-9a-fA-F:]+/[0-9]+$" | *"100::/64"
+	}
 }

@@ -297,6 +297,19 @@ func runAsync(t *testing.T, ctx context.Context, dir string, w *watcher) <-chan 
 // relayImageTag matches RelayImageTag in build/main.go.
 const relayImageTag = "kevin-relay:dev"
 
+// TestMain points relay.Ref at relayImageTag for every test in this
+// package: Run always starts a relay, and internal/version.VERSION in this
+// checkout still names the last real release, so the unoverridden default
+// would resolve to that released image instead of the one a test builds
+// from source with ensureRelayImage - silently talking to a relay that
+// predates whatever relay-side change is still unreleased on this branch.
+// Setting this here, once, covers every test that calls Run() even
+// indirectly, not just the ones that remember to call requireRelay first.
+func TestMain(m *testing.M) {
+	_ = os.Setenv("KEVIN_RELAY_IMAGE", relayImageTag)
+	os.Exit(m.Run())
+}
+
 // requireRelay skips a test when Docker does not answer, then makes sure the
 // relay image exists - Run always starts the relay now.
 func requireRelay(t *testing.T) {
