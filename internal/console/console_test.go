@@ -89,6 +89,19 @@ func TestPage(t *testing.T) {
 		assert.Contains(t, body, `id="dep-lines"`, "the sidebar needs the svg overlay for dependency lines")
 	})
 
+	t.Run("emits the running-step pulse and dep-line flow animations", func(t *testing.T) {
+		store := session.NewStore()
+		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
+
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
+
+		body := rec.Body.String()
+		assert.Contains(t, body, "step-pulse", "a running step's card must carry the pulse animation")
+		assert.Contains(t, body, "dep-edge-running", "a dep line from a running step must carry the flow animation")
+		assert.Contains(t, body, "function phaseDelay", "a swapped-in node must pin its animation to wall-clock phase, not restart at 0%")
+	})
+
 	t.Run("a sensitive detail is masked but stays copyable", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})

@@ -593,6 +593,22 @@ templ styles() {
 		#dep-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 		.dep-edge { fill: none; stroke: var(--muted); stroke-width: 1.5; opacity: .55; }
 		#dep-arrow path { fill: var(--muted); }
+		/* A running step's outputs aren't there yet - the pulse marks which
+		   card to watch, the flowing dashes on its outgoing edges show where
+		   those outputs are headed once it finishes. Not on a compact row
+		   (a gate step) - StepItem already downplays those, a pulse would
+		   fight that. phaseDelay in scripts() reads the duration back via
+		   getComputedStyle, so it never needs to know these numbers. */
+		@keyframes step-pulse {
+			0%, 100% { box-shadow: 0 0 0 0 var(--run); }
+			50% { box-shadow: 0 0 5px 1px var(--run); }
+		}
+		#sidebar li.state-running:not(.compact) { animation: step-pulse 2.8s ease-in-out infinite; }
+		@keyframes dep-flow { to { stroke-dashoffset: -16; } }
+		.dep-edge-running { stroke-dasharray: 4 4; stroke-width: 2; opacity: 1; animation: dep-flow .6s linear infinite; }
+		@media (prefers-reduced-motion: reduce) {
+			#sidebar li.state-running, .dep-edge-running { animation: none; }
+		}
 		#sidebar .name { display: block; font-weight: 600; }
 		.plugin-icon { width: 16px; height: 16px; vertical-align: middle; margin-right: .3rem; border-radius: 3px; }
 		.plugin-icon-default { display: inline-block; font-size: .8rem; line-height: 16px; }
@@ -690,6 +706,27 @@ templ scripts() {
 			return laneEnds.length;
 		}
 
+		// phaseDelay pins a CSS animation to wall-clock time instead of
+		// element age: an OOB swap (e.g. a running step's progress tick,
+		// every 500ms) replaces the whole node, which would otherwise
+		// restart the animation from 0% before a slow pulse ever completes
+		// a cycle. A negative delay of "now mod duration" starts the fresh
+		// node at the phase the old one would be at right now. Reads the
+		// duration back from el's own computed style, so styles() stays
+		// the only place that names it.
+		function phaseDelay(el) {
+			var ms = parseFloat(getComputedStyle(el).animationDuration) * 1000;
+			return (-(Date.now() % ms)) + 'ms';
+		}
+
+		// runningEl returns the element that actually carries a step's
+		// state-* class: a plain step's own <li>, or - since GroupItem
+		// never replaces its outer <li>, only groupHeader's nested span -
+		// a group's header content.
+		function runningEl(li) {
+			return li.classList.contains('group') ? li.querySelector('.group-header-content') : li;
+		}
+
 		function drawDepLines() {
 			var g = document.getElementById('dep-edges');
 			var sidebar = document.getElementById('sidebar');
@@ -701,6 +738,9 @@ templ scripts() {
 			var order = {};
 			document.querySelectorAll('#steps li').forEach(function (li, i) {
 				order[li.id.slice('step-'.length)] = i;
+			});
+			document.querySelectorAll('#sidebar li.state-running:not(.compact)').forEach(function (li) {
+				li.style.animationDelay = phaseDelay(li);
 			});
 
 			var edges = [];
@@ -720,7 +760,11 @@ templ scripts() {
 					if (!src || src.getClientRects().length === 0) return;
 					var sRect = src.getBoundingClientRect();
 					var sy = sRect.top - sbRect.top + sRect.height / 2;
-					edges.push({ sy: sy, ty: ty, lo: Math.min(sy, ty), hi: Math.max(sy, ty), source: order[name] });
+					var re = runningEl(src);
+					edges.push({
+						sy: sy, ty: ty, lo: Math.min(sy, ty), hi: Math.max(sy, ty), source: order[name],
+						running: !!(re && re.classList.contains('state-running')),
+					});
 				});
 			});
 
@@ -736,7 +780,7 @@ templ scripts() {
 				var depth = baseDepth + e.lane * laneGap;
 				var x = gutter - depth;
 				var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-				path.setAttribute('class', 'dep-edge');
+				path.setAttribute('class', e.running ? 'dep-edge dep-edge-running' : 'dep-edge');
 				path.setAttribute('marker-end', 'url(#dep-arrow)');
 				path.style.stroke = colorFor(e.source);
 				path.setAttribute('d', 'M' + gutter + ',' + e.sy +
@@ -744,6 +788,13 @@ templ scripts() {
 					' L' + x + ',' + (e.ty - depth) +
 					' L' + gutter + ',' + e.ty);
 				g.appendChild(path);
+				if (e.running) {
+					// Every call rebuilds every path from scratch, so this one
+					// would otherwise restart mid-flow on every redraw too.
+					// Appended first: getComputedStyle needs it connected to
+					// resolve animation-duration from the stylesheet.
+					path.style.animationDelay = phaseDelay(path);
+				}
 			});
 		}
 		document.addEventListener('DOMContentLoaded', drawDepLines);
