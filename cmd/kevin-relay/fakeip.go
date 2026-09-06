@@ -55,6 +55,10 @@ func (p *fakeIPPool) allocate(host string) (selfAddrs, error) {
 		return addrs, nil
 	}
 
+	// If the v6 pool is exhausted, the v4 address already claimed above is
+	// never recorded and so never reused - a wasted address, not a
+	// correctness bug given the default pools' size, but a real one if a
+	// caller configures a tiny range for either family.
 	v4, err := p.next(p.v4, &p.nextV4)
 	if err != nil {
 		return selfAddrs{}, fmt.Errorf("relay: allocate fake ipv4 for %q: %w", host, err)
@@ -83,14 +87,6 @@ func (p *fakeIPPool) next(prefix netip.Prefix, counter *uint64) (netip.Addr, err
 	return addr, nil
 }
 
-// lookup reports the host addr was allocated for, if any.
-func (p *fakeIPPool) lookup(addr netip.Addr) (string, bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	host, ok := p.byAddr[addr]
-	return host, ok
-}
-
 // addOffset returns base plus offset, treated as a big-endian integer added
 // to base's address bytes - base.As16() for both families, so the same
 // carry-propagating loop handles a 4-byte or a 16-byte address alike; the
@@ -108,4 +104,12 @@ func addOffset(base netip.Addr, offset uint64) netip.Addr {
 		addr = addr.Unmap()
 	}
 	return addr
+}
+
+// lookup reports the host addr was allocated for, if any.
+func (p *fakeIPPool) lookup(addr netip.Addr) (string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	host, ok := p.byAddr[addr]
+	return host, ok
 }
