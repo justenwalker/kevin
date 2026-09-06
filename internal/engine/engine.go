@@ -1024,7 +1024,9 @@ func (r *run) closeForwards() error {
 
 // setupPrefix marks a needs entry as naming a setup-scope step instead of
 // one in the running scope. Only meaningful on an env-scope needs entry.
-const setupPrefix = "setup."
+// Lives in [session] (not here) so the console can split same-scope from
+// cross-scope needs without importing this package.
+const setupPrefix = session.SetupPrefix
 
 // validateNeeds checks every needs entry of both of cfg's scopes. Called
 // once from LoadAndLaunch, before graph() or docker is touched. A

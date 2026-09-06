@@ -125,6 +125,24 @@ func TestPage(t *testing.T) {
 		assert.Contains(t, body, `data-needs=""`, "a step with no dependencies still carries the attribute, just empty")
 	})
 
+	t.Run("a cross-scope need gets a badge, not a dependency line", func(t *testing.T) {
+		store := session.NewStore()
+		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
+		store.AddStep("a", "", "", "", nil, nil, false, "", false)
+		store.AddStep("b", "", "", "", nil, []string{"a", "setup.cluster"}, false, "", false)
+		store.AddStep("p", "", "probe", "", nil, []string{"setup.cluster"}, true, "", false)
+		store.AddStep("g", "", "group", "", nil, []string{"setup.cluster"}, false, "", true)
+
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
+
+		body := rec.Body.String()
+		assert.Contains(t, body, `data-needs="a"`, "a same-scope need still draws a line")
+		assert.NotContains(t, body, "setup.cluster", "the setup step's own DAG name must not carry into a dependency line the console can never resolve")
+		assert.Equal(t, 3, strings.Count(body, `class="badge-cross-scope" title="reads setup: cluster"`),
+			"a full step, a compact step, and a group must each get one badge naming the setup step they read")
+	})
+
 	t.Run("a group nests its members, collapsed by default", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})

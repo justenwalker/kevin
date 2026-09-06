@@ -7,6 +7,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/browser"
 	"github.com/justenwalker/kevin/internal/proxy"
+	"github.com/justenwalker/kevin/internal/session"
 )
 
 // Page is the whole console. It renders the state that the server holds now,
@@ -223,6 +224,33 @@ func stepsByGroup(steps []Step) map[string][]Step {
 	return m
 }
 
+// sameScopeNeeds returns the entries of needs the sidebar draws a line for -
+// crossScopeNeeds excluded.
+func sameScopeNeeds(needs []string) []string {
+	out := make([]string, 0, len(needs))
+	for _, n := range needs {
+		if !strings.HasPrefix(n, session.SetupPrefix) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// crossScopeNeeds returns the setup-scope step names needs reads via
+// ${setup.<name>.out.<key>}, unprefixed. Drawing one of these as a sidebar
+// line would draw an edge into a console the current scope never renders -
+// every step reading the same setup step gets a badge instead, so a setup
+// step with many readers doesn't converge into one cluttered hub.
+func crossScopeNeeds(needs []string) []string {
+	var out []string
+	for _, n := range needs {
+		if name, ok := strings.CutPrefix(n, session.SetupPrefix); ok {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 // kindIcon returns the icon that marks a step's kind, or "" for none.
 func kindIcon(kind string) string {
 	switch kind {
@@ -264,7 +292,7 @@ templ StepItem(s Step) {
 }
 
 templ fullStepItem(s Step) {
-	<li id={ "step-" + s.Name } hx-swap-oob="true" class={ "state-" + string(s.State) } data-needs={ strings.Join(s.Needs, ",") }>
+	<li id={ "step-" + s.Name } hx-swap-oob="true" class={ "state-" + string(s.State) } data-needs={ strings.Join(sameScopeNeeds(s.Needs), ",") }>
 		<span class="name">
 			@pluginIcon(s)
 			{ s.Label }
@@ -273,6 +301,7 @@ templ fullStepItem(s Step) {
 			<span class={ "pill", "kind-" + s.Kind }>{ kindIcon(s.Kind) } { s.Kind }</span>
 		}
 		@idempotentBadge(s)
+		@crossScopeBadge(s)
 		<span class="pill">{ string(s.State) }</span>
 		if s.Progress > 0 && (s.State == Running || s.State == Removing) {
 			<div class="bar"><div class="bar-fill" style={ fmt.Sprintf("width:%.0f%%", s.Progress*100) }></div></div>
@@ -285,11 +314,12 @@ templ fullStepItem(s Step) {
 }
 
 templ compactStepItem(s Step) {
-	<li id={ "step-" + s.Name } hx-swap-oob="true" class={ "compact", "state-" + string(s.State) } data-needs={ strings.Join(s.Needs, ",") }>
+	<li id={ "step-" + s.Name } hx-swap-oob="true" class={ "compact", "state-" + string(s.State) } data-needs={ strings.Join(sameScopeNeeds(s.Needs), ",") }>
 		<span class="name">
 			@pluginIcon(s)
 			{ s.Label }
 		</span>
+		@crossScopeBadge(s)
 		<span class="pill">{ string(s.State) }</span>
 		if s.Message != "" {
 			<span class="msg">{ s.Message }</span>
@@ -305,10 +335,11 @@ templ compactStepItem(s Step) {
 // its header (see groupHeader) - so a later state change never re-collapses
 // an already-expanded group by replacing its checkbox out from under it.
 templ GroupItem(s Step, members []Step) {
-	<li id={ "step-" + s.Name } class="group" data-needs={ strings.Join(s.Needs, ",") }>
+	<li id={ "step-" + s.Name } class="group" data-needs={ strings.Join(sameScopeNeeds(s.Needs), ",") }>
 		<input type="checkbox" id={ "group-toggle-" + s.Name } class="group-toggle" onchange="drawDepLines()"/>
 		<label for={ "group-toggle-" + s.Name } class="group-header">
 			@groupHeader(s)
+			@crossScopeBadge(s)
 		</label>
 		<ul class="group-members">
 			for _, m := range members {
@@ -338,6 +369,14 @@ templ groupHeader(s Step) {
 templ idempotentBadge(s Step) {
 	if s.Idempotent {
 		<span class="badge-idempotent" title="idempotent - safe to include in a cascading rerun of a step this depends on">♻</span>
+	}
+}
+
+// crossScopeBadge marks a step that reads one or more setup-scope steps'
+// outputs, naming them in the tooltip instead of drawing a line for each.
+templ crossScopeBadge(s Step) {
+	if names := crossScopeNeeds(s.Needs); len(names) > 0 {
+		<span class="badge-cross-scope" title={ "reads setup: " + strings.Join(names, ", ") }>↗ setup</span>
 	}
 }
 
@@ -507,6 +546,11 @@ templ styles() {
 		.kind-action { color: var(--warn); }
 		.kind-probe { color: var(--k-probe); }
 		.badge-idempotent { color: var(--ok); font-size: .85rem; margin: 0 .3rem; cursor: default; }
+		.badge-cross-scope {
+			display: inline-flex; align-items: center; gap: .2rem; flex-shrink: 0; white-space: nowrap;
+			color: var(--muted); font-size: .7rem; border: 1px solid var(--line);
+			border-radius: 4px; padding: 0 .3rem; margin: 0 .3rem; cursor: default;
+		}
 		.scroll { max-height: 22rem; overflow-y: auto; border: 1px solid var(--line);
 		          border-radius: 6px; padding: .5rem; }
 		.line { display: flex; gap: .75rem; white-space: pre-wrap; word-break: break-word; }

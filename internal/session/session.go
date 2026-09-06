@@ -5,6 +5,11 @@ package session
 
 import "time"
 
+// SetupPrefix marks a Step.Needs entry as naming a setup-scope step instead
+// of one in the running scope - the engine resolves it via that step's
+// Export RPC rather than as an edge in this scope's own DAG.
+const SetupPrefix = "setup."
+
 // State is where a step is in its life.
 type State string
 
@@ -65,7 +70,9 @@ type Step struct {
 
 	// Needs are the names of the steps this one depends on, i.e. this
 	// step's needs: list from kevin.cue - empty when it depends on
-	// nothing. The sidebar draws a line per entry.
+	// nothing. The sidebar draws a line per same-scope entry; a
+	// "setup.<name>" entry gets a badge instead, since it names a step in a
+	// scope this console never renders.
 	Needs []string
 
 	// Details are the rows this step's card shows.
