@@ -114,6 +114,25 @@ const (
 	RouteModeRaw
 )
 
+// tunnels reports whether target's client-facing connection should be
+// tunneled raw rather than MITM'd. RouteModePassthrough only tunnels when
+// TLS is set - the mode exists to let a client's own TLS handshake through
+// untouched, which only makes sense against a TLS upstream; a route claiming
+// Passthrough without TLS falls back to MITM instead of silently bypassing
+// interception.
+func tunnels(target Route) bool {
+	switch target.Mode {
+	case RouteModeRaw:
+		return true
+	case RouteModePassthrough:
+		return target.TLS
+	case RouteModeMITM:
+		return false
+	default:
+		return false
+	}
+}
+
 // Proxy is the kevin proxy. A Proxy is safe for concurrent use.
 type Proxy struct {
 	certs *certSigner

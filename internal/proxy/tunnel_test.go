@@ -119,6 +119,22 @@ func TestTunnelRoute(t *testing.T) {
 			"a tls: true route must still be MITM'd with a kevin-signed leaf in the default (mitm) mode")
 	})
 
+	t.Run("passthrough without tls falls back to mitm instead of tunneling raw", func(t *testing.T) {
+		authority := newTestIntermediateCA(t)
+		p, client := startTestProxyServingWithAuthority(t, authority, nil, true)
+
+		const host = "misconfigured-passthrough.kevin.test"
+		target := createTestUpstream(t, "still mitm'd")
+		p.AddRoutes(proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), Mode: proxy.RouteModePassthrough})
+
+		resp, body := getTestURL(t, client, "https://"+host+"/")
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, "still mitm'd", body)
+		require.NotEmpty(t, resp.TLS.PeerCertificates)
+		assert.Equal(t, host, resp.TLS.PeerCertificates[0].Subject.CommonName,
+			"passthrough without tls must not bypass MITM: Route.TLS out of sync with Mode is a misconfiguration, not a signal to skip interception")
+	})
+
 	t.Run("relayed route tunnels through the SOCKS5 relay", func(t *testing.T) {
 		authority := newTestIntermediateCA(t)
 		p, _ := startTestProxyServingWithAuthority(t, authority, nil, true)
