@@ -152,7 +152,7 @@ type Options struct {
 	Authority *ca.CA
 
 	// FakeIPv4Range and FakeIPv6Range are the address pools a registered
-	// external route's synthetic IP is allocated from.
+	// intercept route's synthetic IP is allocated from.
 	FakeIPv4Range string
 	FakeIPv6Range string
 }
@@ -398,7 +398,7 @@ func (r *Relay) Close() error {
 	return (docker.Client{}).Remove(context.Background(), r.name)
 }
 
-// EnsureListener registers a route's External entry with the relay: host
+// EnsureListener registers a route's Intercept entry with the relay: host
 // resolves to the relay's own address - the only way a workload with no
 // network namespace the relay can capture (a kind pod) reaches the
 // interception - and the relay opens a listener for each of ports beyond

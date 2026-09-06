@@ -42,7 +42,7 @@ type RelayControlClient interface {
 	// captured at what transits it instead, skipping any destination in
 	// exclude_cidrs so pod-to-pod and pod-to-service traffic isn't touched.
 	RegisterCapture(ctx context.Context, in *RegisterCaptureRequest, opts ...grpc.CallOption) (*RegisterCaptureResponse, error)
-	// EnsureListener registers an External route: it answers the relay's own
+	// EnsureListener registers an intercept route: it answers the relay's own
 	// DNS for host - exactly, or by "*." wildcard, the same rule builtin:route
 	// itself applies - since a workload with no network namespace the relay
 	// can capture (a kind pod) has no other way to reach the interception; it
@@ -100,7 +100,7 @@ type RelayControlServer interface {
 	// captured at what transits it instead, skipping any destination in
 	// exclude_cidrs so pod-to-pod and pod-to-service traffic isn't touched.
 	RegisterCapture(context.Context, *RegisterCaptureRequest) (*RegisterCaptureResponse, error)
-	// EnsureListener registers an External route: it answers the relay's own
+	// EnsureListener registers an intercept route: it answers the relay's own
 	// DNS for host - exactly, or by "*." wildcard, the same rule builtin:route
 	// itself applies - since a workload with no network namespace the relay
 	// can capture (a kind pod) has no other way to reach the interception; it

@@ -215,14 +215,14 @@ func (s *ProxySuite) testEgressPolicy(egressCUE, project string) {
 	s.waitExit(p, defaultTimeout)
 }
 
-// TestRouteWildcardWithoutExternal covers a builtin:route host wildcard
-// with no external: true - the proxy's route table wildcard-matches any
-// Route.Host with a leading "*.", regardless of external, so "*.web"
-// (not "*.web.kevin.home" and not external) must already match
+// TestRouteWildcardWithoutIntercept covers a builtin:route host wildcard
+// with no intercept: true - the proxy's route table wildcard-matches any
+// Route.Host with a leading "*.", regardless of intercept, so "*.web"
+// (not "*.web.kevin.home" and not intercept) must already match
 // "anything.web.kevin.home" but not the bare "web.kevin.home". Its own
 // project, not the shared webCUE - that constant's own route stays a
 // plain, non-wildcard host for the other suites that depend on it.
-func (s *ProxySuite) TestRouteWildcardWithoutExternal() {
+func (s *ProxySuite) TestRouteWildcardWithoutIntercept() {
 	s.requireDocker()
 
 	const project = "kevin-e2e-route-wildcard"
@@ -269,7 +269,7 @@ env: {
 	body, err := io.ReadAll(resp.Body)
 	s.Require().NoError(err)
 	s.Equal(http.StatusOK, resp.StatusCode)
-	s.Contains(string(body), "Welcome to nginx", "a wildcard host must match a subdomain with no external: true")
+	s.Contains(string(body), "Welcome to nginx", "a wildcard host must match a subdomain with no intercept: true")
 
 	resp2 := httpGet(s.T(), client, "https://web.kevin.home/")
 	defer resp2.Body.Close() //nolint:errcheck // read-only response body

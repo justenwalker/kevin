@@ -14,7 +14,7 @@ import (
 
 // interceptCUE mirrors examples/intercept/kevin.cue: fake_s3 (MiniStack)
 // stands in for the real AWS S3 endpoints, s3_intercept registers both the
-// bare and wildcard regional hostnames as external: true routes, and probe
+// bare and wildcard regional hostnames as intercept: true routes, and probe
 // runs the real, unmodified aws-cli against those hostnames.
 const interceptCUE = `project: "%s"
 
@@ -41,8 +41,8 @@ env: {
 		label: "Intercept S3"
 		needs: ["fake_s3", "fake_s3_ready"]
 		with: routes: [
-			{host: "s3.us-east-1.amazonaws.com", address: "${needs.fake_s3.out.host_4566}", external: true},
-			{host: "*.s3.us-east-1.amazonaws.com", address: "${needs.fake_s3.out.host_4566}", external: true},
+			{host: "s3.us-east-1.amazonaws.com", address: "${needs.fake_s3.out.host_4566}", intercept: true},
+			{host: "*.s3.us-east-1.amazonaws.com", address: "${needs.fake_s3.out.host_4566}", intercept: true},
 		]
 	}
 	probe: {
@@ -76,7 +76,7 @@ env: {
 `
 
 // InterceptSuite covers docs/MANUAL_TESTING.md section 8: builtin:route
-// with external: true.
+// with intercept: true.
 type InterceptSuite struct {
 	e2eSuite
 }

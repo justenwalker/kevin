@@ -67,15 +67,15 @@ app_route: {
 
 A brand-new route needs no DNS setup either. The proxy's `proxy.pac` already sends the whole environment domain through the proxy by string suffix, so it's reachable from a PAC-configured browser the moment the step registers it, the same as any other route.
 
-## External hostnames
+## Intercepted hostnames
 
-An `external: true` route (see the [route reference]({{< relref "/docs/reference/steps/route" >}})) reaches a pod's own DNS too, with no `hostAliases` entry or proxy environment variable of its own - the relay self-answers for that real-world hostname alongside the environment domain, on whichever port the route's `ports` list names (443 by default):
+An `intercept: true` route (see the [route reference]({{< relref "/docs/reference/steps/route" >}})) reaches a pod's own DNS too, with no `hostAliases` entry or proxy environment variable of its own - the relay self-answers for that real-world hostname alongside the environment domain, on whichever port the route's `ports` list names (443 by default):
 
 ```cue
 s3_intercept: {
     uses: "builtin:route"
     with: routes: [{
-        host: "s3.us-east-1.amazonaws.com", external: true,
+        host: "s3.us-east-1.amazonaws.com", intercept: true,
         address: "ministack.default.svc.cluster.local:4566",
     }]
 }
@@ -87,4 +87,4 @@ This registration is now redundant for a kind pod's own egress, the same way it 
 
 ## Limits
 
-A kind pod's egress is captured the same way a container step's is now - on port 80, 443, and whatever an `external: true` route adds, regardless of the address a pod actually dialed. A pod's request on any other port still reaches the internet directly, the identical limit a container step has: capture gets a request to the proxy, it's the allow list that decides whether the proxy lets it through (see [Proxy and egress]({{< relref "proxy-and-egress" >}})).
+A kind pod's egress is captured the same way a container step's is now - on port 80, 443, and whatever an `intercept: true` route adds, regardless of the address a pod actually dialed. A pod's request on any other port still reaches the internet directly, the identical limit a container step has: capture gets a request to the proxy, it's the allow list that decides whether the proxy lets it through (see [Proxy and egress]({{< relref "proxy-and-egress" >}})).

@@ -134,7 +134,7 @@ type Relay struct {
 	Intercept RelayIntercept `json:"intercept"`
 }
 
-// RelayIntercept configures the address pools a registered external
+// RelayIntercept configures the address pools a registered intercept
 // route's synthetic IP is allocated from.
 type RelayIntercept struct {
 	IPv4Range string `json:"ipv4_range"`

@@ -28,7 +28,7 @@ web_route: {
 
 A leading `*.` on `host` registers a wildcard subdomain, matching any
 name under it but not the bare domain itself - this works the same way
-whether or not `external` is set:
+whether or not `intercept` is set:
 
 ```cue
 tenant_route: {
@@ -63,7 +63,7 @@ app_route: {
 step that publishes the relay address too). `Up` must run after both are
 ready.
 
-Set `external` on an entry to intercept a real-world hostname instead of
+Set `intercept` on an entry to intercept a real-world hostname instead of
 registering a subdomain - `host` is then used exactly as given, and traffic
 meant for that real service transparently lands on `address` instead, such
 as a local fake running behind a `container` step. The same `*.` wildcard
@@ -76,8 +76,8 @@ s3_intercept: {
     uses:  "builtin:route"
     needs: ["s3_fake"]
     with: routes: [
-        {host: "s3.amazonaws.com", address: "${needs.s3_fake.out.host_4566}", external: true},
-        {host: "*.s3.amazonaws.com", address: "${needs.s3_fake.out.host_4566}", external: true},
+        {host: "s3.amazonaws.com", address: "${needs.s3_fake.out.host_4566}", intercept: true},
+        {host: "*.s3.amazonaws.com", address: "${needs.s3_fake.out.host_4566}", intercept: true},
     ]
 }
 ```
@@ -95,11 +95,11 @@ genuine (if unauthenticated) S3 API response.
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `host` | `string` | - | **Required.** The subdomain under the environment domain that serves this route, e.g. `"myapp"` registers `"myapp.<domain>"`. When external is true, host is instead a real-world hostname used exactly as given, e.g. `"s3.amazonaws.com"`. Either way, a leading `"*."` wildcard matches any subdomain but not the bare domain itself: `"*.myapp"` registers `"*.myapp.<domain>"`, matching `"anything.myapp.<domain>"` but not `"myapp.<domain>"` - same rule the proxy's route table applies to `"*.s3.amazonaws.com"` for an external entry. |
+| `host` | `string` | - | **Required.** The subdomain under the environment domain that serves this route, e.g. `"myapp"` registers `"myapp.<domain>"`. When intercept is true, host is instead a real-world hostname used exactly as given, e.g. `"s3.amazonaws.com"`. Either way, a leading `"*."` wildcard matches any subdomain but not the bare domain itself: `"*.myapp"` registers `"*.myapp.<domain>"`, matching `"anything.myapp.<domain>"` but not `"myapp.<domain>"` - same rule the proxy's route table applies to `"*.s3.amazonaws.com"` for an intercept entry. |
 | `address` | `string` | - | **Required.** The target: a Kubernetes Service DNS name and port when relay is set (`"myapp.default.svc.cluster.local:80"`), or a host-reachable address the proxy process can dial directly otherwise (`"127.0.0.1:8080"`). |
 | `tls` | `bool` | - | True when the target itself speaks TLS, such as a Service fronting HTTPS on its port. |
-| `external` | `bool` | - | True when host is a real-world hostname to intercept, rather than a subdomain of the environment domain - traffic meant for that real service transparently lands on address instead, such as a local fake running behind a container step. |
-| `ports` | `[...int]` | `[443]` | Lists the ports a client actually dials host on, beyond 443, which the relay always listens on - defaults to 443, the overwhelming common case for a TLS API. Ignored unless external is true. |
+| `intercept` | `bool` | - | True when host is a real-world hostname to intercept, rather than a subdomain of the environment domain - traffic meant for that real service transparently lands on address instead, such as a local fake running behind a container step. |
+| `ports` | `[...int]` | `[443]` | Lists the ports a client actually dials host on, beyond 443, which the relay always listens on - defaults to 443, the overwhelming common case for a TLS API. Ignored unless intercept is true. |
 | `mode` | `"mitm"` \| `"passthrough"` \| `"raw"` | `"mitm"` | Selects how the proxy handles a client's connection to this route - independent of tls, which only says whether address itself speaks TLS: - `"mitm"` (default): terminate the client's TLS and re-sign it with kevin's own leaf, then route the decrypted request normally. - `"passthrough"`: tunnel the client's TLS through untouched, so the client validates address's real certificate directly - useful for testing a workload's own TLS, such as a Service fronted by cert-manager inside a builtin:kind cluster. Requires tls: true; a plain-HTTP target has no certificate to pass through. - `"raw"`: tunnel the connection byte for byte, with no TLS or HTTP assumption at all, for a raw TCP service such as a database's wire protocol. Requires tls: false. |
 
 ## Publishes

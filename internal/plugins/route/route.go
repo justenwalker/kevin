@@ -7,7 +7,7 @@
 // This is the one mechanism for putting a step on the environment
 // domain, whatever kind of step produced the address.
 //
-// An entry with external set skips the domain suffix and uses its host
+// An entry with intercept set skips the domain suffix and uses its host
 // exactly as given instead - a real-world hostname, such as
 // "s3.amazonaws.com", rather than a subdomain of the environment. This
 // lets a step intercept traffic meant for a real service and redirect it
@@ -37,12 +37,12 @@ type config struct {
 
 // routeConfig is one entry of the with block's routes list.
 type routeConfig struct {
-	Host     string `json:"host"`
-	Address  string `json:"address"`
-	TLS      bool   `json:"tls"`
-	External bool   `json:"external"`
-	Ports    []int  `json:"ports"`
-	Mode     string `json:"mode"`
+	Host      string `json:"host"`
+	Address   string `json:"address"`
+	TLS       bool   `json:"tls"`
+	Intercept bool   `json:"intercept"`
+	Ports     []int  `json:"ports"`
+	Mode      string `json:"mode"`
 }
 
 // Step is the route step.
@@ -83,7 +83,7 @@ func (Step) Up(_ context.Context, req *plugin.UpRequest, out plugin.Emitter) (*p
 	details := make([]plugin.Detail, 0, len(cfg.Routes))
 	for _, e := range cfg.Routes {
 		host := e.Host + "." + req.Env.Domain
-		if e.External {
+		if e.Intercept {
 			host = e.Host
 		}
 		upstream := e.Address
@@ -91,8 +91,8 @@ func (Step) Up(_ context.Context, req *plugin.UpRequest, out plugin.Emitter) (*p
 			upstream = fmt.Sprintf("socks5://%s/%s", cfg.Relay, e.Address)
 		}
 		r := plugin.Route{Host: host, Upstream: upstream, TLS: e.TLS, Mode: parseRouteMode(e.Mode)}
-		if e.External {
-			r.External = &plugin.RouteExternal{Ports: e.Ports}
+		if e.Intercept {
+			r.Intercept = &plugin.RouteIntercept{Ports: e.Ports}
 		}
 		routes = append(routes, r)
 		details = append(details, r.Detail())

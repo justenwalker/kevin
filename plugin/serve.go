@@ -159,12 +159,12 @@ func (s *server) Up(req *pb.UpRequest, stream grpc.ServerStreamingServer[pb.Even
 	routes := make([]*pb.Route, 0, len(result.Routes))
 	for _, r := range result.Routes {
 		pr := &pb.Route{Host: r.Host, Upstream: r.Upstream, Tls: r.TLS, Mode: routeModeToProto(r.Mode)}
-		if r.External != nil {
-			ports := make([]int32, len(r.External.Ports))
-			for i, p := range r.External.Ports {
+		if r.Intercept != nil {
+			ports := make([]int32, len(r.Intercept.Ports))
+			for i, p := range r.Intercept.Ports {
 				ports[i] = int32(p) //nolint:gosec // a port is always within int32 range
 			}
-			pr.External = &pb.External{Ports: ports}
+			pr.Intercept = &pb.Intercept{Ports: ports}
 		}
 		routes = append(routes, pr)
 	}

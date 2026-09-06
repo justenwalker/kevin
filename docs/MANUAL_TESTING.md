@@ -126,11 +126,11 @@ instead of hitting the proxy's own endpoint directly.)
       by step name over the docker network, without any proxy env vars.
 
 Add a second entry to `web_route`'s `routes` list:
-`{host: "*.web", address: "${needs.web.out.host_80}"}` - no `external: true`.
+`{host: "*.web", address: "${needs.web.out.host_80}"}` - no `intercept: true`.
 
 - [ ] `curl --proxy http://127.0.0.1:18080 --cacert examples/web/.kevin/root.crt https://anything.web.kevin.home/`
       also reaches the nginx page - a host wildcard matches a subdomain
-      the same way with or without `external: true`.
+      the same way with or without `intercept: true`.
 - [ ] The same request against the bare `web.kevin.home` (no subdomain) is
       unaffected by the wildcard entry - it still only matches through the
       plain `web` entry already there, not the `*.web` one.
@@ -332,7 +332,7 @@ Put `cluster` in `setup` scope instead, and add an `env` step needing
 - [ ] `kevin teardown` afterward removes the cluster (and the manifest
       with it).
 
-## 8. `builtin:route` with `external: true` (`examples/intercept`)
+## 8. `builtin:route` with `intercept: true` (`examples/intercept`)
 
 _Automated by `gnob e2e` (`tests/e2e/intercept_test.go`)._
 
@@ -343,7 +343,7 @@ kevin -C examples/intercept run
 - [ ] `fake_s3` (MiniStack) comes up; `fake_s3_ready` waits for a real HTTP
       response, not just the TCP port.
 - [ ] `s3_intercept` registers `s3.us-east-1.amazonaws.com` and
-      `*.s3.us-east-1.amazonaws.com` as `external: true` routes - a real
+      `*.s3.us-east-1.amazonaws.com` as `intercept: true` routes - a real
       internet hostname, not a `<step>.kevin.home` name.
 - [ ] `probe` runs unmodified `aws-cli` (no `--endpoint-url`) against those
       real hostnames and it lands on `fake_s3`: `docker logs` on the probe
@@ -806,7 +806,7 @@ KEVIN_RELAY_IMAGE=kevin-relay:dev kevin -C /path/to/this run
 ## 20. `examples/s3-app` - persistent cluster, intercepted S3, cross-scope route
 
 _Not yet automated - combines sections 7, 8, and 12 (`builtin:kind` +
-`external: true` interception + `setup`/`env` cross-scope `needs`) into one
+`intercept: true` interception + `setup`/`env` cross-scope `needs`) into one
 environment; each is covered separately elsewhere, but not together._
 
 ```sh
@@ -819,7 +819,7 @@ kevin -C examples/s3-app run        # every iteration: deploy/redeploy the app
       scope, meant to outlive any single `run`.
 - [ ] `s3_intercept` (`env` scope) registers
       `s3.us-east-1.amazonaws.com`/`*.s3.us-east-1.amazonaws.com` as
-      `external: true` routes via `${setup.cluster.out.relay_addr}` - a
+      `intercept: true` routes via `${setup.cluster.out.relay_addr}` - a
       cross-scope `needs: ["setup.cluster"]` read entirely through
       `cluster`'s `Export` RPC, with no `kevin setup` process still running.
 - [ ] `app` (`builtin:helm`) deploys against the persistent cluster and

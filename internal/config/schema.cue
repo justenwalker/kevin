@@ -205,7 +205,7 @@ relay: {
 	image?: string
 
 	intercept: {
-		// ipv4_range is the address pool a registered external route's
+		// ipv4_range is the address pool a registered intercept route's
 		// synthetic IPv4 address is allocated from - never a real address a
 		// workload could otherwise dial, so a captured connection to one is
 		// unambiguously a registered intercept. Defaults to 198.18.0.0/15,

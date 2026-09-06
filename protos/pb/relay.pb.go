@@ -126,11 +126,11 @@ func (*RegisterCaptureResponse) Descriptor() ([]byte, []int) {
 
 type EnsureListenerRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Host is the real-world hostname an External route names. Empty for a
+	// Host is the real-world hostname an intercept route names. Empty for a
 	// step whose egress the relay already captures directly, which needs no
 	// DNS answer of its own.
 	Host string `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
-	// Ports lists the ports a route's External entry names, beyond the
+	// Ports lists the ports a route's Intercept entry names, beyond the
 	// relay's always-open 80 and 443.
 	Ports         []int32 `protobuf:"varint,2,rep,packed,name=ports,proto3" json:"ports,omitempty"`
 	unknownFields protoimpl.UnknownFields

@@ -28,7 +28,7 @@ web_route: {
 
 A leading `*.` on `host` registers a wildcard subdomain, matching any
 name under it but not the bare domain itself - this works the same way
-whether or not `external` is set:
+whether or not `intercept` is set:
 
 ```cue
 tenant_route: {
@@ -63,7 +63,7 @@ app_route: {
 step that publishes the relay address too). `Up` must run after both are
 ready.
 
-Set `external` on an entry to intercept a real-world hostname instead of
+Set `intercept` on an entry to intercept a real-world hostname instead of
 registering a subdomain - `host` is then used exactly as given, and traffic
 meant for that real service transparently lands on `address` instead, such
 as a local fake running behind a `container` step. The same `*.` wildcard
@@ -76,8 +76,8 @@ s3_intercept: {
     uses:  "builtin:route"
     needs: ["s3_fake"]
     with: routes: [
-        {host: "s3.amazonaws.com", address: "${needs.s3_fake.out.host_4566}", external: true},
-        {host: "*.s3.amazonaws.com", address: "${needs.s3_fake.out.host_4566}", external: true},
+        {host: "s3.amazonaws.com", address: "${needs.s3_fake.out.host_4566}", intercept: true},
+        {host: "*.s3.amazonaws.com", address: "${needs.s3_fake.out.host_4566}", intercept: true},
     ]
 }
 ```

@@ -12,13 +12,13 @@
 
 #Route: {
 	// host is the subdomain under the environment domain that serves this
-	// route, e.g. "myapp" registers "myapp.<domain>". When external is
+	// route, e.g. "myapp" registers "myapp.<domain>". When intercept is
 	// true, host is instead a real-world hostname used exactly as given,
 	// e.g. "s3.amazonaws.com". Either way, a leading "*." wildcard matches
 	// any subdomain but not the bare domain itself: "*.myapp" registers
 	// "*.myapp.<domain>", matching "anything.myapp.<domain>" but not
 	// "myapp.<domain>" - same rule the proxy's route table applies to
-	// "*.s3.amazonaws.com" for an external entry.
+	// "*.s3.amazonaws.com" for an intercept entry.
 	host!: string
 
 	// address is the target: a Kubernetes Service DNS name and port when
@@ -31,15 +31,15 @@
 	// fronting HTTPS on its port.
 	tls?: bool
 
-	// external is true when host is a real-world hostname to intercept,
+	// intercept is true when host is a real-world hostname to intercept,
 	// rather than a subdomain of the environment domain - traffic meant
 	// for that real service transparently lands on address instead, such
 	// as a local fake running behind a container step.
-	external?: bool
+	intercept?: bool
 
 	// ports lists the ports a client actually dials host on, beyond 443,
 	// which the relay always listens on - defaults to 443, the overwhelming
-	// common case for a TLS API. Ignored unless external is true.
+	// common case for a TLS API. Ignored unless intercept is true.
 	ports?: [...int] | *[443]
 
 	// mode selects how the proxy handles a client's connection to this

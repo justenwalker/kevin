@@ -323,7 +323,7 @@ func TestServerUp(t *testing.T) {
 				},
 				Routes: []Route{
 					{Host: "api.test", Upstream: "api:8080", TLS: true, Mode: RouteModePassthrough},
-					{Host: "s3.amazonaws.com", Upstream: "127.0.0.1:9090", External: &RouteExternal{Ports: []int{443}}},
+					{Host: "s3.amazonaws.com", Upstream: "127.0.0.1:9090", Intercept: &RouteIntercept{Ports: []int{443}}},
 				},
 				ExposedPorts: []ExposedPort{{Name: "postgres", Protocol: "tcp", Upstream: "127.0.0.1:54321", HostPort: 54321}},
 				EgressAllow:  []string{"proxy.golang.org"},
@@ -402,10 +402,10 @@ func TestServerUp(t *testing.T) {
 		assert.Equal(t, "api:8080", result.GetRoutes()[0].GetUpstream())
 		assert.True(t, result.GetRoutes()[0].GetTls())
 		assert.Equal(t, pb.RouteMode_ROUTE_MODE_PASSTHROUGH, result.GetRoutes()[0].GetMode())
-		assert.Nil(t, result.GetRoutes()[0].GetExternal(), "a route with no External must not gain one in translation")
+		assert.Nil(t, result.GetRoutes()[0].GetIntercept(), "a route with no Intercept must not gain one in translation")
 
-		require.NotNil(t, result.GetRoutes()[1].GetExternal())
-		assert.Equal(t, []int32{443}, result.GetRoutes()[1].GetExternal().GetPorts())
+		require.NotNil(t, result.GetRoutes()[1].GetIntercept())
+		assert.Equal(t, []int32{443}, result.GetRoutes()[1].GetIntercept().GetPorts())
 
 		require.Len(t, result.GetExposedPorts(), 1)
 		assert.Equal(t, "postgres", result.GetExposedPorts()[0].GetName())

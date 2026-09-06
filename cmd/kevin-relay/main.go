@@ -42,7 +42,7 @@ import (
 var log = logging.New("relay")
 
 // defaultFakeIPv4Range and defaultFakeIPv6Range are the pools a registered
-// external route's synthetic address is allocated from when neither flag
+// intercept route's synthetic address is allocated from when neither flag
 // names one - the CLI's own flag defaults, and newRelayProcess's fallback
 // for a caller (a test, say) that builds a config directly, bypassing flag
 // parsing. 198.18.0.0/15 is IANA-reserved for benchmark testing (RFC 2544),
@@ -144,8 +144,8 @@ func bindForwardFlags(fs *pflag.FlagSet, cfg *config) {
 	fs.StringVar(&cfg.socks5Listen, "socks5-listen", ":1080", "the address the SOCKS5 gateway listens on")
 	fs.StringVar(&cfg.controlListen, "control-listen", ":8053", "the address the intercept control endpoint listens on")
 	fs.StringVar(&cfg.upstreamDNS, "upstream-dns", "127.0.0.11:53", "the DNS server for a query outside the domain")
-	fs.StringVar(&cfg.fakeIPv4Range, "fake-ipv4-range", defaultFakeIPv4Range, "the IPv4 pool a registered external route's synthetic address is allocated from")
-	fs.StringVar(&cfg.fakeIPv6Range, "fake-ipv6-range", defaultFakeIPv6Range, "the IPv6 pool a registered external route's synthetic address is allocated from")
+	fs.StringVar(&cfg.fakeIPv4Range, "fake-ipv4-range", defaultFakeIPv4Range, "the IPv4 pool a registered intercept route's synthetic address is allocated from")
+	fs.StringVar(&cfg.fakeIPv6Range, "fake-ipv6-range", defaultFakeIPv6Range, "the IPv6 pool a registered intercept route's synthetic address is allocated from")
 }
 
 // socks5GatewayCommand runs a SOCKS5 relay for a client outside a kind

@@ -21,7 +21,7 @@
 //
 // env (ephemeral, redeployed by every "kevin run"):
 //
-//   - s3_intercept: builtin:route, external: true, registers the real
+//   - s3_intercept: builtin:route, intercept: true, registers the real
 //     s3.us-east-1.amazonaws.com hostnames (path-style and
 //     virtual-hosted-style) into MiniStack - the same trick
 //     examples/intercept and examples/s3-app use.
@@ -32,7 +32,7 @@
 //     (https://nextcloud.com), a real, widely deployed self-hosted file
 //     server - deployed with builtin:helm, gated by builtin:wait, and
 //     reachable at a subdomain with a second, plain builtin:route (no
-//     external: true - a normal environment route, same trick
+//     intercept: true - a normal environment route, same trick
 //     examples/kind's app_route uses).
 //
 // Browse to Nextcloud through kevin's proxy (trust the CA first - see the
@@ -179,7 +179,7 @@ setup: {
 
 env: {
 	// Registers both the path-style and virtual-hosted-style S3 hostnames,
-	// same pair examples/intercept and examples/s3-app use. external: true
+	// same pair examples/intercept and examples/s3-app use. intercept: true
 	// also reaches every pod's own DNS, not just the host proxy: kevin's
 	// relay self-answers for either hostname (port 443, the default) so
 	// nextcloud below needs no hostAliases entry or proxy env of its own.
@@ -190,8 +190,8 @@ env: {
 		with: {
 			relay: "${setup.cluster.out.relay_addr}"
 			routes: [
-				{host: "s3.us-east-1.amazonaws.com", address: "ministack.default.svc.cluster.local:4566", external: true},
-				{host: "*.s3.us-east-1.amazonaws.com", address: "ministack.default.svc.cluster.local:4566", external: true},
+				{host: "s3.us-east-1.amazonaws.com", address: "ministack.default.svc.cluster.local:4566", intercept: true},
+				{host: "*.s3.us-east-1.amazonaws.com", address: "ministack.default.svc.cluster.local:4566", intercept: true},
 			]
 		}
 	}

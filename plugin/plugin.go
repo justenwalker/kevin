@@ -230,21 +230,21 @@ type Route struct {
 	// TLS is true when the upstream itself speaks TLS.
 	TLS bool
 
-	// External marks Host a real-world hostname being intercepted, rather
+	// Intercept marks Host a real-world hostname being intercepted, rather
 	// than a subdomain of the environment domain, and carries the ports a
 	// client dials it on. Nil means Host is a subdomain of the environment
 	// domain, not a real-world hostname.
-	External *RouteExternal
+	Intercept *RouteIntercept
 
 	// Mode selects how a client's connection to this route is handled - see
 	// RouteMode.
 	Mode RouteMode
 }
 
-// RouteExternal is a Route's external-ness: present, it names Host a
+// RouteIntercept marks a Route for interception: present, it names Host a
 // real-world hostname to intercept, rather than a subdomain of the
 // environment domain.
-type RouteExternal struct {
+type RouteIntercept struct {
 	// Ports lists the ports a client dials Host on, for a workload's own
 	// DNS to also resolve Host to the relay.
 	Ports []int

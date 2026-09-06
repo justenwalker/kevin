@@ -1870,11 +1870,11 @@ type Route struct {
 	Upstream string `protobuf:"bytes,2,opt,name=upstream,proto3" json:"upstream,omitempty"`
 	// Tls is true when the upstream itself speaks TLS.
 	Tls bool `protobuf:"varint,3,opt,name=tls,proto3" json:"tls,omitempty"`
-	// External marks host as a real-world hostname being intercepted, rather
+	// Intercept marks host as a real-world hostname being intercepted, rather
 	// than a subdomain of the environment domain, and carries the ports a
 	// client dials it on - unset means host is a subdomain of the
 	// environment domain, not a real-world hostname.
-	External *External `protobuf:"bytes,4,opt,name=external,proto3" json:"external,omitempty"`
+	Intercept *Intercept `protobuf:"bytes,4,opt,name=intercept,proto3" json:"intercept,omitempty"`
 	// Mode selects how a client's connection to this route is handled - see
 	// RouteMode.
 	Mode          RouteMode `protobuf:"varint,5,opt,name=mode,proto3,enum=kevin.plugin.v1.RouteMode" json:"mode,omitempty"`
@@ -1933,9 +1933,9 @@ func (x *Route) GetTls() bool {
 	return false
 }
 
-func (x *Route) GetExternal() *External {
+func (x *Route) GetIntercept() *Intercept {
 	if x != nil {
-		return x.External
+		return x.Intercept
 	}
 	return nil
 }
@@ -1947,10 +1947,10 @@ func (x *Route) GetMode() RouteMode {
 	return RouteMode_ROUTE_MODE_MITM
 }
 
-// External is a Route's external-ness: present, it names host a real-world
-// hostname to intercept, rather than a subdomain of the environment
-// domain.
-type External struct {
+// Intercept marks a Route for interception: present, it names host a
+// real-world hostname to intercept, rather than a subdomain of the
+// environment domain.
+type Intercept struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Ports lists the ports a client dials host on, beyond the relay's
 	// always-on 80 and 443 - the relay opens a listener on each and
@@ -1961,20 +1961,20 @@ type External struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *External) Reset() {
-	*x = External{}
+func (x *Intercept) Reset() {
+	*x = Intercept{}
 	mi := &file_pb_plugin_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *External) String() string {
+func (x *Intercept) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*External) ProtoMessage() {}
+func (*Intercept) ProtoMessage() {}
 
-func (x *External) ProtoReflect() protoreflect.Message {
+func (x *Intercept) ProtoReflect() protoreflect.Message {
 	mi := &file_pb_plugin_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1986,12 +1986,12 @@ func (x *External) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use External.ProtoReflect.Descriptor instead.
-func (*External) Descriptor() ([]byte, []int) {
+// Deprecated: Use Intercept.ProtoReflect.Descriptor instead.
+func (*Intercept) Descriptor() ([]byte, []int) {
 	return file_pb_plugin_proto_rawDescGZIP(), []int{24}
 }
 
-func (x *External) GetPorts() []int32 {
+func (x *Intercept) GetPorts() []int32 {
 	if x != nil {
 		return x.Ports
 	}
@@ -2200,14 +2200,14 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x10ToolCallResponse\x12\x18\n" +
 	"\acontent\x18\x01 \x01(\fR\acontent\x12\x19\n" +
 	"\bis_error\x18\x02 \x01(\bR\aisError\x12#\n" +
-	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\"\xb0\x01\n" +
+	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\"\xb3\x01\n" +
 	"\x05Route\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x1a\n" +
 	"\bupstream\x18\x02 \x01(\tR\bupstream\x12\x10\n" +
-	"\x03tls\x18\x03 \x01(\bR\x03tls\x125\n" +
-	"\bexternal\x18\x04 \x01(\v2\x19.kevin.plugin.v1.ExternalR\bexternal\x12.\n" +
-	"\x04mode\x18\x05 \x01(\x0e2\x1a.kevin.plugin.v1.RouteModeR\x04mode\" \n" +
-	"\bExternal\x12\x14\n" +
+	"\x03tls\x18\x03 \x01(\bR\x03tls\x128\n" +
+	"\tintercept\x18\x04 \x01(\v2\x1a.kevin.plugin.v1.InterceptR\tintercept\x12.\n" +
+	"\x04mode\x18\x05 \x01(\x0e2\x1a.kevin.plugin.v1.RouteModeR\x04mode\"!\n" +
+	"\tIntercept\x12\x14\n" +
 	"\x05ports\x18\x01 \x03(\x05R\x05ports\"3\n" +
 	"\vUserMessage\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x12\n" +
@@ -2270,7 +2270,7 @@ var file_pb_plugin_proto_goTypes = []any{
 	(*ToolCallRequest)(nil),    // 23: kevin.plugin.v1.ToolCallRequest
 	(*ToolCallResponse)(nil),   // 24: kevin.plugin.v1.ToolCallResponse
 	(*Route)(nil),              // 25: kevin.plugin.v1.Route
-	(*External)(nil),           // 26: kevin.plugin.v1.External
+	(*Intercept)(nil),          // 26: kevin.plugin.v1.Intercept
 	(*UserMessage)(nil),        // 27: kevin.plugin.v1.UserMessage
 	nil,                        // 28: kevin.plugin.v1.Environment.ProxyEnvEntry
 	nil,                        // 29: kevin.plugin.v1.Outputs.ValuesEntry
@@ -2303,7 +2303,7 @@ var file_pb_plugin_proto_depIdxs = []int32{
 	11, // 21: kevin.plugin.v1.ExportResponse.out:type_name -> kevin.plugin.v1.Outputs
 	8,  // 22: kevin.plugin.v1.ToolCallRequest.env:type_name -> kevin.plugin.v1.Environment
 	32, // 23: kevin.plugin.v1.ToolCallRequest.deps:type_name -> kevin.plugin.v1.ToolCallRequest.DepsEntry
-	26, // 24: kevin.plugin.v1.Route.external:type_name -> kevin.plugin.v1.External
+	26, // 24: kevin.plugin.v1.Route.intercept:type_name -> kevin.plugin.v1.Intercept
 	1,  // 25: kevin.plugin.v1.Route.mode:type_name -> kevin.plugin.v1.RouteMode
 	10, // 26: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
 	11, // 27: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs

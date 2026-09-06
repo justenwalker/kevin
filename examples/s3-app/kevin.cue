@@ -117,8 +117,8 @@ env: {
 		with: {
 			relay: "${setup.cluster.out.relay_addr}"
 			routes: [
-				{host: "s3.us-east-1.amazonaws.com", address: "ministack.default.svc.cluster.local:4566", external: true},
-				{host: "*.s3.us-east-1.amazonaws.com", address: "ministack.default.svc.cluster.local:4566", external: true},
+				{host: "s3.us-east-1.amazonaws.com", address: "ministack.default.svc.cluster.local:4566", intercept: true},
+				{host: "*.s3.us-east-1.amazonaws.com", address: "ministack.default.svc.cluster.local:4566", intercept: true},
 			]
 		}
 	}

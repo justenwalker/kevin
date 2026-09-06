@@ -54,7 +54,7 @@ func newDNSRelay(domain string, self selfAddrs, upstream string, fakeIPs *fakeIP
 // AddIntercept registers host as a target for a synthetic, allocated
 // address, alongside the configured domain - the only way a workload with
 // no network namespace the relay can capture (a kind pod) reaches an
-// External route's interception. A "*." prefix matches any subdomain, the
+// intercept route's interception. A "*." prefix matches any subdomain, the
 // same wildcard convention kevin's own host proxy uses for its route
 // table. Adding the same host twice is a no-op.
 func (r *dnsRelay) AddIntercept(host string) {

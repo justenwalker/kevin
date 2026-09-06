@@ -1344,7 +1344,7 @@ func routeModeFromProto(m pb.RouteMode) proxy.RouteMode {
 }
 
 // addRoutes registers each of routes with the host proxy, and, for one
-// marked External, registers it with the relay too - its own DNS answers
+// marked Intercept, registers it with the relay too - its own DNS answers
 // for the host, and it opens a listener for the route's declared ports.
 func (r *run) addRoutes(ctx context.Context, name string, routes []*pb.Route) error {
 	for _, route := range routes {
@@ -1356,12 +1356,12 @@ func (r *run) addRoutes(ctx context.Context, name string, routes []*pb.Route) er
 		})
 		r.emit(name, "serving https://"+route.GetHost())
 
-		ext := route.GetExternal()
-		if ext == nil {
+		ic := route.GetIntercept()
+		if ic == nil {
 			continue
 		}
-		ports := make([]int, len(ext.GetPorts()))
-		for i, p := range ext.GetPorts() {
+		ports := make([]int, len(ic.GetPorts()))
+		for i, p := range ic.GetPorts() {
 			ports[i] = int(p)
 		}
 		if err := r.relay.EnsureListener(ctx, route.GetHost(), ports); err != nil {

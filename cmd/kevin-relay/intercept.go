@@ -41,7 +41,7 @@ func (p *relayProcess) RegisterCapture(ctx context.Context, req *pb.RegisterCapt
 }
 
 // EnsureListener implements [pb.RelayControlServer]. It registers an
-// External route: when req.Host is set, the relay's own DNS answers a query
+// intercept route: when req.Host is set, the relay's own DNS answers a query
 // for it - the only way a workload with no network namespace the relay can
 // capture (a kind pod) reaches the interception. It opens a listener for
 // each of req.Ports beyond the relay's always-on 80 and 443, then
@@ -61,7 +61,7 @@ func (p *relayProcess) EnsureListener(ctx context.Context, req *pb.EnsureListene
 }
 
 // capturePorts returns every TCP port currently captured: the relay's
-// always-on 80 and 443, plus any port an External route has opened.
+// always-on 80 and 443, plus any port an intercept route has opened.
 func (p *relayProcess) capturePorts() []int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -122,7 +122,7 @@ func (p *relayProcess) ensureListener(port int) error {
 	return nil
 }
 
-// serveIntercept accepts connections on ln - bound for an external route's
+// serveIntercept accepts connections on ln - bound for an intercept route's
 // declared port beyond the fixed :80/:443 pair - and dispatches each: a
 // fake-IP match tunnels directly with no protocol assumption at all,
 // anything else falls through to handleHTTPS or handleHTTP by peeking

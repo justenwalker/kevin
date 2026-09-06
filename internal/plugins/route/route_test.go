@@ -84,14 +84,14 @@ func TestUpBuildsARouteAndDetailPerEntry(t *testing.T) {
 	assert.Equal(t, result.Routes[2].Detail(), result.Details[2])
 }
 
-func TestUpWithExternalSkipsTheDomainSuffix(t *testing.T) {
+func TestUpWithInterceptSkipsTheDomainSuffix(t *testing.T) {
 	result, err := Step{}.Up(t.Context(), &plugin.UpRequest{
 		Step: "s3_intercept",
 		Env:  plugin.Env{Domain: "kevin.home"},
 		Config: []byte(`{
 			"routes": [
-				{"host": "s3.amazonaws.com", "address": "127.0.0.1:9090", "external": true, "ports": [443]},
-				{"host": "*.s3.amazonaws.com", "address": "127.0.0.1:9090", "tls": true, "external": true, "ports": [443]}
+				{"host": "s3.amazonaws.com", "address": "127.0.0.1:9090", "intercept": true, "ports": [443]},
+				{"host": "*.s3.amazonaws.com", "address": "127.0.0.1:9090", "tls": true, "intercept": true, "ports": [443]}
 			]
 		}`),
 	}, &noopEmitter{})
@@ -99,22 +99,22 @@ func TestUpWithExternalSkipsTheDomainSuffix(t *testing.T) {
 
 	require.Len(t, result.Routes, 2)
 	assert.Equal(t, plugin.Route{
-		Host:     "s3.amazonaws.com",
-		Upstream: "127.0.0.1:9090",
-		External: &plugin.RouteExternal{Ports: []int{443}},
-	}, result.Routes[0], "external must use the host verbatim, not suffixed with the environment domain")
+		Host:      "s3.amazonaws.com",
+		Upstream:  "127.0.0.1:9090",
+		Intercept: &plugin.RouteIntercept{Ports: []int{443}},
+	}, result.Routes[0], "intercept must use the host verbatim, not suffixed with the environment domain")
 	assert.Equal(t, plugin.Route{
-		Host:     "*.s3.amazonaws.com",
-		Upstream: "127.0.0.1:9090",
-		TLS:      true,
-		External: &plugin.RouteExternal{Ports: []int{443}},
+		Host:      "*.s3.amazonaws.com",
+		Upstream:  "127.0.0.1:9090",
+		TLS:       true,
+		Intercept: &plugin.RouteIntercept{Ports: []int{443}},
 	}, result.Routes[1])
 }
 
 func TestUpWithAWildcardHostSuffixesTheDomainBeforeTheProxySeesIt(t *testing.T) {
 	// The proxy's route table treats any Route.Host with a leading "*." as
-	// a wildcard, regardless of external - it never sees "external" at
-	// all, only the final Host string. A non-external "*.foo" must still
+	// a wildcard, regardless of intercept - it never sees "intercept" at
+	// all, only the final Host string. A non-intercept "*.foo" must still
 	// get the domain suffix appended after the wildcard marker, not
 	// instead of it, so "*.foo.kevin.home" reaches the table intact.
 	result, err := Step{}.Up(t.Context(), &plugin.UpRequest{

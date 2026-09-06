@@ -20,7 +20,7 @@ service RelayControl {
   // exclude_cidrs so pod-to-pod and pod-to-service traffic isn't touched.
   rpc RegisterCapture(RegisterCaptureRequest) returns (RegisterCaptureResponse);
 
-  // EnsureListener registers an External route: it answers the relay's own
+  // EnsureListener registers an intercept route: it answers the relay's own
   // DNS for host - exactly, or by "*." wildcard, the same rule builtin:route
   // itself applies - since a workload with no network namespace the relay
   // can capture (a kind pod) has no other way to reach the interception; it
@@ -49,12 +49,12 @@ message RegisterCaptureRequest {
 message RegisterCaptureResponse {}
 
 message EnsureListenerRequest {
-  // Host is the real-world hostname an External route names. Empty for a
+  // Host is the real-world hostname an intercept route names. Empty for a
   // step whose egress the relay already captures directly, which needs no
   // DNS answer of its own.
   string host = 1;
 
-  // Ports lists the ports a route's External entry names, beyond the
+  // Ports lists the ports a route's Intercept entry names, beyond the
   // relay's always-open 80 and 443.
   repeated int32 ports = 2;
 }

@@ -125,7 +125,7 @@ leaves no tag or GitHub release behind.
   Other example environments: `examples/echo` (provider with no real
   resource, demonstrates DAG fan-out/fan-in and failure propagation),
   `examples/kind` (Kubernetes cluster), `examples/intercept` (a `route`
-  step's `external: true` fakes out a real-world hostname with a local
+  step's `intercept: true` fakes out a real-world hostname with a local
   container). `kevin ca install`/`uninstall` manages the CA trust store;
   it needs no project (see the quickstart's "Trust the CA" section).
 - **Any unreleased change touching the relay** (`cmd/kevin-relay`,

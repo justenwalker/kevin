@@ -7,7 +7,7 @@
 // fake_s3 starts a MiniStack container. s3_intercept registers both
 // s3.us-east-1.amazonaws.com and *.s3.us-east-1.amazonaws.com - real AWS
 // hostnames, not subdomains of the environment - as routes into fake_s3,
-// using external: true. Both are needed: aws-cli's regional S3 endpoint
+// using intercept: true. Both are needed: aws-cli's regional S3 endpoint
 // serves a path-style API off the bare domain and a virtual-hosted-style
 // API off a per-bucket subdomain. probe then runs the real aws-cli,
 // completely unmodified - no --endpoint-url, no local config - to create
@@ -57,7 +57,7 @@ env: {
 		}
 	}
 	// s3_intercept makes a request meant for the real S3 endpoints land on
-	// fake_s3 instead of the real internet. external skips the
+	// fake_s3 instead of the real internet. intercept skips the
 	// environment-domain suffix a plain route entry would otherwise get:
 	// host is used exactly as a client already dials it.
 	s3_intercept: {
@@ -65,8 +65,8 @@ env: {
 		label: "Intercept S3"
 		needs: ["fake_s3", "fake_s3_ready"]
 		with: routes: [
-			{host: "s3.us-east-1.amazonaws.com", address: "${needs.fake_s3.out.host_4566}", external: true},
-			{host: "*.s3.us-east-1.amazonaws.com", address: "${needs.fake_s3.out.host_4566}", external: true},
+			{host: "s3.us-east-1.amazonaws.com", address: "${needs.fake_s3.out.host_4566}", intercept: true},
+			{host: "*.s3.us-east-1.amazonaws.com", address: "${needs.fake_s3.out.host_4566}", intercept: true},
 		]
 	}
 	// probe runs the real aws-cli, completely unmodified - no

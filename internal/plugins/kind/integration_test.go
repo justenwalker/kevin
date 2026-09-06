@@ -196,7 +196,7 @@ func (s *KindSuite) TestCoreDNSCarriesTheForwardZone() {
 // own resolv.conf to name the relay as its only nameserver - so CoreDNS's
 // own default "forward . /etc/resolv.conf" fallback (untouched by the
 // Corefile patch, which only ever edits the domain's own zone) reaches the
-// relay too, for anything a builtin:route external: true entry registers.
+// relay too, for anything a builtin:route intercept: true entry registers.
 func (s *KindSuite) TestNodeDNSPointsAtRelay() {
 	t := s.T()
 	container := s.controlPlaneNode()
