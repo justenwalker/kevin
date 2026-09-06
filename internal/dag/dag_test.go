@@ -92,7 +92,7 @@ func TestWalk(t *testing.T) {
 			order = append(order, name)
 			mu.Unlock()
 			return Outputs{"from": name, "deps": joinKeys(deps)}, nil
-		})
+		}, 0)
 		require.NoError(t, err)
 
 		require.Len(t, order, 4)
@@ -118,9 +118,64 @@ func TestWalk(t *testing.T) {
 			time.Sleep(20 * time.Millisecond)
 			inFlight.Add(-1)
 			return nil, nil //nolint:nilnil // a nil Outputs is a valid empty result, not the caller ever mistaking it for "not found"
-		})
+		}, 0)
 		require.NoError(t, err)
 		assert.Equal(t, int32(3), peak.Load(), "independent steps must overlap")
+	})
+
+	t.Run("maxParallel caps how many steps run at once", func(t *testing.T) {
+		g := New(map[string][]string{"a": nil, "b": nil, "c": nil, "d": nil})
+
+		var inFlight, peak atomic.Int32
+		_, err := g.Walk(t.Context(), func(context.Context, string, map[string]Outputs) (Outputs, error) {
+			n := inFlight.Add(1)
+			for {
+				old := peak.Load()
+				if n <= old || peak.CompareAndSwap(old, n) {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+			inFlight.Add(-1)
+			return nil, nil //nolint:nilnil // a nil Outputs is a valid empty result, not the caller ever mistaking it for "not found"
+		}, 2)
+		require.NoError(t, err)
+		assert.Equal(t, int32(2), peak.Load(), "maxParallel must cap concurrent steps")
+	})
+
+	t.Run("a step queued for a full slot stops when the context is canceled", func(t *testing.T) {
+		g := New(map[string][]string{"a": nil, "b": nil, "c": nil})
+
+		ctx, cancel := context.WithCancel(t.Context())
+		started := make(chan string, 1)
+		release := make(chan struct{})
+
+		type walkResult struct {
+			results map[string]Outputs
+			err     error
+		}
+		done := make(chan walkResult, 1)
+		go func() {
+			results, err := g.Walk(ctx, func(_ context.Context, name string, _ map[string]Outputs) (Outputs, error) {
+				select {
+				case started <- name:
+				default:
+				}
+				<-release
+				return Outputs{"v": name}, nil
+			}, 1)
+			done <- walkResult{results, err}
+		}()
+
+		ranFirst := <-started
+		cancel()
+		time.Sleep(20 * time.Millisecond) // give the two queued steps time to observe cancellation before the slot frees
+		close(release)
+
+		r := <-done
+		require.NoError(t, r.err, "a step canceled while queued for a slot must not report an error")
+		assert.Len(t, r.results, 1, "the two steps still queued for the slot must be canceled, not run")
+		assert.Contains(t, r.results, ranFirst, "the step that already held the slot must still complete")
 	})
 
 	t.Run("a failure skips dependents and reports the root cause", func(t *testing.T) {
@@ -142,7 +197,7 @@ func TestWalk(t *testing.T) {
 				return nil, assert.AnError
 			}
 			return Outputs{"ok": name}, nil
-		})
+		}, 0)
 
 		require.ErrorIs(t, err, assert.AnError, "the root cause must survive, not a skip error")
 		assert.Contains(t, err.Error(), `step "boom"`)
@@ -160,7 +215,7 @@ func TestWalk(t *testing.T) {
 		_, err := g.Walk(t.Context(), func(context.Context, string, map[string]Outputs) (Outputs, error) {
 			called = true
 			return nil, nil //nolint:nilnil // a nil Outputs is a valid empty result, not the caller ever mistaking it for "not found"
-		})
+		}, 0)
 
 		require.ErrorIs(t, err, ErrUnknownStep)
 		assert.False(t, called, "an invalid graph must not run any step")
@@ -225,6 +280,7 @@ func TestWalkFrom(t *testing.T) {
 				mu.Unlock()
 				return Outputs{"v": name, "saw": deps["b"]["v"]}, nil
 			},
+			0,
 		)
 		require.NoError(t, err)
 
@@ -232,6 +288,32 @@ func TestWalkFrom(t *testing.T) {
 		assert.Equal(t, "b", results["c"]["saw"], "a dependent that IS in run must still see the prior output of a step that is not")
 		assert.Equal(t, Outputs{"v": "a"}, results["a"], "a step outside run publishes its prior output unchanged")
 		assert.Equal(t, Outputs{"v": "b"}, results["b"])
+	})
+
+	t.Run("maxParallel caps concurrent steps like Walk", func(t *testing.T) {
+		g := New(map[string][]string{"a": nil, "b": nil, "c": nil, "d": nil})
+
+		var inFlight, peak atomic.Int32
+		results, err := g.WalkFrom(t.Context(),
+			map[string]bool{"a": true, "b": true, "c": true, "d": true},
+			nil,
+			func(context.Context, string, map[string]Outputs) (Outputs, error) {
+				n := inFlight.Add(1)
+				for {
+					old := peak.Load()
+					if n <= old || peak.CompareAndSwap(old, n) {
+						break
+					}
+				}
+				time.Sleep(20 * time.Millisecond)
+				inFlight.Add(-1)
+				return nil, nil //nolint:nilnil // a nil Outputs is a valid empty result, not the caller ever mistaking it for "not found"
+			},
+			2,
+		)
+		require.NoError(t, err)
+		assert.Len(t, results, 4)
+		assert.Equal(t, int32(2), peak.Load(), "maxParallel must cap concurrent steps in WalkFrom too")
 	})
 
 	t.Run("skips a step with no prior output and not in run", func(t *testing.T) {
@@ -250,6 +332,7 @@ func TestWalkFrom(t *testing.T) {
 			func(_ context.Context, name string, _ map[string]Outputs) (Outputs, error) {
 				return Outputs{"v": name}, nil
 			},
+			0,
 		)
 		require.NoError(t, err)
 
@@ -270,7 +353,7 @@ func TestReverse(t *testing.T) {
 		order = append(order, name)
 		mu.Unlock()
 		return nil, nil //nolint:nilnil // a nil Outputs is a valid empty result, not the caller ever mistaking it for "not found"
-	})
+	}, 0)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"c", "b", "a"}, order, "a dependent step must be removed before its dependency")
 }

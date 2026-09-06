@@ -194,7 +194,8 @@ type result struct {
 }
 
 // Walk runs every step in dependency order. Steps that do not depend on each
-// other run at the same time.
+// other run at the same time, up to maxParallel of them at once - 0 means no
+// limit.
 //
 // The first step that fails cancels the context of the other steps. Walk skips
 // a step when a dependency of that step fails, and reports the error of the
@@ -202,17 +203,17 @@ type result struct {
 //
 // The returned map holds the outputs of every step that is complete, even when
 // Walk returns an error.
-func (g *Graph) Walk(ctx context.Context, fn NodeFunc) (map[string]Outputs, error) {
-	return g.walk(ctx, fn, nil, nil)
+func (g *Graph) Walk(ctx context.Context, fn NodeFunc, maxParallel int) (map[string]Outputs, error) {
+	return g.walk(ctx, fn, nil, nil, maxParallel)
 }
 
 // WalkFrom re-runs the steps named in run, calling fn for each. A step not
 // named in run is treated as already complete: its recorded output, from
 // prior, is published immediately for any dependent that IS in run. A step
 // that is neither in run nor has an entry in prior is skipped, the same way
-// Walk skips a dependent of a failed step.
-func (g *Graph) WalkFrom(ctx context.Context, run map[string]bool, prior map[string]Outputs, fn NodeFunc) (map[string]Outputs, error) {
-	return g.walk(ctx, fn, run, prior)
+// Walk skips a dependent of a failed step. maxParallel is as in Walk.
+func (g *Graph) WalkFrom(ctx context.Context, run map[string]bool, prior map[string]Outputs, fn NodeFunc, maxParallel int) (map[string]Outputs, error) {
+	return g.walk(ctx, fn, run, prior, maxParallel)
 }
 
 // waitForDeps blocks until every dependency of name is done, and collects
@@ -244,7 +245,8 @@ func (g *Graph) waitForDeps(ctx context.Context, name string, done map[string]ch
 // walk implements both Walk and WalkFrom. only == nil means every step is in
 // scope, the behavior Walk needs; otherwise a step not in only short-circuits
 // to its prior output (or a skip, if it has none) instead of calling fn.
-func (g *Graph) walk(ctx context.Context, fn NodeFunc, only map[string]bool, prior map[string]Outputs) (map[string]Outputs, error) {
+// maxParallel caps how many steps run at once - 0 means no limit.
+func (g *Graph) walk(ctx context.Context, fn NodeFunc, only map[string]bool, prior map[string]Outputs, maxParallel int) (map[string]Outputs, error) {
 	if err := g.Validate(); err != nil {
 		return nil, err
 	}
@@ -264,6 +266,14 @@ func (g *Graph) walk(ctx context.Context, fn NodeFunc, only map[string]bool, pri
 		close(done[name])
 	}
 
+	// sem gates only fn, not waitForDeps - a step blocked on a dependency
+	// holds no slot, so it can't starve that dependency of the slot it
+	// needs to run and start (launch order isn't topological order).
+	var sem chan struct{}
+	if maxParallel > 0 {
+		sem = make(chan struct{}, maxParallel)
+	}
+
 	grp, ctx := errgroup.WithContext(ctx)
 	for _, name := range g.Steps() {
 		grp.Go(func() error {
@@ -279,6 +289,16 @@ func (g *Graph) walk(ctx context.Context, fn NodeFunc, only map[string]bool, pri
 				// and a cascade would hide the root cause.
 				finish(name, result{})
 				return nil
+			}
+
+			if sem != nil {
+				select {
+				case sem <- struct{}{}:
+					defer func() { <-sem }()
+				case <-ctx.Done():
+					finish(name, result{})
+					return nil
+				}
 			}
 
 			out, err := fn(ctx, name, deps)

@@ -999,6 +999,7 @@ env: a: uses: "echo:echo"
 		assert.Empty(t, cfg.Proxy.Egress.Allow)
 		assert.False(t, cfg.Proxy.Egress.Passthrough, "passthrough defaults false")
 		assert.Empty(t, cfg.Relay.Image)
+		assert.Zero(t, cfg.Engine.MaxParallel, "max_parallel defaults to unlimited")
 	})
 
 	t.Run("decodes the egress passthrough field", func(t *testing.T) {
@@ -1013,6 +1014,20 @@ proxy: egress: passthrough: true
 		cfg, err := f.Config()
 		require.NoError(t, err)
 		assert.True(t, cfg.Proxy.Egress.Passthrough)
+	})
+
+	t.Run("decodes the engine block", func(t *testing.T) {
+		f := load(t, `
+project: "demo"
+plugins: echo: cmd: "echo"
+engine: max_parallel: 4
+`)
+		require.NoError(t, f.Validate(nil))
+
+		cfg, err := f.Config()
+		require.NoError(t, err)
+
+		assert.Equal(t, 4, cfg.Engine.MaxParallel)
 	})
 
 	t.Run("decodes the relay block", func(t *testing.T) {

@@ -129,6 +129,12 @@ type Console struct {
 	Listen string `json:"listen"`
 }
 
+// Engine configures the DAG engine that brings steps up and down.
+type Engine struct {
+	// MaxParallel caps how many steps run at once. 0 means no limit.
+	MaxParallel int `json:"max_parallel"`
+}
+
 // Relay configures the in-network relay.
 type Relay struct {
 	Image     string         `json:"image"`
@@ -167,6 +173,7 @@ type Config struct {
 	Proxy   Proxy   `json:"proxy"`
 	Console Console `json:"console"`
 	Relay   Relay   `json:"relay"`
+	Engine  Engine  `json:"engine"`
 
 	// groups holds each scope's step groups by their own bare name,
 	// populated by [File.Config] - a group's member Steps already live in

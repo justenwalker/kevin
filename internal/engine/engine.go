@@ -1375,7 +1375,7 @@ func (r *run) addRoutes(ctx context.Context, name string, routes []*pb.Route) er
 }
 
 func (r *run) up(ctx context.Context) error {
-	results, err := r.graph().Walk(ctx, r.upStep)
+	results, err := r.graph().Walk(ctx, r.upStep, r.cfg.Engine.MaxParallel)
 	r.markSkipped(r.graph().Steps(), results)
 	return err
 }
@@ -1408,7 +1408,7 @@ func (r *run) RerunStep(ctx context.Context, name string, cascade bool) error {
 		names = append(names, step)
 	}
 
-	results, err := r.graph().WalkFrom(ctx, toRun, completed, r.upStep)
+	results, err := r.graph().WalkFrom(ctx, toRun, completed, r.upStep, r.cfg.Engine.MaxParallel)
 	r.markSkipped(names, results)
 	return err
 }
@@ -1545,7 +1545,7 @@ func (r *run) down(ctx context.Context) error {
 
 	_, err := dag.New(needs).Reverse().Walk(ctx, func(ctx context.Context, name string, _ map[string]dag.Outputs) (dag.Outputs, error) {
 		return r.downStep(ctx, name, needs[name], completed)
-	})
+	}, r.cfg.Engine.MaxParallel)
 	return err
 }
 

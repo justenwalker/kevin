@@ -934,6 +934,28 @@ env: a: {uses: "echo:echo", with: message: "A"}
 	require.NoError(t, <-done)
 }
 
+// TestRunAppliesMaxParallelFromConfig proves engine.max_parallel in
+// kevin.cue reaches the DAG walk: two independent steps that would normally
+// overlap must instead run one after the other.
+func TestRunAppliesMaxParallelFromConfig(t *testing.T) {
+	requireRelay(t)
+
+	dir := project(t, `
+engine: max_parallel: 1
+env: {
+	a: {uses: "echo:echo", with: delay: "300ms"}
+	b: {uses: "echo:echo", with: delay: "300ms"}
+	c: {uses: "echo:echo", needs: ["a", "b"]}
+}
+`)
+
+	start := time.Now()
+	_, err := runUntil(t, dir, "c                ready")
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, time.Since(start), 550*time.Millisecond,
+		"max_parallel: 1 must serialize a and b instead of overlapping their delays")
+}
+
 // TestRunRendersNeedsTemplatesBeforeDown proves down renders a step's with
 // block against upstream outputs exactly like up does, rather than sending
 // the plugin the raw "${needs...}" template string.

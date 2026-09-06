@@ -207,6 +207,11 @@ console: {
 	listen: string & =~ "^.+:[1-9][0-9]*$"
 }
 
+engine: {
+	// max_parallel caps how many steps run at once. 0 (default) means no limit.
+	max_parallel: int & >=0 | *0
+}
+
 relay: {
 	// image is the relay image. KEVIN_RELAY_IMAGE overrides it.
 	image?: string

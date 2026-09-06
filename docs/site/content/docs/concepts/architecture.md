@@ -64,7 +64,7 @@ graph TD
 | CLI           | Parses the command line.                                      |
 | Engine        | Loads the environment, starts the plugins, walks the DAG.     |
 | Configuration | Reads `kevin.cue`. Validates every step before anything runs. |
-| DAG engine    | Orders the steps. Runs independent steps concurrently.        |
+| DAG engine    | Orders the steps. Runs independent steps concurrently, capped by `engine.max_parallel`. |
 | Plugin host   | Starts a plugin process and keeps the process alive.          |
 | Plugin SDK    | The public API that a plugin author implements.               |
 | Wire contract | The gRPC service between the engine and a plugin.             |
