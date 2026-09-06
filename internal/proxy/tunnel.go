@@ -7,10 +7,11 @@ import (
 	"time"
 )
 
-// tunnelRoute serves a CONNECT for a route whose upstream already speaks
-// TLS and asked to skip kevin's MITM (Route.SkipMITM): bytes pass straight
-// through to the upstream, undecrypted, so the client validates the
-// upstream's own certificate instead of a kevin-signed leaf.
+// tunnelRoute serves a CONNECT for a route in RouteModePassthrough or
+// RouteModeRaw: bytes pass straight through to the upstream, undecrypted
+// and unparsed, so a passthrough client validates the upstream's own
+// certificate instead of a kevin-signed leaf, and a raw client's
+// non-HTTP(S) protocol reaches it unmodified.
 func (p *Proxy) tunnelRoute(w http.ResponseWriter, r *http.Request, target Route) {
 	start := time.Now()
 

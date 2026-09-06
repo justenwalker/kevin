@@ -55,7 +55,7 @@ func TestUpBuildsARouteAndDetailPerEntry(t *testing.T) {
 			"routes": [
 				{"host": "myapp", "address": "myapp.default.svc.cluster.local:80"},
 				{"host": "other", "address": "other.default.svc.cluster.local:8443", "tls": true},
-				{"host": "certmanager", "address": "certmanager.default.svc.cluster.local:8443", "tls": true, "skip_mitm": true}
+				{"host": "certmanager", "address": "certmanager.default.svc.cluster.local:8443", "tls": true, "mode": "passthrough"}
 			]
 		}`),
 	}, &noopEmitter{})
@@ -75,7 +75,7 @@ func TestUpBuildsARouteAndDetailPerEntry(t *testing.T) {
 		Host:     "certmanager.kevin.home",
 		Upstream: "socks5://127.0.0.1:54321/certmanager.default.svc.cluster.local:8443",
 		TLS:      true,
-		SkipMITM: true,
+		Mode:     plugin.RouteModePassthrough,
 	}, result.Routes[2])
 
 	require.Len(t, result.Details, 3)
@@ -135,35 +135,82 @@ func TestUpWithAWildcardHostSuffixesTheDomainBeforeTheProxySeesIt(t *testing.T) 
 	}, result.Routes[0], "a wildcard host must keep its leading *. through the domain suffix, matching anything.foo.kevin.home")
 }
 
-func TestSchemaSkipMITM(t *testing.T) {
+func TestSchemaMode(t *testing.T) {
 	ctx := cuecontext.New()
 	v := ctx.CompileBytes(Step{}.Schema(), cue.Filename("route/schema.cue"))
 	require.NoError(t, v.Err())
 	route := v.LookupPath(cue.ParsePath("#Route"))
 
-	t.Run("skip_mitm alone fills tls: true", func(t *testing.T) {
-		with := ctx.CompileString(`{host: "a", address: "b:1", skip_mitm: true}`)
+	t.Run("defaults to mitm", func(t *testing.T) {
+		with := ctx.CompileString(`{host: "a", address: "b:1"}`)
+		merged := route.Unify(with)
+		require.NoError(t, merged.Err())
+		mode, err := merged.LookupPath(cue.ParsePath("mode")).String()
+		require.NoError(t, err)
+		assert.Equal(t, "mitm", mode)
+	})
+
+	t.Run("passthrough alone fills tls: true", func(t *testing.T) {
+		with := ctx.CompileString(`{host: "a", address: "b:1", mode: "passthrough"}`)
 		merged := route.Unify(with)
 		require.NoError(t, merged.Err())
 		tls, err := merged.LookupPath(cue.ParsePath("tls")).Bool()
 		require.NoError(t, err)
-		assert.True(t, tls, "skip_mitm implies tls: true")
+		assert.True(t, tls, "passthrough implies tls: true")
 	})
 
-	t.Run("skip_mitm true with tls false conflicts", func(t *testing.T) {
-		with := ctx.CompileString(`{host: "a", address: "b:1", tls: false, skip_mitm: true}`)
+	t.Run("passthrough with tls false conflicts", func(t *testing.T) {
+		with := ctx.CompileString(`{host: "a", address: "b:1", tls: false, mode: "passthrough"}`)
 		merged := route.Unify(with)
 		assert.Error(t, merged.Err(), "a plain-HTTP target has no certificate to preserve")
 	})
 
-	t.Run("tls without skip_mitm needs no change", func(t *testing.T) {
+	t.Run("raw alone fills tls: false", func(t *testing.T) {
+		with := ctx.CompileString(`{host: "a", address: "b:1", mode: "raw"}`)
+		merged := route.Unify(with)
+		require.NoError(t, merged.Err())
+		tls, err := merged.LookupPath(cue.ParsePath("tls")).Bool()
+		require.NoError(t, err)
+		assert.False(t, tls, "raw has no TLS layer at all")
+	})
+
+	t.Run("raw with tls true conflicts", func(t *testing.T) {
+		with := ctx.CompileString(`{host: "a", address: "b:1", tls: true, mode: "raw"}`)
+		merged := route.Unify(with)
+		assert.Error(t, merged.Err(), "a raw target has no TLS layer to negotiate")
+	})
+
+	t.Run("tls alone needs no mode change", func(t *testing.T) {
 		with := ctx.CompileString(`{host: "a", address: "b:1", tls: true}`)
 		merged := route.Unify(with)
 		require.NoError(t, merged.Err())
-		skipMITM, err := merged.LookupPath(cue.ParsePath("skip_mitm")).Bool()
+		mode, err := merged.LookupPath(cue.ParsePath("mode")).String()
 		require.NoError(t, err)
-		assert.False(t, skipMITM)
+		assert.Equal(t, "mitm", mode)
 	})
+
+	t.Run("an unrecognized mode is rejected", func(t *testing.T) {
+		with := ctx.CompileString(`{host: "a", address: "b:1", mode: "bogus"}`)
+		merged := route.Unify(with)
+		assert.Error(t, merged.Err())
+	})
+}
+
+func TestParseRouteMode(t *testing.T) {
+	tests := []struct {
+		mode string
+		want plugin.RouteMode
+	}{
+		{mode: "", want: plugin.RouteModeMITM},
+		{mode: "mitm", want: plugin.RouteModeMITM},
+		{mode: "passthrough", want: plugin.RouteModePassthrough},
+		{mode: "raw", want: plugin.RouteModeRaw},
+	}
+	for _, tt := range tests {
+		t.Run(tt.mode, func(t *testing.T) {
+			assert.Equal(t, tt.want, parseRouteMode(tt.mode))
+		})
+	}
 }
 
 type noopEmitter struct{}

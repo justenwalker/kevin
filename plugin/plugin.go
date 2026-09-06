@@ -236,13 +236,9 @@ type Route struct {
 	// domain, not a real-world hostname.
 	External *RouteExternal
 
-	// SkipMITM is true when this route's TLS should pass straight through to
-	// the client undecrypted instead of being terminated and re-signed with
-	// kevin's own leaf, so the client validates the upstream's real
-	// certificate directly. Only meaningful when TLS is true; a plain-HTTP
-	// upstream always needs the proxy's MITM to serve HTTPS to the client at
-	// all.
-	SkipMITM bool
+	// Mode selects how a client's connection to this route is handled - see
+	// RouteMode.
+	Mode RouteMode
 }
 
 // RouteExternal is a Route's external-ness: present, it names Host a

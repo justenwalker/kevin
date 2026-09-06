@@ -1327,6 +1327,20 @@ func (r *run) wireRelay(ctx context.Context, name string, result *pb.Result) err
 	return nil
 }
 
+// routeModeFromProto maps the wire RouteMode to the proxy's own type.
+func routeModeFromProto(m pb.RouteMode) proxy.RouteMode {
+	switch m {
+	case pb.RouteMode_ROUTE_MODE_MITM:
+		return proxy.RouteModeMITM
+	case pb.RouteMode_ROUTE_MODE_PASSTHROUGH:
+		return proxy.RouteModePassthrough
+	case pb.RouteMode_ROUTE_MODE_RAW:
+		return proxy.RouteModeRaw
+	default:
+		return proxy.RouteModeMITM
+	}
+}
+
 // addRoutes registers each of routes with the host proxy, and, for one
 // marked External, registers it with the relay too - its own DNS answers
 // for the host, and it opens a listener for the route's declared ports.
@@ -1336,7 +1350,7 @@ func (r *run) addRoutes(ctx context.Context, name string, routes []*pb.Route) er
 			Host:     route.GetHost(),
 			Upstream: route.GetUpstream(),
 			TLS:      route.GetTls(),
-			SkipMITM: route.GetSkipMitm(),
+			Mode:     routeModeFromProto(route.GetMode()),
 		})
 		r.emit(name, "serving https://"+route.GetHost())
 

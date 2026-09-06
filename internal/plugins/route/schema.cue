@@ -42,16 +42,24 @@
 	// common case for a TLS API. Ignored unless external is true.
 	ports?: [...int] | *[443]
 
-	// skip_mitm is true when this route's TLS should pass straight through
-	// to the client undecrypted instead of kevin terminating and re-signing
-	// it with its own leaf, so the client validates the target's real
-	// certificate directly - useful for testing a workload's own TLS, such
-	// as a Service fronted by cert-manager inside a builtin:kind cluster.
-	// Only valid alongside tls: true; a plain-HTTP target has no
-	// certificate to preserve and always needs kevin's MITM to serve HTTPS
-	// to the client at all.
-	skip_mitm: bool | *false
-	if skip_mitm {
+	// mode selects how the proxy handles a client's connection to this
+	// route - independent of tls, which only says whether address itself
+	// speaks TLS:
+	//   - "mitm" (default): terminate the client's TLS and re-sign it with
+	//     kevin's own leaf, then route the decrypted request normally.
+	//   - "passthrough": tunnel the client's TLS through untouched, so the
+	//     client validates address's real certificate directly - useful for
+	//     testing a workload's own TLS, such as a Service fronted by
+	//     cert-manager inside a builtin:kind cluster. Requires tls: true;
+	//     a plain-HTTP target has no certificate to pass through.
+	//   - "raw": tunnel the connection byte for byte, with no TLS or HTTP
+	//     assumption at all, for a raw TCP service such as a database's
+	//     wire protocol. Requires tls: false.
+	mode: *"mitm" | "passthrough" | "raw"
+	if mode == "passthrough" {
 		tls: true
+	}
+	if mode == "raw" {
+		tls: false
 	}
 }

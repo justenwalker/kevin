@@ -79,14 +79,14 @@ func clientTrusting(t *testing.T, p *proxy.Proxy, pool *x509.CertPool) *http.Cli
 // must see the upstream's own certificate, not a kevin-signed leaf, and the
 // ordinary MITM path must stay untouched for every other route.
 func TestTunnelRoute(t *testing.T) {
-	t.Run("skip_mitm tunnels straight through to the upstream's own certificate", func(t *testing.T) {
+	t.Run("passthrough tunnels straight through to the upstream's own certificate", func(t *testing.T) {
 		authority := newTestIntermediateCA(t)
 		p, kevinClient := startTestProxyServingWithAuthority(t, authority, nil, true)
 
 		const host = "certmanager.kevin.test"
 		target := selfSignedTLSUpstream(t, host, "from the workload's own cert")
 
-		p.AddRoutes(proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), TLS: true, SkipMITM: true})
+		p.AddRoutes(proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), TLS: true, Mode: proxy.RouteModePassthrough})
 
 		ownPool := x509.NewCertPool()
 		ownPool.AddCert(target.Certificate())
@@ -103,7 +103,7 @@ func TestTunnelRoute(t *testing.T) {
 		assert.Error(t, err, "a client that trusts only the kevin CA must not be able to verify the workload's own certificate")
 	})
 
-	t.Run("skip_mitm false keeps the ordinary MITM path for a tls: true route", func(t *testing.T) {
+	t.Run("mitm mode keeps the ordinary MITM path for a tls: true route", func(t *testing.T) {
 		authority := newTestIntermediateCA(t)
 		p, client := startTestProxyServingWithAuthority(t, authority, nil, true)
 
@@ -116,22 +116,7 @@ func TestTunnelRoute(t *testing.T) {
 		assert.Equal(t, "still mitm'd", body)
 		require.NotEmpty(t, resp.TLS.PeerCertificates)
 		assert.Equal(t, host, resp.TLS.PeerCertificates[0].Subject.CommonName,
-			"a tls: true route must still be MITM'd with a kevin-signed leaf when skip_mitm is false")
-	})
-
-	t.Run("skip_mitm is ignored for a route whose upstream is not itself TLS", func(t *testing.T) {
-		p, client := startTestProxyWithClient(t)
-
-		const host = "plain-http.kevin.test"
-		target := createTestUpstream(t, "plain http, mitm required")
-		p.AddRoutes(proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), SkipMITM: true})
-
-		resp, body := getTestURL(t, client, "https://"+host+"/")
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		assert.Equal(t, "plain http, mitm required", body)
-		require.NotNil(t, resp.TLS)
-		assert.Equal(t, host, resp.TLS.PeerCertificates[0].Subject.CommonName,
-			"a plain-HTTP upstream has no certificate to tunnel, so it must still be MITM'd regardless of skip_mitm")
+			"a tls: true route must still be MITM'd with a kevin-signed leaf in the default (mitm) mode")
 	})
 
 	t.Run("relayed route tunnels through the SOCKS5 relay", func(t *testing.T) {
@@ -146,7 +131,7 @@ func TestTunnelRoute(t *testing.T) {
 			Host:     host,
 			Upstream: "socks5://" + relay + "/" + getTestURLHost(t, target.URL),
 			TLS:      true,
-			SkipMITM: true,
+			Mode:     proxy.RouteModePassthrough,
 		})
 
 		ownPool := x509.NewCertPool()
@@ -163,7 +148,7 @@ func TestTunnelRoute(t *testing.T) {
 		assert.Eventually(t, func() bool { return p.Addr() != "" }, time.Second, time.Millisecond)
 
 		const host = "unreachable-skip.kevin.test"
-		p.AddRoutes(proxy.Route{Host: host, Upstream: "127.0.0.1:1", TLS: true, SkipMITM: true})
+		p.AddRoutes(proxy.Route{Host: host, Upstream: "127.0.0.1:1", TLS: true, Mode: proxy.RouteModePassthrough})
 
 		var d net.Dialer
 		conn, err := d.DialContext(t.Context(), "tcp", p.Addr())
@@ -204,7 +189,7 @@ func TestTunnelRoute(t *testing.T) {
 
 		const host = "recorded-skip.kevin.test"
 		target := selfSignedTLSUpstream(t, host, "recorded")
-		p.AddRoutes(proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), TLS: true, SkipMITM: true})
+		p.AddRoutes(proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), TLS: true, Mode: proxy.RouteModePassthrough})
 
 		ownPool := x509.NewCertPool()
 		ownPool.AddCert(target.Certificate())

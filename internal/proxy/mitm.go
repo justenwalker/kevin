@@ -16,12 +16,13 @@ import (
 // It also serves whatever http version the client negotiates: HTTP/2 or HTTP/1.1 over ALPN.
 // Requests are forwarded to the matching workload.
 //
-// A route whose upstream already speaks TLS may ask to skip this and be
-// tunneled through raw instead - see tunnelRoute.
+// A route in RouteModePassthrough or RouteModeRaw skips this and tunnels
+// instead - see tunnelRoute. Both modes behave identically here: neither
+// has anything for kevin to terminate or re-sign.
 func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	host := hostOnly(r.Host)
 
-	if target, routed := p.Lookup(host); routed && target.TLS && target.SkipMITM {
+	if target, routed := p.Lookup(host); routed && target.Mode != RouteModeMITM {
 		p.tunnelRoute(w, r, target)
 		return
 	}

@@ -24,13 +24,15 @@ A `builtin:kind` cluster's reuse check folds the resolved proxy address into its
 
 The proxy terminates TLS for you: it mints a leaf certificate for the requested host and signs it with the kevin CA (see [CA and trust store]({{< relref "ca-and-trust" >}})), so `curl --cacert` or a machine that already trusts the kevin root just works. The proxy negotiates both HTTP/1.1 and HTTP/2 with the client over that connection.
 
-If a step's upstream already terminates its own TLS - a Service fronted by cert-manager inside a `builtin:kind` cluster, say - and you want to test that certificate itself rather than kevin's, set `skip_mitm: true` on the route entry alongside `tls: true`:
+If a step's upstream already terminates its own TLS - a Service fronted by cert-manager inside a `builtin:kind` cluster, say - and you want to test that certificate itself rather than kevin's, set `mode: "passthrough"` on the route entry alongside `tls: true`:
 
 ```cue
-routes: [{host: "myapp", address: "myapp.default.svc.cluster.local:443", tls: true, skip_mitm: true}]
+routes: [{host: "myapp", address: "myapp.default.svc.cluster.local:443", tls: true, mode: "passthrough"}]
 ```
 
-The client then validates the upstream's own certificate directly; kevin never decrypts that route's traffic, and a browser needs the upstream's own CA trusted, not kevin's. `skip_mitm` is only valid alongside `tls: true` - a plain-HTTP upstream has no certificate to preserve and always needs kevin's MITM to serve HTTPS to the client at all.
+The client then validates the upstream's own certificate directly; kevin never decrypts that route's traffic, and a browser needs the upstream's own CA trusted, not kevin's. `"passthrough"` requires `tls: true` - a plain-HTTP upstream has no certificate to preserve and always needs kevin's MITM to serve HTTPS to the client at all.
+
+For an upstream that speaks neither TLS nor HTTP - a raw TCP protocol such as a database's wire format - set `mode: "raw"` instead, with `tls: false` (raw's default): the connection tunnels byte for byte, with no protocol assumption at all.
 
 ## Egress control
 

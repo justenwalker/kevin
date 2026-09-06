@@ -42,7 +42,7 @@ type routeConfig struct {
 	TLS      bool   `json:"tls"`
 	External bool   `json:"external"`
 	Ports    []int  `json:"ports"`
-	SkipMITM bool   `json:"skip_mitm"`
+	Mode     string `json:"mode"`
 }
 
 // Step is the route step.
@@ -90,7 +90,7 @@ func (Step) Up(_ context.Context, req *plugin.UpRequest, out plugin.Emitter) (*p
 		if cfg.Relay != "" {
 			upstream = fmt.Sprintf("socks5://%s/%s", cfg.Relay, e.Address)
 		}
-		r := plugin.Route{Host: host, Upstream: upstream, TLS: e.TLS, SkipMITM: e.SkipMITM}
+		r := plugin.Route{Host: host, Upstream: upstream, TLS: e.TLS, Mode: parseRouteMode(e.Mode)}
 		if e.External {
 			r.External = &plugin.RouteExternal{Ports: e.Ports}
 		}
@@ -100,6 +100,19 @@ func (Step) Up(_ context.Context, req *plugin.UpRequest, out plugin.Emitter) (*p
 	}
 
 	return &plugin.Result{Routes: routes, Details: details}, nil
+}
+
+// parseRouteMode maps a with-block mode string, already constrained by
+// schema.cue to one of these three values, to the plugin SDK's RouteMode.
+func parseRouteMode(mode string) plugin.RouteMode {
+	switch mode {
+	case "passthrough":
+		return plugin.RouteModePassthrough
+	case "raw":
+		return plugin.RouteModeRaw
+	default:
+		return plugin.RouteModeMITM
+	}
 }
 
 // decode parses the with-block JSON into a config.

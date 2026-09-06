@@ -82,6 +82,68 @@ func (StepKind) EnumDescriptor() ([]byte, []int) {
 	return file_pb_plugin_proto_rawDescGZIP(), []int{0}
 }
 
+// RouteMode selects how the proxy handles a route's client-facing
+// connection - independent of Route.tls, which only says whether the
+// upstream itself speaks TLS.
+type RouteMode int32
+
+const (
+	// ROUTE_MODE_MITM is the zero value: terminate the client's TLS and
+	// re-sign it with kevin's own leaf, then route the decrypted request
+	// normally.
+	RouteMode_ROUTE_MODE_MITM RouteMode = 0
+	// ROUTE_MODE_PASSTHROUGH tunnels the client's TLS through untouched, so
+	// the client validates the upstream's real certificate directly. Only
+	// meaningful when Route.tls is true - there is nothing to pass through
+	// otherwise.
+	RouteMode_ROUTE_MODE_PASSTHROUGH RouteMode = 1
+	// ROUTE_MODE_RAW tunnels the connection byte for byte, with no TLS or
+	// HTTP assumption at all, for a raw TCP protocol such as a database's
+	// wire protocol. Route.tls must be false.
+	RouteMode_ROUTE_MODE_RAW RouteMode = 2
+)
+
+// Enum value maps for RouteMode.
+var (
+	RouteMode_name = map[int32]string{
+		0: "ROUTE_MODE_MITM",
+		1: "ROUTE_MODE_PASSTHROUGH",
+		2: "ROUTE_MODE_RAW",
+	}
+	RouteMode_value = map[string]int32{
+		"ROUTE_MODE_MITM":        0,
+		"ROUTE_MODE_PASSTHROUGH": 1,
+		"ROUTE_MODE_RAW":         2,
+	}
+)
+
+func (x RouteMode) Enum() *RouteMode {
+	p := new(RouteMode)
+	*p = x
+	return p
+}
+
+func (x RouteMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RouteMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_pb_plugin_proto_enumTypes[1].Descriptor()
+}
+
+func (RouteMode) Type() protoreflect.EnumType {
+	return &file_pb_plugin_proto_enumTypes[1]
+}
+
+func (x RouteMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RouteMode.Descriptor instead.
+func (RouteMode) EnumDescriptor() ([]byte, []int) {
+	return file_pb_plugin_proto_rawDescGZIP(), []int{1}
+}
+
 type InfoRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -1813,11 +1875,9 @@ type Route struct {
 	// client dials it on - unset means host is a subdomain of the
 	// environment domain, not a real-world hostname.
 	External *External `protobuf:"bytes,4,opt,name=external,proto3" json:"external,omitempty"`
-	// SkipMitm is true when this route's TLS should pass straight through to
-	// the client undecrypted instead of being terminated and re-signed with
-	// kevin's own leaf, so the client validates the upstream's real
-	// certificate directly. Only meaningful when Tls is true.
-	SkipMitm      bool `protobuf:"varint,5,opt,name=skip_mitm,json=skipMitm,proto3" json:"skip_mitm,omitempty"`
+	// Mode selects how a client's connection to this route is handled - see
+	// RouteMode.
+	Mode          RouteMode `protobuf:"varint,5,opt,name=mode,proto3,enum=kevin.plugin.v1.RouteMode" json:"mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1880,11 +1940,11 @@ func (x *Route) GetExternal() *External {
 	return nil
 }
 
-func (x *Route) GetSkipMitm() bool {
+func (x *Route) GetMode() RouteMode {
 	if x != nil {
-		return x.SkipMitm
+		return x.Mode
 	}
-	return false
+	return RouteMode_ROUTE_MODE_MITM
 }
 
 // External is a Route's external-ness: present, it names host a real-world
@@ -2140,13 +2200,13 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x10ToolCallResponse\x12\x18\n" +
 	"\acontent\x18\x01 \x01(\fR\acontent\x12\x19\n" +
 	"\bis_error\x18\x02 \x01(\bR\aisError\x12#\n" +
-	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\"\x9d\x01\n" +
+	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\"\xb0\x01\n" +
 	"\x05Route\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x1a\n" +
 	"\bupstream\x18\x02 \x01(\tR\bupstream\x12\x10\n" +
 	"\x03tls\x18\x03 \x01(\bR\x03tls\x125\n" +
-	"\bexternal\x18\x04 \x01(\v2\x19.kevin.plugin.v1.ExternalR\bexternal\x12\x1b\n" +
-	"\tskip_mitm\x18\x05 \x01(\bR\bskipMitm\" \n" +
+	"\bexternal\x18\x04 \x01(\v2\x19.kevin.plugin.v1.ExternalR\bexternal\x12.\n" +
+	"\x04mode\x18\x05 \x01(\x0e2\x1a.kevin.plugin.v1.RouteModeR\x04mode\" \n" +
 	"\bExternal\x12\x14\n" +
 	"\x05ports\x18\x01 \x03(\x05R\x05ports\"3\n" +
 	"\vUserMessage\x12\x10\n" +
@@ -2156,7 +2216,11 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x15STEP_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12STEP_KIND_RESOURCE\x10\x01\x12\x14\n" +
 	"\x10STEP_KIND_ACTION\x10\x02\x12\x13\n" +
-	"\x0fSTEP_KIND_PROBE\x10\x032\xb9\x03\n" +
+	"\x0fSTEP_KIND_PROBE\x10\x03*P\n" +
+	"\tRouteMode\x12\x13\n" +
+	"\x0fROUTE_MODE_MITM\x10\x00\x12\x1a\n" +
+	"\x16ROUTE_MODE_PASSTHROUGH\x10\x01\x12\x12\n" +
+	"\x0eROUTE_MODE_RAW\x10\x022\xb9\x03\n" +
 	"\x06Plugin\x12C\n" +
 	"\x04Info\x12\x1c.kevin.plugin.v1.InfoRequest\x1a\x1d.kevin.plugin.v1.InfoResponse\x12R\n" +
 	"\tConfigure\x12!.kevin.plugin.v1.ConfigureRequest\x1a\".kevin.plugin.v1.ConfigureResponse\x12:\n" +
@@ -2177,89 +2241,91 @@ func file_pb_plugin_proto_rawDescGZIP() []byte {
 	return file_pb_plugin_proto_rawDescData
 }
 
-var file_pb_plugin_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_pb_plugin_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_pb_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_pb_plugin_proto_goTypes = []any{
 	(StepKind)(0),              // 0: kevin.plugin.v1.StepKind
-	(*InfoRequest)(nil),        // 1: kevin.plugin.v1.InfoRequest
-	(*InfoResponse)(nil),       // 2: kevin.plugin.v1.InfoResponse
-	(*StepType)(nil),           // 3: kevin.plugin.v1.StepType
-	(*ToolDefinition)(nil),     // 4: kevin.plugin.v1.ToolDefinition
-	(*ConfigureRequest)(nil),   // 5: kevin.plugin.v1.ConfigureRequest
-	(*ConfigureResponse)(nil),  // 6: kevin.plugin.v1.ConfigureResponse
-	(*Environment)(nil),        // 7: kevin.plugin.v1.Environment
-	(*DockerEngineConfig)(nil), // 8: kevin.plugin.v1.DockerEngineConfig
-	(*Value)(nil),              // 9: kevin.plugin.v1.Value
-	(*Outputs)(nil),            // 10: kevin.plugin.v1.Outputs
-	(*UpRequest)(nil),          // 11: kevin.plugin.v1.UpRequest
-	(*DownRequest)(nil),        // 12: kevin.plugin.v1.DownRequest
-	(*Event)(nil),              // 13: kevin.plugin.v1.Event
-	(*LogLine)(nil),            // 14: kevin.plugin.v1.LogLine
-	(*Progress)(nil),           // 15: kevin.plugin.v1.Progress
-	(*Result)(nil),             // 16: kevin.plugin.v1.Result
-	(*NetnsTarget)(nil),        // 17: kevin.plugin.v1.NetnsTarget
-	(*ExposedPort)(nil),        // 18: kevin.plugin.v1.ExposedPort
-	(*Detail)(nil),             // 19: kevin.plugin.v1.Detail
-	(*ExportRequest)(nil),      // 20: kevin.plugin.v1.ExportRequest
-	(*ExportResponse)(nil),     // 21: kevin.plugin.v1.ExportResponse
-	(*ToolCallRequest)(nil),    // 22: kevin.plugin.v1.ToolCallRequest
-	(*ToolCallResponse)(nil),   // 23: kevin.plugin.v1.ToolCallResponse
-	(*Route)(nil),              // 24: kevin.plugin.v1.Route
-	(*External)(nil),           // 25: kevin.plugin.v1.External
-	(*UserMessage)(nil),        // 26: kevin.plugin.v1.UserMessage
-	nil,                        // 27: kevin.plugin.v1.Environment.ProxyEnvEntry
-	nil,                        // 28: kevin.plugin.v1.Outputs.ValuesEntry
-	nil,                        // 29: kevin.plugin.v1.UpRequest.DepsEntry
-	nil,                        // 30: kevin.plugin.v1.DownRequest.DepsEntry
-	nil,                        // 31: kevin.plugin.v1.ToolCallRequest.DepsEntry
+	(RouteMode)(0),             // 1: kevin.plugin.v1.RouteMode
+	(*InfoRequest)(nil),        // 2: kevin.plugin.v1.InfoRequest
+	(*InfoResponse)(nil),       // 3: kevin.plugin.v1.InfoResponse
+	(*StepType)(nil),           // 4: kevin.plugin.v1.StepType
+	(*ToolDefinition)(nil),     // 5: kevin.plugin.v1.ToolDefinition
+	(*ConfigureRequest)(nil),   // 6: kevin.plugin.v1.ConfigureRequest
+	(*ConfigureResponse)(nil),  // 7: kevin.plugin.v1.ConfigureResponse
+	(*Environment)(nil),        // 8: kevin.plugin.v1.Environment
+	(*DockerEngineConfig)(nil), // 9: kevin.plugin.v1.DockerEngineConfig
+	(*Value)(nil),              // 10: kevin.plugin.v1.Value
+	(*Outputs)(nil),            // 11: kevin.plugin.v1.Outputs
+	(*UpRequest)(nil),          // 12: kevin.plugin.v1.UpRequest
+	(*DownRequest)(nil),        // 13: kevin.plugin.v1.DownRequest
+	(*Event)(nil),              // 14: kevin.plugin.v1.Event
+	(*LogLine)(nil),            // 15: kevin.plugin.v1.LogLine
+	(*Progress)(nil),           // 16: kevin.plugin.v1.Progress
+	(*Result)(nil),             // 17: kevin.plugin.v1.Result
+	(*NetnsTarget)(nil),        // 18: kevin.plugin.v1.NetnsTarget
+	(*ExposedPort)(nil),        // 19: kevin.plugin.v1.ExposedPort
+	(*Detail)(nil),             // 20: kevin.plugin.v1.Detail
+	(*ExportRequest)(nil),      // 21: kevin.plugin.v1.ExportRequest
+	(*ExportResponse)(nil),     // 22: kevin.plugin.v1.ExportResponse
+	(*ToolCallRequest)(nil),    // 23: kevin.plugin.v1.ToolCallRequest
+	(*ToolCallResponse)(nil),   // 24: kevin.plugin.v1.ToolCallResponse
+	(*Route)(nil),              // 25: kevin.plugin.v1.Route
+	(*External)(nil),           // 26: kevin.plugin.v1.External
+	(*UserMessage)(nil),        // 27: kevin.plugin.v1.UserMessage
+	nil,                        // 28: kevin.plugin.v1.Environment.ProxyEnvEntry
+	nil,                        // 29: kevin.plugin.v1.Outputs.ValuesEntry
+	nil,                        // 30: kevin.plugin.v1.UpRequest.DepsEntry
+	nil,                        // 31: kevin.plugin.v1.DownRequest.DepsEntry
+	nil,                        // 32: kevin.plugin.v1.ToolCallRequest.DepsEntry
 }
 var file_pb_plugin_proto_depIdxs = []int32{
-	3,  // 0: kevin.plugin.v1.InfoResponse.steps:type_name -> kevin.plugin.v1.StepType
+	4,  // 0: kevin.plugin.v1.InfoResponse.steps:type_name -> kevin.plugin.v1.StepType
 	0,  // 1: kevin.plugin.v1.StepType.kind:type_name -> kevin.plugin.v1.StepKind
-	4,  // 2: kevin.plugin.v1.StepType.tools:type_name -> kevin.plugin.v1.ToolDefinition
-	7,  // 3: kevin.plugin.v1.ConfigureRequest.env:type_name -> kevin.plugin.v1.Environment
-	27, // 4: kevin.plugin.v1.Environment.proxy_env:type_name -> kevin.plugin.v1.Environment.ProxyEnvEntry
-	28, // 5: kevin.plugin.v1.Outputs.values:type_name -> kevin.plugin.v1.Outputs.ValuesEntry
-	7,  // 6: kevin.plugin.v1.UpRequest.env:type_name -> kevin.plugin.v1.Environment
-	29, // 7: kevin.plugin.v1.UpRequest.deps:type_name -> kevin.plugin.v1.UpRequest.DepsEntry
-	7,  // 8: kevin.plugin.v1.DownRequest.env:type_name -> kevin.plugin.v1.Environment
-	30, // 9: kevin.plugin.v1.DownRequest.deps:type_name -> kevin.plugin.v1.DownRequest.DepsEntry
-	10, // 10: kevin.plugin.v1.DownRequest.outputs:type_name -> kevin.plugin.v1.Outputs
-	14, // 11: kevin.plugin.v1.Event.log:type_name -> kevin.plugin.v1.LogLine
-	15, // 12: kevin.plugin.v1.Event.progress:type_name -> kevin.plugin.v1.Progress
-	16, // 13: kevin.plugin.v1.Event.result:type_name -> kevin.plugin.v1.Result
-	10, // 14: kevin.plugin.v1.Result.outputs:type_name -> kevin.plugin.v1.Outputs
-	24, // 15: kevin.plugin.v1.Result.routes:type_name -> kevin.plugin.v1.Route
-	18, // 16: kevin.plugin.v1.Result.exposed_ports:type_name -> kevin.plugin.v1.ExposedPort
-	19, // 17: kevin.plugin.v1.Result.details:type_name -> kevin.plugin.v1.Detail
-	17, // 18: kevin.plugin.v1.Result.netns_targets:type_name -> kevin.plugin.v1.NetnsTarget
-	9,  // 19: kevin.plugin.v1.Detail.value:type_name -> kevin.plugin.v1.Value
-	7,  // 20: kevin.plugin.v1.ExportRequest.env:type_name -> kevin.plugin.v1.Environment
-	10, // 21: kevin.plugin.v1.ExportResponse.out:type_name -> kevin.plugin.v1.Outputs
-	7,  // 22: kevin.plugin.v1.ToolCallRequest.env:type_name -> kevin.plugin.v1.Environment
-	31, // 23: kevin.plugin.v1.ToolCallRequest.deps:type_name -> kevin.plugin.v1.ToolCallRequest.DepsEntry
-	25, // 24: kevin.plugin.v1.Route.external:type_name -> kevin.plugin.v1.External
-	9,  // 25: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
-	10, // 26: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	10, // 27: kevin.plugin.v1.DownRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	10, // 28: kevin.plugin.v1.ToolCallRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	1,  // 29: kevin.plugin.v1.Plugin.Info:input_type -> kevin.plugin.v1.InfoRequest
-	5,  // 30: kevin.plugin.v1.Plugin.Configure:input_type -> kevin.plugin.v1.ConfigureRequest
-	11, // 31: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
-	12, // 32: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
-	20, // 33: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
-	22, // 34: kevin.plugin.v1.Plugin.CallTool:input_type -> kevin.plugin.v1.ToolCallRequest
-	2,  // 35: kevin.plugin.v1.Plugin.Info:output_type -> kevin.plugin.v1.InfoResponse
-	6,  // 36: kevin.plugin.v1.Plugin.Configure:output_type -> kevin.plugin.v1.ConfigureResponse
-	13, // 37: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
-	13, // 38: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
-	21, // 39: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
-	23, // 40: kevin.plugin.v1.Plugin.CallTool:output_type -> kevin.plugin.v1.ToolCallResponse
-	35, // [35:41] is the sub-list for method output_type
-	29, // [29:35] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	5,  // 2: kevin.plugin.v1.StepType.tools:type_name -> kevin.plugin.v1.ToolDefinition
+	8,  // 3: kevin.plugin.v1.ConfigureRequest.env:type_name -> kevin.plugin.v1.Environment
+	28, // 4: kevin.plugin.v1.Environment.proxy_env:type_name -> kevin.plugin.v1.Environment.ProxyEnvEntry
+	29, // 5: kevin.plugin.v1.Outputs.values:type_name -> kevin.plugin.v1.Outputs.ValuesEntry
+	8,  // 6: kevin.plugin.v1.UpRequest.env:type_name -> kevin.plugin.v1.Environment
+	30, // 7: kevin.plugin.v1.UpRequest.deps:type_name -> kevin.plugin.v1.UpRequest.DepsEntry
+	8,  // 8: kevin.plugin.v1.DownRequest.env:type_name -> kevin.plugin.v1.Environment
+	31, // 9: kevin.plugin.v1.DownRequest.deps:type_name -> kevin.plugin.v1.DownRequest.DepsEntry
+	11, // 10: kevin.plugin.v1.DownRequest.outputs:type_name -> kevin.plugin.v1.Outputs
+	15, // 11: kevin.plugin.v1.Event.log:type_name -> kevin.plugin.v1.LogLine
+	16, // 12: kevin.plugin.v1.Event.progress:type_name -> kevin.plugin.v1.Progress
+	17, // 13: kevin.plugin.v1.Event.result:type_name -> kevin.plugin.v1.Result
+	11, // 14: kevin.plugin.v1.Result.outputs:type_name -> kevin.plugin.v1.Outputs
+	25, // 15: kevin.plugin.v1.Result.routes:type_name -> kevin.plugin.v1.Route
+	19, // 16: kevin.plugin.v1.Result.exposed_ports:type_name -> kevin.plugin.v1.ExposedPort
+	20, // 17: kevin.plugin.v1.Result.details:type_name -> kevin.plugin.v1.Detail
+	18, // 18: kevin.plugin.v1.Result.netns_targets:type_name -> kevin.plugin.v1.NetnsTarget
+	10, // 19: kevin.plugin.v1.Detail.value:type_name -> kevin.plugin.v1.Value
+	8,  // 20: kevin.plugin.v1.ExportRequest.env:type_name -> kevin.plugin.v1.Environment
+	11, // 21: kevin.plugin.v1.ExportResponse.out:type_name -> kevin.plugin.v1.Outputs
+	8,  // 22: kevin.plugin.v1.ToolCallRequest.env:type_name -> kevin.plugin.v1.Environment
+	32, // 23: kevin.plugin.v1.ToolCallRequest.deps:type_name -> kevin.plugin.v1.ToolCallRequest.DepsEntry
+	26, // 24: kevin.plugin.v1.Route.external:type_name -> kevin.plugin.v1.External
+	1,  // 25: kevin.plugin.v1.Route.mode:type_name -> kevin.plugin.v1.RouteMode
+	10, // 26: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
+	11, // 27: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	11, // 28: kevin.plugin.v1.DownRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	11, // 29: kevin.plugin.v1.ToolCallRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	2,  // 30: kevin.plugin.v1.Plugin.Info:input_type -> kevin.plugin.v1.InfoRequest
+	6,  // 31: kevin.plugin.v1.Plugin.Configure:input_type -> kevin.plugin.v1.ConfigureRequest
+	12, // 32: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
+	13, // 33: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
+	21, // 34: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
+	23, // 35: kevin.plugin.v1.Plugin.CallTool:input_type -> kevin.plugin.v1.ToolCallRequest
+	3,  // 36: kevin.plugin.v1.Plugin.Info:output_type -> kevin.plugin.v1.InfoResponse
+	7,  // 37: kevin.plugin.v1.Plugin.Configure:output_type -> kevin.plugin.v1.ConfigureResponse
+	14, // 38: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
+	14, // 39: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
+	22, // 40: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
+	24, // 41: kevin.plugin.v1.Plugin.CallTool:output_type -> kevin.plugin.v1.ToolCallResponse
+	36, // [36:42] is the sub-list for method output_type
+	30, // [30:36] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_pb_plugin_proto_init() }
@@ -2280,7 +2346,7 @@ func file_pb_plugin_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pb_plugin_proto_rawDesc), len(file_pb_plugin_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,

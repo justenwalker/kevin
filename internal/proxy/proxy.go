@@ -88,12 +88,31 @@ type Route struct {
 	// TLS is true when the upstream itself speaks TLS.
 	TLS bool
 
-	// SkipMITM is true when this route's TLS should pass straight through to
-	// the client undecrypted instead of being terminated and re-signed with
-	// kevin's own leaf, so the client validates the upstream's real
-	// certificate directly. Only meaningful when TLS is true.
-	SkipMITM bool
+	// Mode selects how a client's connection to this route is handled -
+	// see [RouteMode].
+	Mode RouteMode
 }
+
+// RouteMode selects how a Route's client-facing connection is handled -
+// independent of Route.TLS, which only says whether Upstream itself
+// speaks TLS.
+type RouteMode int
+
+const (
+	// RouteModeMITM is the zero value: terminate the client's TLS and
+	// re-sign it with kevin's own leaf, then route the decrypted request
+	// normally.
+	RouteModeMITM RouteMode = iota
+
+	// RouteModePassthrough tunnels the client's TLS through untouched, so
+	// the client validates Upstream's real certificate directly. Only
+	// meaningful when TLS is true.
+	RouteModePassthrough
+
+	// RouteModeRaw tunnels the connection byte for byte, with no TLS or
+	// HTTP assumption at all, for a raw TCP protocol. TLS must be false.
+	RouteModeRaw
+)
 
 // Proxy is the kevin proxy. A Proxy is safe for concurrent use.
 type Proxy struct {
