@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"io"
+	"net"
 	"net/http"
 	"time"
 )
@@ -32,6 +33,33 @@ func (p *Proxy) tunnelRoute(w http.ResponseWriter, r *http.Request, target Route
 		return
 	}
 
+	p.tunnelPipe(w, r, upstream, target.Host, true, start)
+}
+
+// tunnelUnrouted serves a CONNECT for an unrouted host under
+// proxy.egress.passthrough: bytes pass straight through to host, undecrypted,
+// the same as tunnelRoute above, but dialing host directly instead of a
+// configured Route.Upstream - an unrouted host is always a real internet
+// address, never a socks5:// route upstream, so there is nothing to resolve
+// first. The caller (handleConnect) has already cleared allow/deny.
+func (p *Proxy) tunnelUnrouted(w http.ResponseWriter, r *http.Request, host string) {
+	start := time.Now()
+
+	upstream, err := p.dialContext(r.Context(), "tcp", r.Host)
+	if err != nil {
+		log.Ctx(r.Context()).Debug("tunnel dial failed", "host", host, "error", err)
+		http.Error(w, "bad gateway", http.StatusBadGateway)
+		return
+	}
+
+	p.tunnelPipe(w, r, upstream, host, false, start)
+}
+
+// tunnelPipe answers r's CONNECT with 200, then splices bytes between the
+// hijacked client connection and upstream until either side closes. Shared
+// by tunnelRoute and tunnelUnrouted, which differ only in how they resolve
+// the dial target and what they record.
+func (p *Proxy) tunnelPipe(w http.ResponseWriter, r *http.Request, upstream net.Conn, recordHost string, routed bool, start time.Time) {
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		_ = upstream.Close()
@@ -52,5 +80,5 @@ func (p *Proxy) tunnelRoute(w http.ResponseWriter, r *http.Request, target Route
 	}
 
 	pipeUpgrade(client, upstream, bufio.NewReader(upstream), crw.Reader)
-	p.recordRequest(r, target.Host, true, false, start, http.StatusOK)
+	p.recordRequest(r, recordHost, routed, false, start, http.StatusOK)
 }

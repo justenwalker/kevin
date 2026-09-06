@@ -172,6 +172,7 @@ func Run(ctx context.Context, opts Options) error {
 		Domain:      cfg.Domain,
 		Allow:       cfg.Proxy.Egress.Allow,
 		Deny:        cfg.Proxy.Egress.Deny,
+		Passthrough: cfg.Proxy.Egress.Passthrough,
 	})
 	if err != nil {
 		return err
@@ -484,9 +485,10 @@ type proxyOptions struct {
 	// fallback - a bind failure is a hard error.
 	GatewayPort int
 
-	Domain string
-	Allow  []string
-	Deny   bool
+	Domain      string
+	Allow       []string
+	Deny        bool
+	Passthrough bool
 }
 
 // startProxy binds the listener and serves on it. The listener binds before
@@ -497,7 +499,7 @@ type proxyOptions struct {
 // opts.Network, when the host can bind that address. A container on that
 // network reaches the proxy there. The proxy never binds 0.0.0.0.
 func startProxy(ctx context.Context, authority *ca.CA, opts proxyOptions) (*proxyServer, error) {
-	p, err := proxy.New(authority, opts.Domain, opts.Allow, opts.Deny)
+	p, err := proxy.New(authority, opts.Domain, opts.Allow, opts.Deny, opts.Passthrough)
 	if err != nil {
 		return nil, err
 	}

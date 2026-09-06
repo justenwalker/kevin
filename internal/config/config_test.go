@@ -997,7 +997,22 @@ env: a: uses: "echo:echo"
 
 		assert.Equal(t, "demo", cfg.Project)
 		assert.Empty(t, cfg.Proxy.Egress.Allow)
+		assert.False(t, cfg.Proxy.Egress.Passthrough, "passthrough defaults false")
 		assert.Empty(t, cfg.Relay.Image)
+	})
+
+	t.Run("decodes the egress passthrough field", func(t *testing.T) {
+		f := load(t, `
+project: "demo"
+plugins: echo: cmd: "echo"
+env: a: uses: "echo:echo"
+proxy: egress: passthrough: true
+`)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+
+		cfg, err := f.Config()
+		require.NoError(t, err)
+		assert.True(t, cfg.Proxy.Egress.Passthrough)
 	})
 
 	t.Run("decodes the relay block", func(t *testing.T) {

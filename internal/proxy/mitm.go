@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"time"
 
 	"golang.org/x/net/http2"
 )
@@ -22,11 +23,30 @@ import (
 // route claiming Passthrough without TLS is a misconfiguration: treating it
 // as MITM instead of trusting the claim keeps a plugin that gets Mode and
 // TLS out of sync from bypassing interception by accident.
+//
+// An unrouted host skips this too when p.passthrough is on: the request
+// still clears the same allow/deny check forward would apply, a denied host
+// gets its 403 as the CONNECT response itself (no TLS ever starts, so no
+// client needs the kevin CA trusted to read it), and an allowed host
+// tunnels raw exactly like a RouteModePassthrough route would - see
+// tunnelUnrouted.
 func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	host := hostOnly(r.Host)
 
-	if target, routed := p.Lookup(host); routed && tunnels(target) {
-		p.tunnelRoute(w, r, target)
+	if target, routed := p.Lookup(host); routed {
+		if tunnels(target) {
+			p.tunnelRoute(w, r, target)
+			return
+		}
+	} else if p.passthrough {
+		if p.deny && !p.EgressAllowed(host) {
+			start := time.Now()
+			log.Ctx(r.Context()).Debug("denied", "host", host)
+			writeForbidden(w, r, host)
+			p.recordRequest(r, host, false, true, start, http.StatusForbidden)
+			return
+		}
+		p.tunnelUnrouted(w, r, host)
 		return
 	}
 

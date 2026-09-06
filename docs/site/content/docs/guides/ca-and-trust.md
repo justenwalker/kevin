@@ -15,7 +15,7 @@ kevin signs every certificate the proxy presents with its own CA, so it never ne
 
 Only the root ever reaches a trust store, and it's installed there once for the whole machine, so a trust store holds one kevin anchor no matter how many kevin projects exist. Each project's own authority lives in the project directory and goes away with it.
 
-A [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) entry with `mode: "passthrough"` never touches this CA at all: its traffic tunnels straight through to the upstream's own certificate instead of a kevin-signed leaf, so a client needs the upstream's own CA trusted, not kevin's.
+A [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) entry with `mode: "passthrough"` never touches this CA at all: its traffic tunnels straight through to the upstream's own certificate instead of a kevin-signed leaf, so a client needs the upstream's own CA trusted, not kevin's. `proxy: egress: passthrough: true` (see [Proxy and egress]({{< relref "proxy-and-egress#reaching-an-allowed-host-with-no-ca-trust" >}})) extends this to an unrouted, allow-listed host too - by default the proxy still MITMs that traffic even though it isn't routed, so a workload that doesn't trust the kevin CA at all fails TLS to it.
 
 ## Trust setup
 

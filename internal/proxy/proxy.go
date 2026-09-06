@@ -1,7 +1,7 @@
 // Package proxy serves the three roles of the kevin proxy on one or more
 // listeners.
 //
-//	p, err := proxy.New(authority, "kevin.home", allow, true)
+//	p, err := proxy.New(authority, "kevin.home", allow, true, false)
 //	go p.Serve(ctx, listener)
 //	p.AddRoutes(proxy.Route{Host: "api.kevin.test", Upstream: "api:8080"})
 //
@@ -10,7 +10,9 @@
 //  1. intercepts TLS with a leaf that the kevin CA signs,
 //  2. forwards a request whose Host matches a route to the workload,
 //  3. denies any other request that the allow list omits, when deny is on,
-//  4. passes every other request to the real internet.
+//  4. tunnels an unrouted request raw instead of step 1, when passthrough
+//     is on and the request clears the same allow/deny check,
+//  5. passes every other request to the real internet.
 //
 // kevin changes no file on the host: a hostname resolves in the routing table
 // of the proxy, not in DNS.
@@ -154,6 +156,11 @@ type Proxy struct {
 	// entry covers. New sets it once, and it never changes after.
 	deny bool
 
+	// passthrough is true when an unrouted CONNECT tunnels raw instead of
+	// being MITM'd - see handleConnect. New sets it once, and it never
+	// changes after.
+	passthrough bool
+
 	mu             sync.RWMutex
 	routes         map[string]Route
 	routeWildcards map[string]Route
@@ -174,8 +181,10 @@ const PACPath = "/proxy.pac"
 //
 // allow lists the hosts that every step may reach, in addition to the hosts
 // that [Proxy.AllowEgress] adds later. When deny is true, the proxy blocks a
-// host that no route and no allow entry covers.
-func New(authority *ca.CA, domain string, allow []string, deny bool) (*Proxy, error) {
+// host that no route and no allow entry covers. When passthrough is true,
+// an unrouted CONNECT tunnels raw instead of being MITM'd, once it clears
+// the same allow/deny check.
+func New(authority *ca.CA, domain string, allow []string, deny, passthrough bool) (*Proxy, error) {
 	certs := newCertSigner(authority)
 
 	// x509.SystemCertPool returns a fresh clone, safe to extend in place -
@@ -193,6 +202,7 @@ func New(authority *ca.CA, domain string, allow []string, deny bool) (*Proxy, er
 		rootPool:       rootPool,
 		domain:         domain,
 		deny:           deny,
+		passthrough:    passthrough,
 		routes:         map[string]Route{},
 		routeWildcards: map[string]Route{},
 		allow:          map[string]struct{}{},

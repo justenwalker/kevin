@@ -119,8 +119,9 @@ type Proxy struct {
 
 // ProxyEgress configures which domains the proxy allows outbound traffic to.
 type ProxyEgress struct {
-	Allow []string `json:"allow"`
-	Deny  bool     `json:"deny"`
+	Allow       []string `json:"allow"`
+	Deny        bool     `json:"deny"`
+	Passthrough bool     `json:"passthrough"`
 }
 
 // Console configures the web console.

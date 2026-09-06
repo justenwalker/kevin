@@ -190,6 +190,13 @@ proxy: {
 		// to a schema default (see the Egress control guide). Set it to
 		// false for an environment that needs no such protection.
 		deny: bool
+
+		// passthrough, when true, tunnels an unrouted host's CONNECT raw
+		// instead of terminating it with a kevin-signed leaf: allow/deny
+		// still applies, but a workload that doesn't trust the kevin CA can
+		// still reach an allowed host, validating its real certificate
+		// directly (see the Egress control guide).
+		passthrough: bool | *false
 	}
 }
 

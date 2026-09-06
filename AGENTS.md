@@ -248,7 +248,12 @@ Key model to hold in your head when changing any of this:
   losing to a schema default. `proxy: egress: allow` in `kevin.cue` is
   environment-wide; a step's `Up` result can add hosts for itself via
   `egress_allow`. Denied requests still complete the TLS MITM and get a
-  `403` naming the host and the CUE fix, with cache-busting headers.
+  `403` naming the host and the CUE fix, with cache-busting headers -
+  unless `proxy: egress: passthrough: true`, in which case an unrouted
+  host tunnels raw instead of being MITM'd (allow/deny still applies,
+  checked off the CONNECT's own `Host` before any TLS starts), so a
+  denied one gets its `403` on the CONNECT response itself and an
+  allowed one never needs the kevin CA trusted.
 - **Reserved plugin namespaces** (`builtin`, `cmd`, `core`, `docker`, `file`,
   `helm`, `http`, `k8s`, `kevin`, `kubectl`, `kubernetes`, `oci`, `official`,
   `std`) can't be used as a `plugins:` key - keeps a third-party plugin from

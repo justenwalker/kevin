@@ -28,7 +28,10 @@ import (
 // selfSignedTLSUpstream starts an HTTPS server presenting a self-signed leaf
 // for host - its own certificate, not one kevin's CA (or any other shared
 // authority) ever touches, mirroring a workload that mints its own TLS
-// entirely on its own, such as a cert-manager-issued certificate.
+// entirely on its own, such as a cert-manager-issued certificate. The leaf
+// also covers the loopback IP the httptest server actually binds, for a
+// caller (such as an unrouted passthrough test) that dials the server's raw
+// address directly instead of a hostname a route substitutes in.
 func selfSignedTLSUpstream(t *testing.T, host, body string) *httptest.Server {
 	t.Helper()
 
@@ -42,6 +45,7 @@ func selfSignedTLSUpstream(t *testing.T, host, body string) *httptest.Server {
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment | x509.KeyUsageCertSign,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		DNSNames:              []string{host},
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
 		BasicConstraintsValid: true,
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
@@ -181,7 +185,7 @@ func TestTunnelRoute(t *testing.T) {
 
 	t.Run("records one entry for the whole tunnel, not just the dial", func(t *testing.T) {
 		authority := newTestIntermediateCA(t)
-		p, err := proxy.New(authority, "kevin.home", nil, true)
+		p, err := proxy.New(authority, "kevin.home", nil, true, false)
 		require.NoError(t, err)
 
 		var mu sync.Mutex
@@ -244,5 +248,140 @@ func TestTunnelRoute(t *testing.T) {
 		assert.True(t, rec.Routed)
 		assert.False(t, rec.Denied)
 		assert.False(t, rec.Time.IsZero())
+	})
+}
+
+// TestPassthroughUnrouted covers proxy.egress.passthrough: an unrouted CONNECT
+// tunnels raw instead of being MITM'd, once it clears the same allow/deny
+// check forward already applies - so a workload that doesn't trust the kevin
+// CA can still reach an allowed host, and a denied host still gets a legible
+// denial, with no TLS ever started either way.
+func TestPassthroughUnrouted(t *testing.T) {
+	t.Run("an allowed host tunnels straight through to its own certificate", func(t *testing.T) {
+		authority := newTestIntermediateCA(t)
+
+		const host = "passthrough-egress.kevin.test"
+		target := selfSignedTLSUpstream(t, host, "from the real internet's own cert")
+		dialAddr := getTestURLHost(t, target.URL) // "127.0.0.1:<port>" - the real address an unrouted CONNECT dials
+
+		p, err := proxy.New(authority, "kevin.home", []string{"127.0.0.1"}, true, true)
+		require.NoError(t, err)
+
+		var mu sync.Mutex
+		var records []proxy.Record
+		p.OnRecord(func(rec proxy.Record) {
+			mu.Lock()
+			defer mu.Unlock()
+			records = append(records, rec)
+		})
+
+		var lc net.ListenConfig
+		ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() { done <- p.Serve(ctx, ln) }()
+		t.Cleanup(func() {
+			cancel()
+			require.NoError(t, <-done)
+		})
+
+		ownPool := x509.NewCertPool()
+		ownPool.AddCert(target.Certificate())
+		ownClient := clientTrusting(t, p, ownPool)
+
+		resp, body := getTestURL(t, ownClient, "https://"+dialAddr+"/")
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, "from the real internet's own cert", body)
+		require.NotEmpty(t, resp.TLS.PeerCertificates)
+		assert.True(t, resp.TLS.PeerCertificates[0].Equal(target.Certificate()),
+			"the client must see the real upstream's own certificate, never a kevin-signed leaf")
+
+		kevinOnlyClient := clientTrusting(t, p, authority.Pool())
+		_, err = kevinOnlyClient.Get("https://" + dialAddr + "/") //nolint:noctx // test-only request, no context needed
+		require.Error(t, err, "a client that trusts only the kevin CA must not be able to verify the upstream's own certificate")
+
+		require.Eventually(t, func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return len(records) == 1
+		}, time.Second, time.Millisecond)
+		mu.Lock()
+		rec := records[0]
+		mu.Unlock()
+		assert.False(t, rec.Routed, "the host was never a registered route")
+		assert.False(t, rec.Denied)
+		assert.Equal(t, http.StatusOK, rec.Status)
+	})
+
+	t.Run("a denied host is refused on the CONNECT itself, before any TLS starts", func(t *testing.T) {
+		authority := newTestIntermediateCA(t)
+		p, err := proxy.New(authority, "kevin.home", nil, true, true)
+		require.NoError(t, err)
+
+		var lc net.ListenConfig
+		ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() { done <- p.Serve(ctx, ln) }()
+		t.Cleanup(func() {
+			cancel()
+			require.NoError(t, <-done)
+		})
+
+		const host = "denied-passthrough.kevin.test"
+
+		var d net.Dialer
+		conn, err := d.DialContext(t.Context(), "tcp", ln.Addr().String())
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = conn.Close() })
+
+		_, err = io.WriteString(conn, "CONNECT "+host+":443 HTTP/1.1\r\nHost: "+host+":443\r\n\r\n")
+		require.NoError(t, err)
+
+		require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+		resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+		require.NoError(t, err, "the denial must arrive as a plain HTTP response to the CONNECT itself, with no TLS ever attempted")
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		respBody, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		assert.Contains(t, string(respBody), "Blocked by kevin")
+	})
+
+	t.Run("a dial failure to an allowed host gets a 502, not a hang", func(t *testing.T) {
+		authority := newTestIntermediateCA(t)
+		// The CONNECT target doubles as the dial address in the unrouted
+		// case (there is no route.Upstream indirection), so - exactly like
+		// TestTunnelRoute's own dial-failure case - port 1 on loopback
+		// stands in for an address nothing is listening on, refused
+		// immediately rather than waiting on a real DNS lookup to fail.
+		p, err := proxy.New(authority, "kevin.home", []string{"127.0.0.1"}, true, true)
+		require.NoError(t, err)
+
+		var lc net.ListenConfig
+		ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() { done <- p.Serve(ctx, ln) }()
+		t.Cleanup(func() {
+			cancel()
+			require.NoError(t, <-done)
+		})
+
+		var d net.Dialer
+		conn, err := d.DialContext(t.Context(), "tcp", ln.Addr().String())
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = conn.Close() })
+
+		_, err = io.WriteString(conn, "CONNECT 127.0.0.1:1 HTTP/1.1\r\nHost: 127.0.0.1:1\r\n\r\n")
+		require.NoError(t, err)
+
+		require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+		line, err := bufio.NewReader(conn).ReadString('\n')
+		require.NoError(t, err)
+		assert.Contains(t, line, "502")
 	})
 }

@@ -175,6 +175,25 @@ Revert the edit. Then temporarily remove the `deny: true` line from
 
 Revert the edit before moving on.
 
+Edit `examples/web/kevin.cue` temporarily, add:
+
+```cue
+proxy: egress: {
+	allow:       ["example.com"]
+	passthrough: true
+}
+```
+
+- [ ] Restart `kevin -C examples/web run`; `curl --proxy http://127.0.0.1:18080 https://example.com/`
+      (no `--cacert` at all) still succeeds - the allowed host tunneled
+      raw, validated against the system trust store, not kevin's.
+- [ ] `curl --proxy http://127.0.0.1:18080 -v https://denied.example.org/`
+      still gets a `403` naming the host, readable with no `--cacert`
+      either (the CONNECT itself carries the denial, before any TLS
+      starts).
+
+Revert the edit before moving on.
+
 ## 4. CA and trust store (`kevin ca`)
 
 ```sh

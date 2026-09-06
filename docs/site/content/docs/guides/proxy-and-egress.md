@@ -63,6 +63,24 @@ proxy: egress: deny: bool @tag(airgap,type=bool)
 
 Then flip it per run with `kevin run -t airgap` instead of duplicating the whole file into a named environment just to change one field. See [`@tag` mode switches]({{< relref "/docs/environment-file#tag-mode-switches" >}}) for tagging a field that already has a fallback value, and for sharing one toggle across more than one field.
 
+### Reaching an allowed host with no CA trust
+
+`proxy: egress: deny:` still enforces the allow list even for a host with no `route` step - but by default that check happens *after* the proxy MITMs the CONNECT with a kevin-signed leaf, so a workload that doesn't trust the kevin CA (a bare `git`, `pip`, or a Go `http.Client` on the system cert pool, as opposed to a browser someone can click through) fails TLS to an allowed host outright.
+
+`proxy: egress: passthrough: true` fixes that for the unrouted case: an allowed host's CONNECT tunnels raw instead, so the client validates the real upstream's own certificate directly, and a denied host still gets its `403` - as the CONNECT response itself, before any TLS starts, so no client needs kevin's CA trusted to read it either way.
+
+```cue
+proxy: egress: {
+	deny:        true
+	allow:       ["api.github.com"]
+	passthrough: true
+}
+```
+
+This only changes the unrouted path. A `route` step still opts out of MITM per-route with its own `mode: "passthrough"`/`"raw"` (above) regardless of this setting.
+
+The trade-off: a passthrough connection logs one line per TCP connection (host, duration, no method or path) instead of the per-request detail a MITM'd request gives - the same granularity a route's own `passthrough`/`raw` mode already produces today.
+
 ## Step readiness
 
 A container reports `Running` before the process inside has necessarily bound its port. A TCP `expose` entry is only actually reachable once its published port accepts a connection. kevin waits for that before marking the step ready. Note this if you're debugging a race in your own tooling against a step.
