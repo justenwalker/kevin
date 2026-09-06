@@ -109,6 +109,8 @@ plugins:
 proxy:
   listen: "127.0.0.1:18080"
   gateway_port: 18081
+  egress:
+    deny: true
 console:
   listen: "127.0.0.1:18082"
 env:
@@ -122,7 +124,7 @@ env:
 const jsonEnvFile = `{
   "project": "kevin-e2e-format-%s",
   "plugins": {"echo": {"cmd": %s}},
-  "proxy": {"listen": "127.0.0.1:18080", "gateway_port": 18081},
+  "proxy": {"listen": "127.0.0.1:18080", "gateway_port": 18081, "egress": {"deny": true}},
   "console": {"listen": "127.0.0.1:18082"},
   "env": {"a": {"uses": "echo:echo", "label": "A", "with": {"message": "hello from %s"}}}
 }

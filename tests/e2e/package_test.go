@@ -31,6 +31,7 @@ func (s *PackageSuite) TestPackageModeSplitsAcrossFiles() {
 
 	s.writeCUE(dir, fmt.Sprintf(`package kevin
 
+`+proxyBlock(s.T())+`
 project: "kevin-e2e-package-split"
 plugins: echo: cmd: %s
 env: a: {uses: "echo:echo", with: message: "hi"}
@@ -59,6 +60,7 @@ func (s *PackageSuite) TestTagFlipsMode() {
 
 	s.writeCUE(dir, fmt.Sprintf(`package kevin
 
+`+proxyBlock(s.T())+`
 project: %s
 airgap: bool | *false @tag(airgap,type=bool)
 note: *"normal" | string
