@@ -45,13 +45,17 @@ var log = logging.New("relay")
 // external route's synthetic address is allocated from when neither flag
 // names one - the CLI's own flag defaults, and newRelayProcess's fallback
 // for a caller (a test, say) that builds a config directly, bypassing flag
-// parsing. 198.18.0.0/15 is IANA-reserved for benchmark testing (RFC
-// 2544); 100::/64 is the RFC 6666 Discard-Only prefix - neither a real DNS
-// answer nor Docker's own fd00::/8 ULA allocation would ever produce
-// either.
+// parsing. 198.18.0.0/15 is IANA-reserved for benchmark testing (RFC 2544),
+// never a real DNS answer. The IPv6 pool is a fixed ULA prefix (RFC 4193)
+// rather than the RFC 6666 Discard-Only block: Docker's own project
+// networks use ULA too, but generate their prefix's global ID at random, so
+// a fixed constant here is astronomically unlikely to collide with one -
+// and unlike Discard-Only, ULA is ordinary, expected-to-be-routed local
+// address space, not a range some resolver or security tool might flag as
+// bogus.
 const (
 	defaultFakeIPv4Range = "198.18.0.0/15"
-	defaultFakeIPv6Range = "100::/64"
+	defaultFakeIPv6Range = "fd00:aaaa:bbbb::/64"
 )
 
 // config holds the flags that configure one relay process.

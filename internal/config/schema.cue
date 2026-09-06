@@ -213,10 +213,12 @@ relay: {
 		// internet address.
 		ipv4_range: string & =~"^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/[0-9]+$" | *"198.18.0.0/15"
 
-		// ipv6_range is the IPv6 equivalent of ipv4_range. Defaults to
-		// 100::/64, the RFC 6666 Discard-Only prefix - traffic to it is
-		// defined to be discarded, and it shares no space with Docker's own
-		// fd00::/8 ULA allocation for the project network's real addresses.
-		ipv6_range: string & =~"^[0-9a-fA-F:]+/[0-9]+$" | *"100::/64"
+		// ipv6_range is the IPv6 equivalent of ipv4_range. Defaults to a
+		// fixed ULA (RFC 4193) prefix: Docker's own project networks are
+		// ULA too, but with a randomly-generated global ID, so a fixed
+		// constant here is unlikely to collide with one, and ULA is
+		// ordinary, expected-to-be-routed address space rather than a
+		// discard-only range some resolver might flag as bogus.
+		ipv6_range: string & =~"^[0-9a-fA-F:]+/[0-9]+$" | *"fd00:aaaa:bbbb::/64"
 	}
 }
