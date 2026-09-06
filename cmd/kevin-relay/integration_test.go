@@ -497,7 +497,7 @@ func (s *RelayProcessSuite) TestEnsureListenerOpensADeclaredPort() {
 	s.Require().Len(dnsReply.Answer, 1, "a kind pod with no netns the relay can capture needs the relay's own DNS answer to reach the interception")
 	a, ok := dnsReply.Answer[0].(*dns.A)
 	s.Require().True(ok)
-	s.Equal("10.20.30.40", a.A.String())
+	s.Equal("198.18.0.1", a.A.String(), "an intercept host resolves to a fake IP, not self")
 
 	var d net.Dialer
 	raw, err := d.DialContext(t.Context(), "tcp", "127.0.0.1:8443")
