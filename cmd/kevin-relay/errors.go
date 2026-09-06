@@ -32,4 +32,8 @@ const (
 	// ErrCaptureUnsupported reports that this relay build cannot install
 	// transparent-capture rules - only a linux build can.
 	ErrCaptureUnsupported = Error("relay: transparent capture requires linux")
+
+	// ErrOrigDstUnsupported reports that this relay build cannot read a
+	// connection's pre-NAT destination - only a linux build can.
+	ErrOrigDstUnsupported = Error("relay: reading the original destination requires linux")
 )

@@ -118,29 +118,32 @@ func (p *relayProcess) ensureListener(port int) error {
 		return fmt.Errorf("relay: listen intercept port %d: %w", port, err)
 	}
 	p.extraLns[port] = ln
-	p.runGrp.Go(func() error { return serveIntercept(p.runCtx, ln, p.proxyAddr, port) })
+	p.runGrp.Go(func() error { return serveIntercept(p.runCtx, ln, p.proxyAddr, port, p.intercept.fakeIPs) })
 	return nil
 }
 
 // serveIntercept accepts connections on ln - bound for an external route's
-// declared port beyond the fixed :80/:443 pair - and dispatches each to
-// handleHTTPS or handleHTTP depending on whether its first byte looks like
-// a TLS handshake record.
-func serveIntercept(ctx context.Context, ln net.Listener, proxyAddr string, port int) error {
+// declared port beyond the fixed :80/:443 pair - and dispatches each: a
+// fake-IP match tunnels directly with no protocol assumption at all,
+// anything else falls through to handleHTTPS or handleHTTP by peeking
+// whether its first byte looks like a TLS handshake record.
+func serveIntercept(ctx context.Context, ln net.Listener, proxyAddr string, port int, fakeIPs *fakeIPPool) error {
 	return acceptLoop(ctx, ln, func(conn net.Conn) {
-		br := bufio.NewReader(conn)
-		first, err := br.Peek(1)
-		if err != nil {
-			_ = conn.Close()
-			return
-		}
+		dispatch(ctx, conn, proxyAddr, port, fakeIPs, func(conn net.Conn) {
+			br := bufio.NewReader(conn)
+			first, err := br.Peek(1)
+			if err != nil {
+				_ = conn.Close()
+				return
+			}
 
-		pc := &peekedConn{Conn: conn, r: br}
-		if first[0] == recordTypeHandshake {
-			handleHTTPS(ctx, pc, proxyAddr, port)
-			return
-		}
-		handleHTTP(ctx, pc, proxyAddr)
+			pc := &peekedConn{Conn: conn, r: br}
+			if first[0] == recordTypeHandshake {
+				handleHTTPS(ctx, pc, proxyAddr, port)
+				return
+			}
+			handleHTTP(ctx, pc, proxyAddr)
+		})
 	})
 }
 

@@ -24,40 +24,50 @@ const (
 const maxClientHello = 5 + 16384
 
 // handleHTTPS reads the TLS ClientHello of conn without terminating TLS,
-// opens a CONNECT tunnel to proxyAddr for the SNI host on port, and pipes
-// the connection through it.
+// then tunnels to the SNI host on port.
 func handleHTTPS(ctx context.Context, conn net.Conn, proxyAddr string, port int) {
-	defer func() { _ = conn.Close() }()
-
 	client := bufio.NewReaderSize(conn, maxClientHello)
 	hello, err := readClientHello(client)
 	if err != nil {
 		log.Ctx(ctx).Debug("relay: https: read client hello failed", "error", err)
+		_ = conn.Close()
 		return
 	}
 
 	sni, err := parseClientHelloSNI(hello)
 	if err != nil {
 		log.Ctx(ctx).Debug("relay: https: no server name", "error", err)
+		_ = conn.Close()
 		return
 	}
 
-	upstream, upstreamReader, err := connectProxy(ctx, proxyAddr, sni, port)
+	tunnel(ctx, client, conn, proxyAddr, sni, port, hello)
+}
+
+// tunnel opens a CONNECT to proxyAddr for host:port and pipes clientW
+// (read from clientR) through it, first forwarding preface - bytes a
+// caller already peeked off the connection before it knew where to send
+// them, such as handleHTTPS's ClientHello. A caller with nothing already
+// read (the fake-IP-matched path, which parses no payload at all) passes
+// clientR as clientW's own Read side and a nil preface.
+func tunnel(ctx context.Context, clientR io.Reader, clientW io.WriteCloser, proxyAddr, host string, port int, preface []byte) {
+	defer func() { _ = clientW.Close() }()
+
+	upstream, upstreamReader, err := connectProxy(ctx, proxyAddr, host, port)
 	if err != nil {
-		log.Ctx(ctx).Debug("relay: https: connect to proxy failed", "error", err, "sni", sni)
+		log.Ctx(ctx).Debug("relay: tunnel: connect to proxy failed", "error", err, "host", host)
 		return
 	}
 	defer func() { _ = upstream.Close() }()
 
-	// The ClientHello bytes are already consumed from conn. Write them to
-	// the upstream connection before the pipe starts, or the handshake
-	// never reaches the proxy.
-	if _, err := upstream.Write(hello); err != nil {
-		log.Ctx(ctx).Debug("relay: https: forward client hello failed", "error", err)
-		return
+	if len(preface) > 0 {
+		if _, err := upstream.Write(preface); err != nil {
+			log.Ctx(ctx).Debug("relay: tunnel: forward preface failed", "error", err)
+			return
+		}
 	}
 
-	pipe(client, conn, upstreamReader, upstream)
+	pipe(clientR, clientW, upstreamReader, upstream)
 }
 
 // readClientHello reads one TLS record from r and returns its bytes,

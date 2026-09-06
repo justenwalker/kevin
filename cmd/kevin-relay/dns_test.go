@@ -39,12 +39,12 @@ func TestMatchesDomain(t *testing.T) {
 
 func TestDNSRelayAnswers(t *testing.T) {
 	t.Run("an A query under the domain", func(t *testing.T) {
-		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53")
+		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53", testFakeIPPool(t))
 
 		req := new(dns.Msg)
 		req.SetQuestion("web.kevin.home.", dns.TypeA)
 
-		reply := relay.answer(req)
+		reply := relay.answer(req, relay.self)
 
 		require.Len(t, reply.Answer, 1, "an A query under the domain must get one answer")
 		a, ok := reply.Answer[0].(*dns.A)
@@ -54,24 +54,24 @@ func TestDNSRelayAnswers(t *testing.T) {
 	})
 
 	t.Run("an AAAA query with no v6 address gets no records and no error", func(t *testing.T) {
-		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53")
+		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53", testFakeIPPool(t))
 
 		req := new(dns.Msg)
 		req.SetQuestion("web.kevin.home.", dns.TypeAAAA)
 
-		reply := relay.answer(req)
+		reply := relay.answer(req, relay.self)
 
 		assert.Empty(t, reply.Answer, "an AAAA query must get no answer, not an error")
 		assert.Equal(t, dns.RcodeSuccess, reply.Rcode, "an empty AAAA must answer NOERROR, not NXDOMAIN")
 	})
 
 	t.Run("an AAAA query under the domain, dual-stack", func(t *testing.T) {
-		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5", V6: "fd00::5"}, "127.0.0.11:53")
+		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5", V6: "fd00::5"}, "127.0.0.11:53", testFakeIPPool(t))
 
 		req := new(dns.Msg)
 		req.SetQuestion("web.kevin.home.", dns.TypeAAAA)
 
-		reply := relay.answer(req)
+		reply := relay.answer(req, relay.self)
 
 		require.Len(t, reply.Answer, 1, "an AAAA query under the domain must get one answer when the relay has a v6 address")
 		aaaa, ok := reply.Answer[0].(*dns.AAAA)
@@ -83,7 +83,7 @@ func TestDNSRelayAnswers(t *testing.T) {
 
 func TestDNSRelayIntercept(t *testing.T) {
 	t.Run("an exact intercepted host", func(t *testing.T) {
-		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53")
+		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53", testFakeIPPool(t))
 		relay.AddIntercept("s3.us-east-1.amazonaws.com")
 
 		assert.True(t, relay.matchesIntercept("s3.us-east-1.amazonaws.com."))
@@ -91,7 +91,7 @@ func TestDNSRelayIntercept(t *testing.T) {
 	})
 
 	t.Run("a wildcard intercepted host", func(t *testing.T) {
-		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53")
+		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53", testFakeIPPool(t))
 		relay.AddIntercept("*.s3.us-east-1.amazonaws.com")
 
 		assert.True(t, relay.matchesIntercept("bucket.s3.us-east-1.amazonaws.com."))
@@ -100,32 +100,45 @@ func TestDNSRelayIntercept(t *testing.T) {
 	})
 
 	t.Run("adding the same host twice is a no-op", func(t *testing.T) {
-		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53")
+		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53", testFakeIPPool(t))
 		relay.AddIntercept("s3.us-east-1.amazonaws.com")
 		relay.AddIntercept("s3.us-east-1.amazonaws.com")
 
 		assert.Len(t, relay.intercepts, 1)
 	})
 
-	t.Run("an intercepted host answers the same way the domain does", func(t *testing.T) {
-		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53")
+	t.Run("an intercepted host resolves to an allocated fake address, not self", func(t *testing.T) {
+		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53", testFakeIPPool(t))
 		relay.AddIntercept("s3.us-east-1.amazonaws.com")
 
 		req := new(dns.Msg)
 		req.SetQuestion("s3.us-east-1.amazonaws.com.", dns.TypeA)
-		reply := relay.answer(req)
+
+		addrs, err := relay.fakeIPs.allocate("s3.us-east-1.amazonaws.com")
+		require.NoError(t, err)
+		reply := relay.answer(req, addrs)
 
 		require.Len(t, reply.Answer, 1)
 		a, ok := reply.Answer[0].(*dns.A)
 		require.True(t, ok)
-		assert.Equal(t, "10.0.0.5", a.A.String())
+		assert.Equal(t, addrs.V4, a.A.String())
+		assert.NotEqual(t, "10.0.0.5", a.A.String(), "an intercept must never answer with the relay's own address")
 	})
+}
+
+// testFakeIPPool builds a fakeIPPool from real, if tiny, default-sized
+// ranges - large enough that a single test never exhausts one.
+func testFakeIPPool(t *testing.T) *fakeIPPool {
+	t.Helper()
+	p, err := newFakeIPPool("198.18.0.0/15", "100::/64")
+	require.NoError(t, err)
+	return p
 }
 
 func TestDNSServerForwardsAQueryOutsideTheDomain(t *testing.T) {
 	upstream := startFakeUpstreamDNS(t)
 
-	relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, upstream)
+	relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, upstream, testFakeIPPool(t))
 	srv, err := bindDNSServer(t.Context(), "127.0.0.1:0", relay)
 	require.NoError(t, err)
 

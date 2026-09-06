@@ -19,13 +19,15 @@ const dnsTTL = 30
 // dnsTimeout bounds a forwarded query to the upstream resolver.
 const dnsTimeout = 5 * time.Second
 
-// dnsRelay answers a query for the environment domain or a registered
-// intercept host, and forwards every other query to the upstream resolver.
+// dnsRelay answers a query for the environment domain with self, a query
+// for a registered intercept host with a synthetic address from fakeIPs,
+// and forwards every other query to the upstream resolver.
 type dnsRelay struct {
 	domain   string
 	self     selfAddrs
 	upstream string
 	client   dns.Client
+	fakeIPs  *fakeIPPool
 
 	mu         sync.Mutex
 	intercepts map[string]struct{} // exact hostname, lowercased
@@ -33,26 +35,28 @@ type dnsRelay struct {
 }
 
 // newDNSRelay builds a relay for domain. self is the address (or addresses,
-// for a dual-stack relay) that an A or AAAA query under domain, or under a
-// host added with [dnsRelay.AddIntercept], resolves to. upstream is the
-// resolver for every other query.
-func newDNSRelay(domain string, self selfAddrs, upstream string) *dnsRelay {
+// for a dual-stack relay) that an A or AAAA query under domain resolves to.
+// A query for a host added with [dnsRelay.AddIntercept] resolves to a
+// synthetic address fakeIPs allocates instead - see [fakeIPPool]. upstream
+// is the resolver for every other query.
+func newDNSRelay(domain string, self selfAddrs, upstream string, fakeIPs *fakeIPPool) *dnsRelay {
 	return &dnsRelay{
 		domain:     normalizeDomain(domain),
 		self:       self,
 		upstream:   upstream,
 		client:     dns.Client{Timeout: dnsTimeout},
+		fakeIPs:    fakeIPs,
 		intercepts: make(map[string]struct{}),
 		wildcards:  make(map[string]struct{}),
 	}
 }
 
-// AddIntercept registers host to also resolve to self, alongside the
-// configured domain - the only way a workload with no network namespace the
-// relay can capture (a kind pod) reaches an External route's interception.
-// A "*." prefix matches any subdomain, the same wildcard convention kevin's
-// own host proxy uses for its route table. Adding the same host twice is a
-// no-op.
+// AddIntercept registers host as a target for a synthetic, allocated
+// address, alongside the configured domain - the only way a workload with
+// no network namespace the relay can capture (a kind pod) reaches an
+// External route's interception. A "*." prefix matches any subdomain, the
+// same wildcard convention kevin's own host proxy uses for its route
+// table. Adding the same host twice is a no-op.
 func (r *dnsRelay) AddIntercept(host string) {
 	host = normalizeDomain(host)
 	r.mu.Lock()
@@ -87,8 +91,20 @@ func (r *dnsRelay) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 
 	if len(req.Question) == 1 {
 		name := req.Question[0].Name
-		if matchesDomain(name, r.domain) || r.matchesIntercept(name) {
-			if err := w.WriteMsg(r.answer(req)); err != nil {
+		switch {
+		case matchesDomain(name, r.domain):
+			if err := w.WriteMsg(r.answer(req, r.self)); err != nil {
+				log.Ctx(ctx).Debug("relay: dns: write answer failed", "error", err)
+			}
+			return
+		case r.matchesIntercept(name):
+			addrs, err := r.fakeIPs.allocate(normalizeDomain(name))
+			if err != nil {
+				log.Ctx(ctx).Debug("relay: dns: allocate fake ip failed", "error", err)
+				dns.HandleFailed(w, req)
+				return
+			}
+			if err := w.WriteMsg(r.answer(req, addrs)); err != nil {
 				log.Ctx(ctx).Debug("relay: dns: write answer failed", "error", err)
 			}
 			return
@@ -106,24 +122,24 @@ func (r *dnsRelay) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	}
 }
 
-// answer builds the reply for a query under the domain. A qtype of A
-// resolves to self.V4, and AAAA to self.V6. A family the relay has no
-// address for gets an empty NOERROR answer instead: for AAAA on an
-// IPv4-only relay, that's what makes a dual-stack client fall back to the A
-// record instead of failing.
-func (r *dnsRelay) answer(req *dns.Msg) *dns.Msg {
+// answer builds the reply for a matched query. A qtype of A resolves to
+// addrs.V4, and AAAA to addrs.V6. A family addrs has no address for gets an
+// empty NOERROR answer instead: for AAAA when addrs is IPv4-only, that's
+// what makes a dual-stack client fall back to the A record instead of
+// failing.
+func (r *dnsRelay) answer(req *dns.Msg, addrs selfAddrs) *dns.Msg {
 	m := new(dns.Msg)
 	m.SetReply(req)
 	m.Authoritative = true
 
 	q := req.Question[0]
 	switch {
-	case q.Qtype == dns.TypeA && r.self.V4 != "":
-		if rr, err := dns.NewRR(fmt.Sprintf("%s %d IN A %s", q.Name, dnsTTL, r.self.V4)); err == nil {
+	case q.Qtype == dns.TypeA && addrs.V4 != "":
+		if rr, err := dns.NewRR(fmt.Sprintf("%s %d IN A %s", q.Name, dnsTTL, addrs.V4)); err == nil {
 			m.Answer = append(m.Answer, rr)
 		}
-	case q.Qtype == dns.TypeAAAA && r.self.V6 != "":
-		if rr, err := dns.NewRR(fmt.Sprintf("%s %d IN AAAA %s", q.Name, dnsTTL, r.self.V6)); err == nil {
+	case q.Qtype == dns.TypeAAAA && addrs.V6 != "":
+		if rr, err := dns.NewRR(fmt.Sprintf("%s %d IN AAAA %s", q.Name, dnsTTL, addrs.V6)); err == nil {
 			m.Answer = append(m.Answer, rr)
 		}
 	}

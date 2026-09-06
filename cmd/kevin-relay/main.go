@@ -41,6 +41,19 @@ import (
 
 var log = logging.New("relay")
 
+// defaultFakeIPv4Range and defaultFakeIPv6Range are the pools a registered
+// external route's synthetic address is allocated from when neither flag
+// names one - the CLI's own flag defaults, and newRelayProcess's fallback
+// for a caller (a test, say) that builds a config directly, bypassing flag
+// parsing. 198.18.0.0/15 is IANA-reserved for benchmark testing (RFC
+// 2544); 100::/64 is the RFC 6666 Discard-Only prefix - neither a real DNS
+// answer nor Docker's own fd00::/8 ULA allocation would ever produce
+// either.
+const (
+	defaultFakeIPv4Range = "198.18.0.0/15"
+	defaultFakeIPv6Range = "100::/64"
+)
+
 // config holds the flags that configure one relay process.
 type config struct {
 	domain        string
@@ -127,8 +140,8 @@ func bindForwardFlags(fs *pflag.FlagSet, cfg *config) {
 	fs.StringVar(&cfg.socks5Listen, "socks5-listen", ":1080", "the address the SOCKS5 gateway listens on")
 	fs.StringVar(&cfg.controlListen, "control-listen", ":8053", "the address the intercept control endpoint listens on")
 	fs.StringVar(&cfg.upstreamDNS, "upstream-dns", "127.0.0.11:53", "the DNS server for a query outside the domain")
-	fs.StringVar(&cfg.fakeIPv4Range, "fake-ipv4-range", "198.18.0.0/15", "the IPv4 pool a registered external route's synthetic address is allocated from")
-	fs.StringVar(&cfg.fakeIPv6Range, "fake-ipv6-range", "100::/64", "the IPv6 pool a registered external route's synthetic address is allocated from")
+	fs.StringVar(&cfg.fakeIPv4Range, "fake-ipv4-range", defaultFakeIPv4Range, "the IPv4 pool a registered external route's synthetic address is allocated from")
+	fs.StringVar(&cfg.fakeIPv6Range, "fake-ipv6-range", defaultFakeIPv6Range, "the IPv6 pool a registered external route's synthetic address is allocated from")
 }
 
 // socks5GatewayCommand runs a SOCKS5 relay for a client outside a kind
@@ -191,10 +204,13 @@ type relayProcess struct {
 	netnsPaths map[string]captureTarget // registration id -> network namespace target
 }
 
-// newRelayProcess resolves self when cfg.self is empty, then binds the DNS,
-// the HTTP, the HTTPS, the SOCKS5, and the control listeners. A caller
-// reads back an ephemeral address with dnsAddr, httpAddr, httpsAddr, or
-// socks5Addr before run starts.
+// newRelayProcess resolves self when cfg.self is empty, and applies the
+// default fake-IP ranges when either of cfg.fakeIPv4Range/fakeIPv6Range is
+// empty - a caller that builds a config directly, bypassing flag parsing,
+// still gets a working relay. It then binds the DNS, the HTTP, the HTTPS,
+// the SOCKS5, and the control listeners. A caller reads back an ephemeral
+// address with dnsAddr, httpAddr, httpsAddr, or socks5Addr before run
+// starts.
 func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
 	self := selfAddrs{V4: cfg.self}
 	if cfg.self == "" {
@@ -203,6 +219,12 @@ func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
 			return nil, err
 		}
 		self = addr
+	}
+	if cfg.fakeIPv4Range == "" {
+		cfg.fakeIPv4Range = defaultFakeIPv4Range
+	}
+	if cfg.fakeIPv6Range == "" {
+		cfg.fakeIPv6Range = defaultFakeIPv6Range
 	}
 
 	var lc net.ListenConfig
@@ -229,7 +251,12 @@ func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
 	}
 	controlSrv := grpc.NewServer(grpc.Creds(credentials.NewTLS(controlTLS)))
 
-	relay := newDNSRelay(cfg.domain, self, cfg.upstreamDNS)
+	fakeIPs, err := newFakeIPPool(cfg.fakeIPv4Range, cfg.fakeIPv6Range)
+	if err != nil {
+		return nil, err
+	}
+
+	relay := newDNSRelay(cfg.domain, self, cfg.upstreamDNS, fakeIPs)
 	dnsSrv, err := bindDNSServer(ctx, cfg.dnsListen, relay)
 	if err != nil {
 		return nil, err
@@ -256,10 +283,14 @@ func (p *relayProcess) run(ctx context.Context) error {
 	p.runCtx, p.runGrp = ctx, grp
 	grp.Go(func() error { return p.dns.run(ctx) })
 	grp.Go(func() error {
-		return acceptLoop(ctx, p.httpsLn, func(conn net.Conn) { handleHTTPS(ctx, conn, p.proxyAddr, 443) })
+		return acceptLoop(ctx, p.httpsLn, func(conn net.Conn) {
+			dispatch(ctx, conn, p.proxyAddr, 443, p.intercept.fakeIPs, func(c net.Conn) { handleHTTPS(ctx, c, p.proxyAddr, 443) })
+		})
 	})
 	grp.Go(func() error {
-		return acceptLoop(ctx, p.httpLn, func(conn net.Conn) { handleHTTP(ctx, conn, p.proxyAddr) })
+		return acceptLoop(ctx, p.httpLn, func(conn net.Conn) {
+			dispatch(ctx, conn, p.proxyAddr, 80, p.intercept.fakeIPs, func(c net.Conn) { handleHTTP(ctx, c, p.proxyAddr) })
+		})
 	})
 	grp.Go(func() error { return serveSOCKS5(ctx, p.socks5Ln) })
 	grp.Go(func() error { return p.runControl(ctx) })
