@@ -37,6 +37,7 @@ import (
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/internal/pluginpkg"
+	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/protos/pb"
 )
@@ -1496,4 +1497,21 @@ func TestEventsWriter(t *testing.T) {
 	t.Run("falls back to stderr when not live", func(t *testing.T) {
 		assert.Equal(t, os.Stderr, eventsWriter(Options{}, false))
 	})
+}
+
+func TestRouteModeFromProto(t *testing.T) {
+	tests := []struct {
+		mode pb.RouteMode
+		want proxy.RouteMode
+	}{
+		{mode: pb.RouteMode_ROUTE_MODE_MITM, want: proxy.RouteModeMITM},
+		{mode: pb.RouteMode_ROUTE_MODE_PASSTHROUGH, want: proxy.RouteModePassthrough},
+		{mode: pb.RouteMode_ROUTE_MODE_RAW, want: proxy.RouteModeRaw},
+		{mode: pb.RouteMode(99), want: proxy.RouteModeMITM},
+	}
+	for _, tt := range tests {
+		t.Run(tt.mode.String(), func(t *testing.T) {
+			assert.Equal(t, tt.want, routeModeFromProto(tt.mode))
+		})
+	}
 }
