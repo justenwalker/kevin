@@ -105,7 +105,9 @@ genuine (if unauthenticated) S3 API response.
 ## Publishes
 
 Every route also appears as a card `Detail`: a copyable `https://` link
-to the route's host.
+to the route's host, unless it's an `intercept` route or a wildcard
+host - neither names a single address to browse to, so those show as
+plain copyable text instead.
 
 Has no `Down`: the proxy has no mechanism to remove a route once
 registered.

@@ -14,6 +14,7 @@ package plugin
 
 import (
 	"context"
+	"strings"
 
 	goplugin "github.com/hashicorp/go-plugin"
 )
@@ -283,11 +284,17 @@ type Detail struct {
 	Href string
 }
 
-// Detail returns a card row for r: a bare copyable link to
-// "https://"+r.Host. Append it to Result.Details to keep a route visible
+// Detail returns a card row for r: a copyable link to "https://"+r.Host,
+// unless r is an intercept route or a wildcard host - neither names a
+// single address a client could actually browse to, so Value renders as
+// plain text instead. Append it to Result.Details to keep a route visible
 // on the card, or build a Detail by hand for something different.
 func (r Route) Detail() Detail {
-	return Detail{Value: String(r.Host), Href: "https://" + r.Host, Copyable: true}
+	d := Detail{Value: String(r.Host), Copyable: true}
+	if r.Intercept == nil && !strings.HasPrefix(r.Host, "*.") {
+		d.Href = "https://" + r.Host
+	}
+	return d
 }
 
 // Detail returns a card row for e: a copyable "<protocol> <name>": value
