@@ -267,6 +267,97 @@ func TestPage(t *testing.T) {
 	})
 }
 
+func TestStepItem(t *testing.T) {
+	t.Run("a step's kind and state render as plain text, not chips", func(t *testing.T) {
+		store := session.NewStore()
+		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
+		store.AddStep("web", "", "resource", "", nil, nil, false, "", false)
+		store.SetStep("web", Ready, "")
+
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
+
+		body := rec.Body.String()
+		sidebarItem := body[strings.Index(body, `<li id="step-web"`):strings.Index(body, `</li>`)]
+		assert.Contains(t, sidebarItem, `class="status-line"`)
+		assert.Contains(t, sidebarItem, `class="kind-text kind-resource"`)
+		assert.Contains(t, sidebarItem, `class="status-text"`)
+		assert.NotContains(t, sidebarItem, `class="pill`,
+			"the sidebar's kind/state chips are gone in favor of plain text - the Services tab's own card still uses .pill")
+	})
+}
+
+func TestRerunActions(t *testing.T) {
+	t.Run("a ready step gets a split button with a cascade menu", func(t *testing.T) {
+		store := session.NewStore()
+		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
+		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		store.SetStep("web", Ready, "")
+
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
+
+		body := rec.Body.String()
+		assert.Contains(t, body, `id="rerun-menu-web" class="rerun-menu-toggle"`)
+		assert.Contains(t, body, `class="rerun-menu"`)
+		assert.Contains(t, body, "+ idempotent deps", "the cascade option lives in the menu, not a second visible button")
+	})
+
+	t.Run("a failed step gets one plain cascade button, no menu", func(t *testing.T) {
+		store := session.NewStore()
+		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
+		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		store.SetStep("web", Failed, "boom")
+
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
+
+		body := rec.Body.String()
+		assert.Contains(t, body, `class="split cascade-only"`)
+		assert.NotContains(t, body, "rerun-menu-web", "a failed step has nothing of its own to choose between, so no caret")
+	})
+}
+
+func TestLogsPanel(t *testing.T) {
+	t.Run("lists steps as a vertical list, marking a running one", func(t *testing.T) {
+		store := session.NewStore()
+		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
+		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		store.SetStep("web", Ready, "")
+		store.AddStep("db", "", "", "", nil, nil, false, "", false)
+		store.SetStep("db", Running, "")
+
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
+
+		body := rec.Body.String()
+		assert.Contains(t, body, `class="log-steps"`)
+		assert.Contains(t, body, `class="log-panels"`)
+		webIdx := strings.Index(body, `for="logtab-web"`)
+		dbIdx := strings.Index(body, `for="logtab-db"`)
+		require.GreaterOrEqual(t, webIdx, 0)
+		require.GreaterOrEqual(t, dbIdx, 0)
+		assert.NotContains(t, body[webIdx:dbIdx], "log-live-dot", "a ready step's log label carries no live-stream dot")
+		assert.Contains(t, body[dbIdx:], "log-live-dot", "a running step's log label marks that it's still streaming")
+	})
+}
+
+func TestHeader(t *testing.T) {
+	t.Run("folds the project into the heading and offers copyable address chips", func(t *testing.T) {
+		store := session.NewStore()
+		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
+		store.SetProxyAddr("127.0.0.1:8080")
+
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
+
+		body := rec.Body.String()
+		assert.Contains(t, body, `<h1>kevin <span class="proj">· demo</span></h1>`)
+		assert.Contains(t, body, `data-copy="127.0.0.1:8080"`, "the proxy chip stays copyable")
+		assert.Equal(t, 3, strings.Count(body, `class="chip"`), "proxy, mcp, and network each get one chip")
+	})
+}
+
 func TestEvents(t *testing.T) {
 	t.Run("sends a snapshot at once", func(t *testing.T) {
 		store := session.NewStore()

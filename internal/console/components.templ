@@ -25,17 +25,12 @@ templ Page(v View) {
 		</head>
 		<body>
 			<header>
-				<h1>kevin</h1>
-				<dl>
-					<dt>project</dt>
-					<dd>{ v.Project }</dd>
-					<dt>proxy</dt>
-					<dd><code>{ v.ProxyAddr }</code></dd>
-					<dt>mcp</dt>
-					<dd><code>{ v.McpURL }</code></dd>
-					<dt>network</dt>
-					<dd><code>{ v.Network }</code></dd>
-				</dl>
+				<h1>kevin <span class="proj">· { v.Project }</span></h1>
+				<div class="header-chips">
+					<span class="chip"><b>proxy</b><code>{ v.ProxyAddr }</code><button type="button" class="copy-btn" data-copy={ v.ProxyAddr } onclick="copyAddr(this)" title="copy">⧉</button></span>
+					<span class="chip"><b>mcp</b><code>{ v.McpURL }</code><button type="button" class="copy-btn" data-copy={ v.McpURL } onclick="copyAddr(this)" title="copy">⧉</button></span>
+					<span class="chip"><b>net</b><code>{ v.Network }</code></span>
+				</div>
 			</header>
 			<!-- One connection feeds every region. Each message is an out of
 			     band fragment that names its own target. -->
@@ -80,26 +75,38 @@ templ Page(v View) {
 					</section>
 					<input type="radio" name="maintab" id="tab-logs" class="tabinput"/>
 					<section id="panel-logs" class="panel">
-						<div class="tabbar subtabbar">
-							<label for="logtab-all">All</label>
-							for _, s := range v.Steps {
-								<label for={ "logtab-" + s.Name }>{ s.Name }</label>
-							}
-						</div>
-						<input type="radio" name="logtab" id="logtab-all" class="logtabinput" checked/>
-						<div id="log-all" class="logpanel scroll">
-							for _, l := range v.Logs {
-								@LogLine(l)
-							}
-						</div>
-						for _, s := range v.Steps {
-							<input type="radio" name="logtab" id={ "logtab-" + s.Name } class="logtabinput"/>
-							<div id={ "log-" + s.Name } class="logpanel scroll">
-								for _, l := range v.StepLogs[s.Name] {
-									@LogLine(l)
+						<div class="logs-layout">
+							<!-- Labels live here; their radios and panels stay as
+							     untouched pairs below in .log-panels, so the existing
+							     ":checked + .logpanel" rule still works. -->
+							<div class="log-steps">
+								<label for="logtab-all">All</label>
+								for _, s := range v.Steps {
+									<label for={ "logtab-" + s.Name }>
+										if s.State == Running {
+											<span class="log-live-dot" title="streaming"></span>
+										}
+										{ s.Name }
+									</label>
 								}
 							</div>
-						}
+							<div class="log-panels">
+								<input type="radio" name="logtab" id="logtab-all" class="logtabinput" checked/>
+								<div id="log-all" class="logpanel scroll">
+									for _, l := range v.Logs {
+										@LogLine(l)
+									}
+								</div>
+								for _, s := range v.Steps {
+									<input type="radio" name="logtab" id={ "logtab-" + s.Name } class="logtabinput"/>
+									<div id={ "log-" + s.Name } class="logpanel scroll">
+										for _, l := range v.StepLogs[s.Name] {
+											@LogLine(l)
+										}
+									</div>
+								}
+							</div>
+						</div>
 					</section>
 					<input type="radio" name="maintab" id="tab-proxy" class="tabinput"/>
 					<section id="panel-proxy" class="panel">
@@ -297,12 +304,15 @@ templ fullStepItem(s Step) {
 			@pluginIcon(s)
 			{ s.Label }
 		</span>
-		if s.Kind != "" {
-			<span class={ "pill", "kind-" + s.Kind }>{ kindIcon(s.Kind) } { s.Kind }</span>
-		}
-		@idempotentBadge(s)
-		@crossScopeBadge(s)
-		<span class="pill">{ string(s.State) }</span>
+		<span class="status-line">
+			if s.Kind != "" {
+				<span class={ "kind-text", "kind-" + s.Kind }>{ kindIcon(s.Kind) } { s.Kind }</span>
+				<span class="dot">·</span>
+			}
+			<span class="status-text">{ string(s.State) }</span>
+			@idempotentBadge(s)
+			@crossScopeBadge(s)
+		</span>
 		if s.State == Running || s.State == Removing {
 			@progressBar(s.Name, s.Progress)
 		}
@@ -337,7 +347,7 @@ templ compactStepItem(s Step) {
 			{ s.Label }
 		</span>
 		@crossScopeBadge(s)
-		<span class="pill">{ string(s.State) }</span>
+		<span class="status-text">{ string(s.State) }</span>
 		if s.Message != "" {
 			<span class="msg">{ s.Message }</span>
 		}
@@ -397,21 +407,39 @@ templ crossScopeBadge(s Step) {
 	}
 }
 
-// rerunActions is a step's rerun controls: icon buttons with a hover
-// tooltip, shown in the sidebar so they stay visible even for a step with
-// no exposed details. A Failed step gets one button that always cascades -
-// it has nothing of its own to preserve, only skipped dependents to fill
-// in. A Ready step gets a choice: just itself, or itself plus its
-// idempotent dependents. Any other state has nothing to rerun yet.
+// rerunActions is a step's rerun controls, shown in the sidebar so they
+// stay visible even for a step with no exposed details. A Failed step gets
+// one plain button that always cascades - it has nothing of its own to
+// preserve, only skipped dependents to fill in, so there's no choice to
+// offer. A Ready step gets a split button: the primary action reruns just
+// itself, and a caret (a hidden checkbox + label, the same technique
+// group-toggle already uses - no JS needed) opens a small menu for the
+// cascade option. Any other state has nothing to rerun yet.
 templ rerunActions(s Step) {
 	if s.State == Failed {
 		<div class="rerun-actions">
-			<button type="button" class="rerun-btn rerun-btn-cascade" hx-post={ "/steps/" + s.Name + "/rerun" } hx-vals="{&#34;cascade&#34;:&#34;true&#34;}" hx-swap="none" title="rerun - also retries the steps this failure skipped">⇶</button>
+			<div class="split cascade-only">
+				<button type="button" class="split-btn" hx-post={ "/steps/" + s.Name + "/rerun" } hx-vals="{&#34;cascade&#34;:&#34;true&#34;}" hx-swap="none" title="rerun - also retries the steps this failure skipped">⇶ rerun + skipped</button>
+			</div>
 		</div>
 	} else if s.State == Ready {
 		<div class="rerun-actions">
-			<button type="button" class="rerun-btn rerun-btn-single" hx-post={ "/steps/" + s.Name + "/rerun" } hx-vals="{&#34;cascade&#34;:&#34;false&#34;}" hx-swap="none" title="rerun just this step">↻</button>
-			<button type="button" class="rerun-btn rerun-btn-cascade" hx-post={ "/steps/" + s.Name + "/rerun" } hx-vals="{&#34;cascade&#34;:&#34;true&#34;}" hx-swap="none" title="rerun this step and its idempotent dependents">⇶</button>
+			<div class="split">
+				<div class="split-controls">
+					<button type="button" class="split-btn" hx-post={ "/steps/" + s.Name + "/rerun" } hx-vals="{&#34;cascade&#34;:&#34;false&#34;}" hx-swap="none" title="rerun just this step">↻ rerun</button>
+					<label for={ "rerun-menu-" + s.Name } class="split-caret" title="more rerun options">⌄</label>
+				</div>
+				<!-- Outside .split-controls, as .rerun-menu's own sibling -
+				     "overflow: hidden" clips only the button pair, and the
+				     ":checked ~ .rerun-menu" rule below needs them to share
+				     one parent; the label still reaches this input by id,
+				     position doesn't matter for that. -->
+				<input type="checkbox" id={ "rerun-menu-" + s.Name } class="rerun-menu-toggle"/>
+				<div class="rerun-menu">
+					<button type="button" hx-post={ "/steps/" + s.Name + "/rerun" } hx-vals="{&#34;cascade&#34;:&#34;false&#34;}" hx-swap="none">↻ just this step</button>
+					<button type="button" class="cascade" hx-post={ "/steps/" + s.Name + "/rerun" } hx-vals="{&#34;cascade&#34;:&#34;true&#34;}" hx-swap="none">⇶ + idempotent deps</button>
+				</div>
+			</div>
 		</div>
 	}
 }
@@ -539,12 +567,17 @@ templ styles() {
 			background: var(--bg); color: var(--fg);
 			font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
 		}
-		h1 { font-size: 1.1rem; margin: 0 0 var(--sp-5); letter-spacing: .04em; }
+		h1 { font-size: 1.3rem; margin: 0 0 var(--sp-4); letter-spacing: .02em; }
+		h1 .proj { color: var(--muted); font-weight: 400; }
 		h2 { font-size: var(--text-sm); text-transform: uppercase; letter-spacing: .08em;
 		     color: var(--muted); margin: 0 0 var(--sp-7); font-weight: 600; }
-		header dl { display: flex; gap: var(--sp-9); margin: 0; flex-wrap: wrap; }
-		header dt { color: var(--muted); display: inline; }
-		header dd { display: inline; margin: 0 0 0 var(--sp-4); }
+		.header-chips { display: flex; gap: var(--sp-4); flex-wrap: wrap; }
+		.header-chips .chip {
+			display: inline-flex; align-items: center; gap: var(--sp-2);
+			border: 1px solid var(--line); border-radius: 999px; padding: var(--sp-1) var(--sp-4);
+			font-size: var(--text-2xs); color: var(--muted);
+		}
+		.header-chips .chip b { color: var(--fg); font-weight: 600; }
 		table { width: 100%; border-collapse: collapse; }
 		th { text-align: left; font-weight: 600; color: var(--muted);
 		     font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .06em; }
@@ -554,19 +587,48 @@ templ styles() {
 		.bar { height: 4px; background: var(--pill); border-radius: 2px; margin: var(--sp-3) 0; overflow: hidden; }
 		.bar-hidden { display: none; }
 		.bar-fill { height: 100%; background: var(--run); transition: width .3s linear; }
-		.state-running .pill { color: var(--run); }
-		.state-ready .pill { color: var(--ok); }
-		.state-failed .pill { color: var(--err); }
-		.state-removing .pill, .state-removed .pill { color: var(--muted); }
-		.state-skipped .pill { color: var(--warn); }
-		.rerun-actions { display: inline-flex; gap: .25rem; margin-left: var(--sp-4); }
-		.rerun-btn {
-			border: none; background: none; color: var(--muted); cursor: pointer;
-			font-size: 1.15rem; line-height: 1; padding: var(--sp-1) var(--sp-3); border-radius: 4px;
+		.state-running .pill, .state-running .status-text { color: var(--run); }
+		.state-ready .pill, .state-ready .status-text { color: var(--ok); }
+		.state-failed .pill, .state-failed .status-text { color: var(--err); }
+		.state-removing .pill, .state-removing .status-text,
+		.state-removed .pill, .state-removed .status-text { color: var(--muted); }
+		.state-skipped .pill, .state-skipped .status-text { color: var(--warn); }
+		/* flex-shrink: 0 - a compact row's flex layout would otherwise
+		   squeeze this below its content's width once the row runs out of
+		   space, wrapping "rerun" under its icon instead of shrinking the
+		   row's other, more flexible content (its name, its message). */
+		.rerun-actions { display: inline-flex; flex-shrink: 0; margin-left: var(--sp-4); }
+		/* .split-controls (not .split itself) clips the button pair into
+		   one rounded pill - .rerun-menu is .split's other child, and an
+		   ancestor's "overflow: hidden" would clip its dropdown too, since
+		   it's positioned relative to .split. */
+		.split { display: inline-flex; position: relative; }
+		.split.cascade-only { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+		.split-controls { display: inline-flex; align-items: stretch; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+		.split-btn {
+			border: none; background: none; color: var(--muted); cursor: pointer; font: inherit;
+			font-size: var(--text-2xs); padding: var(--sp-1) var(--sp-4); white-space: nowrap;
 		}
-		.rerun-btn-single:hover { color: var(--run); background: var(--pill); }
-		.rerun-btn-cascade { color: var(--warn); }
-		.rerun-btn-cascade:hover { color: var(--warn); background: var(--pill); }
+		.split-btn:hover { color: var(--run); background: var(--pill); }
+		.split.cascade-only .split-btn:hover { color: var(--warn); }
+		.split-caret {
+			border-left: 1px solid var(--line); color: var(--muted); cursor: pointer;
+			display: flex; align-items: center; padding: var(--sp-1) var(--sp-3);
+		}
+		.split-caret:hover { color: var(--fg); background: var(--pill); }
+		.rerun-menu-toggle { position: absolute; opacity: 0; pointer-events: none; }
+		.rerun-menu {
+			display: none; position: absolute; top: 100%; right: 0; margin-top: var(--sp-1); z-index: 1;
+			flex-direction: column; min-width: 9rem; background: var(--bg); color: var(--fg);
+			border: 1px solid var(--line); border-radius: 6px; padding: var(--sp-2);
+		}
+		.rerun-menu-toggle:checked ~ .rerun-menu { display: flex; }
+		.rerun-menu button {
+			border: none; background: none; color: var(--fg); text-align: left; cursor: pointer; font: inherit;
+			font-size: var(--text-2xs); padding: var(--sp-2) var(--sp-3); border-radius: 4px;
+		}
+		.rerun-menu button:hover { background: var(--pill); }
+		.rerun-menu button.cascade { color: var(--warn); }
 		.kind-resource { color: var(--k-resource); }
 		.kind-action { color: var(--warn); }
 		.kind-probe { color: var(--k-probe); }
@@ -579,7 +641,12 @@ templ styles() {
 		.scroll { max-height: 22rem; overflow-y: auto; border: 1px solid var(--line);
 		          border-radius: 6px; padding: var(--sp-5); }
 		.line { display: flex; gap: var(--sp-7); white-space: pre-wrap; word-break: break-word; }
-		.line .step { color: var(--muted); min-width: 9rem; }
+		.line .step { color: var(--muted); min-width: 6rem; }
+		/* Only "All" mixes steps, so only there does the name earn its
+		   column - a single step's own log panel would repeat the same
+		   name on every line, for width the panel needs more now that
+		   .log-steps sits beside it. */
+		.logpanel:not(#log-all) .line .step { display: none; }
 		.stream-stderr .text { color: var(--warn); }
 		.status-2 td:first-child { color: var(--ok); }
 		.status-4 td:first-child, .status-5 td:first-child { color: var(--err); }
@@ -591,15 +658,30 @@ templ styles() {
 		.layout { display: flex; align-items: flex-start; gap: var(--sp-9); margin-top: var(--sp-9); }
 		#sidebar { flex: 0 0 14rem; position: relative; }
 		#sidebar ul { list-style: none; margin: 0 0 0 1.1rem; padding: 0; display: flex; flex-direction: column; gap: var(--sp-5); }
-		#sidebar li { border: 1px solid var(--line); border-radius: 6px; padding: var(--sp-5) var(--sp-6); }
-		/* Compact: a gate step (probe, route) - one muted line, no card. */
+		#sidebar li {
+			border: 1px solid var(--line); border-left-width: 3px; border-radius: 6px;
+			padding: var(--sp-5) var(--sp-6);
+		}
+		/* State reads off the card's left edge instead of a second chip next
+		   to the kind chip - kind and state both stay real words either way,
+		   the color is a bonus cue, never their only carrier. */
+		#sidebar li.state-ready:not(.compact) { border-left-color: var(--ok); }
+		#sidebar li.state-failed:not(.compact) { border-left-color: var(--err); }
+		#sidebar li.state-skipped:not(.compact) { border-left-color: var(--warn); }
+		.status-line { font-size: var(--text-xs); }
+		.status-line .kind-text {
+			text-transform: uppercase; letter-spacing: .05em; font-weight: 600; font-size: var(--text-2xs);
+		}
+		.status-line .dot { color: var(--muted); margin: 0 .3em; }
+		/* Compact: a gate step (probe, route) - one muted line, no card. The
+		   left padding matches a bordered card's border + padding-left so a
+		   dependency-line's endpoint dot lands beside the text, not on it. */
 		#sidebar li.compact {
-			border: none; border-radius: 0; padding: var(--sp-1) 0;
+			border: none; border-radius: 0; padding: var(--sp-1) 0 var(--sp-1) var(--sp-6);
 			display: flex; align-items: baseline; gap: var(--sp-4);
 			color: var(--muted); font-size: .85em;
 		}
 		#sidebar li.compact .name { font-weight: 400; }
-		#sidebar li.compact .pill { padding: 0; background: none; }
 		/* Step group: a checkbox+label toggle, collapsed by default, no JS
 		   needed for the show/hide itself - drawDepLines still runs on
 		   toggle since a ":checked" change trips no DOM mutation. A left
@@ -627,7 +709,7 @@ templ styles() {
 			0%, 100% { box-shadow: 0 0 0 0 var(--run); }
 			50% { box-shadow: 0 0 5px 1px var(--run); }
 		}
-		#sidebar li.state-running:not(.compact) { animation: step-pulse 2.8s ease-in-out infinite; }
+		#sidebar li.state-running:not(.compact) { border-left-color: var(--run); animation: step-pulse 2.8s ease-in-out infinite; }
 		@keyframes dep-flow { to { stroke-dashoffset: -16; } }
 		.dep-edge-running { stroke-dasharray: 4 4; stroke-width: 2; opacity: 1; animation: dep-flow .6s linear infinite; }
 		@media (prefers-reduced-motion: reduce) {
@@ -641,17 +723,37 @@ templ styles() {
 
 		/* CSS-only tabs: a hidden radio immediately followed by its panel.
 		   Works for a dynamic, per-step set of panels with no per-name rule
-		   and no JS, since the selector never names an id. */
-		.tabbar { display: flex; gap: var(--sp-4); margin-bottom: var(--sp-7); flex-wrap: wrap; }
+		   and no JS, since the selector never names an id. A label isn't a
+		   sibling of its own input though (grouped together for layout
+		   instead), so ":checked" can't reach it to mark it active - syncActiveLabels
+		   in scripts() toggles .active on change instead. */
+		.tabbar { display: flex; gap: var(--sp-8); border-bottom: 1px solid var(--line); margin-bottom: var(--sp-5); flex-wrap: wrap; }
 		.tabbar label {
-			cursor: pointer; padding: var(--sp-3) .8rem; border-radius: 6px;
-			background: var(--pill); color: var(--muted);
-			font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .06em;
+			cursor: pointer; padding: var(--sp-3) 0; margin-bottom: -1px;
+			color: var(--muted); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .06em;
+			border-bottom: 2px solid transparent;
 		}
-		.subtabbar label { font-size: var(--text-2xs); padding: var(--sp-2) var(--sp-6); text-transform: none; letter-spacing: normal; }
+		.tabbar label.active { color: var(--fg); font-weight: 600; border-bottom-color: var(--run); }
 		.tabinput, .logtabinput { position: absolute; opacity: 0; pointer-events: none; }
 		.panel, .logpanel { display: none; }
 		.tabinput:checked + .panel, .logtabinput:checked + .logpanel { display: block; }
+
+		/* Logs: a scrollable step list beside the log content, instead of a
+		   tab row that wraps once there are more steps than fit on one line. */
+		.logs-layout { display: flex; gap: var(--sp-5); }
+		.log-steps {
+			flex: 0 1 auto; width: max-content; min-width: 6rem; max-width: 11rem;
+			display: flex; flex-direction: column; gap: 1px;
+			max-height: 22rem; overflow-y: auto; border-right: 1px solid var(--line); padding-right: var(--sp-4);
+		}
+		.log-steps label {
+			cursor: pointer; padding: var(--sp-2) var(--sp-3); border-radius: 4px; color: var(--muted);
+			font-size: var(--text-xs); display: flex; align-items: center;
+			white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+		}
+		.log-steps label.active { background: var(--pill); color: var(--fg); font-weight: 600; }
+		.log-live-dot { width: .4rem; height: .4rem; border-radius: 999px; background: var(--run); flex: none; margin-right: var(--sp-2); }
+		.log-panels { flex: 1 1 auto; min-width: 0; }
 
 		/* Services: a card per step, hidden until it has a route. */
 		.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: var(--sp-7); }
@@ -793,16 +895,18 @@ templ scripts() {
 			var gutter = baseDepth + Math.max(0, laneCount - 1) * laneGap + 8;
 			steps.style.marginLeft = gutter + 'px';
 
+			var svgNS = 'http://www.w3.org/2000/svg';
 			edges.forEach(function (e) {
 				// depth is constant per lane - every edge in lane N sits at
 				// the same x, whatever its own span, so a lane reads as one
 				// straight track rather than wobbling in from edge to edge.
 				var depth = baseDepth + e.lane * laneGap;
 				var x = gutter - depth;
-				var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+				var color = colorFor(e.source);
+				var path = document.createElementNS(svgNS, 'path');
 				path.setAttribute('class', e.running ? 'dep-edge dep-edge-running' : 'dep-edge');
 				path.setAttribute('marker-end', 'url(#dep-arrow)');
-				path.style.stroke = colorFor(e.source);
+				path.style.stroke = color;
 				path.setAttribute('d', 'M' + gutter + ',' + e.sy +
 					' L' + x + ',' + (e.sy + depth) +
 					' L' + x + ',' + (e.ty - depth) +
@@ -815,6 +919,18 @@ templ scripts() {
 					// resolve animation-duration from the stylesheet.
 					path.style.animationDelay = phaseDelay(path);
 				}
+				// A dot at each end anchors the eye on where a line starts
+				// and ends, independent of how tangled the routing between
+				// them gets - same color as the line itself.
+				[e.sy, e.ty].forEach(function (y) {
+					var dot = document.createElementNS(svgNS, 'circle');
+					dot.setAttribute('class', 'dep-node');
+					dot.setAttribute('cx', gutter);
+					dot.setAttribute('cy', y);
+					dot.setAttribute('r', 3);
+					dot.style.fill = color;
+					g.appendChild(dot);
+				});
 			});
 		}
 		document.addEventListener('DOMContentLoaded', drawDepLines);
@@ -822,6 +938,22 @@ templ scripts() {
 		document.addEventListener('DOMContentLoaded', function () {
 			new MutationObserver(drawDepLines).observe(document.getElementById('steps'), { childList: true, subtree: true });
 		});
+
+		// syncActiveLabels marks each radio group's checked input's own
+		// label .active - a label isn't a CSS sibling of its input, so
+		// ":checked" can't reach it in plain CSS.
+		function syncActiveLabels() {
+			document.querySelectorAll('input[type=radio]:checked').forEach(function (input) {
+				document.getElementsByName(input.name).forEach(function (sibling) {
+					var l = document.querySelector('label[for="' + sibling.id + '"]');
+					if (l) l.classList.toggle('active', sibling.checked);
+				});
+			});
+		}
+		document.addEventListener('change', function (e) {
+			if (e.target.matches('input[type=radio]')) syncActiveLabels();
+		});
+		document.addEventListener('DOMContentLoaded', syncActiveLabels);
 	</script>
 }
 
