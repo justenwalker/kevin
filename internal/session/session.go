@@ -85,6 +85,16 @@ type Step struct {
 	Progress float64
 }
 
+// StepProgress is a running step's progress-only update: its name and
+// estimated completion fraction.
+type StepProgress struct {
+	// Name is the step's identifier.
+	Name string
+	// Progress is the estimated fraction, in [0,1], of the step's
+	// duration that has elapsed. See [Step.Progress].
+	Progress float64
+}
+
 // Detail is one row on a step's card.
 type Detail struct {
 	// Label is the row's caption.

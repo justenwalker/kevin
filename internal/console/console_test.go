@@ -89,6 +89,21 @@ func TestPage(t *testing.T) {
 		assert.Contains(t, body, `id="dep-lines"`, "the sidebar needs the svg overlay for dependency lines")
 	})
 
+	t.Run("gives a running step's progress bar a stable id, hidden until an estimate exists", func(t *testing.T) {
+		store := session.NewStore()
+		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
+		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		store.SetStep("web", Running, "")
+
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
+
+		body := rec.Body.String()
+		assert.Contains(t, body, `id="bar-web"`,
+			"the bar must exist before the first progress tick, since a later tick only patches it, never creates it")
+		assert.Contains(t, body, `class="bar bar-hidden"`, "no estimate yet, so the bar stays hidden rather than showing 0%")
+	})
+
 	t.Run("emits the running-step pulse and dep-line flow animations", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
@@ -347,6 +362,46 @@ func TestEvents(t *testing.T) {
 			"only the header swaps, so an already-expanded group's checkbox is never replaced")
 		assert.NotContains(t, body, `<li id="step-db"`,
 			"the group's outer row must never be replaced whole - that would reset its expand/collapse state")
+	})
+
+	t.Run("a progress tick patches only the bar, not the whole row", func(t *testing.T) {
+		store := session.NewStore()
+		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
+		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		store.SetStep("web", Running, "")
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		rec := &syncRecorder{}
+		req := httptest.NewRequestWithContext(ctx, "GET", "/events", nil)
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			s.Handler().ServeHTTP(rec, req)
+		}()
+
+		require.Eventually(t, func() bool {
+			s.clientsMu.Lock()
+			defer s.clientsMu.Unlock()
+			return len(s.clients) == 1
+		}, time.Second, 5*time.Millisecond)
+
+		before := len(rec.String())
+		store.SetStepProgress("web", 0.5)
+
+		require.Eventually(t, func() bool {
+			return strings.Contains(rec.String()[before:], `id="bar-web"`)
+		}, 2*time.Second, 10*time.Millisecond)
+
+		cancel()
+		<-done
+
+		tick := rec.String()[before:]
+		assert.Contains(t, tick, `hx-target="#bar-web"`, "a progress tick targets just the bar")
+		assert.NotContains(t, tick, `<li id="step-web"`,
+			"the step's own row must never be replaced by a progress tick - that would defeat any CSS animation running on it")
 	})
 
 	t.Run("a log line routes to both the all panel and the step's own panel", func(t *testing.T) {

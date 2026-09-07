@@ -92,6 +92,22 @@ func TestSetStep(t *testing.T) {
 	require.Len(t, s.Snapshot().Steps, 2)
 }
 
+func TestSetStepProgress(t *testing.T) {
+	s := NewStore()
+	s.AddStep("web", "", "", "", nil, nil, false, "", false)
+
+	var got Event
+	s.OnChange(func(e Event) { got = e })
+
+	s.SetStepProgress("web", 0.5)
+	assert.InDelta(t, 0.5, s.Snapshot().Steps[0].Progress, 0)
+	assert.Equal(t, StepProgress{Name: "web", Progress: 0.5}, got,
+		"a progress tick notifies StepProgress, not the wider Step, so a listener can patch just the bar")
+
+	s.SetStepProgress("nobody", 0.9) // must not panic or add a step
+	assert.Len(t, s.Snapshot().Steps, 1)
+}
+
 func TestAddStepDetail(t *testing.T) {
 	s := NewStore()
 	s.AddStep("web", "", "", "", nil, nil, false, "", false)

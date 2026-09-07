@@ -303,14 +303,31 @@ templ fullStepItem(s Step) {
 		@idempotentBadge(s)
 		@crossScopeBadge(s)
 		<span class="pill">{ string(s.State) }</span>
-		if s.Progress > 0 && (s.State == Running || s.State == Removing) {
-			<div class="bar"><div class="bar-fill" style={ fmt.Sprintf("width:%.0f%%", s.Progress*100) }></div></div>
+		if s.State == Running || s.State == Removing {
+			@progressBar(s.Name, s.Progress)
 		}
 		if s.Message != "" {
 			<span class="msg">{ s.Message }</span>
 		}
 		@rerunActions(s)
 	</li>
+}
+
+// progressBar is a running (or removing) step's progress bar: a fixed
+// "bar-<name>" id (the target [oobProgress] patches) wrapping a fill sized
+// to progress, hidden via the bar-hidden class when progress is 0.
+templ progressBar(name string, progress float64) {
+	<div id={ "bar-" + name } class={ "bar", templ.KV("bar-hidden", progress <= 0) }>
+		<div class="bar-fill" style={ fmt.Sprintf("width:%.0f%%", progress*100) }></div>
+	</div>
+}
+
+// oobProgress replaces one step's progress bar out of band, targeted at
+// its "bar-<name>" id - the rest of the step's sidebar entry is untouched.
+templ oobProgress(p session.StepProgress) {
+	<hx-partial hx-target={ "#bar-" + p.Name } hx-swap="outerHTML">
+		@progressBar(p.Name, p.Progress)
+	</hx-partial>
 }
 
 templ compactStepItem(s Step) {
@@ -528,6 +545,7 @@ templ styles() {
 		td.path { color: var(--muted); }
 		.pill { padding: .05rem .5rem; border-radius: 999px; background: var(--pill); }
 		.bar { height: 4px; background: var(--pill); border-radius: 2px; margin: .3rem 0; overflow: hidden; }
+		.bar-hidden { display: none; }
 		.bar-fill { height: 100%; background: var(--run); transition: width .3s linear; }
 		.state-running .pill { color: var(--run); }
 		.state-ready .pill { color: var(--ok); }
@@ -597,8 +615,7 @@ templ styles() {
 		   card to watch, the flowing dashes on its outgoing edges show where
 		   those outputs are headed once it finishes. Not on a compact row
 		   (a gate step) - StepItem already downplays those, a pulse would
-		   fight that. phaseDelay in scripts() reads the duration back via
-		   getComputedStyle, so it never needs to know these numbers. */
+		   fight that. */
 		@keyframes step-pulse {
 			0%, 100% { box-shadow: 0 0 0 0 var(--run); }
 			50% { box-shadow: 0 0 5px 1px var(--run); }
@@ -707,13 +724,13 @@ templ scripts() {
 		}
 
 		// phaseDelay pins a CSS animation to wall-clock time instead of
-		// element age: an OOB swap (e.g. a running step's progress tick,
-		// every 500ms) replaces the whole node, which would otherwise
-		// restart the animation from 0% before a slow pulse ever completes
-		// a cycle. A negative delay of "now mod duration" starts the fresh
-		// node at the phase the old one would be at right now. Reads the
-		// duration back from el's own computed style, so styles() stays
-		// the only place that names it.
+		// element age: drawDepLines rebuilds every dep-edge <path> from
+		// scratch on every call, which would otherwise restart a running
+		// edge's flow animation from 0% before it ever completes a cycle.
+		// A negative delay of "now mod duration" starts the fresh path at
+		// the phase the old one would be at right now. Reads the duration
+		// back from el's own computed style, so styles() stays the only
+		// place that names it.
 		function phaseDelay(el) {
 			var ms = parseFloat(getComputedStyle(el).animationDuration) * 1000;
 			return (-(Date.now() % ms)) + 'ms';
@@ -739,10 +756,6 @@ templ scripts() {
 			document.querySelectorAll('#steps li').forEach(function (li, i) {
 				order[li.id.slice('step-'.length)] = i;
 			});
-			document.querySelectorAll('#sidebar li.state-running:not(.compact)').forEach(function (li) {
-				li.style.animationDelay = phaseDelay(li);
-			});
-
 			var edges = [];
 			document.querySelectorAll('#steps li[data-needs]').forEach(function (li) {
 				// A collapsed group's members are display:none - getClientRects

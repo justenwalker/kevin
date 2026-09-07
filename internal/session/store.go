@@ -14,12 +14,13 @@ const (
 )
 
 // Event is one change Store reports to its listener, if it has one - a
-// Step, a Line, or a Request, depending on what changed.
+// Step, a StepProgress, a Line, or a Request, depending on what changed.
 type Event interface{ event() }
 
-func (Step) event()    {}
-func (Line) event()    {}
-func (Request) event() {}
+func (Step) event()         {}
+func (StepProgress) event() {}
+func (Line) event()         {}
+func (Request) event()      {}
 
 // Store holds the state of one session - the DAG's steps, their log
 // output, and the proxy's request tail. The zero value is not usable.
@@ -159,7 +160,8 @@ func (s *Store) ClearStepDetails(name string) {
 }
 
 // SetStepProgress records an estimated completion fraction for a step. An
-// unknown step is a no-op.
+// unknown step is a no-op. Unlike the other setters, this notifies a
+// [StepProgress] rather than a [Step].
 func (s *Store) SetStepProgress(name string, fraction float64) {
 	s.mu.Lock()
 	step, ok := s.steps[name]
@@ -168,10 +170,9 @@ func (s *Store) SetStepProgress(name string, fraction float64) {
 		return
 	}
 	step.Progress = fraction
-	snapshot := *step
 	s.mu.Unlock()
 
-	s.notify(snapshot)
+	s.notify(StepProgress{Name: name, Progress: fraction})
 }
 
 // SetStepIdempotent records whether a step's type is safe to call Up on

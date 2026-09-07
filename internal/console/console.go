@@ -130,6 +130,8 @@ func (s *Server) onChange(e session.Event) {
 	switch v := e.(type) {
 	case session.Step:
 		s.publish(StepUpdate(v))
+	case session.StepProgress:
+		s.publish(oobProgress(v))
 	case session.Line:
 		// The per-step panel is the same line, routed to a second target -
 		// no separate per-step storage. Snapshot() derives a step's tail by
