@@ -294,6 +294,28 @@ env: { web: { uses: "unknown:container" } }`,
 	})
 }
 
+func TestDoctorCommand(t *testing.T) {
+	t.Run("skips ports when there is no environment file", func(t *testing.T) {
+		var runErr error
+		out := captureStdout(t, func() {
+			runErr = cmd.Run(t.Context(), []string{"-C", t.TempDir(), "doctor"})
+		})
+
+		assert.Contains(t, out, "ports: skip")
+
+		var cmdErr *cmd.CommandError
+		assert.NotErrorAs(t, runErr, &cmdErr, "a failing check is a command failure, not a usage error")
+	})
+
+	t.Run("rejects an extra argument", func(t *testing.T) {
+		err := cmd.Run(t.Context(), []string{"doctor", "extra"})
+		require.Error(t, err)
+
+		var cmdErr *cmd.CommandError
+		require.ErrorAs(t, err, &cmdErr, "must be a usage error")
+	})
+}
+
 func TestInitCommand(t *testing.T) {
 	t.Run("reports a missing file", func(t *testing.T) {
 		err := cmd.Run(t.Context(), []string{"-C", t.TempDir(), "init"})

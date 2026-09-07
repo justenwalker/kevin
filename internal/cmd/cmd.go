@@ -123,6 +123,7 @@ func NewRootCommand() (*cobra.Command, *options) {
 		pluginCommand(opts),
 		doCommand(opts),
 		caCommand(opts),
+		doctorCommand(opts),
 	)
 
 	return root, opts

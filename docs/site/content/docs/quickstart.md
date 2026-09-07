@@ -37,6 +37,8 @@ grep "kevin_${VERSION}_${OS}_${ARCH}.tar.gz" checksums.txt | shasum -a 256 -c -
 
 ## First run
 
+If something looks wrong before or during a run, `kevin -C examples/web doctor` checks Docker, the CA, and the project's ports in one pass.
+
 ```sh
 kevin -C examples/web run      # Ctrl-C to remove
 ```

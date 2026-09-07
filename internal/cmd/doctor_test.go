@@ -1,0 +1,79 @@
+package cmd
+
+import (
+	"bytes"
+	"net"
+	"os"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestPrintCheck(t *testing.T) {
+	tests := []struct {
+		name   string
+		ok     bool
+		skip   bool
+		detail string
+		want   string
+	}{
+		{name: "ok with no detail", ok: true, want: "docker: ok\n"},
+		{name: "ok with detail", ok: true, detail: "3 profiles", want: "docker: ok (3 profiles)\n"},
+		{name: "fail", detail: "daemon does not answer", want: "docker: fail (daemon does not answer)\n"},
+		{name: "skip wins over ok", ok: true, skip: true, detail: "no Firefox profile", want: "docker: skip (no Firefox profile)\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			printCheck(&buf, "docker", tt.ok, tt.skip, tt.detail)
+			assert.Equal(t, tt.want, buf.String())
+		})
+	}
+}
+
+func TestCheckPorts(t *testing.T) {
+	t.Run("skips when there is no environment file", func(t *testing.T) {
+		var buf bytes.Buffer
+		opts := &options{dir: t.TempDir()}
+
+		ok := checkPorts(t.Context(), &buf, opts)
+
+		assert.True(t, ok, "a missing environment file must not fail doctor")
+		assert.Contains(t, buf.String(), "ports: skip (no environment file in this directory)")
+	})
+
+	t.Run("reports a free port as ok and a bound one as fail", func(t *testing.T) {
+		var lc net.ListenConfig
+
+		ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ln.Close() })
+		busy := ln.Addr().String()
+
+		// A real port that was free a moment ago and stays free, since
+		// nothing else on the machine grabs it in between.
+		free, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		freeAddr := free.Addr().String()
+		require.NoError(t, free.Close())
+
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(
+			`proxy: {listen: "`+busy+`", gateway_port: 18081, egress: deny: true}
+console: listen: "`+freeAddr+`"
+project: "x"
+`), 0o600))
+
+		var buf bytes.Buffer
+		opts := &options{dir: dir}
+
+		ok := checkPorts(t.Context(), &buf, opts)
+
+		assert.False(t, ok, "a bound proxy port must fail doctor")
+		out := buf.String()
+		assert.Contains(t, out, "port proxy ("+busy+"): fail (in use)")
+		assert.Contains(t, out, "port console ("+freeAddr+"): ok")
+		assert.Contains(t, out, "port gateway_port: skip")
+	})
+}
