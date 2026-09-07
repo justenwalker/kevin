@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -86,22 +88,28 @@ func (s *Server) getStep(_ context.Context, _ *mcp.CallToolRequest, in GetStepIn
 		if st.Name != in.Name {
 			continue
 		}
-		details := make([]DetailRow, len(st.Details))
-		for i, d := range st.Details {
-			value := d.Value
-			if d.Sensitive {
-				value = sensitiveMask
-			}
-			details[i] = DetailRow{Label: d.Label, Value: value, Sensitive: d.Sensitive}
-		}
-		lines := v.StepLogs[st.Name]
-		logs := make([]LogLine, len(lines))
-		for i, l := range lines {
-			logs[i] = LogLine{Stream: l.Stream, Text: l.Text}
-		}
-		return nil, GetStepOutput{StepSummary: stepSummary(st), Details: details, Logs: logs}, nil
+		return nil, stepOutput(st, v), nil
 	}
 	return nil, GetStepOutput{}, fmt.Errorf("mcpserver: no step named %q", in.Name)
+}
+
+// stepOutput builds one step's full get_step/rerun_step report: its
+// summary, detail rows (sensitive values masked), and buffered logs.
+func stepOutput(st session.Step, v session.View) GetStepOutput {
+	details := make([]DetailRow, len(st.Details))
+	for i, d := range st.Details {
+		value := d.Value
+		if d.Sensitive {
+			value = sensitiveMask
+		}
+		details[i] = DetailRow{Label: d.Label, Value: value, Sensitive: d.Sensitive}
+	}
+	lines := v.StepLogs[st.Name]
+	logs := make([]LogLine, len(lines))
+	for i, l := range lines {
+		logs[i] = LogLine{Stream: l.Stream, Text: l.Text}
+	}
+	return GetStepOutput{StepSummary: stepSummary(st), Details: details, Logs: logs}
 }
 
 // RerunStepInput names the step to re-run and whether to cascade to its
@@ -111,25 +119,49 @@ type RerunStepInput struct {
 	Cascade bool   `json:"cascade,omitempty" jsonschema:"also re-run this step's dependents: an already-completed dependent only if its step type is idempotent, a never-completed one always"`
 }
 
+// DeniedRequest is one proxy request the environment blocked.
+type DeniedRequest struct {
+	Time   time.Time `json:"time"   jsonschema:"when the proxy blocked the request"`
+	Method string    `json:"method" jsonschema:"the request's HTTP method"`
+	Host   string    `json:"host"   jsonschema:"the host the request targeted"`
+	Path   string    `json:"path"   jsonschema:"the request's path"`
+}
+
 // RerunStepOutput is the result of rerun_step.
 type RerunStepOutput struct {
-	Name string   `json:"name"          jsonschema:"the step that was targeted"`
-	Ran  []string `json:"ran,omitempty" jsonschema:"names of every step whose status actually changed - name itself, plus any dependents cascade brought along"`
+	Name    string          `json:"name"              jsonschema:"the step that was targeted"`
+	Steps   []GetStepOutput `json:"steps,omitempty"   jsonschema:"full status, details, and logs for every step whose state actually changed - name itself, plus any dependents cascade brought along"`
+	Denials []DeniedRequest `json:"denials,omitempty" jsonschema:"proxy requests the environment blocked while this rerun was in flight - a likely cause when a step failed reaching a host it needed"`
 }
 
 func (s *Server) rerunStep(ctx context.Context, _ *mcp.CallToolRequest, in RerunStepInput) (*mcp.CallToolResult, RerunStepOutput, error) {
 	before := stepStates(s.view.Snapshot().Steps)
+	start := time.Now()
 	if err := s.rerun(ctx, in.Name, in.Cascade); err != nil {
 		return nil, RerunStepOutput{}, fmt.Errorf("mcpserver: rerun %s: %w", in.Name, err)
 	}
 
-	var ran []string
-	for _, st := range s.view.Snapshot().Steps {
+	v := s.view.Snapshot()
+	var steps []GetStepOutput
+	for _, st := range v.Steps {
 		if before[st.Name] != st.State {
-			ran = append(ran, st.Name)
+			steps = append(steps, stepOutput(st, v))
 		}
 	}
-	return nil, RerunStepOutput{Name: in.Name, Ran: ran}, nil
+	return nil, RerunStepOutput{Name: in.Name, Steps: steps, Denials: deniedSince(v.Requests, start)}, nil
+}
+
+// deniedSince returns the requests the proxy denied at or after start,
+// oldest first - v.Requests itself is newest-first.
+func deniedSince(requests []session.Request, start time.Time) []DeniedRequest {
+	var out []DeniedRequest
+	for _, r := range slices.Backward(requests) {
+		if !r.Denied || r.Time.Before(start) {
+			continue
+		}
+		out = append(out, DeniedRequest{Time: r.Time, Method: r.Method, Host: r.Host, Path: r.Path})
+	}
+	return out
 }
 
 func stepStates(steps []session.Step) map[string]session.State {

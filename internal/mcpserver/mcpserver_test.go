@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -17,12 +18,14 @@ import (
 )
 
 // fakeView is a stub of the state a [*console.Server] would otherwise
-// provide, so these tests need no engine and no Docker.
+// provide, so these tests need no engine and no Docker. v is a pointer: a
+// test's rerun stub can mutate the pointed-to View, and Snapshot reflects
+// the change on its next call.
 type fakeView struct {
-	v session.View
+	v *session.View
 }
 
-func (f fakeView) Snapshot() session.View { return f.v }
+func (f fakeView) Snapshot() session.View { return *f.v }
 
 // fakeProxy is a stub of the state a [*proxy.Proxy] would otherwise
 // provide.
@@ -39,17 +42,9 @@ func (f fakeProxy) EgressAllowList() ([]string, []string, bool) {
 	return f.allow, f.wildcards, f.deny
 }
 
-// newTestServer builds a Server against fake session state and connects an
-// MCP client to it over Streamable HTTP.
-func newTestServer(t *testing.T,
-	rerun func(ctx context.Context, step string, cascade bool) error,
-	export func(ctx context.Context, step string) (map[string]output.Value, error),
-	tools []mcpserver.ToolDef,
-	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (any, bool, string, error),
-) *mcp.ClientSession {
-	t.Helper()
-
-	view := fakeView{v: session.View{
+// defaultView is the fake session state most tests run against.
+func defaultView() *session.View {
+	return &session.View{
 		ProxyAddr: "127.0.0.1:9999",
 		Steps: []session.Step{
 			{
@@ -64,7 +59,31 @@ func newTestServer(t *testing.T,
 		StepLogs: map[string][]session.Line{
 			"api": {{Step: "api", Stream: "stdout", Text: "listening"}},
 		},
-	}}
+	}
+}
+
+// newTestServer builds a Server against fake session state and connects an
+// MCP client to it over Streamable HTTP.
+func newTestServer(t *testing.T,
+	rerun func(ctx context.Context, step string, cascade bool) error,
+	export func(ctx context.Context, step string) (map[string]output.Value, error),
+	tools []mcpserver.ToolDef,
+	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (any, bool, string, error),
+) *mcp.ClientSession {
+	t.Helper()
+	return newTestServerWithView(t, defaultView(), rerun, export, tools, dispatch)
+}
+
+// newTestServerWithView is newTestServer for a test that needs to mutate the
+// session view (e.g. from a rerun stub) after the Server is built.
+func newTestServerWithView(t *testing.T, view *session.View,
+	rerun func(ctx context.Context, step string, cascade bool) error,
+	export func(ctx context.Context, step string) (map[string]output.Value, error),
+	tools []mcpserver.ToolDef,
+	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (any, bool, string, error),
+) *mcp.ClientSession {
+	t.Helper()
+
 	px := fakeProxy{
 		routes:    []proxy.Route{{Host: "api.kevin.home", Upstream: "api:8080"}},
 		allow:     []string{"api.github.com"},
@@ -72,7 +91,7 @@ func newTestServer(t *testing.T,
 		deny:      true,
 	}
 
-	s := mcpserver.New("demo", "kevin.home", view, px, rerun, export, tools, dispatch)
+	s := mcpserver.New("demo", "kevin.home", fakeView{v: view}, px, rerun, export, tools, dispatch)
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
 
@@ -161,6 +180,35 @@ func TestTools(t *testing.T) {
 		var out mcpserver.RerunStepOutput
 		decodeStructured(t, res, &out)
 		assert.Equal(t, "api", out.Name)
+		assert.Empty(t, out.Steps, "nothing changed state, so nothing should be reported")
+	})
+
+	t.Run("rerun_step reports changed step details and proxy denials", func(t *testing.T) {
+		view := defaultView()
+		rerun := func(_ context.Context, _ string, _ bool) error {
+			view.Steps[0].State = session.Failed
+			view.Requests = []session.Request{
+				{Time: time.Now().Add(2 * time.Hour), Denied: true, Method: "GET", Host: "second.example.com", Path: "/two"},
+				{Time: time.Now().Add(time.Hour), Denied: true, Method: "GET", Host: "blocked.example.com", Path: "/data"},
+				{Time: time.Now().Add(time.Hour), Denied: false, Host: "api.github.com"},
+				{Time: time.Now().Add(-time.Hour), Denied: true, Host: "stale.example.com"},
+			}
+			return nil
+		}
+		sess := newTestServerWithView(t, view, rerun, noopExport, nil, nil)
+		res := callTool(t, sess, "rerun_step", mcpserver.RerunStepInput{Name: "api"})
+		require.False(t, res.IsError)
+
+		var out mcpserver.RerunStepOutput
+		decodeStructured(t, res, &out)
+		require.Len(t, out.Steps, 1)
+		assert.Equal(t, "api", out.Steps[0].Name)
+		assert.Equal(t, "failed", out.Steps[0].State)
+
+		require.Len(t, out.Denials, 2)
+		assert.Equal(t, "blocked.example.com", out.Denials[0].Host, "oldest denial first")
+		assert.Equal(t, "/data", out.Denials[0].Path)
+		assert.Equal(t, "second.example.com", out.Denials[1].Host)
 	})
 
 	t.Run("export_step", func(t *testing.T) {

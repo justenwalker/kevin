@@ -109,8 +109,10 @@ func (s *Server) Handler() http.Handler {
 			"or to recreate a resource. With cascade=true, also re-runs the step's dependents: a " +
 			"dependent that already completed only re-runs if its step type is idempotent (safe " +
 			"to call Up on again), but a dependent that never completed (skipped because this " +
-			"step had failed) always re-runs. Returns the names of every step whose status " +
-			"actually changed as a result.",
+			"step had failed) always re-runs. Returns full status, details, and logs for every " +
+			"step whose status actually changed as a result, plus any proxy requests the " +
+			"environment denied while the rerun was in flight - a likely cause if a step failed " +
+			"reaching a host it needed.",
 	}, s.rerunStep)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "export_step",
