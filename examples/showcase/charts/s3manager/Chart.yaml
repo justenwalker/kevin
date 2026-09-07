@@ -1,0 +1,4 @@
+apiVersion: v2
+name: s3manager
+description: A small, real S3 bucket browser for the examples/showcase builtin:route interception demo.
+version: 0.1.0

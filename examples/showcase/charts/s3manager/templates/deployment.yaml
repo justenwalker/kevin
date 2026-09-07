@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: s3manager
+  template:
+    metadata:
+      labels:
+        app: s3manager
+    spec:
+      volumes:
+        - name: kevin-ca
+          hostPath:
+            # written by kind's trust_ca step during "kevin setup"
+            path: /usr/local/share/ca-certificates/kevin-root.crt
+            type: File
+      containers:
+        - name: s3manager
+          image: cloudlena/s3manager
+          imagePullPolicy: IfNotPresent
+          # The image's own USER (s3manager, non-root) can't write to
+          # /usr/local/share/ca-certificates or run update-ca-certificates,
+          # so this override runs as root - s3manager itself doesn't care
+          # what UID it runs as.
+          securityContext:
+            runAsUser: 0
+          command: ["sh", "-c"]
+          args:
+            - |
+              cp /etc/kevin/ca.crt /usr/local/share/ca-certificates/kevin.crt
+              update-ca-certificates
+              exec /usr/bin/dumb-init -- /usr/src/app/s3manager
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ENDPOINT
+              value: s3.us-east-1.amazonaws.com
+            - name: USE_SSL
+              value: "true"
+            - name: REGION
+              value: us-east-1
+            - name: ACCESS_KEY_ID
+              value: test
+            - name: SECRET_ACCESS_KEY
+              value: test
+            - name: BUCKET_NAME
+              value: archive
+          volumeMounts:
+            - name: kevin-ca
+              mountPath: /etc/kevin/ca.crt
+              readOnly: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3manager
+spec:
+  selector:
+    app: s3manager
+  ports:
+    - port: 8080
+      targetPort: 8080

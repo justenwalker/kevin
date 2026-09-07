@@ -24,38 +24,34 @@
 //   - s3_intercept: builtin:route, intercept: true, registers the real
 //     s3.us-east-1.amazonaws.com hostnames (path-style and
 //     virtual-hosted-style) into MiniStack - the same trick
-//     examples/intercept and examples/s3-app use.
+//     examples/intercept and examples/s3-app use, plus their dualstack
+//     form for s3manager's own client below.
 //   - session_upload: a plain builtin:container (not in the cluster) running
 //     unmodified aws-cli through the host proxy - a second, independent code
 //     path hitting the exact same interception as the in-cluster app.
-//   - web: a step group wrapping the real workload - Nextcloud
-//     (https://nextcloud.com), a real, widely deployed self-hosted file
-//     server - deployed with builtin:helm, gated by builtin:wait, and
-//     reachable at a subdomain with a second, plain builtin:route (no
+//   - web: a step group wrapping the real workload - s3manager
+//     (https://github.com/cloudlena/s3manager), a real, widely used S3
+//     bucket browser - deployed with builtin:helm, gated by builtin:wait,
+//     and reachable at a subdomain with a second, plain builtin:route (no
 //     intercept: true - a normal environment route, same trick
 //     examples/kind's app_route uses).
 //
-// Browse to Nextcloud through kevin's proxy (trust the CA first - see the
+// Browse to s3manager through kevin's proxy (trust the CA first - see the
 // quickstart's "Trust the CA" section - or add --cacert .kevin/ca.crt):
 //
-//	https://nextcloud.<domain shown in the console>
+//	https://s3manager.<domain shown in the console>
 //
-// Log in with admin/admin - no setup wizard, a
-// docker-entrypoint-hooks.d/before-starting script runs "occ
-// maintenance:install" and "occ files_external:create" itself before
-// apache ever starts. Its "S3" storage points at AWS's real endpoint,
-// region us-east-1, key/secret test/test - the same throwaway credentials
-// MiniStack accepts. Nothing in this chart or in kevin.cue tells the pod
-// where MiniStack is - s3_intercept's own DNS interception (the relay
-// answers the pod's own DNS query for the real hostname; no hostAliases
-// entry, no proxy configuration of the pod's own) is the only reason any
-// of that traffic lands on MiniStack instead of the real internet. Open
-// the S3 folder and browse
-// the bucket seed_note/seed wrote into during "kevin setup" - still there,
-// because the cluster and MiniStack never went away between runs. The hook
-// can still be running a few seconds after the step reports ready; reload
-// if the S3 folder isn't
-// listed yet.
+// No login, no setup wizard - its own config is fixed entirely by env vars
+// at container start (region us-east-1, key/secret test/test, the same
+// throwaway credentials MiniStack accepts), pointed at AWS's real S3
+// endpoint. Nothing in this chart or in kevin.cue tells the pod where
+// MiniStack is - s3_intercept's own DNS interception (the relay answers
+// the pod's own DNS query for the real hostname; no hostAliases entry, no
+// proxy configuration of the pod's own) is the only reason any of that
+// traffic lands on MiniStack instead of the real internet. It opens
+// straight onto the bucket seed_note/seed wrote into during "kevin
+// setup" - still there, because the cluster and MiniStack never went away
+// between runs.
 //
 // Poke the cluster directly - the commands: block below renders each one's
 // kubeconfig/context from the setup-scope cluster step's own Export output,
@@ -75,9 +71,9 @@ proxy: {
 	gateway_port: 18142
 	egress: {
 		deny: true
-		// Pods pull public images (ministack, nextcloud) through the proxy.
+		// Pods pull public images (ministack, s3manager) through the proxy.
 		// This has to be environment-wide, not a step's own "egress" -
-		// cluster's Up only runs during "kevin setup", but nextcloud's image
+		// cluster's Up only runs during "kevin setup", but s3manager's image
 		// pulls during "kevin run", a separate later process with its own
 		// proxy instance that never saw cluster's own egress list.
 		allow: ["docker.io", "*.docker.io", "*.docker.com"]
@@ -182,7 +178,7 @@ env: {
 	// same pair examples/intercept and examples/s3-app use. intercept: true
 	// also reaches every pod's own DNS, not just the host proxy: kevin's
 	// relay self-answers for either hostname (port 443, the default) so
-	// nextcloud below needs no hostAliases entry or proxy env of its own.
+	// s3manager below needs no hostAliases entry or proxy env of its own.
 	s3_intercept: {
 		uses:  "builtin:route"
 		label: "Intercept S3"
@@ -192,6 +188,10 @@ env: {
 			routes: [
 				{host: "s3.us-east-1.amazonaws.com", address: "ministack.default.svc.cluster.local:4566", intercept: true},
 				{host: "*.s3.us-east-1.amazonaws.com", address: "ministack.default.svc.cluster.local:4566", intercept: true},
+				// s3manager's client (minio-go) rewrites to the dualstack hostname
+				// before signing ListBuckets - aws-cli above never does this.
+				{host: "s3.dualstack.us-east-1.amazonaws.com", address: "ministack.default.svc.cluster.local:4566", intercept: true},
+				{host: "*.s3.dualstack.us-east-1.amazonaws.com", address: "ministack.default.svc.cluster.local:4566", intercept: true},
 			]
 		}
 	}
@@ -220,44 +220,44 @@ env: {
 				"""]
 		}
 	}
-	// The real workload: Nextcloud, a real self-hosted file server, browsed
+	// The real workload: s3manager, a real S3 bucket browser, browsed
 	// through kevin's own proxy. Wrapped in a step group so the console
 	// collapses it to one row.
 	web: {
-		label: "Nextcloud"
+		label: "s3manager"
 		needs: ["setup.cluster", "s3_intercept"]
 		steps: {
 			app: {
 				uses:  "builtin:helm"
-				label: "Nextcloud"
+				label: "s3manager"
 				with: {
 					kubeconfig: "${setup.cluster.out.kubeconfig}"
 					context:    "${setup.cluster.out.context}"
-					release:    "nextcloud"
-					chart:      "charts/nextcloud"
+					release:    "s3manager"
+					chart:      "charts/s3manager"
 				}
 			}
 			ready: {
 				uses:  "builtin:wait"
-				label: "Nextcloud Ready"
+				label: "s3manager Ready"
 				needs: ["app"]
 				with: {
 					timeout: "60s"
 					kubectl: {
 						kubeconfig: "${setup.cluster.out.kubeconfig}"
 						context:    "${setup.cluster.out.context}"
-						resource:   "deployment/nextcloud"
+						resource:   "deployment/s3manager"
 						rollout:    true
 					}
 				}
 			}
 			app_route: {
 				uses:  "builtin:route"
-				label: "Nextcloud Route"
+				label: "s3manager Route"
 				needs: ["ready"]
 				with: {
 					relay:  "${setup.cluster.out.relay_addr}"
-					routes: [{host: "nextcloud", address: "nextcloud.default.svc.cluster.local:80"}]
+					routes: [{host: "s3manager", address: "s3manager.default.svc.cluster.local:8080"}]
 				}
 			}
 		}
