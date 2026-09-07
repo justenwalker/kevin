@@ -71,6 +71,7 @@ templ Page(v View) {
 							for _, s := range v.Steps {
 								@StepCard(s)
 							}
+							<p class="empty">No services exposed yet - a step shows up here once it publishes a route or address.</p>
 						</div>
 					</section>
 					<input type="radio" name="maintab" id="tab-logs" class="tabinput"/>
@@ -757,6 +758,8 @@ templ styles() {
 
 		/* Services: a card per step, hidden until it has a route. */
 		.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: var(--sp-7); }
+		.cards .empty { display: none; grid-column: 1 / -1; color: var(--muted); font-size: var(--text-sm); }
+		.cards:not(:has(.card.exposed)) .empty { display: block; }
 		.card { display: none; border: 1px solid var(--line); border-radius: 8px; padding: var(--sp-7); }
 		.card.exposed { display: block; }
 		.card h3 { margin: 0 0 var(--sp-4); font-size: .95rem; }

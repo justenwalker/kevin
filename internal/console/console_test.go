@@ -358,6 +358,22 @@ func TestHeader(t *testing.T) {
 	})
 }
 
+func TestServicesTab(t *testing.T) {
+	t.Run("carries an empty-state hint, shown only while no card is exposed", func(t *testing.T) {
+		store := session.NewStore()
+		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
+		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		store.SetStep("web", Ready, "")
+
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
+
+		body := rec.Body.String()
+		assert.Contains(t, body, `<p class="empty">`,
+			"the hint always renders - :not(:has(.card.exposed)) in CSS decides whether it shows, no OOB update touches it")
+	})
+}
+
 func TestEvents(t *testing.T) {
 	t.Run("sends a snapshot at once", func(t *testing.T) {
 		store := session.NewStore()
