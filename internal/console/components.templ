@@ -518,6 +518,13 @@ templ styles() {
 			--bg: #fff; --fg: #111; --muted: #666; --line: #e3e3e3; --pill: #eee;
 			--ok: #1a7f37; --warn: #9a6700; --err: #cf222e; --run: #0969da;
 			--k-resource: #6639ba; --k-probe: #0f7b6c;
+			/* Spacing scale for repeated margin/padding/gap values. A
+			   one-off size (a fixed icon box, a card's max-width) stays
+			   a literal - no reuse to name. */
+			--sp-1: .15rem; --sp-2: .2rem; --sp-3: .3rem; --sp-4: .4rem;
+			--sp-5: .5rem; --sp-6: .6rem; --sp-7: .75rem; --sp-8: 1rem; --sp-9: 1.5rem;
+			/* Type scale: same idea for font-size. */
+			--text-2xs: .7rem; --text-xs: .75rem; --text-sm: .8rem; --text-md: .85rem;
 		}
 		@media (prefers-color-scheme: dark) {
 			:root {
@@ -528,23 +535,23 @@ templ styles() {
 		}
 		* { box-sizing: border-box; }
 		body {
-			margin: 0; padding: 1.5rem;
+			margin: 0; padding: var(--sp-9);
 			background: var(--bg); color: var(--fg);
 			font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
 		}
-		h1 { font-size: 1.1rem; margin: 0 0 .5rem; letter-spacing: .04em; }
-		h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
-		     color: var(--muted); margin: 0 0 .75rem; font-weight: 600; }
-		header dl { display: flex; gap: 1.5rem; margin: 0; flex-wrap: wrap; }
+		h1 { font-size: 1.1rem; margin: 0 0 var(--sp-5); letter-spacing: .04em; }
+		h2 { font-size: var(--text-sm); text-transform: uppercase; letter-spacing: .08em;
+		     color: var(--muted); margin: 0 0 var(--sp-7); font-weight: 600; }
+		header dl { display: flex; gap: var(--sp-9); margin: 0; flex-wrap: wrap; }
 		header dt { color: var(--muted); display: inline; }
-		header dd { display: inline; margin: 0 0 0 .4rem; }
+		header dd { display: inline; margin: 0 0 0 var(--sp-4); }
 		table { width: 100%; border-collapse: collapse; }
 		th { text-align: left; font-weight: 600; color: var(--muted);
-		     font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
-		th, td { padding: .3rem .6rem .3rem 0; border-bottom: 1px solid var(--line); }
+		     font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .06em; }
+		th, td { padding: var(--sp-3) var(--sp-6) var(--sp-3) 0; border-bottom: 1px solid var(--line); }
 		td.path { color: var(--muted); }
-		.pill { padding: .05rem .5rem; border-radius: 999px; background: var(--pill); }
-		.bar { height: 4px; background: var(--pill); border-radius: 2px; margin: .3rem 0; overflow: hidden; }
+		.pill { padding: .05rem var(--sp-5); border-radius: 999px; background: var(--pill); }
+		.bar { height: 4px; background: var(--pill); border-radius: 2px; margin: var(--sp-3) 0; overflow: hidden; }
 		.bar-hidden { display: none; }
 		.bar-fill { height: 100%; background: var(--run); transition: width .3s linear; }
 		.state-running .pill { color: var(--run); }
@@ -552,10 +559,10 @@ templ styles() {
 		.state-failed .pill { color: var(--err); }
 		.state-removing .pill, .state-removed .pill { color: var(--muted); }
 		.state-skipped .pill { color: var(--warn); }
-		.rerun-actions { display: inline-flex; gap: .25rem; margin-left: .4rem; }
+		.rerun-actions { display: inline-flex; gap: .25rem; margin-left: var(--sp-4); }
 		.rerun-btn {
 			border: none; background: none; color: var(--muted); cursor: pointer;
-			font-size: 1.15rem; line-height: 1; padding: .15rem .3rem; border-radius: 4px;
+			font-size: 1.15rem; line-height: 1; padding: var(--sp-1) var(--sp-3); border-radius: 4px;
 		}
 		.rerun-btn-single:hover { color: var(--run); background: var(--pill); }
 		.rerun-btn-cascade { color: var(--warn); }
@@ -563,15 +570,15 @@ templ styles() {
 		.kind-resource { color: var(--k-resource); }
 		.kind-action { color: var(--warn); }
 		.kind-probe { color: var(--k-probe); }
-		.badge-idempotent { color: var(--ok); font-size: .85rem; margin: 0 .3rem; cursor: default; }
+		.badge-idempotent { color: var(--ok); font-size: var(--text-md); margin: 0 var(--sp-3); cursor: default; }
 		.badge-cross-scope {
-			display: inline-flex; align-items: center; gap: .2rem; flex-shrink: 0; white-space: nowrap;
-			color: var(--muted); font-size: .7rem; border: 1px solid var(--line);
-			border-radius: 4px; padding: 0 .3rem; margin: 0 .3rem; cursor: default;
+			display: inline-flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; white-space: nowrap;
+			color: var(--muted); font-size: var(--text-2xs); border: 1px solid var(--line);
+			border-radius: 4px; padding: 0 var(--sp-3); margin: 0 var(--sp-3); cursor: default;
 		}
 		.scroll { max-height: 22rem; overflow-y: auto; border: 1px solid var(--line);
-		          border-radius: 6px; padding: .5rem; }
-		.line { display: flex; gap: .75rem; white-space: pre-wrap; word-break: break-word; }
+		          border-radius: 6px; padding: var(--sp-5); }
+		.line { display: flex; gap: var(--sp-7); white-space: pre-wrap; word-break: break-word; }
 		.line .step { color: var(--muted); min-width: 9rem; }
 		.stream-stderr .text { color: var(--warn); }
 		.status-2 td:first-child { color: var(--ok); }
@@ -581,14 +588,14 @@ templ styles() {
 		a { color: var(--run); }
 
 		/* Layout: a sidebar of steps beside a tabbed main area. */
-		.layout { display: flex; align-items: flex-start; gap: 1.5rem; margin-top: 1.5rem; }
+		.layout { display: flex; align-items: flex-start; gap: var(--sp-9); margin-top: var(--sp-9); }
 		#sidebar { flex: 0 0 14rem; position: relative; }
-		#sidebar ul { list-style: none; margin: 0 0 0 1.1rem; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
-		#sidebar li { border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; }
+		#sidebar ul { list-style: none; margin: 0 0 0 1.1rem; padding: 0; display: flex; flex-direction: column; gap: var(--sp-5); }
+		#sidebar li { border: 1px solid var(--line); border-radius: 6px; padding: var(--sp-5) var(--sp-6); }
 		/* Compact: a gate step (probe, route) - one muted line, no card. */
 		#sidebar li.compact {
-			border: none; border-radius: 0; padding: .15rem 0;
-			display: flex; align-items: baseline; gap: .4rem;
+			border: none; border-radius: 0; padding: var(--sp-1) 0;
+			display: flex; align-items: baseline; gap: var(--sp-4);
 			color: var(--muted); font-size: .85em;
 		}
 		#sidebar li.compact .name { font-weight: 400; }
@@ -601,12 +608,12 @@ templ styles() {
 		   state pill at the same color .pill already uses and hide it. */
 		#sidebar li.group { padding: 0; border-left: 3px solid var(--fg); }
 		.group-toggle { position: absolute; opacity: 0; pointer-events: none; }
-		.group-header { display: flex; align-items: center; gap: .4rem; cursor: pointer; padding: .5rem .6rem; }
+		.group-header { display: flex; align-items: center; gap: var(--sp-4); cursor: pointer; padding: var(--sp-5) var(--sp-6); }
 		.group-header-content { display: contents; }
 		.group-header .name { font-weight: 700; }
 		.disclosure { display: inline-block; color: var(--muted); transition: transform .15s; }
 		.group-toggle:checked ~ .group-header .disclosure { transform: rotate(90deg); }
-		#sidebar ul.group-members { display: none; margin: 0; padding: 0 .6rem .5rem 1.3rem; }
+		#sidebar ul.group-members { display: none; margin: 0; padding: 0 var(--sp-6) var(--sp-5) 1.3rem; }
 		#sidebar .group-toggle:checked ~ ul.group-members { display: flex; }
 		#dep-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 		.dep-edge { fill: none; stroke: var(--muted); stroke-width: 1.5; opacity: .55; }
@@ -627,43 +634,43 @@ templ styles() {
 			#sidebar li.state-running, .dep-edge-running { animation: none; }
 		}
 		#sidebar .name { display: block; font-weight: 600; }
-		.plugin-icon { width: 16px; height: 16px; vertical-align: middle; margin-right: .3rem; border-radius: 3px; }
-		.plugin-icon-default { display: inline-block; font-size: .8rem; line-height: 16px; }
-		#sidebar .msg { display: block; color: var(--muted); font-size: .8rem; margin-top: .2rem; }
+		.plugin-icon { width: 16px; height: 16px; vertical-align: middle; margin-right: var(--sp-3); border-radius: 3px; }
+		.plugin-icon-default { display: inline-block; font-size: var(--text-sm); line-height: 16px; }
+		#sidebar .msg { display: block; color: var(--muted); font-size: var(--text-sm); margin-top: var(--sp-2); }
 		main { flex: 1 1 auto; min-width: 0; }
 
 		/* CSS-only tabs: a hidden radio immediately followed by its panel.
 		   Works for a dynamic, per-step set of panels with no per-name rule
 		   and no JS, since the selector never names an id. */
-		.tabbar { display: flex; gap: .4rem; margin-bottom: .75rem; flex-wrap: wrap; }
+		.tabbar { display: flex; gap: var(--sp-4); margin-bottom: var(--sp-7); flex-wrap: wrap; }
 		.tabbar label {
-			cursor: pointer; padding: .3rem .8rem; border-radius: 6px;
+			cursor: pointer; padding: var(--sp-3) .8rem; border-radius: 6px;
 			background: var(--pill); color: var(--muted);
-			font-size: .75rem; text-transform: uppercase; letter-spacing: .06em;
+			font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .06em;
 		}
-		.subtabbar label { font-size: .7rem; padding: .2rem .6rem; text-transform: none; letter-spacing: normal; }
+		.subtabbar label { font-size: var(--text-2xs); padding: var(--sp-2) var(--sp-6); text-transform: none; letter-spacing: normal; }
 		.tabinput, .logtabinput { position: absolute; opacity: 0; pointer-events: none; }
 		.panel, .logpanel { display: none; }
 		.tabinput:checked + .panel, .logtabinput:checked + .logpanel { display: block; }
 
 		/* Services: a card per step, hidden until it has a route. */
-		.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: .75rem; }
-		.card { display: none; border: 1px solid var(--line); border-radius: 8px; padding: .75rem; }
+		.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: var(--sp-7); }
+		.card { display: none; border: 1px solid var(--line); border-radius: 8px; padding: var(--sp-7); }
 		.card.exposed { display: block; }
-		.card h3 { margin: 0 0 .4rem; font-size: .95rem; }
-		.card .detail { margin-top: .5rem; color: var(--muted); }
+		.card h3 { margin: 0 0 var(--sp-4); font-size: .95rem; }
+		.card .detail { margin-top: var(--sp-5); color: var(--muted); }
 		.card .detail-label {
-			display: block; text-transform: uppercase; font-size: .7rem;
-			letter-spacing: .04em; margin-bottom: .15rem;
+			display: block; text-transform: uppercase; font-size: var(--text-2xs);
+			letter-spacing: .04em; margin-bottom: var(--sp-1);
 		}
-		.card .detail-value { display: flex; align-items: center; gap: .3rem; min-width: 0; }
+		.card .detail-value { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
 		.card .detail-value > a, .card .detail-value > code {
 			flex: 1 1 auto; min-width: 0; overflow: hidden;
 			white-space: nowrap; text-overflow: ellipsis;
 		}
 		.copy-btn {
 			border: none; background: none; color: var(--muted); cursor: pointer;
-			font-size: .85rem; line-height: 1; padding: 0 .2rem; flex: none;
+			font-size: var(--text-md); line-height: 1; padding: 0 var(--sp-2); flex: none;
 		}
 		.copy-btn:hover { color: var(--fg); }
 		.copy-btn:disabled { color: var(--ok); cursor: default; }
