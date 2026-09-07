@@ -3,6 +3,7 @@ package cmd_test
 import (
 	"errors"
 	"io"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -313,6 +314,31 @@ func TestDoctorCommand(t *testing.T) {
 
 		var cmdErr *cmd.CommandError
 		require.ErrorAs(t, err, &cmdErr, "must be a usage error")
+	})
+
+	t.Run("fails when a check fails", func(t *testing.T) {
+		var lc net.ListenConfig
+		ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ln.Close() })
+		busy := ln.Addr().String()
+
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(
+			`proxy: {listen: "`+busy+`", gateway_port: 18081, egress: deny: true}
+console: listen: "127.0.0.1:18082"
+project: "x"
+`), 0o600))
+
+		var runErr error
+		out := captureStdout(t, func() {
+			runErr = cmd.Run(t.Context(), []string{"-C", dir, "doctor"})
+		})
+
+		require.Error(t, runErr, "a bound proxy port must fail the command")
+		var cmdErr *cmd.CommandError
+		assert.NotErrorAs(t, runErr, &cmdErr, "a failing check is a command failure, not a usage error")
+		assert.Contains(t, out, "port proxy ("+busy+"): fail (in use)")
 	})
 }
 

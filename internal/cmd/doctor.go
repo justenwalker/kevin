@@ -15,13 +15,9 @@ import (
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
-// doctorCommand checks the machine and (if a project directory holds one)
-// the environment file for the problems that most often surface as a
-// confusing failure much later - a Docker daemon that never answers, a
-// proxy TLS handshake failing because the kevin CA isn't trusted, or a run
-// that can't bind because kevin.cue pins a port something else already
-// holds. It changes nothing: no store is installed into, no port is left
-// bound.
+// doctorCommand checks Docker, the kevin CA, and (if a project directory
+// holds an environment file) its console/proxy ports. It changes nothing:
+// no store is installed into, no port is left bound.
 func doctorCommand(opts *options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
@@ -68,7 +64,7 @@ func checkCA(cmd *cobra.Command, w io.Writer) bool {
 		case r.Skipped:
 			printCheck(w, "CA "+r.Store, false, true, r.Reason)
 		case r.Installed:
-			printCheck(w, "CA "+r.Store, true, false, "")
+			printCheck(w, "CA "+r.Store, true, false, r.Reason)
 		default:
 			printCheck(w, "CA "+r.Store, false, false, `not trusted - run "kevin ca install"`)
 			ok = false
@@ -83,7 +79,7 @@ func checkCA(cmd *cobra.Command, w io.Writer) bool {
 
 // checkPorts reports whether the project's console and proxy listen
 // addresses are free to bind. A directory with no environment file is a
-// skip, not a failure - doctor is useful with no project too.
+// skip, not a failure.
 func checkPorts(ctx context.Context, w io.Writer, opts *options) bool {
 	f, err := config.Load(opts.dir, opts.name, opts.tags)
 	if errors.Is(err, config.ErrNotFound) {
@@ -91,12 +87,12 @@ func checkPorts(ctx context.Context, w io.Writer, opts *options) bool {
 		return true
 	}
 	if err != nil {
-		printCheck(w, "ports", false, false, err.Error())
+		printCheck(w, "ports", false, false, uerr.Display(err))
 		return false
 	}
 	cfg, err := f.Config()
 	if err != nil {
-		printCheck(w, "ports", false, false, err.Error())
+		printCheck(w, "ports", false, false, uerr.Display(err))
 		return false
 	}
 
@@ -120,9 +116,8 @@ func checkPorts(ctx context.Context, w io.Writer, opts *options) bool {
 	return ok
 }
 
-// printCheck writes one line reporting a check's outcome in the vocabulary
-// "ok"/"fail (reason)"/"skip (reason)" - status is always named in words,
-// never left to color or a symbol alone.
+// printCheck writes one line reporting a check's outcome: "ok", "ok
+// (detail)", "fail (detail)", or "skip (detail)".
 func printCheck(w io.Writer, name string, ok, skip bool, detail string) {
 	switch {
 	case skip:

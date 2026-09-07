@@ -76,4 +76,36 @@ project: "x"
 		assert.Contains(t, out, "port console ("+freeAddr+"): ok")
 		assert.Contains(t, out, "port gateway_port: skip")
 	})
+
+	t.Run("fails on a load error other than a missing file", func(t *testing.T) {
+		dir := t.TempDir()
+		// Two candidate environment files in the same directory: config.Load
+		// fails with ErrAmbiguous, not ErrNotFound.
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(`project: "x"`), 0o600))
+		require.NoError(t, os.WriteFile(dir+"/kevin.yaml", []byte("project: x\n"), 0o600))
+
+		var buf bytes.Buffer
+		opts := &options{dir: dir}
+
+		ok := checkPorts(t.Context(), &buf, opts)
+
+		assert.False(t, ok)
+		assert.Contains(t, buf.String(), "ports: fail")
+	})
+
+	t.Run("fails when the environment does not resolve to concrete values", func(t *testing.T) {
+		dir := t.TempDir()
+		// No proxy/console block: config.Load succeeds (the file parses and
+		// unifies), but f.Config's concreteness check fails on the missing
+		// required fields.
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(`project: "x"`), 0o600))
+
+		var buf bytes.Buffer
+		opts := &options{dir: dir}
+
+		ok := checkPorts(t.Context(), &buf, opts)
+
+		assert.False(t, ok)
+		assert.Contains(t, buf.String(), "ports: fail")
+	})
 }
