@@ -68,6 +68,12 @@ func Remove(ctx context.Context, req Request) ([]Result, error) {
 	return forEachTrustStore(ctx, req, func(s store) (Result, error) { return s.remove(ctx, req) })
 }
 
+// Status reports, for every store this machine has, whether it already
+// trusts the authority. Unlike Install, Status never writes to a store.
+func Status(ctx context.Context, req Request) ([]Result, error) {
+	return forEachTrustStore(ctx, req, func(s store) (Result, error) { return s.status(ctx, req) })
+}
+
 func forEachTrustStore(_ context.Context, req Request, fn func(store) (Result, error)) ([]Result, error) {
 	var results []Result
 	for _, s := range stores(req) {
@@ -84,6 +90,7 @@ func forEachTrustStore(_ context.Context, req Request, fn func(store) (Result, e
 type store interface {
 	install(ctx context.Context, req Request) (Result, error)
 	remove(ctx context.Context, req Request) (Result, error)
+	status(ctx context.Context, req Request) (Result, error)
 }
 
 // stores lists the trust stores of this machine.

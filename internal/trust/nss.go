@@ -2,6 +2,7 @@ package trust
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -119,6 +120,34 @@ func (n nss) install(ctx context.Context, req Request) (Result, error) {
 // with this nickname is already in the database.
 func alreadyInDatabase(out string) bool {
 	return strings.Contains(strings.ToLower(out), "already exists")
+}
+
+// status reports whether every profile's database holds the authority,
+// without adding or removing anything.
+func (n nss) status(ctx context.Context, req Request) (Result, error) {
+	result := Result{Store: n.name()}
+
+	dirs, skip := n.check()
+	if skip != "" {
+		result.Skipped = true
+		result.Reason = skip
+		return result, nil
+	}
+
+	missing := 0
+	for _, profile := range dirs {
+		if _, err := runCmd(ctx, CertutilBinary, "-L", "-d", "sql:"+profile, "-n", req.CommonName); err != nil {
+			missing++
+		}
+	}
+	if missing > 0 {
+		result.Reason = fmt.Sprintf("missing in %d of %s", missing, plural(len(dirs)))
+		return result, nil
+	}
+
+	result.Installed = true
+	result.Reason = plural(len(dirs))
+	return result, nil
 }
 
 func (n nss) remove(ctx context.Context, req Request) (Result, error) {

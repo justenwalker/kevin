@@ -81,6 +81,24 @@ func (k keychain) install(ctx context.Context, req Request) (Result, error) {
 	return result, nil
 }
 
+// status reports whether the keychain holds a certificate with this
+// CommonName, without adding or removing anything.
+func (k keychain) status(ctx context.Context, req Request) (Result, error) {
+	result := Result{Store: k.name(req)}
+
+	path, err := k.target(req)
+	if err != nil {
+		return result, err
+	}
+
+	_, findErr := runCmd(ctx, SecurityBinary, "find-certificate", "-c", req.CommonName, path)
+	result.Installed = findErr == nil
+	if !result.Installed {
+		result.Reason = "not trusted"
+	}
+	return result, nil
+}
+
 func (k keychain) remove(ctx context.Context, req Request) (Result, error) {
 	result := Result{Store: k.name(req)}
 

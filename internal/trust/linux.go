@@ -15,6 +15,10 @@ type anchorDir struct{}
 // anchorSuffix is the extension that every anchor directory expects.
 const anchorSuffix = ".crt"
 
+// anchorDirMissingReason explains a skip when this machine has none of the
+// anchor layouts anchorDir knows.
+const anchorDirMissingReason = "this machine has no anchor directory"
+
 // anchorLayout is one distribution's anchor directory convention.
 type anchorLayout struct {
 	dir     string
@@ -51,7 +55,7 @@ func (a anchorDir) install(ctx context.Context, req Request) (Result, error) {
 	l, ok := a.layout()
 	if !ok {
 		result.Skipped = true
-		result.Reason = "this machine has no anchor directory"
+		result.Reason = anchorDirMissingReason
 		return result, nil
 	}
 
@@ -77,13 +81,34 @@ func (a anchorDir) install(ctx context.Context, req Request) (Result, error) {
 	return result, nil
 }
 
+// status reports whether the anchor file is present, without writing
+// anything.
+func (a anchorDir) status(_ context.Context, req Request) (Result, error) {
+	result := Result{Store: a.name()}
+
+	l, ok := a.layout()
+	if !ok {
+		result.Skipped = true
+		result.Reason = anchorDirMissingReason
+		return result, nil
+	}
+
+	target := filepath.Join(l.dir, FileNameFor(req)+l.suffix)
+	_, statErr := os.Stat(target)
+	result.Installed = statErr == nil
+	if !result.Installed {
+		result.Reason = "not trusted"
+	}
+	return result, nil
+}
+
 func (a anchorDir) remove(ctx context.Context, req Request) (Result, error) {
 	result := Result{Store: a.name()}
 
 	l, ok := a.layout()
 	if !ok {
 		result.Skipped = true
-		result.Reason = "this machine has no anchor directory"
+		result.Reason = anchorDirMissingReason
 		return result, nil
 	}
 

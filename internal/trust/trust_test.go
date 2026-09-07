@@ -149,6 +149,16 @@ func TestKeychainSystemNeedsRootAndReportsTheCommand(t *testing.T) {
 	assert.Contains(t, result.Reason, "delete-certificate")
 }
 
+func TestKeychainStatusReportsNotInstalledForAnUnknownName(t *testing.T) {
+	// A CommonName that has never been added to any keychain. security
+	// (or its absence on a non-darwin test runner) reports it as absent
+	// either way, so this stays deterministic without touching a real
+	// keychain.
+	result, err := keychain{}.status(t.Context(), Request{CommonName: "kevin doctor test CA, never installed"})
+	require.NoError(t, err)
+	assert.False(t, result.Installed)
+}
+
 func TestKeychainTarget(t *testing.T) {
 	system, err := keychain{}.target(Request{System: true})
 	require.NoError(t, err)
@@ -214,6 +224,29 @@ func TestAnchorDir(t *testing.T) {
 		assert.True(t, result.Skipped)
 		assert.Contains(t, result.Reason, "does not hold")
 	})
+
+	t.Run("status reports not-installed then installed, and writes nothing", func(t *testing.T) {
+		dir := t.TempDir()
+		restore := anchorLayouts
+		anchorLayouts = []anchorLayout{{dir: dir, suffix: anchorSuffix, rebuild: "update-ca-certificates"}}
+		t.Cleanup(func() { anchorLayouts = restore })
+
+		req := Request{CommonName: "kevin demo CA", FileName: "kevin-demo"}
+
+		result, err := anchorDir{}.status(t.Context(), req)
+		require.NoError(t, err)
+		assert.False(t, result.Installed)
+
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin-demo.crt"), []byte("pem"), 0o600))
+
+		result, err = anchorDir{}.status(t.Context(), req)
+		require.NoError(t, err)
+		assert.True(t, result.Installed)
+
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		assert.Len(t, entries, 1, "status must not write anything of its own")
+	})
 }
 
 func TestNSSCheck(t *testing.T) {
@@ -243,6 +276,16 @@ func TestNSSSkipsWhenCertutilIsAbsent(t *testing.T) {
 	assert.True(t, result.Skipped)
 
 	result, err = nss{}.remove(t.Context(), req)
+	require.NoError(t, err)
+	assert.True(t, result.Skipped)
+}
+
+func TestNSSStatusSkipsWhenCertutilIsAbsent(t *testing.T) {
+	if _, skip := (nss{}).check(); skip == "" {
+		t.Skip("this machine has certutil and a Firefox profile")
+	}
+
+	result, err := nss{}.status(t.Context(), Request{CommonName: "kevin demo CA"})
 	require.NoError(t, err)
 	assert.True(t, result.Skipped)
 }
@@ -346,6 +389,17 @@ func TestInstallAndRemoveStopAtTheStoreThatNeedsRoot(t *testing.T) {
 			assert.False(t, last.Installed)
 			assert.Contains(t, last.Reason, "sudo", "the user must see the command to run")
 		})
+	}
+}
+
+func TestStatusReportsEveryStoreWithoutWriting(t *testing.T) {
+	req := Request{CommonName: "kevin doctor test CA, never installed", Firefox: true}
+
+	results, err := Status(t.Context(), req)
+	require.NoError(t, err, "status must never need root or fail on a missing store")
+
+	for _, r := range results {
+		assert.False(t, r.Installed, "an unknown CommonName must never read as installed")
 	}
 }
 
