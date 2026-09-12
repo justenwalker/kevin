@@ -7,7 +7,8 @@ weight: 1
 
 # `builtin:container`
 
-Runs a Docker container.
+Runs a container, on docker or podman - whichever the `--engine` flag or
+`KEVIN_ENGINE` env var selects, or auto-detection finds.
 
 ```cue
 web: {
@@ -29,7 +30,7 @@ web: {
 ## Publishes
 
 `Outputs`, read as `needs.<step>.out.<key>`: `id`, `name`, `ip` (on the
-shared docker network, when it has one), and one `host_80`-style key per
+shared project network, when it has one), and one `host_80`-style key per
 published port (from `ports` and a directly-published `expose` entry
 alike, named after the container port). Each is a host-reachable address,
 already accepting connections by the time `Up` returns for a TCP `expose`
@@ -54,5 +55,6 @@ that.
 Implements `Export`, reporting the same `id`/`name`/`ip`/`host_<port>`
 shape `Outputs` uses, for a cross-scope `setup.<name>` need or a
 `commands:` entry's `run` (`docker exec -it "${needs.<step>.out.name}" sh`,
-for example). Export inspects the running container - it fails when the
-step hasn't come up yet or the container isn't running.
+or `podman exec` on a project configured for podman, for example). Export
+inspects the running container - it fails when the step hasn't come up yet
+or the container isn't running.

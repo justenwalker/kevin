@@ -9,8 +9,8 @@ weight: 6
 
 Loads the environment file, starts its declared plugins, and validates every
 step's `with` block against its plugin's schema: everything `run` and
-`setup` do before touching Docker. It creates nothing and needs no Docker
-daemon.
+`setup` do before touching the container engine. It creates nothing and
+needs no engine daemon running.
 
 ```sh
 kevin validate

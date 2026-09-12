@@ -1,12 +1,12 @@
 ---
 title: "Kubernetes clusters"
-description: "Bring up a local Kubernetes cluster with kind, on the same docker network as everything else."
+description: "Bring up a local Kubernetes cluster with kind, on the same container network as everything else."
 weight: 3
 ---
 
 # Kubernetes clusters
 
-A `builtin:kind` step brings up a local Kubernetes cluster with [kind](https://kind.sigs.k8s.io/). Its nodes join kevin's shared docker network as well as kind's own, so a container step and a pod reach each other by name. It also publishes a kubeconfig path a tool on the host uses directly:
+A `builtin:kind` step brings up a local Kubernetes cluster with [kind](https://kind.sigs.k8s.io/). Its nodes join kevin's shared container network as well as kind's own, so a container step and a pod reach each other by name. It also publishes a kubeconfig path a tool on the host uses directly:
 
 ```sh
 kevin -C examples/kind run
@@ -27,6 +27,8 @@ kevin -C examples/kind do nodes
 ```
 
 `Up` recreates the cluster if one with the same name already exists (e.g. left over from a crash), so re-running `kevin run` is safe.
+
+With podman selected as the engine (`--engine podman` or `KEVIN_ENGINE=podman` - see [Container Engine]({{< relref "/docs/concepts/container-engine" >}})), the cluster's nodes run on podman too, through kind's own `KIND_EXPERIMENTAL_PROVIDER` switch - upstream-labeled experimental.
 
 ## Registry pulls
 

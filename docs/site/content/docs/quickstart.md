@@ -8,7 +8,7 @@ weight: 1
 ## Prerequisites
 
 - `kevin` on your `PATH` (see below), or build it yourself (see [Contributing]({{< relref "/docs/contributing" >}}))
-- a running Docker daemon
+- a running Docker daemon (or Podman, selected with `--engine podman` or `KEVIN_ENGINE=podman` - see [Container Engine]({{< relref "/docs/concepts/container-engine" >}}))
 - a clone of this repository, for the example environments below
 
 ## Install
@@ -37,7 +37,7 @@ grep "kevin_${VERSION}_${OS}_${ARCH}.tar.gz" checksums.txt | shasum -a 256 -c -
 
 ## First run
 
-If something looks wrong before or during a run, `kevin -C examples/web doctor` checks Docker, the CA, and the project's ports in one pass.
+If something looks wrong before or during a run, `kevin -C examples/web doctor` checks the container engine (docker, or a project's configured podman), the CA, and the project's ports in one pass.
 
 ```sh
 kevin -C examples/web run      # Ctrl-C to remove

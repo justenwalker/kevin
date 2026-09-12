@@ -20,7 +20,7 @@ graph TD
     CA["CA"]
     MCPN[MCP server]
     PLUG[["plugin process"]]
-    CRI["cri<br/>(eg: docker)"]
+    CRI["cri<br/>(docker or podman)"]
     PROXY[proxy]
     LOOP(["host loopback"])
 
@@ -65,6 +65,7 @@ graph TD
 | Engine        | Loads the environment, starts the plugins, walks the DAG.     |
 | Configuration | Reads `kevin.cue`. Validates every step before anything runs. |
 | DAG engine    | Orders the steps. Runs independent steps concurrently, capped by `engine.max_parallel`. |
+| cri           | The container engine contract - shells out to docker, or podman when `--engine`/`KEVIN_ENGINE` names it. |
 | Plugin host   | Starts a plugin process and keeps the process alive.          |
 | Plugin SDK    | The public API that a plugin author implements.               |
 | Wire contract | The gRPC service between the engine and a plugin.             |

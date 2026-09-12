@@ -228,8 +228,8 @@ Key model to hold in your head when changing any of this:
   up. `${setup.<name>.out.<key>}` reads it back, a CEL variable separate
   from `needs` (not `needs.setup...`) so a same-scope step literally named
   `setup` stays unambiguous.
-- **No state file, anywhere.** Docker resources carry `kevin.project`/
-  `kevin.step` labels; `Down` must be derived from live state and be
+- **No state file, anywhere.** Container engine resources carry
+  `kevin.project`/`kevin.step` labels; `Down` must be derived from live state and be
   idempotent (survives a crash mid-run). Same principle for CA
   (`LoadOrGenerateIntermediate` re-derives/replaces a stale intermediate) and
   for the trust store (`kevin ca uninstall` matches on the root's constant
@@ -258,9 +258,15 @@ Key model to hold in your head when changing any of this:
   `helm`, `http`, `k8s`, `kevin`, `kubectl`, `kubernetes`, `oci`, `official`,
   `std`) can't be used as a `plugins:` key - keeps a third-party plugin from
   reading as first-party.
-- **Docker via CLI, not SDK.** kevin shells out to `docker` and parses JSON
-  output rather than importing `github.com/docker/docker`, to avoid that
-  dependency tree. Kubernetes support is a plugin (`internal/plugins/kind`)
+- **Container engine via CLI, not SDK.** kevin shells out to `docker` (or
+  `podman`, when the `--engine`/`KEVIN_ENGINE` flag or env var names it, or
+  auto-detection picks it - which engine to drive is a host choice, never a
+  `kevin.cue` one - `internal/podman` mirrors `internal/docker`
+  method-for-method, both behind the `cri.Runtime` contract in
+  `internal/cri`, selected by `internal/engines`) and parses JSON output
+  rather than importing
+  `github.com/docker/docker`, to avoid that dependency tree. Kubernetes
+  support is a plugin (`internal/plugins/kind`)
   that shells out to the host `kind` binary the same way `kubectl` and
   `helm` shell out to theirs, rather than importing `sigs.k8s.io/kind` as a
   library - that library reads proxy variables from its own process

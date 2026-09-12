@@ -7,11 +7,13 @@ weight: 10
 
 # `kevin doctor`
 
-Checks whether Docker is reachable, whether the kevin root CA is trusted,
-and (if the current directory holds an environment file) whether its
-console/proxy ports are free. It creates nothing and changes no trust
-store - a Docker check that fails, or a certificate that isn't trusted yet,
-is reported, never fixed on your behalf.
+Checks whether the selected container engine (docker or podman, via
+`--engine`/`KEVIN_ENGINE` or auto-detection) is reachable, whether the
+kevin root CA is trusted, and (if the current directory holds an
+environment file) whether its console/proxy ports are free. It creates
+nothing and changes no trust store - an engine check that fails, or a
+certificate that isn't trusted yet, is reported, never fixed on your
+behalf.
 
 ```sh
 kevin doctor

@@ -41,7 +41,7 @@ through. Implements `Export`, reporting `name`/`kubeconfig`/`context`/
 `relay_addr` for a cross-scope `setup.<name>` need or a `commands:` entry's
 `run` (`"${needs.<step>.out.kubeconfig}"`, for example) - `relay_addr` is
 read back from a file `Up` writes alongside `kubeconfig`. `nodes` needs
-Docker, so Export never reports it.
+the container engine, so Export never reports it.
 
 `system`, read as `needs.<step>.system.<key>`, is a sub-namespace kept
 separate from `out` so it can never collide with one of the above (see
