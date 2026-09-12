@@ -159,9 +159,8 @@ message Environment {
   // ProjectDir is the absolute path of the directory that holds kevin.cue.
   string project_dir = 10;
 
-  // Engine names the container runtime that a plugin should use, such as
-  // "docker" or "podman". Empty means "docker", the only engine kevin
-  // ships today.
+  // Engine names the container runtime that a plugin should use: "docker"
+  // or "podman". Empty means "docker".
   string engine = 11;
 
   // EngineConfig is the marshaled bytes of the config message for Engine,
@@ -186,6 +185,10 @@ message Environment {
 // Network. Add fields here as real Docker-specific settings arise, such as
 // a non-default socket path.
 message DockerEngineConfig {}
+
+// PodmanEngineConfig is the engine_config message for the "podman" engine.
+// It carries no fields today, for the same reason as DockerEngineConfig.
+message PodmanEngineConfig {}
 
 // Value is one output value - a step's published output, an upstream
 // dependency's value, or a console Detail's content.

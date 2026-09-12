@@ -549,9 +549,8 @@ type Environment struct {
 	Relay string `protobuf:"bytes,9,opt,name=relay,proto3" json:"relay,omitempty"`
 	// ProjectDir is the absolute path of the directory that holds kevin.cue.
 	ProjectDir string `protobuf:"bytes,10,opt,name=project_dir,json=projectDir,proto3" json:"project_dir,omitempty"`
-	// Engine names the container runtime that a plugin should use, such as
-	// "docker" or "podman". Empty means "docker", the only engine kevin
-	// ships today.
+	// Engine names the container runtime that a plugin should use: "docker"
+	// or "podman". Empty means "docker".
 	Engine string `protobuf:"bytes,11,opt,name=engine,proto3" json:"engine,omitempty"`
 	// EngineConfig is the marshaled bytes of the config message for Engine,
 	// such as DockerEngineConfig. Engine says which message to unmarshal
@@ -738,6 +737,44 @@ func (*DockerEngineConfig) Descriptor() ([]byte, []int) {
 	return file_pb_plugin_proto_rawDescGZIP(), []int{7}
 }
 
+// PodmanEngineConfig is the engine_config message for the "podman" engine.
+// It carries no fields today, for the same reason as DockerEngineConfig.
+type PodmanEngineConfig struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PodmanEngineConfig) Reset() {
+	*x = PodmanEngineConfig{}
+	mi := &file_pb_plugin_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PodmanEngineConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PodmanEngineConfig) ProtoMessage() {}
+
+func (x *PodmanEngineConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_plugin_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PodmanEngineConfig.ProtoReflect.Descriptor instead.
+func (*PodmanEngineConfig) Descriptor() ([]byte, []int) {
+	return file_pb_plugin_proto_rawDescGZIP(), []int{8}
+}
+
 // Value is one output value - a step's published output, an upstream
 // dependency's value, or a console Detail's content.
 type Value struct {
@@ -756,7 +793,7 @@ type Value struct {
 
 func (x *Value) Reset() {
 	*x = Value{}
-	mi := &file_pb_plugin_proto_msgTypes[8]
+	mi := &file_pb_plugin_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -768,7 +805,7 @@ func (x *Value) String() string {
 func (*Value) ProtoMessage() {}
 
 func (x *Value) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[8]
+	mi := &file_pb_plugin_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -781,7 +818,7 @@ func (x *Value) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Value.ProtoReflect.Descriptor instead.
 func (*Value) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{8}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Value) GetKind() isValue_Kind {
@@ -827,7 +864,7 @@ type Outputs struct {
 
 func (x *Outputs) Reset() {
 	*x = Outputs{}
-	mi := &file_pb_plugin_proto_msgTypes[9]
+	mi := &file_pb_plugin_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -839,7 +876,7 @@ func (x *Outputs) String() string {
 func (*Outputs) ProtoMessage() {}
 
 func (x *Outputs) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[9]
+	mi := &file_pb_plugin_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -852,7 +889,7 @@ func (x *Outputs) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Outputs.ProtoReflect.Descriptor instead.
 func (*Outputs) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{9}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Outputs) GetValues() map[string]*Value {
@@ -879,7 +916,7 @@ type UpRequest struct {
 
 func (x *UpRequest) Reset() {
 	*x = UpRequest{}
-	mi := &file_pb_plugin_proto_msgTypes[10]
+	mi := &file_pb_plugin_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -891,7 +928,7 @@ func (x *UpRequest) String() string {
 func (*UpRequest) ProtoMessage() {}
 
 func (x *UpRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[10]
+	mi := &file_pb_plugin_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -904,7 +941,7 @@ func (x *UpRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpRequest.ProtoReflect.Descriptor instead.
 func (*UpRequest) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{10}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *UpRequest) GetStep() string {
@@ -963,7 +1000,7 @@ type DownRequest struct {
 
 func (x *DownRequest) Reset() {
 	*x = DownRequest{}
-	mi := &file_pb_plugin_proto_msgTypes[11]
+	mi := &file_pb_plugin_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -975,7 +1012,7 @@ func (x *DownRequest) String() string {
 func (*DownRequest) ProtoMessage() {}
 
 func (x *DownRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[11]
+	mi := &file_pb_plugin_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -988,7 +1025,7 @@ func (x *DownRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownRequest.ProtoReflect.Descriptor instead.
 func (*DownRequest) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{11}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DownRequest) GetStep() string {
@@ -1047,7 +1084,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_pb_plugin_proto_msgTypes[12]
+	mi := &file_pb_plugin_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1059,7 +1096,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[12]
+	mi := &file_pb_plugin_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1072,7 +1109,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{12}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Event) GetEvent() isEvent_Event {
@@ -1143,7 +1180,7 @@ type LogLine struct {
 
 func (x *LogLine) Reset() {
 	*x = LogLine{}
-	mi := &file_pb_plugin_proto_msgTypes[13]
+	mi := &file_pb_plugin_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1155,7 +1192,7 @@ func (x *LogLine) String() string {
 func (*LogLine) ProtoMessage() {}
 
 func (x *LogLine) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[13]
+	mi := &file_pb_plugin_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1168,7 +1205,7 @@ func (x *LogLine) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogLine.ProtoReflect.Descriptor instead.
 func (*LogLine) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{13}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *LogLine) GetStream() string {
@@ -1203,7 +1240,7 @@ type Progress struct {
 
 func (x *Progress) Reset() {
 	*x = Progress{}
-	mi := &file_pb_plugin_proto_msgTypes[14]
+	mi := &file_pb_plugin_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1215,7 +1252,7 @@ func (x *Progress) String() string {
 func (*Progress) ProtoMessage() {}
 
 func (x *Progress) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[14]
+	mi := &file_pb_plugin_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1228,7 +1265,7 @@ func (x *Progress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Progress.ProtoReflect.Descriptor instead.
 func (*Progress) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{14}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Progress) GetLabel() string {
@@ -1282,7 +1319,7 @@ type Result struct {
 
 func (x *Result) Reset() {
 	*x = Result{}
-	mi := &file_pb_plugin_proto_msgTypes[15]
+	mi := &file_pb_plugin_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1294,7 +1331,7 @@ func (x *Result) String() string {
 func (*Result) ProtoMessage() {}
 
 func (x *Result) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[15]
+	mi := &file_pb_plugin_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1307,7 +1344,7 @@ func (x *Result) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Result.ProtoReflect.Descriptor instead.
 func (*Result) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{15}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Result) GetOutputs() *Outputs {
@@ -1382,7 +1419,7 @@ type NetnsTarget struct {
 
 func (x *NetnsTarget) Reset() {
 	*x = NetnsTarget{}
-	mi := &file_pb_plugin_proto_msgTypes[16]
+	mi := &file_pb_plugin_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1394,7 +1431,7 @@ func (x *NetnsTarget) String() string {
 func (*NetnsTarget) ProtoMessage() {}
 
 func (x *NetnsTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[16]
+	mi := &file_pb_plugin_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1407,7 +1444,7 @@ func (x *NetnsTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetnsTarget.ProtoReflect.Descriptor instead.
 func (*NetnsTarget) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{16}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *NetnsTarget) GetId() string {
@@ -1449,7 +1486,7 @@ type ExposedPort struct {
 
 func (x *ExposedPort) Reset() {
 	*x = ExposedPort{}
-	mi := &file_pb_plugin_proto_msgTypes[17]
+	mi := &file_pb_plugin_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1461,7 +1498,7 @@ func (x *ExposedPort) String() string {
 func (*ExposedPort) ProtoMessage() {}
 
 func (x *ExposedPort) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[17]
+	mi := &file_pb_plugin_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1474,7 +1511,7 @@ func (x *ExposedPort) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExposedPort.ProtoReflect.Descriptor instead.
 func (*ExposedPort) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{17}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ExposedPort) GetName() string {
@@ -1523,7 +1560,7 @@ type Detail struct {
 
 func (x *Detail) Reset() {
 	*x = Detail{}
-	mi := &file_pb_plugin_proto_msgTypes[18]
+	mi := &file_pb_plugin_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1535,7 +1572,7 @@ func (x *Detail) String() string {
 func (*Detail) ProtoMessage() {}
 
 func (x *Detail) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[18]
+	mi := &file_pb_plugin_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1548,7 +1585,7 @@ func (x *Detail) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Detail.ProtoReflect.Descriptor instead.
 func (*Detail) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{18}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Detail) GetLabel() string {
@@ -1594,7 +1631,7 @@ type ExportRequest struct {
 
 func (x *ExportRequest) Reset() {
 	*x = ExportRequest{}
-	mi := &file_pb_plugin_proto_msgTypes[19]
+	mi := &file_pb_plugin_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1606,7 +1643,7 @@ func (x *ExportRequest) String() string {
 func (*ExportRequest) ProtoMessage() {}
 
 func (x *ExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[19]
+	mi := &file_pb_plugin_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1619,7 +1656,7 @@ func (x *ExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportRequest.ProtoReflect.Descriptor instead.
 func (*ExportRequest) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{19}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ExportRequest) GetStep() string {
@@ -1663,7 +1700,7 @@ type ExportResponse struct {
 
 func (x *ExportResponse) Reset() {
 	*x = ExportResponse{}
-	mi := &file_pb_plugin_proto_msgTypes[20]
+	mi := &file_pb_plugin_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1675,7 +1712,7 @@ func (x *ExportResponse) String() string {
 func (*ExportResponse) ProtoMessage() {}
 
 func (x *ExportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[20]
+	mi := &file_pb_plugin_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1688,7 +1725,7 @@ func (x *ExportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportResponse.ProtoReflect.Descriptor instead.
 func (*ExportResponse) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{20}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ExportResponse) GetOut() *Outputs {
@@ -1721,7 +1758,7 @@ type ToolCallRequest struct {
 
 func (x *ToolCallRequest) Reset() {
 	*x = ToolCallRequest{}
-	mi := &file_pb_plugin_proto_msgTypes[21]
+	mi := &file_pb_plugin_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1733,7 +1770,7 @@ func (x *ToolCallRequest) String() string {
 func (*ToolCallRequest) ProtoMessage() {}
 
 func (x *ToolCallRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[21]
+	mi := &file_pb_plugin_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1746,7 +1783,7 @@ func (x *ToolCallRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolCallRequest.ProtoReflect.Descriptor instead.
 func (*ToolCallRequest) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{21}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ToolCallRequest) GetStep() string {
@@ -1813,7 +1850,7 @@ type ToolCallResponse struct {
 
 func (x *ToolCallResponse) Reset() {
 	*x = ToolCallResponse{}
-	mi := &file_pb_plugin_proto_msgTypes[22]
+	mi := &file_pb_plugin_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1825,7 +1862,7 @@ func (x *ToolCallResponse) String() string {
 func (*ToolCallResponse) ProtoMessage() {}
 
 func (x *ToolCallResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[22]
+	mi := &file_pb_plugin_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1838,7 +1875,7 @@ func (x *ToolCallResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolCallResponse.ProtoReflect.Descriptor instead.
 func (*ToolCallResponse) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{22}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ToolCallResponse) GetContent() []byte {
@@ -1884,7 +1921,7 @@ type Route struct {
 
 func (x *Route) Reset() {
 	*x = Route{}
-	mi := &file_pb_plugin_proto_msgTypes[23]
+	mi := &file_pb_plugin_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1896,7 +1933,7 @@ func (x *Route) String() string {
 func (*Route) ProtoMessage() {}
 
 func (x *Route) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[23]
+	mi := &file_pb_plugin_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1909,7 +1946,7 @@ func (x *Route) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Route.ProtoReflect.Descriptor instead.
 func (*Route) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{23}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Route) GetHost() string {
@@ -1963,7 +2000,7 @@ type Intercept struct {
 
 func (x *Intercept) Reset() {
 	*x = Intercept{}
-	mi := &file_pb_plugin_proto_msgTypes[24]
+	mi := &file_pb_plugin_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1975,7 +2012,7 @@ func (x *Intercept) String() string {
 func (*Intercept) ProtoMessage() {}
 
 func (x *Intercept) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[24]
+	mi := &file_pb_plugin_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1988,7 +2025,7 @@ func (x *Intercept) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Intercept.ProtoReflect.Descriptor instead.
 func (*Intercept) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{24}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *Intercept) GetPorts() []int32 {
@@ -2019,7 +2056,7 @@ type UserMessage struct {
 
 func (x *UserMessage) Reset() {
 	*x = UserMessage{}
-	mi := &file_pb_plugin_proto_msgTypes[25]
+	mi := &file_pb_plugin_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2031,7 +2068,7 @@ func (x *UserMessage) String() string {
 func (*UserMessage) ProtoMessage() {}
 
 func (x *UserMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[25]
+	mi := &file_pb_plugin_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2044,7 +2081,7 @@ func (x *UserMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserMessage.ProtoReflect.Descriptor instead.
 func (*UserMessage) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{25}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *UserMessage) GetKey() string {
@@ -2112,7 +2149,8 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\rProxyEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x14\n" +
-	"\x12DockerEngineConfig\"R\n" +
+	"\x12DockerEngineConfig\"\x14\n" +
+	"\x12PodmanEngineConfig\"R\n" +
 	"\x05Value\x12#\n" +
 	"\fstring_value\x18\x01 \x01(\tH\x00R\vstringValue\x12\x1c\n" +
 	"\tsensitive\x18\n" +
@@ -2242,7 +2280,7 @@ func file_pb_plugin_proto_rawDescGZIP() []byte {
 }
 
 var file_pb_plugin_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_pb_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
+var file_pb_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
 var file_pb_plugin_proto_goTypes = []any{
 	(StepKind)(0),              // 0: kevin.plugin.v1.StepKind
 	(RouteMode)(0),             // 1: kevin.plugin.v1.RouteMode
@@ -2254,73 +2292,74 @@ var file_pb_plugin_proto_goTypes = []any{
 	(*ConfigureResponse)(nil),  // 7: kevin.plugin.v1.ConfigureResponse
 	(*Environment)(nil),        // 8: kevin.plugin.v1.Environment
 	(*DockerEngineConfig)(nil), // 9: kevin.plugin.v1.DockerEngineConfig
-	(*Value)(nil),              // 10: kevin.plugin.v1.Value
-	(*Outputs)(nil),            // 11: kevin.plugin.v1.Outputs
-	(*UpRequest)(nil),          // 12: kevin.plugin.v1.UpRequest
-	(*DownRequest)(nil),        // 13: kevin.plugin.v1.DownRequest
-	(*Event)(nil),              // 14: kevin.plugin.v1.Event
-	(*LogLine)(nil),            // 15: kevin.plugin.v1.LogLine
-	(*Progress)(nil),           // 16: kevin.plugin.v1.Progress
-	(*Result)(nil),             // 17: kevin.plugin.v1.Result
-	(*NetnsTarget)(nil),        // 18: kevin.plugin.v1.NetnsTarget
-	(*ExposedPort)(nil),        // 19: kevin.plugin.v1.ExposedPort
-	(*Detail)(nil),             // 20: kevin.plugin.v1.Detail
-	(*ExportRequest)(nil),      // 21: kevin.plugin.v1.ExportRequest
-	(*ExportResponse)(nil),     // 22: kevin.plugin.v1.ExportResponse
-	(*ToolCallRequest)(nil),    // 23: kevin.plugin.v1.ToolCallRequest
-	(*ToolCallResponse)(nil),   // 24: kevin.plugin.v1.ToolCallResponse
-	(*Route)(nil),              // 25: kevin.plugin.v1.Route
-	(*Intercept)(nil),          // 26: kevin.plugin.v1.Intercept
-	(*UserMessage)(nil),        // 27: kevin.plugin.v1.UserMessage
-	nil,                        // 28: kevin.plugin.v1.Environment.ProxyEnvEntry
-	nil,                        // 29: kevin.plugin.v1.Outputs.ValuesEntry
-	nil,                        // 30: kevin.plugin.v1.UpRequest.DepsEntry
-	nil,                        // 31: kevin.plugin.v1.DownRequest.DepsEntry
-	nil,                        // 32: kevin.plugin.v1.ToolCallRequest.DepsEntry
+	(*PodmanEngineConfig)(nil), // 10: kevin.plugin.v1.PodmanEngineConfig
+	(*Value)(nil),              // 11: kevin.plugin.v1.Value
+	(*Outputs)(nil),            // 12: kevin.plugin.v1.Outputs
+	(*UpRequest)(nil),          // 13: kevin.plugin.v1.UpRequest
+	(*DownRequest)(nil),        // 14: kevin.plugin.v1.DownRequest
+	(*Event)(nil),              // 15: kevin.plugin.v1.Event
+	(*LogLine)(nil),            // 16: kevin.plugin.v1.LogLine
+	(*Progress)(nil),           // 17: kevin.plugin.v1.Progress
+	(*Result)(nil),             // 18: kevin.plugin.v1.Result
+	(*NetnsTarget)(nil),        // 19: kevin.plugin.v1.NetnsTarget
+	(*ExposedPort)(nil),        // 20: kevin.plugin.v1.ExposedPort
+	(*Detail)(nil),             // 21: kevin.plugin.v1.Detail
+	(*ExportRequest)(nil),      // 22: kevin.plugin.v1.ExportRequest
+	(*ExportResponse)(nil),     // 23: kevin.plugin.v1.ExportResponse
+	(*ToolCallRequest)(nil),    // 24: kevin.plugin.v1.ToolCallRequest
+	(*ToolCallResponse)(nil),   // 25: kevin.plugin.v1.ToolCallResponse
+	(*Route)(nil),              // 26: kevin.plugin.v1.Route
+	(*Intercept)(nil),          // 27: kevin.plugin.v1.Intercept
+	(*UserMessage)(nil),        // 28: kevin.plugin.v1.UserMessage
+	nil,                        // 29: kevin.plugin.v1.Environment.ProxyEnvEntry
+	nil,                        // 30: kevin.plugin.v1.Outputs.ValuesEntry
+	nil,                        // 31: kevin.plugin.v1.UpRequest.DepsEntry
+	nil,                        // 32: kevin.plugin.v1.DownRequest.DepsEntry
+	nil,                        // 33: kevin.plugin.v1.ToolCallRequest.DepsEntry
 }
 var file_pb_plugin_proto_depIdxs = []int32{
 	4,  // 0: kevin.plugin.v1.InfoResponse.steps:type_name -> kevin.plugin.v1.StepType
 	0,  // 1: kevin.plugin.v1.StepType.kind:type_name -> kevin.plugin.v1.StepKind
 	5,  // 2: kevin.plugin.v1.StepType.tools:type_name -> kevin.plugin.v1.ToolDefinition
 	8,  // 3: kevin.plugin.v1.ConfigureRequest.env:type_name -> kevin.plugin.v1.Environment
-	28, // 4: kevin.plugin.v1.Environment.proxy_env:type_name -> kevin.plugin.v1.Environment.ProxyEnvEntry
-	29, // 5: kevin.plugin.v1.Outputs.values:type_name -> kevin.plugin.v1.Outputs.ValuesEntry
+	29, // 4: kevin.plugin.v1.Environment.proxy_env:type_name -> kevin.plugin.v1.Environment.ProxyEnvEntry
+	30, // 5: kevin.plugin.v1.Outputs.values:type_name -> kevin.plugin.v1.Outputs.ValuesEntry
 	8,  // 6: kevin.plugin.v1.UpRequest.env:type_name -> kevin.plugin.v1.Environment
-	30, // 7: kevin.plugin.v1.UpRequest.deps:type_name -> kevin.plugin.v1.UpRequest.DepsEntry
+	31, // 7: kevin.plugin.v1.UpRequest.deps:type_name -> kevin.plugin.v1.UpRequest.DepsEntry
 	8,  // 8: kevin.plugin.v1.DownRequest.env:type_name -> kevin.plugin.v1.Environment
-	31, // 9: kevin.plugin.v1.DownRequest.deps:type_name -> kevin.plugin.v1.DownRequest.DepsEntry
-	11, // 10: kevin.plugin.v1.DownRequest.outputs:type_name -> kevin.plugin.v1.Outputs
-	15, // 11: kevin.plugin.v1.Event.log:type_name -> kevin.plugin.v1.LogLine
-	16, // 12: kevin.plugin.v1.Event.progress:type_name -> kevin.plugin.v1.Progress
-	17, // 13: kevin.plugin.v1.Event.result:type_name -> kevin.plugin.v1.Result
-	11, // 14: kevin.plugin.v1.Result.outputs:type_name -> kevin.plugin.v1.Outputs
-	25, // 15: kevin.plugin.v1.Result.routes:type_name -> kevin.plugin.v1.Route
-	19, // 16: kevin.plugin.v1.Result.exposed_ports:type_name -> kevin.plugin.v1.ExposedPort
-	20, // 17: kevin.plugin.v1.Result.details:type_name -> kevin.plugin.v1.Detail
-	18, // 18: kevin.plugin.v1.Result.netns_targets:type_name -> kevin.plugin.v1.NetnsTarget
-	10, // 19: kevin.plugin.v1.Detail.value:type_name -> kevin.plugin.v1.Value
+	32, // 9: kevin.plugin.v1.DownRequest.deps:type_name -> kevin.plugin.v1.DownRequest.DepsEntry
+	12, // 10: kevin.plugin.v1.DownRequest.outputs:type_name -> kevin.plugin.v1.Outputs
+	16, // 11: kevin.plugin.v1.Event.log:type_name -> kevin.plugin.v1.LogLine
+	17, // 12: kevin.plugin.v1.Event.progress:type_name -> kevin.plugin.v1.Progress
+	18, // 13: kevin.plugin.v1.Event.result:type_name -> kevin.plugin.v1.Result
+	12, // 14: kevin.plugin.v1.Result.outputs:type_name -> kevin.plugin.v1.Outputs
+	26, // 15: kevin.plugin.v1.Result.routes:type_name -> kevin.plugin.v1.Route
+	20, // 16: kevin.plugin.v1.Result.exposed_ports:type_name -> kevin.plugin.v1.ExposedPort
+	21, // 17: kevin.plugin.v1.Result.details:type_name -> kevin.plugin.v1.Detail
+	19, // 18: kevin.plugin.v1.Result.netns_targets:type_name -> kevin.plugin.v1.NetnsTarget
+	11, // 19: kevin.plugin.v1.Detail.value:type_name -> kevin.plugin.v1.Value
 	8,  // 20: kevin.plugin.v1.ExportRequest.env:type_name -> kevin.plugin.v1.Environment
-	11, // 21: kevin.plugin.v1.ExportResponse.out:type_name -> kevin.plugin.v1.Outputs
+	12, // 21: kevin.plugin.v1.ExportResponse.out:type_name -> kevin.plugin.v1.Outputs
 	8,  // 22: kevin.plugin.v1.ToolCallRequest.env:type_name -> kevin.plugin.v1.Environment
-	32, // 23: kevin.plugin.v1.ToolCallRequest.deps:type_name -> kevin.plugin.v1.ToolCallRequest.DepsEntry
-	26, // 24: kevin.plugin.v1.Route.intercept:type_name -> kevin.plugin.v1.Intercept
+	33, // 23: kevin.plugin.v1.ToolCallRequest.deps:type_name -> kevin.plugin.v1.ToolCallRequest.DepsEntry
+	27, // 24: kevin.plugin.v1.Route.intercept:type_name -> kevin.plugin.v1.Intercept
 	1,  // 25: kevin.plugin.v1.Route.mode:type_name -> kevin.plugin.v1.RouteMode
-	10, // 26: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
-	11, // 27: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	11, // 28: kevin.plugin.v1.DownRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	11, // 29: kevin.plugin.v1.ToolCallRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	11, // 26: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
+	12, // 27: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	12, // 28: kevin.plugin.v1.DownRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	12, // 29: kevin.plugin.v1.ToolCallRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
 	2,  // 30: kevin.plugin.v1.Plugin.Info:input_type -> kevin.plugin.v1.InfoRequest
 	6,  // 31: kevin.plugin.v1.Plugin.Configure:input_type -> kevin.plugin.v1.ConfigureRequest
-	12, // 32: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
-	13, // 33: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
-	21, // 34: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
-	23, // 35: kevin.plugin.v1.Plugin.CallTool:input_type -> kevin.plugin.v1.ToolCallRequest
+	13, // 32: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
+	14, // 33: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
+	22, // 34: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
+	24, // 35: kevin.plugin.v1.Plugin.CallTool:input_type -> kevin.plugin.v1.ToolCallRequest
 	3,  // 36: kevin.plugin.v1.Plugin.Info:output_type -> kevin.plugin.v1.InfoResponse
 	7,  // 37: kevin.plugin.v1.Plugin.Configure:output_type -> kevin.plugin.v1.ConfigureResponse
-	14, // 38: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
-	14, // 39: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
-	22, // 40: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
-	24, // 41: kevin.plugin.v1.Plugin.CallTool:output_type -> kevin.plugin.v1.ToolCallResponse
+	15, // 38: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
+	15, // 39: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
+	23, // 40: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
+	25, // 41: kevin.plugin.v1.Plugin.CallTool:output_type -> kevin.plugin.v1.ToolCallResponse
 	36, // [36:42] is the sub-list for method output_type
 	30, // [30:36] is the sub-list for method input_type
 	30, // [30:30] is the sub-list for extension type_name
@@ -2333,10 +2372,10 @@ func file_pb_plugin_proto_init() {
 	if File_pb_plugin_proto != nil {
 		return
 	}
-	file_pb_plugin_proto_msgTypes[8].OneofWrappers = []any{
+	file_pb_plugin_proto_msgTypes[9].OneofWrappers = []any{
 		(*Value_StringValue)(nil),
 	}
-	file_pb_plugin_proto_msgTypes[12].OneofWrappers = []any{
+	file_pb_plugin_proto_msgTypes[13].OneofWrappers = []any{
 		(*Event_Log)(nil),
 		(*Event_Progress)(nil),
 		(*Event_Result)(nil),
@@ -2347,7 +2386,7 @@ func file_pb_plugin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pb_plugin_proto_rawDesc), len(file_pb_plugin_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   31,
+			NumMessages:   32,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -97,10 +97,24 @@ linters:
           - all
       # inspectResult carries no json tags at all: encoding/json matches its
       # field names against Docker's inspect JSON exactly, or
-      # case-insensitively (ID/"Id"), with no tag needed.
-      - path: 'internal/docker/'
+      # case-insensitively (ID/"Id"), with no tag needed. internal/podman's
+      # inspectResult is the same struct, for the same reason - podman's
+      # container inspect output matches the same field names.
+      - path: 'internal/(docker|podman)/'
         linters:
           - musttag
+      # cri.Runtime is the full container-engine contract every engine
+      # (docker, podman, ...) implements - one interface, not a bloated
+      # API surface a caller only uses part of.
+      - path: 'internal/cri/'
+        linters:
+          - interfacebloat
+      # engines.New's entire purpose is picking between two concrete engine
+      # types at runtime - it has to return the interface, unlike docker.New
+      # and podman.New which each return their own package's concrete type.
+      - path: 'internal/engines/'
+        linters:
+          - ireturn
       # Generated templ code is not ours to lint.
       - path: '_templ\.go'
         linters:

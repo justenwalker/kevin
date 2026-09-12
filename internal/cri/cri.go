@@ -6,6 +6,7 @@ package cri
 import (
 	"context"
 	"io"
+	"net/netip"
 )
 
 // LabelPrefix starts every label that kevin puts on a resource.
@@ -127,17 +128,22 @@ type NetworkOptions struct {
 	IPv6 bool
 }
 
+// Gateway holds a network's gateway address in each address family it
+// carries one for. A zero [netip.Addr] means that family has no gateway.
+type Gateway struct {
+	V4 netip.Addr
+	V6 netip.Addr
+}
+
 // Runtime is a container engine. internal/docker implements Runtime by
-// shelling out to the docker binary; another engine implements it another
-// way.
+// shelling out to the docker binary; internal/podman implements it by
+// shelling out to podman.
 //
 // Runtime carries the container lifecycle, the shared project network every
 // step joins, and the escape hatches (Exec, Save, NetworkConnect,
-// Available) a caller needs to drive a container it created outside of Run
-// - such as kind's own node containers. internal/docker exposes still more
-// methods (NetworkGateway, ListByLabel, ...) that a caller who already
-// knows the engine can use directly on the concrete type; they join Runtime
-// only once something needs to call them without knowing the engine.
+// Available, NetworkGateway, ListByLabel) a caller needs to drive a
+// container it created outside of Run - such as kind's own node containers,
+// or to find and remove every resource of a project without a state file.
 type Runtime interface {
 	// Available reports whether the engine command runs and its daemon
 	// answers. Available returns ErrUnavailable when it does not.
@@ -177,4 +183,13 @@ type Runtime interface {
 	// NetworkConnect joins an existing container, such as a kind node, to
 	// a network it was not created on.
 	NetworkConnect(ctx context.Context, network, container string) error
+
+	// NetworkGateway returns a network's gateway addresses. NetworkGateway
+	// returns ErrNotFound when the network does not exist, and
+	// ErrNoGateway when the network carries no gateway in either address
+	// family.
+	NetworkGateway(ctx context.Context, name string) (Gateway, error)
+
+	// ListByLabel returns the names of the containers that carry a label.
+	ListByLabel(ctx context.Context, key, value string) ([]string, error)
 }

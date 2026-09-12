@@ -1,4 +1,4 @@
-package docker
+package podman
 
 import (
 	"context"
@@ -27,27 +27,32 @@ func TestFriendlyRunErr(t *testing.T) {
 	}{
 		{
 			name:    "a port already allocated",
-			err:     errors.New(`docker: run "web": Bind for 0.0.0.0:8080 failed: port is already allocated`),
+			err:     errors.New(`podman: run "web": rootlessport listen tcp4 0.0.0.0:8080: bind: port is already allocated`),
 			wantMsg: "a port web needs is already in use on this machine - stop whatever is using it, or change the step's published ports",
 		},
 		{
 			name:    "an address already in use",
-			err:     errors.New(`docker: run "web": listen tcp 0.0.0.0:8080: bind: address already in use`),
+			err:     errors.New(`podman: run "web": listen tcp 0.0.0.0:8080: bind: address already in use`),
 			wantMsg: "a port web needs is already in use on this machine - stop whatever is using it, or change the step's published ports",
 		},
 		{
 			name:    "a missing image",
-			err:     errors.New(`docker: run "web": manifest unknown`),
+			err:     errors.New(`podman: run "web": manifest unknown`),
 			wantMsg: `the image "acme/widget:latest" couldn't be found or pulled - check the name and tag, and that you're logged in if it's private`,
 		},
 		{
-			name:    "pull access denied",
-			err:     errors.New(`docker: run "web": pull access denied for acme/widget`),
+			name:    "unauthorized pull",
+			err:     errors.New(`podman: run "web": unauthorized: authentication required`),
+			wantMsg: `the image "acme/widget:latest" couldn't be found or pulled - check the name and tag, and that you're logged in if it's private`,
+		},
+		{
+			name:    "image not found",
+			err:     errors.New(`podman: run "web": acme/widget:latest: image not known`),
 			wantMsg: `the image "acme/widget:latest" couldn't be found or pulled - check the name and tag, and that you're logged in if it's private`,
 		},
 		{
 			name: "an unrecognized failure is left alone",
-			err:  errors.New(`docker: run "web": something else went wrong`),
+			err:  errors.New(`podman: run "web": something else went wrong`),
 		},
 	}
 	for _, tt := range tests {
@@ -63,11 +68,11 @@ func TestFriendlyRunErr(t *testing.T) {
 	}
 }
 
-// requireDocker skips a test when the docker daemon does not answer.
-func requireDocker(t *testing.T) {
+// requirePodman skips a test when podman does not answer.
+func requirePodman(t *testing.T) {
 	t.Helper()
 	if err := (Client{}).Available(t.Context()); err != nil {
-		t.Skip("docker is unavailable:", err)
+		t.Skip("podman is unavailable:", err)
 	}
 }
 
@@ -156,8 +161,9 @@ func TestRunArgs(t *testing.T) {
 	})
 }
 
-// inspectFixture is the shape that `docker inspect --format '{{json .}}'`
-// returns, reduced to the fields that kevin reads.
+// inspectFixture is the shape that `podman inspect --format '{{json .}}'`
+// returns, reduced to the fields that kevin reads - podman's container
+// inspect output mirrors docker's for these fields by design.
 const inspectFixture = `{
   "Id": "9f2c4a",
   "Name": "/kevin-demo-api",
@@ -165,7 +171,7 @@ const inspectFixture = `{
   "NetworkSettings": {
     "Networks": {
       "kevin-demo": {"IPAddress": "172.20.0.3", "GlobalIPv6Address": "fd00::3"},
-      "bridge": {"IPAddress": ""}
+      "podman": {"IPAddress": ""}
     },
     "Ports": {
       "80/tcp": [{"HostIp": "0.0.0.0", "HostPort": "32768"}],
@@ -249,10 +255,10 @@ func TestGatewayFromInspect(t *testing.T) {
 
 func TestExec(t *testing.T) {
 	t.Run("runs inside a container", func(t *testing.T) {
-		requireDocker(t)
+		requirePodman(t)
 		c := Client{}
 
-		name := "kevin-docker-exec-test"
+		name := "kevin-podman-exec-test"
 		_, err := c.Run(t.Context(), cri.RunSpec{
 			Image: "busybox:stable",
 			Name:  name,
@@ -267,10 +273,10 @@ func TestExec(t *testing.T) {
 	})
 
 	t.Run("reports a missing container", func(t *testing.T) {
-		requireDocker(t)
+		requirePodman(t)
 		c := Client{}
 
-		_, err := c.Exec(t.Context(), "kevin-docker-exec-test-absent", "echo", "hello")
+		_, err := c.Exec(t.Context(), "kevin-podman-exec-test-absent", "echo", "hello")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, cri.ErrNotFound)
 	})
@@ -278,10 +284,10 @@ func TestExec(t *testing.T) {
 
 func TestExecInput(t *testing.T) {
 	t.Run("feeds standard input to the command", func(t *testing.T) {
-		requireDocker(t)
+		requirePodman(t)
 		c := Client{}
 
-		name := "kevin-docker-exec-input-test"
+		name := "kevin-podman-exec-input-test"
 		_, err := c.Run(t.Context(), cri.RunSpec{
 			Image: "busybox:stable",
 			Name:  name,
@@ -297,14 +303,14 @@ func TestExecInput(t *testing.T) {
 }
 
 func TestNetworkConnect(t *testing.T) {
-	requireDocker(t)
+	requirePodman(t)
 	c := Client{}
 
-	network := "kevin-docker-network-connect-test"
+	network := "kevin-podman-network-connect-test"
 	require.NoError(t, c.NetworkCreate(t.Context(), network, cri.NetworkOptions{}))
 	t.Cleanup(func() { _ = c.NetworkRemove(context.WithoutCancel(t.Context()), network) })
 
-	name := "kevin-docker-network-connect-test-container"
+	name := "kevin-podman-network-connect-test-container"
 	_, err := c.Run(t.Context(), cri.RunSpec{
 		Image: "busybox:stable",
 		Name:  name,
@@ -323,17 +329,17 @@ func TestNetworkConnect(t *testing.T) {
 
 // TestNetworkRemoveToleratesActiveEndpoints proves NetworkRemove leaves a
 // network in place, instead of erroring, when a container is still on it -
-// a container docker itself created outside kevin's own tracking, such as a
+// a container podman itself created outside kevin's own tracking, such as a
 // builtin:kind node joined directly through the "kind" CLI.
 func TestNetworkRemoveToleratesActiveEndpoints(t *testing.T) {
-	requireDocker(t)
+	requirePodman(t)
 	c := Client{}
 
-	network := "kevin-docker-network-remove-in-use-test"
+	network := "kevin-podman-network-remove-in-use-test"
 	require.NoError(t, c.NetworkCreate(t.Context(), network, cri.NetworkOptions{}))
 	t.Cleanup(func() { _ = c.NetworkRemove(context.WithoutCancel(t.Context()), network) })
 
-	name := "kevin-docker-network-remove-in-use-test-container"
+	name := "kevin-podman-network-remove-in-use-test-container"
 	_, err := c.Run(t.Context(), cri.RunSpec{
 		Image:   "busybox:stable",
 		Name:    name,
@@ -362,8 +368,8 @@ func TestNewClient(t *testing.T) {
 		assert.Equal(t, Client{}, c)
 	})
 
-	t.Run("decodes a valid DockerEngineConfig", func(t *testing.T) {
-		b, err := proto.Marshal(&pb.DockerEngineConfig{})
+	t.Run("decodes a valid PodmanEngineConfig", func(t *testing.T) {
+		b, err := proto.Marshal(&pb.PodmanEngineConfig{})
 		require.NoError(t, err)
 
 		_, err = New(b)
@@ -377,11 +383,11 @@ func TestNewClient(t *testing.T) {
 }
 
 func TestNetworkGateway(t *testing.T) {
-	requireDocker(t)
+	requirePodman(t)
 	c := Client{}
 
 	t.Run("returns the network's ipv4 gateway", func(t *testing.T) {
-		network := "kevin-docker-network-gateway-test"
+		network := "kevin-podman-network-gateway-test"
 		require.NoError(t, c.NetworkCreate(t.Context(), network, cri.NetworkOptions{}))
 		t.Cleanup(func() { _ = c.NetworkRemove(context.WithoutCancel(t.Context()), network) })
 
@@ -391,7 +397,7 @@ func TestNetworkGateway(t *testing.T) {
 	})
 
 	t.Run("returns both gateways for a dual-stack network", func(t *testing.T) {
-		network := "kevin-docker-network-gateway-v6-test"
+		network := "kevin-podman-network-gateway-v6-test"
 		require.NoError(t, c.NetworkCreate(t.Context(), network, cri.NetworkOptions{IPv6: true}))
 		t.Cleanup(func() { _ = c.NetworkRemove(context.WithoutCancel(t.Context()), network) })
 
@@ -402,16 +408,16 @@ func TestNetworkGateway(t *testing.T) {
 	})
 
 	t.Run("reports ErrNotFound for a missing network", func(t *testing.T) {
-		_, err := c.NetworkGateway(t.Context(), "kevin-docker-network-gateway-test-absent")
+		_, err := c.NetworkGateway(t.Context(), "kevin-podman-network-gateway-test-absent")
 		assert.ErrorIs(t, err, cri.ErrNotFound)
 	})
 }
 
 func TestListByLabel(t *testing.T) {
-	requireDocker(t)
+	requirePodman(t)
 	c := Client{}
 
-	name := "kevin-docker-list-by-label-test"
+	name := "kevin-podman-list-by-label-test"
 	_, err := c.Run(t.Context(), cri.RunSpec{
 		Image:  "busybox:stable",
 		Name:   name,
@@ -431,7 +437,7 @@ func TestListByLabel(t *testing.T) {
 }
 
 func TestSave(t *testing.T) {
-	requireDocker(t)
+	requirePodman(t)
 	c := Client{}
 
 	rc, err := c.Save(t.Context(), "busybox:stable")

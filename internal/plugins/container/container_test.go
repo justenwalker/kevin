@@ -413,6 +413,12 @@ func (fakeRuntime) NetworkRemove(context.Context, string) error { return nil }
 
 func (fakeRuntime) NetworkConnect(context.Context, string, string) error { return nil }
 
+func (fakeRuntime) NetworkGateway(context.Context, string) (cri.Gateway, error) {
+	return cri.Gateway{}, nil
+}
+
+func (fakeRuntime) ListByLabel(context.Context, string, string) ([]string, error) { return nil, nil }
+
 func (fakeRuntime) Available(context.Context) error { return nil }
 
 func (fakeRuntime) Exec(context.Context, string, ...string) (string, error) { return "", nil }
