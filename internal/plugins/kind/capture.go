@@ -6,6 +6,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -20,13 +21,13 @@ func wantsCapture(env plugin.Env) bool {
 // netnsTargets builds one capture registration per node of the cluster -
 // the node's own network namespace, and the CIDRs it must never redirect.
 // Returns (nil, nil) when CIDR discovery fails - see podAndServiceCIDRs.
-func netnsTargets(ctx context.Context, stepName string, allNodes []string, out plugin.Emitter) ([]plugin.NetnsTarget, error) {
+func netnsTargets(ctx context.Context, rt cri.Runtime, stepName string, allNodes []string, out plugin.Emitter) ([]plugin.NetnsTarget, error) {
 	controlPlane, err := bootstrapControlPlaneNode(allNodes)
 	if err != nil {
 		return nil, fmt.Errorf("kind: capture: %w", err)
 	}
 
-	exclude, err := podAndServiceCIDRs(ctx, controlPlane)
+	exclude, err := podAndServiceCIDRs(ctx, rt, controlPlane)
 	if err != nil {
 		// A verified exclusion list is what makes capture safe at all - not
 		// finding one is a reason to skip capture for this cluster, not to
@@ -37,7 +38,7 @@ func netnsTargets(ctx context.Context, stepName string, allNodes []string, out p
 
 	targets := make([]plugin.NetnsTarget, 0, len(allNodes))
 	for _, node := range allNodes {
-		info, err := dockerClient.Inspect(ctx, node)
+		info, err := rt.Inspect(ctx, node)
 		if err != nil {
 			return nil, fmt.Errorf("kind: capture: inspect %s: %w", node, err)
 		}
@@ -67,8 +68,8 @@ func netnsTargets(ctx context.Context, stepName string, allNodes []string, out p
 // list is what makes capture safe at all, and a wrong or missing one would
 // silently break pod-to-pod/pod-to-service traffic, which is worse than no
 // capture.
-func podAndServiceCIDRs(ctx context.Context, controlPlaneNode string) ([]string, error) {
-	out, err := kubectl(ctx, controlPlaneNode, "-n", "kube-system", "get", "configmap", "kubeadm-config",
+func podAndServiceCIDRs(ctx context.Context, rt cri.Runtime, controlPlaneNode string) ([]string, error) {
+	out, err := kubectl(ctx, rt, controlPlaneNode, "-n", "kube-system", "get", "configmap", "kubeadm-config",
 		"-o", "jsonpath={.data.ClusterConfiguration}")
 	if err != nil {
 		return nil, fmt.Errorf("kind: read kubeadm-config: %w", err)

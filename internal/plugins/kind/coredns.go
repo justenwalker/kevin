@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -16,7 +17,7 @@ const adminKubeconfig = "/etc/kubernetes/admin.conf"
 // patchCoreDNS is idempotent: it replaces an existing zone for domain
 // instead of adding one, and a resolv.conf rewrite is naturally idempotent
 // too.
-func patchCoreDNS(ctx context.Context, allNodes []string, domain, relay string, out plugin.Emitter) error {
+func patchCoreDNS(ctx context.Context, rt cri.Runtime, allNodes []string, domain, relay string, out plugin.Emitter) error {
 	container, err := bootstrapControlPlaneNode(allNodes)
 	if err != nil {
 		return fmt.Errorf("kind: find the control plane node: %w", err)
@@ -25,7 +26,7 @@ func patchCoreDNS(ctx context.Context, allNodes []string, domain, relay string, 
 	out.Log("stdout", "patching coredns for "+domain)
 	out.Progress("patching coredns", 0, 0)
 
-	current, err := kubectl(ctx, container, "-n", "kube-system", "get", "configmap", "coredns",
+	current, err := kubectl(ctx, rt, container, "-n", "kube-system", "get", "configmap", "coredns",
 		"-o", "jsonpath={.data.Corefile}")
 	if err != nil {
 		return fmt.Errorf("kind: read the coredns Corefile: %w", err)
@@ -33,13 +34,13 @@ func patchCoreDNS(ctx context.Context, allNodes []string, domain, relay string, 
 
 	next := corefileWithZone(current, domain, relay)
 
-	manifest, err := kubectl(ctx, container, "create", "configmap", "coredns",
+	manifest, err := kubectl(ctx, rt, container, "create", "configmap", "coredns",
 		"-n", "kube-system", "--from-literal=Corefile="+next, "--dry-run=client", "-o", "yaml")
 	if err != nil {
 		return fmt.Errorf("kind: render the coredns configmap: %w", err)
 	}
 
-	if _, err = kubectlInput(ctx, container, strings.NewReader(manifest),
+	if _, err = kubectlInput(ctx, rt, container, strings.NewReader(manifest),
 		"-n", "kube-system", "replace", "-f", "-"); err != nil {
 		return fmt.Errorf("kind: replace the coredns configmap: %w", err)
 	}
@@ -49,15 +50,15 @@ func patchCoreDNS(ctx context.Context, allNodes []string, domain, relay string, 
 	// dnsPolicy: Default) - rewriting that file reaches the relay for
 	// anything else without an edit to that zone, which also runs the
 	// kubernetes plugin cluster.local depends on.
-	if err = pointNodeDNSAtRelay(ctx, allNodes, relay); err != nil {
+	if err = pointNodeDNSAtRelay(ctx, rt, allNodes, relay); err != nil {
 		return err
 	}
 
 	out.Log("stdout", "restarting coredns")
-	if _, err = kubectl(ctx, container, "-n", "kube-system", "rollout", "restart", "deployment/coredns"); err != nil {
+	if _, err = kubectl(ctx, rt, container, "-n", "kube-system", "rollout", "restart", "deployment/coredns"); err != nil {
 		return fmt.Errorf("kind: restart coredns: %w", err)
 	}
-	if _, err = kubectl(ctx, container, "-n", "kube-system", "rollout", "status",
+	if _, err = kubectl(ctx, rt, container, "-n", "kube-system", "rollout", "status",
 		"deployment/coredns", "--timeout=60s"); err != nil {
 		return fmt.Errorf("kind: wait for coredns: %w", err)
 	}
@@ -68,9 +69,9 @@ func patchCoreDNS(ctx context.Context, allNodes []string, domain, relay string, 
 
 // pointNodeDNSAtRelay rewrites every node's own /etc/resolv.conf to name
 // relay as its only nameserver.
-func pointNodeDNSAtRelay(ctx context.Context, allNodes []string, relay string) error {
+func pointNodeDNSAtRelay(ctx context.Context, rt cri.Runtime, allNodes []string, relay string) error {
 	for _, node := range allNodes {
-		if _, err := dockerClient.Exec(ctx, node, "sh", "-c", "echo nameserver "+relay+" > /etc/resolv.conf"); err != nil {
+		if _, err := rt.Exec(ctx, node, "sh", "-c", "echo nameserver "+relay+" > /etc/resolv.conf"); err != nil {
 			return fmt.Errorf("kind: point %s's dns at the relay: %w", node, err)
 		}
 	}
@@ -78,13 +79,13 @@ func pointNodeDNSAtRelay(ctx context.Context, allNodes []string, relay string) e
 }
 
 // kubectl runs kubectl inside a node, against the cluster of that node.
-func kubectl(ctx context.Context, container string, args ...string) (string, error) {
-	return dockerClient.Exec(ctx, container, kubectlArgs(args)...)
+func kubectl(ctx context.Context, rt cri.Runtime, container string, args ...string) (string, error) {
+	return rt.Exec(ctx, container, kubectlArgs(args)...)
 }
 
 // kubectlInput runs kubectl inside a node, with stdin feeding the command.
-func kubectlInput(ctx context.Context, container string, stdin *strings.Reader, args ...string) (string, error) {
-	return dockerClient.ExecInput(ctx, container, stdin, kubectlArgs(args)...)
+func kubectlInput(ctx context.Context, rt cri.Runtime, container string, stdin *strings.Reader, args ...string) (string, error) {
+	return rt.ExecInput(ctx, container, stdin, kubectlArgs(args)...)
 }
 
 // kubectlArgs prepends the kubectl command and the admin kubeconfig flag to

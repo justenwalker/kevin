@@ -10,9 +10,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/docker"
 	"github.com/justenwalker/kevin/internal/kindcmd"
 	"github.com/justenwalker/kevin/plugin"
 )
+
+// dockerClient inspects docker resources directly in tests - every test
+// here runs against the default (docker) engine.
+var dockerClient = docker.Client{}
 
 // capture records what a step logs, as a fake plugin.Emitter.
 type capture struct {
@@ -271,6 +276,31 @@ func TestProxyEnv(t *testing.T) {
 
 	t.Run("nil when the environment has no proxy configured", func(t *testing.T) {
 		assert.Nil(t, proxyEnv(config{Proxy: true}, plugin.Env{}))
+	})
+}
+
+func TestProviderEnv(t *testing.T) {
+	t.Run("nil for docker", func(t *testing.T) {
+		assert.Nil(t, providerEnv(plugin.Env{Engine: "docker"}))
+		assert.Nil(t, providerEnv(plugin.Env{}))
+	})
+
+	t.Run("sets KIND_EXPERIMENTAL_PROVIDER for podman", func(t *testing.T) {
+		assert.Equal(t, map[string]string{"KIND_EXPERIMENTAL_PROVIDER": "podman"}, providerEnv(plugin.Env{Engine: "podman"}))
+	})
+}
+
+func TestMergeEnv(t *testing.T) {
+	t.Run("either side nil returns the other unchanged", func(t *testing.T) {
+		a := map[string]string{"A": "1"}
+		assert.Equal(t, a, mergeEnv(a, nil))
+		assert.Equal(t, a, mergeEnv(nil, a))
+		assert.Nil(t, mergeEnv(nil, nil))
+	})
+
+	t.Run("combines both, b winning on a shared key", func(t *testing.T) {
+		got := mergeEnv(map[string]string{"A": "1", "SHARED": "a"}, map[string]string{"B": "2", "SHARED": "b"})
+		assert.Equal(t, map[string]string{"A": "1", "B": "2", "SHARED": "b"}, got)
 	})
 }
 

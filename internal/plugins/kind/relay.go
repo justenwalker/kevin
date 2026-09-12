@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/kindcmd"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/plugin"
@@ -30,12 +31,12 @@ func relayAddr(hostPort int) string {
 // finishRelay deploys the SOCKS5 relay pod and reports each expose entry as
 // a routed endpoint, once the cluster is up. Callers must only call this
 // when wantsRelay(cfg) holds.
-func finishRelay(ctx context.Context, cfg config, name string, allNodes []string, relayAddress string, out plugin.Emitter) ([]plugin.ExposedPort, error) {
+func finishRelay(ctx context.Context, rt cri.Runtime, cfg config, name string, allNodes []string, relayAddress string, env plugin.Env, out plugin.Emitter) ([]plugin.ExposedPort, error) {
 	// The kevin.cue-configured relay image (cfg.Relay.Image) lives at the
 	// supervisor level, not in plugin.Env - relay.Ref("") is exactly what
 	// the kind integration suite already uses to resolve the same image for
 	// the same reason: KEVIN_RELAY_IMAGE wins, else the built-in tag.
-	if err := deployRelay(ctx, name, allNodes, relay.Ref(""), out); err != nil {
+	if err := deployRelay(ctx, rt, name, allNodes, relay.Ref(""), env, out); err != nil {
 		return nil, err
 	}
 	return exposedViaRelay(cfg.Expose, relayAddress), nil
@@ -62,8 +63,8 @@ func findFreePort(ctx context.Context) (int, error) {
 // saveImageToTempFile docker-saves image to a temporary tar file and returns
 // its path - kind load image-archive takes a file path, not stdin, unlike
 // every other command this plugin shells out to.
-func saveImageToTempFile(ctx context.Context, image string) (string, error) {
-	src, err := dockerClient.Save(ctx, image)
+func saveImageToTempFile(ctx context.Context, rt cri.Runtime, image string) (string, error) {
+	src, err := rt.Save(ctx, image)
 	if err != nil {
 		return "", fmt.Errorf("kind: save the relay image: %w", err)
 	}
@@ -85,7 +86,7 @@ func saveImageToTempFile(ctx context.Context, image string) (string, error) {
 // applies a Pod running it in SOCKS5 mode, pinned to that same node -
 // mirrors patchCoreDNS's shape: find the node, act on it via
 // kubectl-through-docker-exec, wait for it to be ready.
-func deployRelay(ctx context.Context, name string, allNodes []string, image string, out plugin.Emitter) error {
+func deployRelay(ctx context.Context, rt cri.Runtime, name string, allNodes []string, image string, env plugin.Env, out plugin.Emitter) error {
 	container, err := bootstrapControlPlaneNode(allNodes)
 	if err != nil {
 		return fmt.Errorf("kind: find the control plane node: %w", err)
@@ -93,12 +94,12 @@ func deployRelay(ctx context.Context, name string, allNodes []string, image stri
 
 	out.Log("stdout", "loading the relay image")
 	out.Progress("loading the relay image", 0, 0)
-	tarPath, err := saveImageToTempFile(ctx, image)
+	tarPath, err := saveImageToTempFile(ctx, rt, image)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.Remove(tarPath) }()
-	if err = kindcmd.LoadImageArchive(ctx, kindcmd.LoadImageArchiveSpec{Name: name, Path: tarPath}, plugin.NewLineWriter(out, "stderr")); err != nil {
+	if err = kindcmd.LoadImageArchive(ctx, kindcmd.LoadImageArchiveSpec{Name: name, Path: tarPath, Env: providerEnv(env)}, plugin.NewLineWriter(out, "stderr")); err != nil {
 		return fmt.Errorf("kind: load the relay image: %w", err)
 	}
 
@@ -108,11 +109,11 @@ func deployRelay(ctx context.Context, name string, allNodes []string, image stri
 	// name - coredns.go's patch already relies on the same identity to find
 	// this same node from inside the cluster.
 	manifest := relayPodManifest(container, image)
-	if _, err = kubectlInput(ctx, container, strings.NewReader(manifest),
+	if _, err = kubectlInput(ctx, rt, container, strings.NewReader(manifest),
 		"-n", "kube-system", "apply", "-f", "-"); err != nil {
 		return fmt.Errorf("kind: apply the relay pod: %w", err)
 	}
-	if _, err = kubectl(ctx, container, "-n", "kube-system", "wait", "pod/kevin-relay",
+	if _, err = kubectl(ctx, rt, container, "-n", "kube-system", "wait", "pod/kevin-relay",
 		"--for=condition=Ready", "--timeout=60s"); err != nil {
 		return fmt.Errorf("kind: wait for the relay pod: %w", err)
 	}

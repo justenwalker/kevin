@@ -23,7 +23,7 @@ func Available(ctx context.Context) error {
 	if _, err := exec.LookPath(Binary); err != nil {
 		return fmt.Errorf("kindcmd: %w: %w", ErrUnavailable, err)
 	}
-	if _, err := runBuffered(ctx, "version"); err != nil {
+	if _, err := runBuffered(ctx, nil, "version"); err != nil {
 		return fmt.Errorf("kindcmd: %w: %w", ErrUnavailable, err)
 	}
 	return nil
@@ -81,6 +81,11 @@ func createArgs(spec CreateSpec) []string {
 type DeleteSpec struct {
 	Name       string
 	Kubeconfig string
+
+	// Env names extra variables (KIND_EXPERIMENTAL_PROVIDER, ...) set for
+	// this call only, layered onto the process's own environment - never
+	// the process's own environment itself.
+	Env map[string]string
 }
 
 // Delete runs kind delete cluster against spec, streaming its output to
@@ -88,7 +93,7 @@ type DeleteSpec struct {
 // cluster that is already gone is success, not an error.
 func Delete(ctx context.Context, spec DeleteSpec, stderr io.Writer) error {
 	args := deleteArgs(spec)
-	if err := runStreamed(ctx, nil, io.Discard, stderr, nil, args...); err != nil {
+	if err := runStreamed(ctx, nil, io.Discard, stderr, envWith(spec.Env), args...); err != nil {
 		return fmt.Errorf("kindcmd: delete cluster: %w", err)
 	}
 	return nil
@@ -99,9 +104,10 @@ func deleteArgs(spec DeleteSpec) []string {
 }
 
 // GetNodes runs kind get nodes against name, and returns the docker
-// container name of every node in the cluster.
-func GetNodes(ctx context.Context, name string) ([]string, error) {
-	out, err := runBuffered(ctx, "get", "nodes", "--name", name)
+// container name of every node in the cluster. env names extra variables
+// (KIND_EXPERIMENTAL_PROVIDER, ...) set for this call only.
+func GetNodes(ctx context.Context, name string, env map[string]string) ([]string, error) {
+	out, err := runBuffered(ctx, envWith(env), "get", "nodes", "--name", name)
 	if err != nil {
 		return nil, fmt.Errorf("kindcmd: get nodes: %w", err)
 	}
@@ -113,7 +119,7 @@ func GetNodes(ctx context.Context, name string) ([]string, error) {
 // itself. Test-only: production code always knows a cluster's deterministic
 // name already and never needs to enumerate every cluster on the host.
 func GetClusters(ctx context.Context) ([]string, error) {
-	out, err := runBuffered(ctx, "get", "clusters")
+	out, err := runBuffered(ctx, nil, "get", "clusters")
 	if err != nil {
 		return nil, fmt.Errorf("kindcmd: get clusters: %w", err)
 	}
@@ -139,13 +145,18 @@ type LoadImageArchiveSpec struct {
 	// Path is a local tar file, as docker save writes one - kind load
 	// image-archive takes a file path, not stdin.
 	Path string
+
+	// Env names extra variables (KIND_EXPERIMENTAL_PROVIDER, ...) set for
+	// this call only, layered onto the process's own environment - never
+	// the process's own environment itself.
+	Env map[string]string
 }
 
 // LoadImageArchive runs kind load image-archive against spec, streaming its
 // output to stderr as it runs.
 func LoadImageArchive(ctx context.Context, spec LoadImageArchiveSpec, stderr io.Writer) error {
 	args := []string{"load", "image-archive", spec.Path, "--name", spec.Name}
-	if err := runStreamed(ctx, nil, io.Discard, stderr, nil, args...); err != nil {
+	if err := runStreamed(ctx, nil, io.Discard, stderr, envWith(spec.Env), args...); err != nil {
 		return fmt.Errorf("kindcmd: load image archive: %w", err)
 	}
 	return nil
@@ -166,10 +177,15 @@ func envWith(extra map[string]string) []string {
 }
 
 // runBuffered calls the kind binary and returns its standard output, for a
-// call whose result is data to parse rather than progress to show.
-func runBuffered(ctx context.Context, args ...string) (string, error) {
+// call whose result is data to parse rather than progress to show. A nil
+// env leaves the child's environment as the process's own; env otherwise
+// replaces it outright (the caller builds it with [envWith]).
+func runBuffered(ctx context.Context, env []string, args ...string) (string, error) {
 	//nolint:gosec // every argument comes from the environment definition
 	cmd := exec.CommandContext(ctx, Binary, args...)
+	if env != nil {
+		cmd.Env = env
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

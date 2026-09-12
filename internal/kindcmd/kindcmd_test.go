@@ -57,9 +57,12 @@ func TestCreateArgs(t *testing.T) {
 }
 
 func TestDeleteArgs(t *testing.T) {
-	args := deleteArgs(DeleteSpec{Name: "demo", Kubeconfig: "/tmp/kubeconfig"})
+	args := deleteArgs(DeleteSpec{
+		Name: "demo", Kubeconfig: "/tmp/kubeconfig",
+		Env: map[string]string{"KIND_EXPERIMENTAL_PROVIDER": "podman"},
+	})
 	want := []string{"delete", "cluster", "--name", "demo", "--kubeconfig", "/tmp/kubeconfig"}
-	assert.Equal(t, want, args)
+	assert.Equal(t, want, args, "Env sets the child process environment, not a command-line flag")
 }
 
 func TestParseLines(t *testing.T) {

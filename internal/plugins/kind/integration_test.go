@@ -83,7 +83,7 @@ func (s *KindSuite) SetupSuite() {
 	s.Require().NoError(err)
 	s.caPEM = intermediate.RootPEM()
 
-	r, err := relay.Start(t.Context(), relay.Options{
+	r, err := relay.Start(t.Context(), dockerClient, relay.Options{
 		Project:   kindProject,
 		Network:   s.network,
 		Domain:    kindDomain,
@@ -146,7 +146,7 @@ func (s *KindSuite) TearDownSuite() {
 // controlPlaneNode returns the container name of the control plane node of
 // the suite cluster.
 func (s *KindSuite) controlPlaneNode() string {
-	allNodes, err := kindcmd.GetNodes(s.T().Context(), s.clusterName)
+	allNodes, err := kindcmd.GetNodes(s.T().Context(), s.clusterName, nil)
 	s.Require().NoError(err)
 	node, err := bootstrapControlPlaneNode(allNodes)
 	s.Require().NoError(err)
@@ -183,7 +183,7 @@ func (s *KindSuite) TestCoreDNSCarriesTheForwardZone() {
 	t := s.T()
 	container := s.controlPlaneNode()
 
-	out, err := kubectl(t.Context(), container, "-n", "kube-system", "get", "configmap", "coredns",
+	out, err := kubectl(t.Context(), dockerClient, container, "-n", "kube-system", "get", "configmap", "coredns",
 		"-o", "jsonpath={.data.Corefile}")
 	s.Require().NoError(err)
 
@@ -215,7 +215,7 @@ func (s *KindSuite) TestNetnsTargetsRegisterOneCaptureTargetPerNode() {
 	t := s.T()
 	nodeList := strings.Split(s.up.Outputs["nodes"].Reveal(), ",")
 
-	wantCIDRs, err := podAndServiceCIDRs(t.Context(), s.controlPlaneNode())
+	wantCIDRs, err := podAndServiceCIDRs(t.Context(), dockerClient, s.controlPlaneNode())
 	s.Require().NoError(err)
 
 	s.Require().Len(s.up.NetnsTargets, len(nodeList))
@@ -342,7 +342,7 @@ func (s *KindSuite) TestWaitTCPReachesTheAPIServerThroughTheRelay() {
 func (s *KindSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 	t := s.T()
 
-	before, err := kindcmd.GetNodes(t.Context(), s.clusterName)
+	before, err := kindcmd.GetNodes(t.Context(), s.clusterName, nil)
 	s.Require().NoError(err)
 
 	out := &capture{}
@@ -360,7 +360,7 @@ func (s *KindSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 	}, out)
 	s.Require().NoError(err)
 
-	after, err := kindcmd.GetNodes(t.Context(), s.clusterName)
+	after, err := kindcmd.GetNodes(t.Context(), s.clusterName, nil)
 	s.Require().NoError(err)
 	s.ElementsMatch(before, after, "reusing the cluster must not destroy and recreate its nodes")
 	s.Equal(res.Outputs["name"].Reveal(), s.clusterName)
@@ -380,16 +380,16 @@ func (s *KindSuite) TestUpIsIdempotent() {
 	t := s.T()
 	ctx := t.Context()
 
-	allNodes, err := kindcmd.GetNodes(ctx, s.clusterName)
+	allNodes, err := kindcmd.GetNodes(ctx, s.clusterName, nil)
 	s.Require().NoError(err)
 
-	s.Require().NoError(patchCoreDNS(ctx, allNodes, kindDomain, s.relay.Addr(), &capture{}),
+	s.Require().NoError(patchCoreDNS(ctx, dockerClient, allNodes, kindDomain, s.relay.Addr(), &capture{}),
 		"a second patch must not fail")
-	s.Require().NoError(installTrustCA(ctx, allNodes, s.caPEM, &capture{}),
+	s.Require().NoError(installTrustCA(ctx, dockerClient, allNodes, s.caPEM, &capture{}),
 		"a second install must not fail")
 
 	container := s.controlPlaneNode()
-	out, err := kubectl(ctx, container, "-n", "kube-system", "get", "configmap", "coredns",
+	out, err := kubectl(ctx, dockerClient, container, "-n", "kube-system", "get", "configmap", "coredns",
 		"-o", "jsonpath={.data.Corefile}")
 	s.Require().NoError(err)
 	s.Equal(1, strings.Count(out, kindDomain+":53 {"), "a second patch must replace the zone, not add a second one")

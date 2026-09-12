@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -33,22 +34,22 @@ func wantsTrustCA(cfg config, env plugin.Env) bool {
 
 // trustCAFromPath reads the kevin root certificate from the host path that
 // plugin.Env.CAPath names, then installs it into every node.
-func trustCAFromPath(ctx context.Context, allNodes []string, caPath string, out plugin.Emitter) error {
+func trustCAFromPath(ctx context.Context, rt cri.Runtime, allNodes []string, caPath string, out plugin.Emitter) error {
 	caPEM, err := os.ReadFile(caPath) //nolint:gosec // caPath is plugin.Env.CAPath, set by the supervisor, not user input
 	if err != nil {
 		return fmt.Errorf("kind: read the kevin root certificate: %w", err)
 	}
-	return installTrustCA(ctx, allNodes, string(caPEM), out)
+	return installTrustCA(ctx, rt, allNodes, string(caPEM), out)
 }
 
 // installTrustCA writes the kevin root certificate into every node, reloads
 // the trust store, and restarts containerd.
-func installTrustCA(ctx context.Context, allNodes []string, caPEM string, out plugin.Emitter) error {
+func installTrustCA(ctx context.Context, rt cri.Runtime, allNodes []string, caPEM string, out plugin.Emitter) error {
 	out.Log("stdout", "installing the kevin root certificate into the nodes")
 	out.Progress("trusting the kevin ca", 0, 0)
 
 	for _, node := range allNodes {
-		if err := installTrustCAOnNode(ctx, node, caPEM); err != nil {
+		if err := installTrustCAOnNode(ctx, rt, node, caPEM); err != nil {
 			return err
 		}
 	}
@@ -59,23 +60,23 @@ func installTrustCA(ctx context.Context, allNodes []string, caPEM string, out pl
 
 // installTrustCAOnNode installs the certificate on one node container and
 // waits for containerd to answer again.
-func installTrustCAOnNode(ctx context.Context, container, caPEM string) error {
-	if _, err := dockerClient.ExecInput(ctx, container, strings.NewReader(caPEM),
+func installTrustCAOnNode(ctx context.Context, rt cri.Runtime, container, caPEM string) error {
+	if _, err := rt.ExecInput(ctx, container, strings.NewReader(caPEM),
 		"tee", caAnchorPath); err != nil {
 		return fmt.Errorf("kind: write the kevin root certificate into %s: %w", container, err)
 	}
 	// update-ca-certificates warns about every file in the anchor directory
 	// that holds more than one certificate, and a node carries such files.
 	// Check the bundle rather than the exit code.
-	_, _ = dockerClient.Exec(ctx, container, "update-ca-certificates")
+	_, _ = rt.Exec(ctx, container, "update-ca-certificates")
 
-	if err := verifyTrusted(ctx, container, caPEM); err != nil {
+	if err := verifyTrusted(ctx, rt, container, caPEM); err != nil {
 		return err
 	}
-	if _, err := dockerClient.Exec(ctx, container, "systemctl", "restart", "containerd"); err != nil {
+	if _, err := rt.Exec(ctx, container, "systemctl", "restart", "containerd"); err != nil {
 		return fmt.Errorf("kind: restart containerd on %s: %w", container, err)
 	}
-	if err := waitContainerdReady(ctx, container); err != nil {
+	if err := waitContainerdReady(ctx, rt, container); err != nil {
 		return err
 	}
 	return nil
@@ -83,8 +84,8 @@ func installTrustCAOnNode(ctx context.Context, container, caPEM string) error {
 
 // verifyTrusted reports whether the system bundle of a node holds the
 // certificate. verifyTrusted returns [ErrNotTrusted] when the bundle does not.
-func verifyTrusted(ctx context.Context, container, caPEM string) error {
-	bundle, err := dockerClient.Exec(ctx, container, "cat", systemBundlePath)
+func verifyTrusted(ctx context.Context, rt cri.Runtime, container, caPEM string) error {
+	bundle, err := rt.Exec(ctx, container, "cat", systemBundlePath)
 	if err != nil {
 		return fmt.Errorf("kind: read the trust store of %s: %w", container, err)
 	}
@@ -102,10 +103,10 @@ func normalizePEM(pem string) string {
 // waitContainerdReady polls a node until containerd answers again.
 // waitContainerdReady returns ErrContainerdNotReady when the timeout passes
 // first.
-func waitContainerdReady(ctx context.Context, container string) error {
+func waitContainerdReady(ctx context.Context, rt cri.Runtime, container string) error {
 	deadline := time.Now().Add(containerdReadyTimeout)
 	for {
-		if _, err := dockerClient.Exec(ctx, container, "ctr", "version"); err == nil {
+		if _, err := rt.Exec(ctx, container, "ctr", "version"); err == nil {
 			return nil
 		}
 		if time.Now().After(deadline) {
