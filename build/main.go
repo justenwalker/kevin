@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -205,7 +206,8 @@ var RelayImage = GnobMakeTarget{
 	Name: "relay-image",
 	Desc: "build the kevin-relay docker image",
 	LongDesc: "Cross-compiles kevin-relay for linux and the host architecture, then\n" +
-		"builds " + RelayImageTag + " from build/relay.Dockerfile.",
+		"builds " + RelayImageTag + " from build/relay.Dockerfile. If podman is\n" +
+		"also installed, loads the image into podman's store too.",
 	Body: func(ctx context.Context, _ *GnobMakefile) error {
 		dir, err := os.MkdirTemp("", "kevin-relay-image-*")
 		if err != nil {
@@ -226,11 +228,26 @@ var RelayImage = GnobMakeTarget{
 			return err
 		}
 
-		return run(ctx, nil, "docker", "build",
+		if err = run(ctx, nil, "docker", "build",
 			"-f", "build/relay.Dockerfile",
 			"--build-arg", "TARGETARCH="+runtime.GOARCH,
-			"-t", RelayImageTag, dir)
+			"-t", RelayImageTag, dir); err != nil {
+			return err
+		}
+
+		if _, err = exec.LookPath("podman"); err != nil {
+			return nil
+		}
+		return loadRelayImageIntoPodman(ctx)
 	},
+}
+
+// loadRelayImageIntoPodman pipes RelayImageTag from "docker save" into
+// "podman load".
+func loadRelayImageIntoPodman(ctx context.Context) error {
+	return cmd.Exec(ctx, "docker", "save", RelayImageTag).
+		PipeOpt(cmd.ExecOptions(cmd.WithStdout(os.Stdout), cmd.WithStderr(os.Stderr)), "podman", "load").
+		Run()
 }
 
 // releaseVersionPattern matches a Go-module-compatible semver tag.
