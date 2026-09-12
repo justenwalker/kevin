@@ -13,6 +13,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/cmd"
 	"github.com/justenwalker/kevin/internal/config"
+	"github.com/justenwalker/kevin/internal/engines"
 	"github.com/justenwalker/kevin/internal/pkgtrust"
 )
 
@@ -137,6 +138,27 @@ func TestRun(t *testing.T) {
 		// --env "" must select the unnamed file instead and get past Load.
 		err := cmd.Run(t.Context(), []string{"-C", dir, "--env", "", "teardown"})
 		require.NotErrorIs(t, err, config.ErrNotFound, "--env must override KEVIN_ENV")
+	})
+
+	t.Run("KEVIN_ENGINE selects the engine", func(t *testing.T) {
+		t.Setenv("KEVIN_ENGINE", "bogus")
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(listenBlockDefault+`plugins: {}`), 0o600))
+
+		// "bogus" is not an engine kevin implements, so teardown's own
+		// engine selection is what fails. That proves KEVIN_ENGINE reached
+		// it, not just the flag default.
+		err := cmd.Run(t.Context(), []string{"-C", dir, "teardown"})
+		require.ErrorIs(t, err, engines.ErrUnsupported)
+	})
+
+	t.Run("--engine overrides KEVIN_ENGINE", func(t *testing.T) {
+		t.Setenv("KEVIN_ENGINE", "bogus")
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(listenBlockDefault+`plugins: {}`), 0o600))
+
+		err := cmd.Run(t.Context(), []string{"-C", dir, "--engine", "docker", "teardown"})
+		require.NotErrorIs(t, err, engines.ErrUnsupported, "--engine must override KEVIN_ENGINE")
 	})
 
 	t.Run("plugin list prints every qualified step type", func(t *testing.T) {

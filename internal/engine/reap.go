@@ -15,11 +15,11 @@ import (
 // and a still-live resource of the other scope (see otherScopeLive),
 // leaving the shared project network in place when it finds one.
 func (r *run) reap(ctx context.Context) error {
-	names, err := dockerClient.ListByLabel(ctx, cri.LabelProject, r.cfg.Project)
+	names, err := r.runtime.ListByLabel(ctx, cri.LabelProject, r.cfg.Project)
 	if err != nil {
 		return err
 	}
-	relays, err := dockerClient.ListByLabel(ctx, cri.LabelRole, relay.Role)
+	relays, err := r.runtime.ListByLabel(ctx, cri.LabelRole, relay.Role)
 	if err != nil {
 		return err
 	}
@@ -42,7 +42,7 @@ func (r *run) reap(ctx context.Context) error {
 			continue
 		}
 		r.emit(name, "orphan, removing")
-		if removeErr := dockerClient.Remove(ctx, name); removeErr != nil {
+		if removeErr := r.runtime.Remove(ctx, name); removeErr != nil {
 			return removeErr
 		}
 	}
@@ -50,7 +50,7 @@ func (r *run) reap(ctx context.Context) error {
 	if len(otherLive) > 0 {
 		return nil
 	}
-	return dockerClient.NetworkRemove(ctx, NetworkName(r.cfg.Project))
+	return r.runtime.NetworkRemove(ctx, NetworkName(r.cfg.Project))
 }
 
 // otherScopeLive reports the container names of this project's other scope
@@ -61,7 +61,7 @@ func (r *run) otherScopeLive(ctx context.Context) (map[string]struct{}, error) {
 		otherScope = config.ScopeEnv
 	}
 
-	names, err := dockerClient.ListByLabel(ctx, cri.LabelScope, cri.ScopeLabel(r.cfg.Project, otherScope))
+	names, err := r.runtime.ListByLabel(ctx, cri.LabelScope, cri.ScopeLabel(r.cfg.Project, otherScope))
 	if err != nil {
 		return nil, err
 	}

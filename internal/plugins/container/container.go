@@ -7,6 +7,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -14,7 +15,7 @@ import (
 	"time"
 
 	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/docker"
+	"github.com/justenwalker/kevin/internal/engines"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -267,14 +268,16 @@ func (Container) Export(ctx context.Context, req *plugin.ExportRequest) (*plugin
 
 // newRuntime picks the container engine that env names.
 var newRuntime = func(env plugin.Env) (cri.Runtime, error) { // a var so tests can substitute a fake engine
-	switch env.Engine {
-	case "", "docker":
-		return docker.New(env.EngineConfig)
-	default:
-		return nil, plugin.Wrap(
-			fmt.Errorf("container: unsupported engine %q: %w", env.Engine, ErrUnsupportedEngine),
-			"kevin only supports the docker engine today (got %q) - remove engine from kevin.cue, or set it to \"docker\"", env.Engine)
+	rt, err := engines.New(env.Engine, env.EngineConfig)
+	if err != nil {
+		if errors.Is(err, engines.ErrUnsupported) {
+			return nil, plugin.Wrap(
+				fmt.Errorf("container: unsupported engine %q: %w", env.Engine, ErrUnsupportedEngine),
+				"kevin doesn't support engine %q - pass --engine or KEVIN_ENGINE as \"docker\" or \"podman\"", env.Engine)
+		}
+		return nil, fmt.Errorf("container: %w", err)
 	}
+	return rt, nil
 }
 
 // containerName builds the container name for one step of one project.

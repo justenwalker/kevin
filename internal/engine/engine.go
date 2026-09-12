@@ -31,7 +31,7 @@ import (
 	"github.com/justenwalker/kevin/internal/console"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/dag"
-	"github.com/justenwalker/kevin/internal/docker"
+	"github.com/justenwalker/kevin/internal/engines"
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/httpserver"
 	"github.com/justenwalker/kevin/internal/logging"
@@ -47,10 +47,6 @@ import (
 )
 
 var log = logging.New("engine")
-
-// dockerClient runs the docker commands that the engine issues directly,
-// outside any plugin. The zero value is ready to use.
-var dockerClient docker.Client
 
 // wantsLiveUI reports whether Run/Teardown should replace the plain
 // per-event text stream with termui's live-updating step list: only when
@@ -99,6 +95,12 @@ type Options struct {
 	// when the resolved environment file declares no CUE package.
 	Tags []string
 
+	// Engine is the resolved container engine name ("docker" or "podman").
+	// It is never empty: the caller resolves it (--engine/KEVIN_ENGINE, or
+	// auto-detection) before calling Run or Teardown - the engine is a
+	// host choice, not something the environment file configures.
+	Engine string
+
 	// Scope selects which DAG to run: config.ScopeSetup or config.ScopeEnv.
 	Scope string
 
@@ -145,7 +147,12 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	workspace, authority, err := prepare(ctx, cfg)
+	rt, err := engines.New(opts.Engine, nil)
+	if err != nil {
+		return err
+	}
+
+	workspace, authority, err := prepare(ctx, cfg, rt)
 	if err != nil {
 		return err
 	}
@@ -165,7 +172,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	network := NetworkName(cfg.Project)
 
-	server, err := startProxy(ctx, authority, proxyOptions{
+	server, err := startProxy(ctx, rt, authority, proxyOptions{
 		Network:     network,
 		Listen:      cfg.Proxy.Listen,
 		GatewayPort: cfg.Proxy.GatewayPort,
@@ -181,7 +188,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	log.Ctx(ctx).Info("proxy listening", "addr", server.addr)
 
-	rl, err := startRelay(ctx, cfg, network, server.gatewayAddr, opts.Scope, authority)
+	rl, err := startRelay(ctx, rt, cfg, network, server.gatewayAddr, opts.Scope, authority)
 	if err != nil {
 		return err
 	}
@@ -212,6 +219,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	r := &run{
 		cfg:     cfg,
+		runtime: rt,
 		proxy:   server.proxy,
 		store:   store,
 		scope:   opts.Scope,
@@ -267,6 +275,7 @@ func Run(ctx context.Context, opts Options) error {
 		RelaySocks5Addr: rl.SOCKS5Addr(),
 		ProjectDir:      cfg.Dir,
 		Scope:           opts.Scope,
+		Engine:          opts.Engine,
 	}
 	r.env = env
 	r.relay = rl
@@ -356,8 +365,8 @@ func (r *run) finalStepErr() error {
 }
 
 // startRelay starts the relay.
-func startRelay(ctx context.Context, cfg *config.Config, network, gatewayAddr, scope string, authority *ca.CA) (*relay.Relay, error) {
-	rl, err := relay.Start(ctx, relay.Options{
+func startRelay(ctx context.Context, rt cri.Runtime, cfg *config.Config, network, gatewayAddr, scope string, authority *ca.CA) (*relay.Relay, error) {
+	rl, err := relay.Start(ctx, rt, relay.Options{
 		Project:       cfg.Project,
 		Network:       network,
 		Domain:        cfg.Domain,
@@ -430,16 +439,16 @@ func (s *consoleServer) Close() error {
 
 // prepare creates the workspace, the shared network, and the authority. It
 // returns the workspace path and the authority.
-func prepare(ctx context.Context, cfg *config.Config) (string, *ca.CA, error) {
+func prepare(ctx context.Context, cfg *config.Config, rt cri.Runtime) (string, *ca.CA, error) {
 	workspace := filepath.Join(cfg.Dir, WorkspaceDir, cfg.Name)
 	if err := os.MkdirAll(workspace, 0o700); err != nil {
 		return "", nil, fmt.Errorf("supervisor: create %s: %w", workspace, err)
 	}
 
-	if err := dockerClient.Available(ctx); err != nil {
+	if err := rt.Available(ctx); err != nil {
 		return "", nil, err
 	}
-	if err := dockerClient.NetworkCreate(ctx, NetworkName(cfg.Project), cri.NetworkOptions{
+	if err := rt.NetworkCreate(ctx, NetworkName(cfg.Project), cri.NetworkOptions{
 		Labels: map[string]string{cri.LabelProject: cfg.Project},
 		IPv6:   true,
 	}); err != nil {
@@ -498,7 +507,7 @@ type proxyOptions struct {
 // startProxy also binds a second listener on the gateway address of
 // opts.Network, when the host can bind that address. A container on that
 // network reaches the proxy there. The proxy never binds 0.0.0.0.
-func startProxy(ctx context.Context, authority *ca.CA, opts proxyOptions) (*proxyServer, error) {
+func startProxy(ctx context.Context, rt cri.Runtime, authority *ca.CA, opts proxyOptions) (*proxyServer, error) {
 	p, err := proxy.New(authority, opts.Domain, opts.Allow, opts.Deny, opts.Passthrough)
 	if err != nil {
 		return nil, err
@@ -510,7 +519,7 @@ func startProxy(ctx context.Context, authority *ca.CA, opts proxyOptions) (*prox
 		return nil, fmt.Errorf("supervisor: listen on %s: %w", opts.Listen, err)
 	}
 
-	gateway, err := dockerClient.NetworkGateway(ctx, opts.Network)
+	gateway, err := rt.NetworkGateway(ctx, opts.Network)
 	if err != nil {
 		return nil, err
 	}
@@ -663,6 +672,11 @@ func Teardown(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	rt, err := engines.New(opts.Engine, nil)
+	if err != nil {
+		return err
+	}
+
 	steps := cfg.Steps(config.ScopeSetup)
 	workspace := filepath.Join(cfg.Dir, WorkspaceDir, cfg.Name)
 	env := &pb.Environment{
@@ -670,6 +684,7 @@ func Teardown(ctx context.Context, opts Options) error {
 		Workspace: workspace,
 		Network:   NetworkName(cfg.Project),
 		Scope:     config.ScopeSetup,
+		Engine:    opts.Engine,
 	}
 	if err = ConfigureAll(ctx, cfg.Plugins, plugins, env); err != nil {
 		return err
@@ -683,6 +698,7 @@ func Teardown(ctx context.Context, opts Options) error {
 
 	r := &run{
 		cfg:     cfg,
+		runtime: rt,
 		scope:   config.ScopeSetup,
 		steps:   steps,
 		groups:  cfg.Groups(config.ScopeSetup),
@@ -751,7 +767,7 @@ func (r *run) closeSetupRelay(ctx context.Context, cfg *config.Config) error {
 	if err != nil || len(otherLive) > 0 {
 		return err
 	}
-	rl, err := relay.Lookup(ctx, cfg.Project, NetworkName(cfg.Project))
+	rl, err := relay.Lookup(ctx, r.runtime, cfg.Project, NetworkName(cfg.Project))
 	if err != nil || rl == nil {
 		return err
 	}
@@ -918,6 +934,7 @@ func mergeStepProperty(schema []byte, ref config.StepRef) ([]byte, error) {
 
 type run struct {
 	cfg        *config.Config
+	runtime    cri.Runtime
 	proxy      *proxy.Proxy
 	store      *session.Store
 	scope      string

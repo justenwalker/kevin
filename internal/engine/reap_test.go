@@ -71,7 +71,7 @@ func TestReapSkipsTheRelay(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	r := &run{cfg: &config.Config{Project: project}, events: io.Discard}
+	r := &run{cfg: &config.Config{Project: project}, runtime: dockerClient, events: io.Discard}
 	require.NoError(t, r.reap(t.Context()))
 
 	_, err = dockerClient.Inspect(t.Context(), relayName)
@@ -125,7 +125,7 @@ func TestReapKeepsTheOtherScopeAlive(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := &config.Config{Project: project}
-	r := &run{cfg: cfg, scope: config.ScopeEnv, events: io.Discard}
+	r := &run{cfg: cfg, runtime: dockerClient, scope: config.ScopeEnv, events: io.Discard}
 	require.NoError(t, r.reap(t.Context()))
 
 	_, err = dockerClient.Inspect(t.Context(), dbName)
@@ -150,7 +150,7 @@ func TestReapRemovesNetworkWhenOtherScopeNeverRan(t *testing.T) {
 	network := newTestNetwork(t, project)
 
 	cfg := &config.Config{Project: project}
-	r := &run{cfg: cfg, scope: config.ScopeEnv, events: io.Discard}
+	r := &run{cfg: cfg, runtime: dockerClient, scope: config.ScopeEnv, events: io.Discard}
 	require.NoError(t, r.reap(t.Context()))
 
 	_, gwErr := dockerClient.NetworkGateway(t.Context(), network)

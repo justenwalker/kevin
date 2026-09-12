@@ -10,39 +10,46 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/docker"
+	"github.com/justenwalker/kevin/internal/engines"
 	trustinstall "github.com/justenwalker/kevin/internal/trust"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
-// doctorCommand checks Docker, the kevin CA, and (if a project directory
-// holds an environment file) its console/proxy ports. It changes nothing:
-// no store is installed into, no port is left bound.
+// doctorCommand checks the container engine, the kevin CA, and (if a project
+// directory holds an environment file) its console/proxy ports. It changes
+// nothing: no store is installed into, no port is left bound.
 func doctorCommand(opts *options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
 		Short: "Check this machine and project for common setup problems",
-		Long: "doctor checks whether Docker is reachable, whether the kevin root CA is trusted, " +
-			"and whether the project's console/proxy ports are free. It creates nothing and " +
-			"changes no trust store.",
+		Long: "doctor checks whether the selected container engine (docker or podman, " +
+			"via --engine/KEVIN_ENGINE or auto-detection) is reachable, whether the kevin " +
+			"root CA is trusted, and whether the project's console/proxy ports are free. " +
+			"It creates nothing and changes no trust store.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
 			w := cmd.OutOrStdout()
 			ok := true
 
-			if err := (docker.Client{}).Available(cmd.Context()); err != nil {
-				printCheck(w, "docker", false, false, uerr.Display(err))
+			cfg, err := loadProjectConfig(w, opts)
+			if err != nil {
 				ok = false
-			} else {
-				printCheck(w, "docker", true, false, "")
+			}
+
+			engineName, err := resolveEngineName(cmd.Context(), opts)
+			if err != nil {
+				printCheck(w, "engine", false, false, uerr.Display(err))
+				ok = false
+			} else if !checkEngine(cmd.Context(), w, engineName) {
+				ok = false
 			}
 
 			if !checkCA(cmd, w) {
 				ok = false
 			}
 
-			if !checkPorts(cmd.Context(), w, opts) {
+			if !checkPorts(cmd.Context(), w, cfg) {
 				ok = false
 			}
 
@@ -52,6 +59,42 @@ func doctorCommand(opts *options) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// loadProjectConfig loads the project's kevin.cue, or reports (nil, nil)
+// when this directory holds none - every check below treats an absent
+// project as "check the defaults", not a failure.
+func loadProjectConfig(w io.Writer, opts *options) (*config.Config, error) {
+	f, err := config.Load(opts.dir, opts.name, opts.tags)
+	if errors.Is(err, config.ErrNotFound) {
+		return nil, nil //nolint:nilnil // no environment file in this directory is a valid, common case
+	}
+	if err != nil {
+		printCheck(w, "config", false, false, uerr.Display(err))
+		return nil, err
+	}
+	cfg, err := f.Config()
+	if err != nil {
+		printCheck(w, "config", false, false, uerr.Display(err))
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// checkEngine probes name, the engine --engine/KEVIN_ENGINE selected or
+// auto-detection found - never a project fact, so this needs no cfg.
+func checkEngine(ctx context.Context, w io.Writer, name string) bool {
+	rt, err := engines.New(name, nil)
+	if err != nil {
+		printCheck(w, name, false, false, uerr.Display(err))
+		return false
+	}
+	if err := rt.Available(ctx); err != nil {
+		printCheck(w, name, false, false, uerr.Display(err))
+		return false
+	}
+	printCheck(w, name, true, false, "")
+	return true
 }
 
 // checkCA reports one line per trust store this machine has, without
@@ -78,22 +121,12 @@ func checkCA(cmd *cobra.Command, w io.Writer) bool {
 }
 
 // checkPorts reports whether the project's console and proxy listen
-// addresses are free to bind. A directory with no environment file is a
-// skip, not a failure.
-func checkPorts(ctx context.Context, w io.Writer, opts *options) bool {
-	f, err := config.Load(opts.dir, opts.name, opts.tags)
-	if errors.Is(err, config.ErrNotFound) {
+// addresses are free to bind. A nil cfg (no environment file) is a skip,
+// not a failure.
+func checkPorts(ctx context.Context, w io.Writer, cfg *config.Config) bool {
+	if cfg == nil {
 		printCheck(w, "ports", false, true, "no environment file in this directory")
 		return true
-	}
-	if err != nil {
-		printCheck(w, "ports", false, false, uerr.Display(err))
-		return false
-	}
-	cfg, err := f.Config()
-	if err != nil {
-		printCheck(w, "ports", false, false, uerr.Display(err))
-		return false
 	}
 
 	ok := true
@@ -112,7 +145,7 @@ func checkPorts(ctx context.Context, w io.Writer, opts *options) bool {
 		printCheck(w, "port "+p.name+" ("+p.addr+")", true, false, "")
 	}
 	printCheck(w, "port gateway_port", false, true,
-		"binds on the docker network gateway once it exists, not checkable before run")
+		"binds on the container network gateway once it exists, not checkable before run")
 	return ok
 }
 

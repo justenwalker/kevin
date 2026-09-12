@@ -16,6 +16,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/engine"
+	"github.com/justenwalker/kevin/internal/engines"
 	"github.com/justenwalker/kevin/internal/logging"
 	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/ocipkg"
@@ -47,15 +48,30 @@ func (e *CommandError) Unwrap() error { return e.Err }
 // --env on every invocation.
 const envNameVar = "KEVIN_ENV"
 
+// engineNameVar overrides the --engine flag's default when set. Which
+// container engine to drive is a fact about this host, never about the
+// project - kevin.cue has no equivalent field.
+const engineNameVar = "KEVIN_ENGINE"
+
 // options holds the flags that every subcommand shares.
 type options struct {
-	dir   string
-	name  string
-	tags  []string
-	debug bool
+	dir    string
+	name   string
+	tags   []string
+	engine string
+	debug  bool
 
 	// ran becomes true when a command body starts.
 	ran bool
+}
+
+// resolveEngineName returns the engine --engine/KEVIN_ENGINE named, or
+// whichever engine is actually reachable on this host when neither is set.
+func resolveEngineName(ctx context.Context, opts *options) (string, error) {
+	if opts.engine != "" {
+		return opts.engine, nil
+	}
+	return engines.Detect(ctx)
 }
 
 // Run runs the command line and returns the error. On a usage error the error
@@ -112,6 +128,8 @@ func NewRootCommand() (*cobra.Command, *options) {
 		"select a named environment (<name>.kevin.<ext> or .<name>.kevin.<ext>) instead of the default; defaults to "+envNameVar+" if set")
 	flags.StringArrayVarP(&opts.tags, "tag", "t", nil,
 		"inject a CUE @tag value (repeatable); a bare NAME is shorthand for NAME=true; requires the environment file to declare a CUE package")
+	flags.StringVar(&opts.engine, "engine", os.Getenv(engineNameVar),
+		"container engine to use: docker or podman; defaults to "+engineNameVar+" if set, else auto-detected")
 	flags.BoolVar(&opts.debug, "debug", false, "log at debug level")
 
 	root.AddCommand(
@@ -176,14 +194,19 @@ func runCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
+			engineName, err := resolveEngineName(cmd.Context(), opts)
+			if err != nil {
+				return err
+			}
 			return engine.Run(cmd.Context(), engine.Options{
-				Dir:   opts.dir,
-				Name:  opts.name,
-				Tags:  opts.tags,
-				Scope: config.ScopeEnv,
-				Keep:  keep,
-				Debug: opts.debug,
-				Open:  open,
+				Dir:    opts.dir,
+				Name:   opts.name,
+				Tags:   opts.tags,
+				Engine: engineName,
+				Scope:  config.ScopeEnv,
+				Keep:   keep,
+				Debug:  opts.debug,
+				Open:   open,
 				OnEnvironment: func(env *pb.Environment) {
 					printEnvironmentInfo(os.Stderr, env)
 				},
@@ -206,10 +229,15 @@ func setupCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
+			engineName, err := resolveEngineName(cmd.Context(), opts)
+			if err != nil {
+				return err
+			}
 			return engine.Run(cmd.Context(), engine.Options{
 				Dir:    opts.dir,
 				Name:   opts.name,
 				Tags:   opts.tags,
+				Engine: engineName,
 				Scope:  config.ScopeSetup,
 				Keep:   true,
 				NoWait: true,
@@ -231,7 +259,13 @@ func teardownCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			return engine.Teardown(cmd.Context(), engine.Options{Dir: opts.dir, Name: opts.name, Tags: opts.tags, Debug: opts.debug})
+			engineName, err := resolveEngineName(cmd.Context(), opts)
+			if err != nil {
+				return err
+			}
+			return engine.Teardown(cmd.Context(), engine.Options{
+				Dir: opts.dir, Name: opts.name, Tags: opts.tags, Engine: engineName, Debug: opts.debug,
+			})
 		},
 	}
 }

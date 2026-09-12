@@ -141,7 +141,7 @@ func (s *RelaySuite) TestReapLeavesALiveRelayInPlace() {
 	}))
 	t.Cleanup(func() { _ = dockerClient.NetworkRemove(context.WithoutCancel(context.Background()), network) })
 
-	rl, err := relay.Start(ctx, relay.Options{
+	rl, err := relay.Start(ctx, dockerClient, relay.Options{
 		Project:   project,
 		Network:   network,
 		Domain:    "kevin.home",
@@ -168,7 +168,7 @@ func (s *RelaySuite) TestReapLeavesALiveRelayInPlace() {
 	// here, unlike the normal flow where the caller closes the relay first,
 	// so this call reports an error on that step. The container-level
 	// assertions below are what this test proves.
-	r := &run{cfg: &config.Config{Project: project}, events: io.Discard}
+	r := &run{cfg: &config.Config{Project: project}, runtime: dockerClient, events: io.Discard}
 	_ = r.reap(ctx)
 
 	relayName := "kevin-" + project + "-relay"

@@ -12,6 +12,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/docker"
+	"github.com/justenwalker/kevin/internal/podman"
 	"github.com/justenwalker/kevin/internal/uerr"
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -441,10 +442,18 @@ func useFakeRuntime(t *testing.T, rt cri.Runtime) {
 }
 
 func TestNewRuntime(t *testing.T) {
-	_, err := newRuntime(plugin.Env{Engine: "bogus"})
-	require.ErrorIs(t, err, ErrUnsupportedEngine)
-	assert.Equal(t, `kevin only supports the docker engine today (got "bogus") - remove engine from kevin.cue, or set it to "docker"`,
-		uerr.Display(err))
+	t.Run("an unsupported engine", func(t *testing.T) {
+		_, err := newRuntime(plugin.Env{Engine: "bogus"})
+		require.ErrorIs(t, err, ErrUnsupportedEngine)
+		assert.Equal(t, `kevin doesn't support engine "bogus" - pass --engine or KEVIN_ENGINE as "docker" or "podman"`,
+			uerr.Display(err))
+	})
+
+	t.Run("podman resolves to the podman runtime", func(t *testing.T) {
+		rt, err := newRuntime(plugin.Env{Engine: "podman"})
+		require.NoError(t, err)
+		assert.IsType(t, podman.Client{}, rt)
+	})
 }
 
 func TestUpWithFakeEngine(t *testing.T) {

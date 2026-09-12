@@ -33,6 +33,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/dag"
+	"github.com/justenwalker/kevin/internal/docker"
 	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pluginhost"
@@ -44,6 +45,11 @@ import (
 
 // echoPlugin is the path of the compiled echo plugin. Every test uses it.
 var echoPlugin = sync.OnceValues(buildEchoPlugin)
+
+// dockerClient inspects docker resources directly in tests, regardless of
+// which engine the code path under test resolved - every test here runs
+// against the default (docker) engine.
+var dockerClient = docker.Client{}
 
 func buildEchoPlugin() (string, error) {
 	dir, err := os.MkdirTemp("", "kevin-plugin-*")
@@ -1422,7 +1428,7 @@ func TestStartProxyGatewayPort(t *testing.T) {
 		requireDocker(t)
 
 		cfg := &config.Config{Project: "kevin-gwport-pin-test", Dir: t.TempDir()}
-		_, authority, err := prepare(t.Context(), cfg)
+		_, authority, err := prepare(t.Context(), cfg, dockerClient)
 		require.NoError(t, err)
 		network := NetworkName(cfg.Project)
 		t.Cleanup(func() {
@@ -1438,7 +1444,7 @@ func TestStartProxyGatewayPort(t *testing.T) {
 		wantPort := mustPort(t, probe.Addr().String())
 		require.NoError(t, probe.Close())
 
-		server, err := startProxy(t.Context(), authority, proxyOptions{
+		server, err := startProxy(t.Context(), dockerClient, authority, proxyOptions{
 			Network:     network,
 			Listen:      "127.0.0.1:0",
 			GatewayPort: wantPort,
@@ -1454,7 +1460,7 @@ func TestStartProxyGatewayPort(t *testing.T) {
 		requireDocker(t)
 
 		cfg := &config.Config{Project: "kevin-gwport-conflict-test", Dir: t.TempDir()}
-		_, authority, err := prepare(t.Context(), cfg)
+		_, authority, err := prepare(t.Context(), cfg, dockerClient)
 		require.NoError(t, err)
 		network := NetworkName(cfg.Project)
 		t.Cleanup(func() {
@@ -1468,7 +1474,7 @@ func TestStartProxyGatewayPort(t *testing.T) {
 		defer func() { _ = held.Close() }()
 		heldPort := mustPort(t, held.Addr().String())
 
-		_, err = startProxy(t.Context(), authority, proxyOptions{
+		_, err = startProxy(t.Context(), dockerClient, authority, proxyOptions{
 			Network:     network,
 			Listen:      "127.0.0.1:0",
 			GatewayPort: heldPort,

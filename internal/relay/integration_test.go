@@ -52,7 +52,7 @@ func (s *RelaySuite) SetupSuite() {
 		Labels: map[string]string{cri.LabelProject: relayProject},
 	}))
 
-	r, err := relay.Start(t.Context(), relay.Options{
+	r, err := relay.Start(t.Context(), dockerClient, relay.Options{
 		Project:   relayProject,
 		Network:   s.network,
 		Domain:    relayDomain,
@@ -143,7 +143,7 @@ func (s *RelaySuite) TestCloseIsIdempotent() {
 	ctx := t.Context()
 
 	project := relayProject + "-close"
-	r, err := relay.Start(ctx, relay.Options{
+	r, err := relay.Start(ctx, dockerClient, relay.Options{
 		Project:   project,
 		Network:   s.network,
 		Domain:    relayDomain,

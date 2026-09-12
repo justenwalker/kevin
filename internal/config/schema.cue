@@ -207,10 +207,14 @@ console: {
 	listen: string & =~ "^.+:[1-9][0-9]*$"
 }
 
-engine: {
+// engine is closed: which container engine to drive is a host choice (the
+// --engine flag or KEVIN_ENGINE env var, falling back to auto-detection),
+// never a kevin.cue one, so closing this block turns any stray field here
+// into a validate-time error instead of a silently ignored setting.
+engine: close({
 	// max_parallel caps how many steps run at once. 0 (default) means no limit.
 	max_parallel: int & >=0 | *0
-}
+})
 
 relay: {
 	// image is the relay image. KEVIN_RELAY_IMAGE overrides it.

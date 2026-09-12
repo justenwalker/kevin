@@ -32,12 +32,79 @@ func TestPrintCheck(t *testing.T) {
 	}
 }
 
-func TestCheckPorts(t *testing.T) {
-	t.Run("skips when there is no environment file", func(t *testing.T) {
+func TestLoadProjectConfig(t *testing.T) {
+	t.Run("reports (nil, nil) when there is no environment file", func(t *testing.T) {
 		var buf bytes.Buffer
 		opts := &options{dir: t.TempDir()}
 
-		ok := checkPorts(t.Context(), &buf, opts)
+		cfg, err := loadProjectConfig(&buf, opts)
+
+		require.NoError(t, err)
+		assert.Nil(t, cfg)
+		assert.Empty(t, buf.String(), "checkPorts reports its own skip line, not loadProjectConfig")
+	})
+
+	t.Run("fails on a load error other than a missing file", func(t *testing.T) {
+		dir := t.TempDir()
+		// Two candidate environment files in the same directory: config.Load
+		// fails with ErrAmbiguous, not ErrNotFound.
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(`project: "x"`), 0o600))
+		require.NoError(t, os.WriteFile(dir+"/kevin.yaml", []byte("project: x\n"), 0o600))
+
+		var buf bytes.Buffer
+		opts := &options{dir: dir}
+
+		cfg, err := loadProjectConfig(&buf, opts)
+
+		require.Error(t, err)
+		assert.Nil(t, cfg)
+		assert.Contains(t, buf.String(), "config: fail")
+	})
+
+	t.Run("fails when the environment does not resolve to concrete values", func(t *testing.T) {
+		dir := t.TempDir()
+		// No proxy/console block: config.Load succeeds (the file parses and
+		// unifies), but f.Config's concreteness check fails on the missing
+		// required fields.
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(`project: "x"`), 0o600))
+
+		var buf bytes.Buffer
+		opts := &options{dir: dir}
+
+		cfg, err := loadProjectConfig(&buf, opts)
+
+		require.Error(t, err)
+		assert.Nil(t, cfg)
+		assert.Contains(t, buf.String(), "config: fail")
+	})
+}
+
+func TestCheckEngine(t *testing.T) {
+	t.Run("probes the named engine", func(t *testing.T) {
+		var buf bytes.Buffer
+		checkEngine(t.Context(), &buf, "docker")
+		assert.Contains(t, buf.String(), "docker: ")
+	})
+
+	t.Run("probes podman when that's the resolved engine", func(t *testing.T) {
+		var buf bytes.Buffer
+		checkEngine(t.Context(), &buf, "podman")
+		assert.Contains(t, buf.String(), "podman: ")
+	})
+
+	t.Run("reports an unsupported engine", func(t *testing.T) {
+		var buf bytes.Buffer
+		ok := checkEngine(t.Context(), &buf, "bogus")
+		assert.False(t, ok)
+		assert.Contains(t, buf.String(), "bogus: fail")
+	})
+}
+
+func TestCheckPorts(t *testing.T) {
+	t.Run("skips when there is no project", func(t *testing.T) {
+		var buf bytes.Buffer
+
+		ok := checkPorts(t.Context(), &buf, nil)
 
 		assert.True(t, ok, "a missing environment file must not fail doctor")
 		assert.Contains(t, buf.String(), "ports: skip (no environment file in this directory)")
@@ -65,47 +132,17 @@ console: listen: "`+freeAddr+`"
 project: "x"
 `), 0o600))
 
-		var buf bytes.Buffer
-		opts := &options{dir: dir}
+		var loadBuf bytes.Buffer
+		cfg, err := loadProjectConfig(&loadBuf, &options{dir: dir})
+		require.NoError(t, err)
 
-		ok := checkPorts(t.Context(), &buf, opts)
+		var buf bytes.Buffer
+		ok := checkPorts(t.Context(), &buf, cfg)
 
 		assert.False(t, ok, "a bound proxy port must fail doctor")
 		out := buf.String()
 		assert.Contains(t, out, "port proxy ("+busy+"): fail (in use)")
 		assert.Contains(t, out, "port console ("+freeAddr+"): ok")
 		assert.Contains(t, out, "port gateway_port: skip")
-	})
-
-	t.Run("fails on a load error other than a missing file", func(t *testing.T) {
-		dir := t.TempDir()
-		// Two candidate environment files in the same directory: config.Load
-		// fails with ErrAmbiguous, not ErrNotFound.
-		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(`project: "x"`), 0o600))
-		require.NoError(t, os.WriteFile(dir+"/kevin.yaml", []byte("project: x\n"), 0o600))
-
-		var buf bytes.Buffer
-		opts := &options{dir: dir}
-
-		ok := checkPorts(t.Context(), &buf, opts)
-
-		assert.False(t, ok)
-		assert.Contains(t, buf.String(), "ports: fail")
-	})
-
-	t.Run("fails when the environment does not resolve to concrete values", func(t *testing.T) {
-		dir := t.TempDir()
-		// No proxy/console block: config.Load succeeds (the file parses and
-		// unifies), but f.Config's concreteness check fails on the missing
-		// required fields.
-		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(`project: "x"`), 0o600))
-
-		var buf bytes.Buffer
-		opts := &options{dir: dir}
-
-		ok := checkPorts(t.Context(), &buf, opts)
-
-		assert.False(t, ok)
-		assert.Contains(t, buf.String(), "ports: fail")
 	})
 }
