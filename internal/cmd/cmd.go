@@ -134,6 +134,7 @@ func NewRootCommand() (*cobra.Command, *options) {
 
 	root.AddCommand(
 		runCommand(opts),
+		stopCommand(opts),
 		setupCommand(opts),
 		teardownCommand(opts),
 		initCommand(opts),
@@ -184,13 +185,14 @@ func openLogFile(dir string) *os.File {
 }
 
 func runCommand(opts *options) *cobra.Command {
-	var keep, open bool
+	var keep, open, detach bool
 
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Create the environment and hold it until an interrupt",
 		Long: "run creates the env steps in dependency order, then blocks. " +
-			"On an interrupt, run removes the steps in reverse order.",
+			"On an interrupt, run removes the steps in reverse order. " +
+			`--detach/-d detaches it instead of blocking; stop it with "kevin stop".`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
@@ -198,24 +200,52 @@ func runCommand(opts *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return engine.Run(cmd.Context(), engine.Options{
-				Dir:    opts.dir,
-				Name:   opts.name,
-				Tags:   opts.tags,
-				Engine: engineName,
-				Scope:  config.ScopeEnv,
-				Keep:   keep,
-				Debug:  opts.debug,
-				Open:   open,
-				OnEnvironment: func(env *pb.Environment) {
-					printEnvironmentInfo(os.Stderr, env)
-				},
-			})
+			stateDir := runStateDir(opts.dir, opts.name)
+			if err := checkNotRunning(stateDir); err != nil {
+				return err
+			}
+			if detach {
+				return runInBackground(cmd.Context(), stateDir, backgroundArgs{
+					dir:    opts.dir,
+					name:   opts.name,
+					tags:   opts.tags,
+					engine: engineName,
+					debug:  opts.debug,
+					keep:   keep,
+					open:   open,
+				})
+			}
+			return runForeground(cmd.Context(), opts, engineName, stateDir, keep, open)
 		},
 	}
 	cmd.Flags().BoolVar(&keep, "keep", false, "leave the environment in place on exit")
 	cmd.Flags().BoolVar(&open, "open", false, "open the console in the default browser once it's listening")
+	cmd.Flags().BoolVarP(&detach, "detach", "d", false, `detach from the terminal; stop it with "kevin stop"`)
 	return cmd
+}
+
+// runForeground writes this process's own pidfile before starting the
+// engine and removes it (and the address file) on the way out, whatever
+// the exit path. A --detach child reaches this same function once exec'd.
+func runForeground(ctx context.Context, opts *options, engineName, stateDir string, keep, open bool) error {
+	if err := writePID(stateDir, os.Getpid()); err != nil {
+		return err
+	}
+	defer removeRunState(stateDir)
+	return engine.Run(ctx, engine.Options{
+		Dir:    opts.dir,
+		Name:   opts.name,
+		Tags:   opts.tags,
+		Engine: engineName,
+		Scope:  config.ScopeEnv,
+		Keep:   keep,
+		Debug:  opts.debug,
+		Open:   open,
+		OnEnvironment: func(env *pb.Environment) {
+			printEnvironmentInfo(os.Stderr, env)
+			_ = writeRunAddrs(stateDir, env)
+		},
+	})
 }
 
 func setupCommand(opts *options) *cobra.Command {
@@ -248,6 +278,21 @@ func setupCommand(opts *options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&open, "open", false, "open the console in the default browser once it's listening")
 	return cmd
+}
+
+func stopCommand(opts *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "stop",
+		Short: `Stop a "kevin run" for this project/environment`,
+		Long: `stop signals a "kevin run" (started plain or with --detach) ` +
+			"for this project and environment to shut down, the same way an " +
+			"interrupt would, and waits for it to exit.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			opts.ran = true
+			return stopRun(cmd.Context(), cmd.OutOrStdout(), runStateDir(opts.dir, opts.name))
+		},
+	}
 }
 
 func teardownCommand(opts *options) *cobra.Command {

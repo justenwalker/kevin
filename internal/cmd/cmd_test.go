@@ -317,6 +317,25 @@ env: { web: { uses: "unknown:container" } }`,
 	})
 }
 
+func TestStopCommand(t *testing.T) {
+	t.Run("reports not running, end to end", func(t *testing.T) {
+		var runErr error
+		out := captureStdout(t, func() {
+			runErr = cmd.Run(t.Context(), []string{"-C", t.TempDir(), "stop"})
+		})
+		require.NoError(t, runErr)
+		assert.Equal(t, "not running\n", out)
+	})
+
+	t.Run("rejects an extra argument", func(t *testing.T) {
+		err := cmd.Run(t.Context(), []string{"stop", "extra"})
+		require.Error(t, err)
+
+		var cmdErr *cmd.CommandError
+		require.ErrorAs(t, err, &cmdErr, "must be a usage error")
+	})
+}
+
 func TestDoctorCommand(t *testing.T) {
 	t.Run("skips ports when there is no environment file", func(t *testing.T) {
 		var runErr error
