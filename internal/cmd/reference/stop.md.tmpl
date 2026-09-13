@@ -1,0 +1,19 @@
+---
+title: "stop"
+weight: 11
+---
+
+[[template "banner"]]
+
+# `kevin stop`
+
+Signals a `kevin run` for this project and environment (started plain or
+with `--detach`) to shut down, the same way an interrupt would, and
+waits for it to exit. It's a no-op if nothing is running.
+
+```sh
+kevin stop
+```
+
+See [`kevin run`]({{< relref "/docs/reference/commands/run" >}})'s
+`--detach`/`-d` flag.
