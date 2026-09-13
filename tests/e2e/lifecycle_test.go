@@ -158,6 +158,39 @@ func (s *LifecycleSuite) TestCrashLeavesContainersAndSecondRunReconciles() {
 	s.Empty(s.containerIDsForProject(project), "the second run's own teardown must still leave nothing behind")
 }
 
+// TestDetachStartsInBackgroundAndStopTearsDown covers "kevin run --detach":
+// the parent returns immediately with the console/proxy addresses, a
+// second run against the same project fails fast against the live
+// pidfile, and "kevin stop" signals the detached child and waits for its
+// own teardown to remove the containers.
+func (s *LifecycleSuite) TestDetachStartsInBackgroundAndStopTearsDown() {
+	project := "kevin-e2e-lifecycle-detach"
+	dir := s.project(project, lifecycleCUE)
+
+	out, code := s.runToCompletion(dir, "-C", dir, "run", "--detach")
+	s.Equal(0, code, "output:\n%s", out)
+	s.Contains(out, "started in background", "must report the detached pid/log")
+	s.Contains(out, "console  http://", "must still print the console address once it's up")
+
+	pidPath := filepath.Join(dir, ".kevin", "run", "kevin.pid")
+	s.FileExists(pidPath, "a detached run must leave a pidfile behind")
+
+	out, code = s.runToCompletion(dir, "-C", dir, "run")
+	s.NotEqual(0, code, "a second run against the same project must fail fast")
+	s.Contains(out, "already running", "output:\n%s", out)
+
+	s.Eventually(func() bool {
+		return len(s.containerIDsForProject(project)) >= 2
+	}, defaultTimeout, 200*time.Millisecond, "the detached run must still bring both containers up")
+
+	out, code = s.runToCompletion(dir, "-C", dir, "stop")
+	s.Equal(0, code, "output:\n%s", out)
+	s.Contains(out, "stopped")
+
+	s.NoFileExists(pidPath, "stop must remove the pidfile once the detached run exits")
+	s.Empty(s.containerIDsForProject(project), "stop must wait for the detached run's own teardown")
+}
+
 // piped and dumb-terminal fallback: covered implicitly by every test above,
 // since a subprocess's stdout/stderr piped into a syncBuffer is never a
 // terminal, so wantsLiveUI is always false and kevin always falls back to
