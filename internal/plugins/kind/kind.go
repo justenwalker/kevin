@@ -1,7 +1,8 @@
 // Package kind runs a Kubernetes cluster as a step, backed by kind.
 //
-// The nodes join the shared network of the project as well as the network of
-// kind, thus a container step and a pod reach each other.
+// The nodes join the shared network of the project directly, in place of
+// kind's own default network, thus a container step and a pod reach each
+// other.
 package kind
 
 import (
@@ -29,6 +30,12 @@ var schema []byte
 // kindProviderEnvVar is kind's own switch (upstream-labeled experimental)
 // between its docker and podman node-container providers.
 const kindProviderEnvVar = "KIND_EXPERIMENTAL_PROVIDER"
+
+// kindNetworkEnvVar is kind's own switch (upstream-labeled experimental) for
+// the docker network its nodes join, in place of kind's own fixed "kind"
+// network - pointed at the project's shared network, so a node never touches
+// a network shared with another project's nodes.
+const kindNetworkEnvVar = "KIND_EXPERIMENTAL_DOCKER_NETWORK"
 
 // providerEnv reports the KIND_EXPERIMENTAL_PROVIDER addition every kindcmd
 // call for one cluster needs when the project's engine is podman - kind's
@@ -139,7 +146,7 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 		return nil, fmt.Errorf("kind: %w", err)
 	}
 
-	nodeList, relayHostPort, err := reuseOrCreateCluster(ctx, rt, cfg, req, name, kubeconfig, wait, useRelay, out)
+	nodeList, relayHostPort, err := reuseOrCreateCluster(ctx, cfg, req, name, kubeconfig, wait, useRelay, out)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +224,7 @@ func readRelayPort(kubeconfig string) (int, bool) {
 // persistent setup-scope cluster must not be destroyed and rebuilt on every
 // "kevin setup", only when its own config actually changed. It falls back
 // to createCluster (delete, then create fresh) in every other case.
-func reuseOrCreateCluster(ctx context.Context, rt cri.Runtime, cfg config, req *plugin.UpRequest, name, kubeconfig string, wait time.Duration, useRelay bool, out plugin.Emitter) ([]string, int, error) {
+func reuseOrCreateCluster(ctx context.Context, cfg config, req *plugin.UpRequest, name, kubeconfig string, wait time.Duration, useRelay bool, out plugin.Emitter) ([]string, int, error) {
 	existingNodes, err := kindcmd.GetNodes(ctx, name, providerEnv(req.Env))
 	if err != nil {
 		return nil, 0, fmt.Errorf("kind: check for an existing cluster %q: %w", name, err)
@@ -240,9 +247,6 @@ func reuseOrCreateCluster(ctx context.Context, rt cri.Runtime, cfg config, req *
 		// at creation, and nothing updates it afterward.
 		wantConfig := reuseFingerprint(cfg, relayHostPort, proxyEnv(cfg, req.Env))
 		if marker, readErr := os.ReadFile(configMarkerFile(kubeconfig)); readErr == nil && string(marker) == wantConfig {
-			if err = joinSharedNetwork(ctx, rt, req.Env.Network, existingNodes); err != nil {
-				return nil, 0, err
-			}
 			out.Log("stdout", fmt.Sprintf("reusing cluster %s with %d node(s)", name, len(existingNodes)))
 			return existingNodes, relayHostPort, nil
 		}
@@ -253,7 +257,7 @@ func reuseOrCreateCluster(ctx context.Context, rt cri.Runtime, cfg config, req *
 			return nil, 0, fmt.Errorf("kind: pick a port for the relay: %w", err)
 		}
 	}
-	nodeList, err := createCluster(ctx, rt, cfg, req, name, kubeconfig, wait, relayHostPort, out)
+	nodeList, err := createCluster(ctx, cfg, req, name, kubeconfig, wait, relayHostPort, out)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -269,9 +273,9 @@ func reuseFingerprint(cfg config, relayHostPort int, proxy map[string]string) st
 	return clusterConfig(cfg, relayHostPort) + "\n# proxy=" + proxy["HTTP_PROXY"]
 }
 
-// createCluster removes a stale cluster of the same name, creates a fresh
-// one, and joins its nodes to the shared network.
-func createCluster(ctx context.Context, rt cri.Runtime, cfg config, req *plugin.UpRequest, name, kubeconfig string, wait time.Duration, relayHostPort int, out plugin.Emitter) ([]string, error) {
+// createCluster removes a stale cluster of the same name, then creates a
+// fresh one directly on the project's shared network.
+func createCluster(ctx context.Context, cfg config, req *plugin.UpRequest, name, kubeconfig string, wait time.Duration, relayHostPort int, out plugin.Emitter) ([]string, error) {
 	provider := providerEnv(req.Env)
 
 	// A cluster of this name may survive a crash, or reuseOrCreateCluster may
@@ -285,6 +289,8 @@ func createCluster(ctx context.Context, rt cri.Runtime, cfg config, req *plugin.
 	out.Log("stdout", "creating cluster "+name)
 	out.Progress("creating "+name, 0, 0)
 
+	env := mergeEnv(proxyEnv(cfg, req.Env), provider)
+	env = mergeEnv(env, map[string]string{kindNetworkEnvVar: req.Env.Network})
 	spec := kindcmd.CreateSpec{
 		Name:       name,
 		Kubeconfig: kubeconfig,
@@ -292,7 +298,7 @@ func createCluster(ctx context.Context, rt cri.Runtime, cfg config, req *plugin.
 		Wait:       wait,
 		Retain:     cfg.Retain,
 		Image:      cfg.Image,
-		Env:        mergeEnv(proxyEnv(cfg, req.Env), provider),
+		Env:        env,
 	}
 	if err := kindcmd.Create(ctx, spec, plugin.NewLineWriter(out, "stdout"), plugin.NewLineWriter(out, "stderr")); err != nil {
 		return nil, fmt.Errorf("kind: create the cluster %q: %w", name, err)
@@ -304,12 +310,6 @@ func createCluster(ctx context.Context, rt cri.Runtime, cfg config, req *plugin.
 	}
 	if len(nodeList) == 0 {
 		return nil, fmt.Errorf("kind: cluster %q: %w", name, ErrNoNodes)
-	}
-
-	// kind puts the nodes on a network of its own. Join the shared network as
-	// well, so that a container step and a pod reach each other.
-	if err = joinSharedNetwork(ctx, rt, req.Env.Network, nodeList); err != nil {
-		return nil, err
 	}
 
 	out.Log("stdout", fmt.Sprintf("cluster %s is ready with %d node(s)", name, len(nodeList)))
@@ -487,17 +487,6 @@ func clusterConfig(cfg config, relayHostPort int) string {
 // that is off, or an environment with no domain, needs no patch.
 func wantsCoreDNSPatch(cfg config, env plugin.Env) bool {
 	return cfg.CoreDNS && env.Relay != "" && env.Domain != ""
-}
-
-// joinSharedNetwork connects every node to the shared project network, so
-// that a container step and a pod reach each other.
-func joinSharedNetwork(ctx context.Context, rt cri.Runtime, network string, allNodes []string) error {
-	for _, node := range allNodes {
-		if err := rt.NetworkConnect(ctx, network, node); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func decode(data []byte) (config, error) {

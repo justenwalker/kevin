@@ -168,7 +168,7 @@ func (s *KindSuite) TestUpPublishesWhatADependentStepNeeds() {
 }
 
 // TestNodesJoinedTheSharedNetwork proves that a node of the cluster joined
-// the docker network of the suite, on top of the network of kind.
+// the docker network of the suite, in place of kind's own default network.
 func (s *KindSuite) TestNodesJoinedTheSharedNetwork() {
 	t := s.T()
 	nodeList := strings.Split(s.up.Outputs["nodes"].Reveal(), ",")

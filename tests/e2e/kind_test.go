@@ -22,7 +22,7 @@ import (
 const kindTimeout = 8 * defaultTimeout
 
 // kindCUE mirrors examples/kind/kevin.cue: a registry, a kind cluster whose
-// nodes join both the kind network and kevin's shared network, a
+// nodes join kevin's shared network in place of kind's own default network, a
 // kubectl-applied Deployment and a Helm chart each gated by their own
 // builtin:wait check, and a relay-routed Service reachable through the
 // proxy. chartDir is the absolute path to examples/kind/charts/hello - the

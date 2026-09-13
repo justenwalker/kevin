@@ -275,7 +275,7 @@ kevin -C examples/kind run
 - [ ] `registry` comes up, `registry_ready` (`builtin:wait`, plain HTTP
       check) passes before `cluster` needs it.
 - [ ] `cluster` (`builtin:kind`) creates a real kind cluster; cluster nodes
-      join both the kind network and kevin's shared network.
+      join kevin's shared network in place of kind's own default network.
 - [ ] `KUBECONFIG=examples/kind/.kevin/kubeconfig/kind-example-cluster kubectl get nodes`
       from the host shows the node(s) `Ready`.
 - [ ] `apiserver_ready` (`builtin:wait`, `tcp` check through the cluster's
