@@ -1,0 +1,75 @@
+---
+title: "fault"
+weight: 9
+---
+
+[[template "banner"]]
+
+# `builtin:fault`
+
+Installs a Linux netem qdisc on a target container's network interface -
+delay, jitter, packet loss, corruption, duplication, and reordering, all
+composed into one qdisc - via the relay's privileged netlink access.
+Operates purely at the network-namespace level: no interaction with
+[`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) or the kevin
+proxy at all.
+
+A fault step never names a target by path - only by `needs`. With no
+`containers` set, it faults every container every needs entry resolves to,
+which is enough for the common case (a
+[`builtin:container`]({{< relref "/docs/reference/steps/container" >}})
+step reports exactly one, so there's nothing to narrow):
+
+```cue
+backend: {uses: "builtin:container", with: {image: "myapp/backend"}}
+
+backend_fault: {
+    uses:  "builtin:fault"
+    needs: ["backend"]
+    with: {
+        delay_ms:     200
+        loss_percent: 10
+    }
+}
+```
+
+A [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}) cluster
+reports one container per node - name a `workers` key
+(see that reference page) to fault it individually, or two of them
+at once:
+
+```cue
+cluster: {uses: "builtin:kind", with: {workers: {worker_a: {}, worker_b: {}}}}
+
+worker_fault: {
+    uses:  "builtin:fault"
+    needs: ["cluster"]
+    with: {
+        containers:   ["worker_a", "worker_b"]
+        loss_percent: 25
+    }
+}
+```
+
+`containers` matches the literal name you already declared - `worker_a`
+in `cluster`'s own `workers` map, or (for a single-container step like
+`backend` above) that step's own name as a fallback: `containers:
+["backend"]` works too, even though `builtin:container` itself reports
+`"kevin-demo-backend"`. Cross-scope works the same way `needs` already
+does: `needs: ["setup.registry"]`, and `"registry"` still resolves as
+that step's fallback name.
+
+[[template "table" .Definitions.Config]]
+
+At least one impairment field must be set; `Up` rejects an otherwise-empty
+`with` block. A `containers` entry naming nothing any needs step reports
+is an `Up`-time error - as is an empty `with` block when no needs step
+reports any container at all.
+
+**Kind: action.** A fault step deploys nothing itself: it tells the relay
+how to treat a namespace another step already created. It has no `Down` -
+the engine clears every fault it applied at teardown on its own,
+independent of whether a step's plugin implements `Down` at all.
+
+Idempotent: re-`Up`-ing with a changed config replaces each netem qdisc's
+parameters, matching how Linux's own `tc qdisc replace` behaves.

@@ -72,6 +72,28 @@ A `builtin:kind` cluster reaches this too, but at the node, not the Pod: a Pod r
 
 The control channel this rides on - `RegisterCapture`, `EnsureListener` - is gRPC over mutual TLS, not the plain HTTP the relay's control endpoint originally spoke. The engine mints a short-lived server leaf for the relay and a client leaf for itself, both off the project's own intermediate authority (the same one that signs MITM leaves, see [CA]({{< relref "/docs/concepts/ca" >}})), and embeds the server leaf and the project root in the relay container's environment. Only a caller holding a client certificate chained to that root - whose private key lives solely under kevin's own state directories - can drive the relay's DNS/listener/capture state at all; the loopback publish from the Gateway bind section is still what makes the endpoint reachable from the host in the first place, mTLS is what gates it once reached.
 
+## Fault injection
+
+[`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}}) reuses the
+exact same privileged mechanism transparent capture does - the relay opens
+a target's `/proc/<pid>/ns/net` and binds a netns-scoped netlink handle to
+it - to install a Linux `netem` qdisc instead of an nftables ruleset,
+delaying, dropping, corrupting, duplicating, or reordering packets on one
+of the namespace's interfaces. `ApplyFault`/`ClearFault` are two more RPCs
+on the same mTLS control channel `RegisterCapture`/`EnsureListener` already
+use, served by `github.com/vishvananda/netlink` rather than
+`github.com/google/nftables`, the same relay binary, no shelled `tc`.
+
+Fault injection has no interaction with transparent capture, `builtin:
+route`, or the proxy - it operates purely on the target namespace's
+interface, orthogonal to everything else in this document. Unlike
+capture, which the engine registers automatically for every container a
+step creates, a fault is only ever applied because a `builtin:fault` step
+asked for it, and only for as long as that step (or its target) stays up -
+the engine clears it explicitly on the way down, since nothing about a
+removed netem qdisc is implied by the target container's own state the
+way a stale capture registration is.
+
 ## Limits
 
 Installing nftables rules inside another container's network namespace needs real privilege: the relay's own container carries `CAP_NET_ADMIN` (install the rules), `CAP_SYS_ADMIN` (enter the namespace at all), `CAP_SYS_PTRACE`, and shares the host's PID namespace (`--pid host`) so it can open a target's `/proc/<pid>/ns/net` by the PID `docker inspect` reports for it. A read-only bind mount of `/var/run/docker/netns` looks like the more obvious mechanism, but on at least one Docker runtime (OrbStack) a namespace file that appears in that directory after the relay's mount was already attached can be opened and read, yet `setns()` into it fails with `EINVAL` regardless of how long it's had to settle - the mount sees the file, not a joinable namespace. `/proc/<pid>/ns/net` has no such staleness: procfs reflects whatever the host PID namespace holds right now, so it works regardless of which of the relay or the target started first. `CAP_SYS_PTRACE` is what makes that open actually succeed against a `--privileged` target such as a `builtin:kind` node: the kernel treats a privileged container's process as non-dumpable, which blocks a cross-process `/proc/<pid>/ns/*` open without that capability even though `CAP_SYS_ADMIN` plus `--pid host` alone are enough for an ordinary container. Nothing stops a compromised relay from `setns()`-ing into an unrelated, non-kevin process's namespace on the same host either way; none of these capabilities carry a finer-grained ACL. In practice the relay only ever acts on a path the engine itself handed it over the mTLS-gated control channel above, which is what actually bounds this - accepted, not solved, consistent with kevin's existing threat model of a single local dev user (the same user whose MITM CA can already read the project's TLS traffic).

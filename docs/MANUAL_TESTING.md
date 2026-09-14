@@ -635,7 +635,7 @@ kevin plugin list
 ```
 
 - [ ] Prints every builtin step type as `builtin:<name>` (`builtin:container`,
-      `builtin:kind`, `builtin:kubectl`, `builtin:helm`,
+      `builtin:fault`, `builtin:kind`, `builtin:kubectl`, `builtin:helm`,
       `builtin:wait`, `builtin:route`, `builtin:exec`), one per line.
 
 ## 14. Reserved plugin namespace

@@ -51,3 +51,13 @@ step such as [`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}), and
 one `forward_<name>` per `expose` entry, a plain `127.0.0.1:<port>` address
 the engine forwards to the relay on a client's behalf, so a tool with
 no SOCKS5 awareness (`psql`, `curl`, ...) can dial it directly.
+
+`Up` and `Export` both also report one container per node on a third
+channel, `UpRequest.Containers`, used by a dependent step directly rather
+than through `${needs...}` - see
+[`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}}), which
+targets a specific node by container name this way. `Export`'s own report
+needs a live `GetNodes` call the same way `Up`'s does (unlike the rest of
+`Export`, which only reads files `Up` already wrote) - it still never
+reports the `nodes` Outputs key itself, only this separate container-info
+channel.

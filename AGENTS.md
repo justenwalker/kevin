@@ -17,8 +17,8 @@ environment from a DAG of steps (`kevin.cue`), exposes a web console, an
 MCP server for coding agents (mounted on the console's own listener at
 `/_mcp`), and an HTTP/HTTPS proxy with TLS termination and default-deny
 egress, tears down on exit. Every step type is a plugin speaking gRPC -
-`container`, `exec`, `kind`, `kubectl`, `helm`, `wait`, `route` ship as
-builtins inside the `kevin` binary; third-party plugins are separate binaries. Full
+`container`, `exec`, `fault`, `kind`, `kubectl`, `helm`, `wait`, `route`
+ship as builtins inside the `kevin` binary; third-party plugins are separate binaries. Full
 design
 rationale:
 [docs/site/content/docs/concepts/architecture.md](docs/site/content/docs/concepts/architecture.md)
@@ -199,9 +199,9 @@ Key model to hold in your head when changing any of this:
 - **Provider model**: a plugin process is a *provider* that offers one or
   more step types. A step's `uses: "<plugin>:<step>"` names both parts.
   `builtin` (never declared in `plugins:`) offers `container`, `exec`,
-  `kind`, `kubectl`, `helm`, `wait`, `route`. One process serves every step
-  type it offers and must be safe for concurrent `Up`/`Down` calls - the DAG
-  can create several steps of the same type at once.
+  `fault`, `kind`, `kubectl`, `helm`, `wait`, `route`. One process serves
+  every step type it offers and must be safe for concurrent `Up`/`Down`
+  calls - the DAG can create several steps of the same type at once.
 - **Two independent DAG scopes** sharing one engine/protocol: `setup`
   (persists across runs, `kevin setup`/`teardown`) and `env` (ephemeral,
   `kevin run`). State lives under `./.kevin/` (or `./.kevin/<name>/` for a

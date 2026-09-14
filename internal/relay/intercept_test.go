@@ -25,6 +25,8 @@ type fakeControlServer struct {
 
 	lastEnsureListener  *pb.EnsureListenerRequest
 	lastRegisterCapture *pb.RegisterCaptureRequest
+	lastApplyFault      *pb.ApplyFaultRequest
+	lastClearFault      *pb.ClearFaultRequest
 	err                 error
 }
 
@@ -42,6 +44,22 @@ func (s *fakeControlServer) RegisterCapture(_ context.Context, req *pb.RegisterC
 		return nil, s.err
 	}
 	return &pb.RegisterCaptureResponse{}, nil
+}
+
+func (s *fakeControlServer) ApplyFault(_ context.Context, req *pb.ApplyFaultRequest) (*pb.ApplyFaultResponse, error) {
+	s.lastApplyFault = req
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &pb.ApplyFaultResponse{}, nil
+}
+
+func (s *fakeControlServer) ClearFault(_ context.Context, req *pb.ClearFaultRequest) (*pb.ClearFaultResponse, error) {
+	s.lastClearFault = req
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &pb.ClearFaultResponse{}, nil
 }
 
 // newTestRelay starts fake on a plaintext local gRPC server and returns a
@@ -111,6 +129,62 @@ func TestRelayRegisterCapture(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, fake.lastRegisterCapture)
 		assert.Equal(t, []string{"10.244.0.0/16", "10.96.0.0/12"}, fake.lastRegisterCapture.GetExcludeCidrs())
+	})
+}
+
+func TestRelayApplyFault(t *testing.T) {
+	t.Run("sends the fault's fields", func(t *testing.T) {
+		fake := &fakeControlServer{}
+		r := newTestRelay(t, fake)
+
+		err := r.ApplyFault(t.Context(), &pb.NetworkFault{
+			Id: "backend_fault", NetnsPath: "/proc/123/ns/net", Interface: "eth1",
+			DelayMs: 500, JitterMs: 100, LossPercent: 10,
+			CorruptPercent: 1, DuplicatePercent: 2, ReorderPercent: 3,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, fake.lastApplyFault)
+		assert.Equal(t, "backend_fault", fake.lastApplyFault.GetId())
+		assert.Equal(t, "/proc/123/ns/net", fake.lastApplyFault.GetNetnsPath())
+		assert.Equal(t, "eth1", fake.lastApplyFault.GetInterface())
+		assert.Equal(t, int32(500), fake.lastApplyFault.GetDelayMs())
+		assert.Equal(t, int32(100), fake.lastApplyFault.GetJitterMs())
+		assert.InDelta(t, 10, fake.lastApplyFault.GetLossPercent(), 0)
+		assert.InDelta(t, 1, fake.lastApplyFault.GetCorruptPercent(), 0)
+		assert.InDelta(t, 2, fake.lastApplyFault.GetDuplicatePercent(), 0)
+		assert.InDelta(t, 3, fake.lastApplyFault.GetReorderPercent(), 0)
+	})
+
+	t.Run("wraps a server error", func(t *testing.T) {
+		wantErr := status.Error(codes.Internal, "boom")
+		fake := &fakeControlServer{err: wantErr}
+		r := newTestRelay(t, fake)
+
+		err := r.ApplyFault(t.Context(), &pb.NetworkFault{Id: "backend_fault"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "boom")
+	})
+}
+
+func TestRelayClearFault(t *testing.T) {
+	t.Run("sends the id", func(t *testing.T) {
+		fake := &fakeControlServer{}
+		r := newTestRelay(t, fake)
+
+		err := r.ClearFault(t.Context(), "backend_fault")
+		require.NoError(t, err)
+		require.NotNil(t, fake.lastClearFault)
+		assert.Equal(t, "backend_fault", fake.lastClearFault.GetId())
+	})
+
+	t.Run("wraps a server error", func(t *testing.T) {
+		wantErr := status.Error(codes.Internal, "boom")
+		fake := &fakeControlServer{err: wantErr}
+		r := newTestRelay(t, fake)
+
+		err := r.ClearFault(t.Context(), "backend_fault")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "boom")
 	})
 }
 
