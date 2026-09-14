@@ -36,4 +36,8 @@ const (
 	// ErrOrigDstUnsupported reports that this relay build cannot read a
 	// connection's pre-NAT destination - only a linux build can.
 	ErrOrigDstUnsupported = Error("relay: reading the original destination requires linux")
+
+	// ErrFaultUnsupported reports that this relay build cannot install
+	// network-fault qdiscs - only a linux build can.
+	ErrFaultUnsupported = Error("relay: fault injection requires linux")
 )

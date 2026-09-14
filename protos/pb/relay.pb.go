@@ -217,6 +217,250 @@ func (*EnsureListenerResponse) Descriptor() ([]byte, []int) {
 	return file_pb_relay_proto_rawDescGZIP(), []int{3}
 }
 
+type ApplyFaultRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// ID names the step this fault belongs to, keying the relay's own
+	// bookkeeping for a later ClearFault.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// NetnsPath is the host path of the target network namespace, such as
+	// "/proc/1234/ns/net".
+	NetnsPath string `protobuf:"bytes,2,opt,name=netns_path,json=netnsPath,proto3" json:"netns_path,omitempty"`
+	// Interface is the network interface inside the namespace to attach the
+	// netem qdisc to. Defaults to "eth0" when empty - kevin's own containers
+	// are single-interface on the project's docker network.
+	Interface string `protobuf:"bytes,3,opt,name=interface,proto3" json:"interface,omitempty"`
+	// DelayMS is the fixed one-way delay added to every packet, in
+	// milliseconds. 0 means no delay.
+	DelayMs int32 `protobuf:"varint,4,opt,name=delay_ms,json=delayMs,proto3" json:"delay_ms,omitempty"`
+	// JitterMS is the random variation applied around delay_ms, in
+	// milliseconds. Ignored when delay_ms is 0.
+	JitterMs int32 `protobuf:"varint,5,opt,name=jitter_ms,json=jitterMs,proto3" json:"jitter_ms,omitempty"`
+	// LossPercent is the percentage of packets dropped, 0-100.
+	LossPercent float64 `protobuf:"fixed64,6,opt,name=loss_percent,json=lossPercent,proto3" json:"loss_percent,omitempty"`
+	// CorruptPercent is the percentage of packets corrupted (a single bit
+	// flipped), 0-100.
+	CorruptPercent float64 `protobuf:"fixed64,7,opt,name=corrupt_percent,json=corruptPercent,proto3" json:"corrupt_percent,omitempty"`
+	// DuplicatePercent is the percentage of packets duplicated, 0-100.
+	DuplicatePercent float64 `protobuf:"fixed64,8,opt,name=duplicate_percent,json=duplicatePercent,proto3" json:"duplicate_percent,omitempty"`
+	// ReorderPercent is the percentage of packets reordered ahead of the
+	// delay above, 0-100. Ignored when delay_ms is 0 - netem's own reorder
+	// model only has meaning relative to a base delay.
+	ReorderPercent float64 `protobuf:"fixed64,9,opt,name=reorder_percent,json=reorderPercent,proto3" json:"reorder_percent,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ApplyFaultRequest) Reset() {
+	*x = ApplyFaultRequest{}
+	mi := &file_pb_relay_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplyFaultRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplyFaultRequest) ProtoMessage() {}
+
+func (x *ApplyFaultRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_relay_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplyFaultRequest.ProtoReflect.Descriptor instead.
+func (*ApplyFaultRequest) Descriptor() ([]byte, []int) {
+	return file_pb_relay_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ApplyFaultRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ApplyFaultRequest) GetNetnsPath() string {
+	if x != nil {
+		return x.NetnsPath
+	}
+	return ""
+}
+
+func (x *ApplyFaultRequest) GetInterface() string {
+	if x != nil {
+		return x.Interface
+	}
+	return ""
+}
+
+func (x *ApplyFaultRequest) GetDelayMs() int32 {
+	if x != nil {
+		return x.DelayMs
+	}
+	return 0
+}
+
+func (x *ApplyFaultRequest) GetJitterMs() int32 {
+	if x != nil {
+		return x.JitterMs
+	}
+	return 0
+}
+
+func (x *ApplyFaultRequest) GetLossPercent() float64 {
+	if x != nil {
+		return x.LossPercent
+	}
+	return 0
+}
+
+func (x *ApplyFaultRequest) GetCorruptPercent() float64 {
+	if x != nil {
+		return x.CorruptPercent
+	}
+	return 0
+}
+
+func (x *ApplyFaultRequest) GetDuplicatePercent() float64 {
+	if x != nil {
+		return x.DuplicatePercent
+	}
+	return 0
+}
+
+func (x *ApplyFaultRequest) GetReorderPercent() float64 {
+	if x != nil {
+		return x.ReorderPercent
+	}
+	return 0
+}
+
+type ApplyFaultResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApplyFaultResponse) Reset() {
+	*x = ApplyFaultResponse{}
+	mi := &file_pb_relay_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplyFaultResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplyFaultResponse) ProtoMessage() {}
+
+func (x *ApplyFaultResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_relay_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplyFaultResponse.ProtoReflect.Descriptor instead.
+func (*ApplyFaultResponse) Descriptor() ([]byte, []int) {
+	return file_pb_relay_proto_rawDescGZIP(), []int{5}
+}
+
+type ClearFaultRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// ID names the fault to remove, as passed to the ApplyFault call that
+	// installed it.
+	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClearFaultRequest) Reset() {
+	*x = ClearFaultRequest{}
+	mi := &file_pb_relay_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClearFaultRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClearFaultRequest) ProtoMessage() {}
+
+func (x *ClearFaultRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_relay_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClearFaultRequest.ProtoReflect.Descriptor instead.
+func (*ClearFaultRequest) Descriptor() ([]byte, []int) {
+	return file_pb_relay_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ClearFaultRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type ClearFaultResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClearFaultResponse) Reset() {
+	*x = ClearFaultResponse{}
+	mi := &file_pb_relay_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClearFaultResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClearFaultResponse) ProtoMessage() {}
+
+func (x *ClearFaultResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_relay_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClearFaultResponse.ProtoReflect.Descriptor instead.
+func (*ClearFaultResponse) Descriptor() ([]byte, []int) {
+	return file_pb_relay_proto_rawDescGZIP(), []int{7}
+}
+
 var File_pb_relay_proto protoreflect.FileDescriptor
 
 const file_pb_relay_proto_rawDesc = "" +
@@ -231,10 +475,29 @@ const file_pb_relay_proto_rawDesc = "" +
 	"\x15EnsureListenerRequest\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x14\n" +
 	"\x05ports\x18\x02 \x03(\x05R\x05ports\"\x18\n" +
-	"\x16EnsureListenerResponse2\xd3\x01\n" +
+	"\x16EnsureListenerResponse\"\xba\x02\n" +
+	"\x11ApplyFaultRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"netns_path\x18\x02 \x01(\tR\tnetnsPath\x12\x1c\n" +
+	"\tinterface\x18\x03 \x01(\tR\tinterface\x12\x19\n" +
+	"\bdelay_ms\x18\x04 \x01(\x05R\adelayMs\x12\x1b\n" +
+	"\tjitter_ms\x18\x05 \x01(\x05R\bjitterMs\x12!\n" +
+	"\floss_percent\x18\x06 \x01(\x01R\vlossPercent\x12'\n" +
+	"\x0fcorrupt_percent\x18\a \x01(\x01R\x0ecorruptPercent\x12+\n" +
+	"\x11duplicate_percent\x18\b \x01(\x01R\x10duplicatePercent\x12'\n" +
+	"\x0freorder_percent\x18\t \x01(\x01R\x0ereorderPercent\"\x14\n" +
+	"\x12ApplyFaultResponse\"#\n" +
+	"\x11ClearFaultRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x14\n" +
+	"\x12ClearFaultResponse2\xfd\x02\n" +
 	"\fRelayControl\x12b\n" +
 	"\x0fRegisterCapture\x12&.kevin.relay.v1.RegisterCaptureRequest\x1a'.kevin.relay.v1.RegisterCaptureResponse\x12_\n" +
-	"\x0eEnsureListener\x12%.kevin.relay.v1.EnsureListenerRequest\x1a&.kevin.relay.v1.EnsureListenerResponseB,Z*github.com/justenwalker/kevin/protos/pb;pbb\x06proto3"
+	"\x0eEnsureListener\x12%.kevin.relay.v1.EnsureListenerRequest\x1a&.kevin.relay.v1.EnsureListenerResponse\x12S\n" +
+	"\n" +
+	"ApplyFault\x12!.kevin.relay.v1.ApplyFaultRequest\x1a\".kevin.relay.v1.ApplyFaultResponse\x12S\n" +
+	"\n" +
+	"ClearFault\x12!.kevin.relay.v1.ClearFaultRequest\x1a\".kevin.relay.v1.ClearFaultResponseB,Z*github.com/justenwalker/kevin/protos/pb;pbb\x06proto3"
 
 var (
 	file_pb_relay_proto_rawDescOnce sync.Once
@@ -248,20 +511,28 @@ func file_pb_relay_proto_rawDescGZIP() []byte {
 	return file_pb_relay_proto_rawDescData
 }
 
-var file_pb_relay_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_pb_relay_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_pb_relay_proto_goTypes = []any{
 	(*RegisterCaptureRequest)(nil),  // 0: kevin.relay.v1.RegisterCaptureRequest
 	(*RegisterCaptureResponse)(nil), // 1: kevin.relay.v1.RegisterCaptureResponse
 	(*EnsureListenerRequest)(nil),   // 2: kevin.relay.v1.EnsureListenerRequest
 	(*EnsureListenerResponse)(nil),  // 3: kevin.relay.v1.EnsureListenerResponse
+	(*ApplyFaultRequest)(nil),       // 4: kevin.relay.v1.ApplyFaultRequest
+	(*ApplyFaultResponse)(nil),      // 5: kevin.relay.v1.ApplyFaultResponse
+	(*ClearFaultRequest)(nil),       // 6: kevin.relay.v1.ClearFaultRequest
+	(*ClearFaultResponse)(nil),      // 7: kevin.relay.v1.ClearFaultResponse
 }
 var file_pb_relay_proto_depIdxs = []int32{
 	0, // 0: kevin.relay.v1.RelayControl.RegisterCapture:input_type -> kevin.relay.v1.RegisterCaptureRequest
 	2, // 1: kevin.relay.v1.RelayControl.EnsureListener:input_type -> kevin.relay.v1.EnsureListenerRequest
-	1, // 2: kevin.relay.v1.RelayControl.RegisterCapture:output_type -> kevin.relay.v1.RegisterCaptureResponse
-	3, // 3: kevin.relay.v1.RelayControl.EnsureListener:output_type -> kevin.relay.v1.EnsureListenerResponse
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
+	4, // 2: kevin.relay.v1.RelayControl.ApplyFault:input_type -> kevin.relay.v1.ApplyFaultRequest
+	6, // 3: kevin.relay.v1.RelayControl.ClearFault:input_type -> kevin.relay.v1.ClearFaultRequest
+	1, // 4: kevin.relay.v1.RelayControl.RegisterCapture:output_type -> kevin.relay.v1.RegisterCaptureResponse
+	3, // 5: kevin.relay.v1.RelayControl.EnsureListener:output_type -> kevin.relay.v1.EnsureListenerResponse
+	5, // 6: kevin.relay.v1.RelayControl.ApplyFault:output_type -> kevin.relay.v1.ApplyFaultResponse
+	7, // 7: kevin.relay.v1.RelayControl.ClearFault:output_type -> kevin.relay.v1.ClearFaultResponse
+	4, // [4:8] is the sub-list for method output_type
+	0, // [0:4] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -278,7 +549,7 @@ func file_pb_relay_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pb_relay_proto_rawDesc), len(file_pb_relay_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

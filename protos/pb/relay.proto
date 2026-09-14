@@ -29,6 +29,23 @@ service RelayControl {
   // already registered - so a route declared after some containers already
   // exist still reaches them.
   rpc EnsureListener(EnsureListenerRequest) returns (EnsureListenerResponse);
+
+  // ApplyFault installs a netem qdisc on interface, inside the network
+  // namespace at netns_path, that delays, drops, corrupts, duplicates,
+  // and/or reorders packets on it, all at once, in a single qdisc. Re-applying
+  // with the same id replaces the qdisc's parameters rather than stacking
+  // a second one - unlike RegisterCapture, a fault is not implicitly moot
+  // when a step goes away, since the namespace it targets usually belongs
+  // to a different, still-running step. A caller must call ClearFault
+  // explicitly to remove it.
+  rpc ApplyFault(ApplyFaultRequest) returns (ApplyFaultResponse);
+
+  // ClearFault removes the netem qdisc that an earlier ApplyFault with the
+  // same id installed, restoring the interface's default qdisc. A no-op,
+  // not an error, when id names no currently-applied fault - a step's
+  // teardown always calls this, whether or not its last Up ever applied
+  // one.
+  rpc ClearFault(ClearFaultRequest) returns (ClearFaultResponse);
 }
 
 message RegisterCaptureRequest {
@@ -60,3 +77,51 @@ message EnsureListenerRequest {
 }
 
 message EnsureListenerResponse {}
+
+message ApplyFaultRequest {
+  // ID names the step this fault belongs to, keying the relay's own
+  // bookkeeping for a later ClearFault.
+  string id = 1;
+
+  // NetnsPath is the host path of the target network namespace, such as
+  // "/proc/1234/ns/net".
+  string netns_path = 2;
+
+  // Interface is the network interface inside the namespace to attach the
+  // netem qdisc to. Defaults to "eth0" when empty - kevin's own containers
+  // are single-interface on the project's docker network.
+  string interface = 3;
+
+  // DelayMS is the fixed one-way delay added to every packet, in
+  // milliseconds. 0 means no delay.
+  int32 delay_ms = 4;
+
+  // JitterMS is the random variation applied around delay_ms, in
+  // milliseconds. Ignored when delay_ms is 0.
+  int32 jitter_ms = 5;
+
+  // LossPercent is the percentage of packets dropped, 0-100.
+  double loss_percent = 6;
+
+  // CorruptPercent is the percentage of packets corrupted (a single bit
+  // flipped), 0-100.
+  double corrupt_percent = 7;
+
+  // DuplicatePercent is the percentage of packets duplicated, 0-100.
+  double duplicate_percent = 8;
+
+  // ReorderPercent is the percentage of packets reordered ahead of the
+  // delay above, 0-100. Ignored when delay_ms is 0 - netem's own reorder
+  // model only has meaning relative to a base delay.
+  double reorder_percent = 9;
+}
+
+message ApplyFaultResponse {}
+
+message ClearFaultRequest {
+  // ID names the fault to remove, as passed to the ApplyFault call that
+  // installed it.
+  string id = 1;
+}
+
+message ClearFaultResponse {}

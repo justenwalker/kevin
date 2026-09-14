@@ -50,9 +50,9 @@ func TestClusterConfigValue(t *testing.T) {
 	})
 }
 
-func TestNetnsTargets(t *testing.T) {
+func TestNodeContainers(t *testing.T) {
 	t.Run("no control-plane node is a hard failure", func(t *testing.T) {
-		_, err := netnsTargets(t.Context(), dockerClient, "cluster", []string{"kevin-demo-worker"}, &capture{})
+		_, err := nodeContainers(t.Context(), dockerClient, []string{"kevin-demo-worker"}, &capture{})
 		assert.ErrorIs(t, err, ErrNoControlPlaneNode)
 	})
 }

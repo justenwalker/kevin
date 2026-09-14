@@ -429,6 +429,30 @@ func (r *Relay) RegisterCapture(ctx context.Context, id, netnsPath string, exclu
 	return nil
 }
 
+// ApplyFault tells the relay to install (or replace) a netem qdisc for f
+// inside its target network namespace.
+func (r *Relay) ApplyFault(ctx context.Context, f *pb.NetworkFault) error {
+	req := &pb.ApplyFaultRequest{
+		Id: f.GetId(), NetnsPath: f.GetNetnsPath(), Interface: f.GetInterface(),
+		DelayMs: f.GetDelayMs(), JitterMs: f.GetJitterMs(),
+		LossPercent: f.GetLossPercent(), CorruptPercent: f.GetCorruptPercent(),
+		DuplicatePercent: f.GetDuplicatePercent(), ReorderPercent: f.GetReorderPercent(),
+	}
+	if _, err := r.client.ApplyFault(ctx, req); err != nil {
+		return fmt.Errorf("relay: apply fault for %q: %w", f.GetId(), err)
+	}
+	return nil
+}
+
+// ClearFault tells the relay to remove the fault id names, if one is
+// currently applied.
+func (r *Relay) ClearFault(ctx context.Context, id string) error {
+	if _, err := r.client.ClearFault(ctx, &pb.ClearFaultRequest{Id: id}); err != nil {
+		return fmt.Errorf("relay: clear fault for %q: %w", id, err)
+	}
+	return nil
+}
+
 // dialControl mints a client leaf off authority and dials the relay's
 // control endpoint with it, verifying the relay's own leaf against
 // authority's root. Lazy: grpc.NewClient does not block on a connection, so

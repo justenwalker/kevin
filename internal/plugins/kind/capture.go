@@ -18,10 +18,13 @@ func wantsCapture(env plugin.Env) bool {
 	return env.Relay != ""
 }
 
-// netnsTargets builds one capture registration per node of the cluster -
-// the node's own network namespace, and the CIDRs it must never redirect.
-// Returns (nil, nil) when CIDR discovery fails - see podAndServiceCIDRs.
-func netnsTargets(ctx context.Context, rt cri.Runtime, stepName string, allNodes []string, out plugin.Emitter) ([]plugin.NetnsTarget, error) {
+// nodeContainers reports one ContainerInfo per node of the cluster - its
+// own network namespace, and the CIDRs it must never redirect when the
+// relay captures it as a router. Returns (nil, nil) when CIDR discovery
+// fails - see podAndServiceCIDRs.
+// out may be nil - Export has no Emitter to log the fail-open case
+// through, unlike Up.
+func nodeContainers(ctx context.Context, rt cri.Runtime, allNodes []string, out plugin.Emitter) ([]plugin.ContainerInfo, error) {
 	controlPlane, err := bootstrapControlPlaneNode(allNodes)
 	if err != nil {
 		return nil, fmt.Errorf("kind: capture: %w", err)
@@ -32,11 +35,13 @@ func netnsTargets(ctx context.Context, rt cri.Runtime, stepName string, allNodes
 		// A verified exclusion list is what makes capture safe at all - not
 		// finding one is a reason to skip capture for this cluster, not to
 		// fail Up over it.
-		out.Log("stdout", "skipping egress capture: "+err.Error())
-		return nil, nil //nolint:nilerr // deliberate fail-open, see the comment above
+		if out != nil {
+			out.Log("stdout", "skipping egress capture: "+err.Error())
+		}
+		return nil, nil
 	}
 
-	targets := make([]plugin.NetnsTarget, 0, len(allNodes))
+	containers := make([]plugin.ContainerInfo, 0, len(allNodes))
 	for _, node := range allNodes {
 		info, err := rt.Inspect(ctx, node)
 		if err != nil {
@@ -45,13 +50,14 @@ func netnsTargets(ctx context.Context, rt cri.Runtime, stepName string, allNodes
 		if info.NetnsPath == "" {
 			continue
 		}
-		targets = append(targets, plugin.NetnsTarget{
-			ID:           stepName + "/" + node,
+		containers = append(containers, plugin.ContainerInfo{
+			ID:           info.ID,
+			Name:         node,
 			NetnsPath:    info.NetnsPath,
 			ExcludeCIDRs: exclude,
 		})
 	}
-	return targets, nil
+	return containers, nil
 }
 
 // podAndServiceCIDRs reads the cluster's pod and service subnets from

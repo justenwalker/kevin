@@ -143,11 +143,12 @@ func (s *server) Up(req *pb.UpRequest, stream grpc.ServerStreamingServer[pb.Even
 	out := &emitter{stream: stream}
 
 	result, err := step.Up(stream.Context(), &UpRequest{
-		Step:   req.GetStep(),
-		Type:   req.GetType(),
-		Env:    envFromProto(req.GetEnv()),
-		Config: req.GetConfig(),
-		Deps:   depsFromProto(req.GetDeps()),
+		Step:       req.GetStep(),
+		Type:       req.GetType(),
+		Env:        envFromProto(req.GetEnv()),
+		Config:     req.GetConfig(),
+		Deps:       depsFromProto(req.GetDeps()),
+		Containers: containersFromProto(req.GetContainers()),
 	}, out)
 	if err != nil {
 		return withUserMessage(err)
@@ -182,9 +183,14 @@ func (s *server) Up(req *pb.UpRequest, stream grpc.ServerStreamingServer[pb.Even
 		details = append(details, &pb.Detail{Label: d.Label, Value: valueToProto(d.Value), Copyable: d.Copyable, Href: d.Href})
 	}
 
-	netnsTargets := make([]*pb.NetnsTarget, 0, len(result.NetnsTargets))
-	for _, t := range result.NetnsTargets {
-		netnsTargets = append(netnsTargets, &pb.NetnsTarget{Id: t.ID, NetnsPath: t.NetnsPath, ExcludeCidrs: t.ExcludeCIDRs})
+	faults := make([]*pb.NetworkFault, 0, len(result.Faults))
+	for _, f := range result.Faults {
+		faults = append(faults, &pb.NetworkFault{
+			Id: f.ID, NetnsPath: f.NetnsPath, Interface: f.Interface,
+			DelayMs: f.DelayMS, JitterMs: f.JitterMS,
+			LossPercent: f.LossPercent, CorruptPercent: f.CorruptPercent,
+			DuplicatePercent: f.DuplicatePercent, ReorderPercent: f.ReorderPercent,
+		})
 	}
 
 	if err := stream.Send(&pb.Event{Event: &pb.Event_Result{Result: &pb.Result{
@@ -193,8 +199,8 @@ func (s *server) Up(req *pb.UpRequest, stream grpc.ServerStreamingServer[pb.Even
 		ExposedPorts: exposedPorts,
 		EgressAllow:  result.EgressAllow,
 		Details:      details,
-		NetnsPath:    result.NetnsPath,
-		NetnsTargets: netnsTargets,
+		Containers:   containersToProto(result.Containers),
+		Faults:       faults,
 	}}}); err != nil {
 		return fmt.Errorf("plugin: send the result: %w", err)
 	}
@@ -249,7 +255,10 @@ func (s *server) Export(ctx context.Context, req *pb.ExportRequest) (*pb.ExportR
 	if result == nil {
 		result = &ExportResult{}
 	}
-	return &pb.ExportResponse{Out: &pb.Outputs{Values: outputsToProto(result.Out)}}, nil
+	return &pb.ExportResponse{
+		Out:        &pb.Outputs{Values: outputsToProto(result.Out)},
+		Containers: containersToProto(result.Containers),
+	}, nil
 }
 
 func (s *server) CallTool(ctx context.Context, req *pb.ToolCallRequest) (*pb.ToolCallResponse, error) {
@@ -313,6 +322,41 @@ func depsFromProto(deps map[string]*pb.Outputs) map[string]map[string]Value {
 	out := make(map[string]map[string]Value, len(deps))
 	for name, o := range deps {
 		out[name] = outputsFromProto(o.GetValues())
+	}
+	return out
+}
+
+// containerInfoFromProto lifts a wire ContainerInfo into its SDK form.
+func containerInfoFromProto(c *pb.ContainerInfo) ContainerInfo {
+	return ContainerInfo{
+		ID: c.GetId(), Name: c.GetName(), NetnsPath: c.GetNetnsPath(),
+		ExcludeCIDRs: c.GetExcludeCidrs(),
+	}
+}
+
+// containersFromProto lifts a wire StepContainers list into its SDK form.
+func containersFromProto(containers []*pb.StepContainers) []StepContainers {
+	if len(containers) == 0 {
+		return nil
+	}
+	out := make([]StepContainers, 0, len(containers))
+	for _, sc := range containers {
+		infos := make([]ContainerInfo, 0, len(sc.GetContainers()))
+		for _, c := range sc.GetContainers() {
+			infos = append(infos, containerInfoFromProto(c))
+		}
+		out = append(out, StepContainers{Step: sc.GetStep(), Containers: infos})
+	}
+	return out
+}
+
+// containersToProto lowers an SDK ContainerInfo list to its wire form.
+func containersToProto(containers []ContainerInfo) []*pb.ContainerInfo {
+	out := make([]*pb.ContainerInfo, 0, len(containers))
+	for _, c := range containers {
+		out = append(out, &pb.ContainerInfo{
+			Id: c.ID, Name: c.Name, NetnsPath: c.NetnsPath, ExcludeCidrs: c.ExcludeCIDRs,
+		})
 	}
 	return out
 }

@@ -573,3 +573,58 @@ func (s *RelayProcessSuite) TestRegisterCaptureDoesNotRecordOnFailure() {
 	proc.mu.Unlock()
 	s.False(ok, "a failed apply must not be recorded")
 }
+
+// TestApplyFaultDoesNotRecordOnFailure mirrors
+// TestRegisterCaptureDoesNotRecordOnFailure for ApplyFault: a fake netns
+// path must fail to apply and must not be recorded, so a later ClearFault
+// for the same id has nothing stale to clean up. Success is covered
+// separately, empirically, against a real container's netns (see
+// cmd/kevin-relay/netfault_linux.go's doc comment) - this suite has no
+// real container to hand applyFault on any platform.
+func (s *RelayProcessSuite) TestApplyFaultDoesNotRecordOnFailure() {
+	t := s.T()
+
+	clientTLS := newTestControlEnv(t)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	proc, err := newRelayProcess(ctx, config{
+		domain:        relayTestDomain,
+		proxyAddr:     s.proxyStub.Listener.Addr().String(),
+		self:          "10.20.30.40",
+		dnsListen:     "127.0.0.1:0",
+		httpListen:    "127.0.0.1:0",
+		httpsListen:   "127.0.0.1:0",
+		socks5Listen:  "127.0.0.1:0",
+		controlListen: "127.0.0.1:0",
+		upstreamDNS:   s.upstreamPC.LocalAddr().String(),
+	})
+	s.Require().NoError(err)
+
+	done := make(chan error, 1)
+	go func() { done <- proc.run(ctx) }()
+	defer func() {
+		cancel()
+		s.Require().NoError(<-done)
+	}()
+
+	conn, err := grpc.NewClient(proc.controlAddr(), grpc.WithTransportCredentials(credentials.NewTLS(clientTLS)))
+	s.Require().NoError(err)
+	defer func() { _ = conn.Close() }()
+
+	client := pb.NewRelayControlClient(conn)
+
+	_, err = client.ApplyFault(t.Context(), &pb.ApplyFaultRequest{
+		Id: "web", NetnsPath: "/var/run/docker/netns/abc123", DelayMs: 100,
+	})
+	s.Require().Error(err, "the fake path must fail to apply, on any platform")
+
+	proc.mu.Lock()
+	_, ok := proc.faults["web"]
+	proc.mu.Unlock()
+	s.False(ok, "a failed apply must not be recorded")
+
+	_, err = client.ClearFault(t.Context(), &pb.ClearFaultRequest{Id: "web"})
+	s.Require().NoError(err, "clearing an id that was never recorded is a no-op, not an error")
+}

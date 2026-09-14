@@ -761,9 +761,9 @@ setup: cluster: {uses: "echo:echo", with: export: greeting: "from-setup"}
 	_, err = r.exportCrossScopeStep(canceledCtx, "cluster")
 	require.Error(t, err, "a canceled context must fail the call")
 
-	outputs, err := r.exportCrossScopeStep(t.Context(), "cluster")
+	exported, err := r.exportCrossScopeStep(t.Context(), "cluster")
 	require.NoError(t, err, "a later call with a healthy context must not see the earlier failure")
-	assert.Equal(t, output.Value{String: "from-setup"}, outputs["greeting"])
+	assert.Equal(t, output.Value{String: "from-setup"}, exported.Outputs["greeting"])
 }
 
 // TestTeardownResolvesSameScopeNeeds proves Teardown backfills a setup
@@ -1542,4 +1542,57 @@ func TestRouteModeFromProto(t *testing.T) {
 			assert.Equal(t, tt.want, routeModeFromProto(tt.mode))
 		})
 	}
+}
+
+func TestStepContainersFor(t *testing.T) {
+	backend := []*pb.ContainerInfo{{Id: "abc", Name: "kevin-demo-backend"}}
+	cluster := []*pb.ContainerInfo{{Id: "def", Name: "kevin-demo-cluster-worker"}}
+
+	t.Run("a same-scope need with containers contributes an entry", func(t *testing.T) {
+		r := &run{appliedFaults: map[string][]string{}}
+		r.recordContainers("backend", backend)
+
+		got := r.stepContainersFor(map[string]dag.Outputs{"backend": {}}, nil)
+		require.Len(t, got, 1)
+		assert.Equal(t, "backend", got[0].GetStep())
+		assert.Equal(t, backend, got[0].GetContainers())
+	})
+
+	t.Run("a same-scope need with no containers contributes nothing", func(t *testing.T) {
+		r := &run{}
+		got := r.stepContainersFor(map[string]dag.Outputs{"waiter": {}}, nil)
+		assert.Empty(t, got)
+	})
+
+	t.Run("a cross-scope need is prefixed with setup.", func(t *testing.T) {
+		r := &run{}
+		got := r.stepContainersFor(nil, map[string][]*pb.ContainerInfo{"cluster": cluster})
+		require.Len(t, got, 1)
+		assert.Equal(t, "setup.cluster", got[0].GetStep())
+		assert.Equal(t, cluster, got[0].GetContainers())
+	})
+}
+
+func TestRecordAndClearFaults(t *testing.T) {
+	t.Run("recordFaults replaces a prior entry, not accumulates", func(t *testing.T) {
+		r := &run{}
+		r.recordFaults("fault", []string{"fault"})
+		r.recordFaults("fault", []string{"fault-v2"})
+		assert.Equal(t, []string{"fault-v2"}, r.appliedFaults["fault"])
+	})
+
+	t.Run("recordFaults with no ids clears the entry", func(t *testing.T) {
+		r := &run{appliedFaults: map[string][]string{"fault": {"fault"}}}
+		r.recordFaults("fault", nil)
+		_, ok := r.appliedFaults["fault"]
+		assert.False(t, ok)
+	})
+
+	t.Run("clearFaults on a step that applied none never touches the relay", func(t *testing.T) {
+		// r.relay is nil here - a call into it would panic, proving
+		// clearFaults returns before dereferencing it when there is
+		// nothing recorded for name.
+		r := &run{}
+		r.clearFaults(t.Context(), "never-applied-anything")
+	})
 }

@@ -206,6 +206,7 @@ type relayProcess struct {
 	mu         sync.Mutex
 	extraLns   map[int]net.Listener     // opened on demand, for a port beyond :80/:443
 	netnsPaths map[string]captureTarget // registration id -> network namespace target
+	faults     map[string]faultTarget   // registration id -> applied fault
 }
 
 // newRelayProcess resolves self when cfg.self is empty, and applies the

@@ -164,16 +164,22 @@ func (r *run) upGroup(ctx context.Context, name string, grp config.Group, deps m
 // doExportCrossScopeStep already makes for one step), then evaluates the
 // group's own outputs block against those - the cross-scope counterpart to
 // upGroup, which does the same evaluation against a live Up's own deps.
-func (r *run) doExportCrossScopeGroup(ctx context.Context, name string, grp config.Group) (dag.Outputs, error) {
+func (r *run) doExportCrossScopeGroup(ctx context.Context, name string, grp config.Group) (exportedStep, error) {
 	memberOutputs := make(map[string]dag.Outputs, len(grp.Members))
 	for _, member := range grp.Members {
-		outputs, err := r.doExportCrossScopeStep(ctx, memberName(name, member))
+		exported, err := r.doExportCrossScopeStep(ctx, memberName(name, member))
 		if err != nil {
-			return nil, err
+			return exportedStep{}, err
 		}
-		memberOutputs[member] = outputs
+		memberOutputs[member] = exported.Outputs
 	}
-	return evalGroupOutputs(name, grp.Outputs, memberOutputs)
+	outputs, err := evalGroupOutputs(name, grp.Outputs, memberOutputs)
+	if err != nil {
+		return exportedStep{}, err
+	}
+	// A group has no containers of its own - it's a CEL-evaluated view over
+	// its members' outputs, not a real plugin step with its own workload.
+	return exportedStep{Outputs: outputs}, nil
 }
 
 // evalGroupOutputs is the pure CEL step both upGroup and

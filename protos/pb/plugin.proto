@@ -222,6 +222,12 @@ message UpRequest {
 
   // Deps maps the name of each upstream step to the outputs of that step.
   map<string, Outputs> deps = 5;
+
+  // Containers carries each needs-step's own reported containers -
+  // ContainerInfo, not string Outputs - so a plugin can read a
+  // dependency's container identity directly. Only a needs-step that
+  // reported any appears here.
+  repeated StepContainers containers = 6;
 }
 
 message DownRequest {
@@ -283,38 +289,87 @@ message Result {
   // Details are the rows that this step shows on its web console card.
   repeated Detail details = 5;
 
-  // NetnsPath is the host path of this step's container network namespace,
-  // such as "/var/run/docker/netns/1234abcd" - empty for a step with no
-  // container workload of its own (kind, exec, a resourceless step). The
-  // engine forwards it to the relay so the container's egress can be
-  // transparently redirected there.
-  string netns_path = 6;
+  // Containers are the containers this step manages - empty for a step
+  // with no container workload of its own (wait, exec, a resourceless
+  // step). A builtin:container step reports exactly one; a builtin:kind
+  // step reports one per node. The engine forwards these to the relay so
+  // each container's egress can be transparently redirected there, and
+  // hands a dependent step's own Containers to it directly on
+  // UpRequest.containers.
+  repeated ContainerInfo containers = 8;
 
-  // NetnsTargets carries one network namespace per node of a step that
-  // manages several, such as a builtin:kind cluster's control-plane and
-  // worker nodes - a namespace it captures as a router, not a single
-  // workload's own namespace, unlike netns_path above.
-  repeated NetnsTarget netns_targets = 7;
+  // Faults are the network impairments this step wants the relay to
+  // apply - see NetworkFault.
+  repeated NetworkFault faults = 9;
 }
 
-// NetnsTarget is one network namespace the relay should capture, for a step
-// that manages more than one - see Result.netns_targets.
-message NetnsTarget {
-  // ID identifies this network namespace for the relay's own bookkeeping
-  // and logs, such as "<step>/<node>" for one of a kind cluster's nodes.
+// ContainerInfo is what a plugin reports about one container it manages -
+// a builtin:container step's own container, or one node of a builtin:kind
+// cluster. Nothing about this type is specific to any one plugin: a step
+// that manages several containers just reports several entries - see
+// Result.containers, ExportResponse.containers, and
+// UpRequest.containers/StepContainers.
+message ContainerInfo {
+  // ID is the container engine's own id.
   string id = 1;
 
-  // NetnsPath is the host path of the network namespace, such as
-  // "/var/run/docker/netns/1234abcd".
-  string netns_path = 2;
+  // Name is the container engine's own name.
+  string name = 2;
+
+  // NetnsPath is the host path of this container's network namespace,
+  // such as "/proc/1234/ns/net" - empty if the container isn't running.
+  string netns_path = 3;
 
   // ExcludeCIDRs lists destination CIDRs that must never be redirected to
-  // the relay - a Kubernetes cluster's own pod and service subnets, so
-  // pod-to-pod and pod-to-service traffic keeps working normally. A
-  // non-empty list is also what tells the relay this namespace routes
-  // traffic for others rather than only generating its own, so it captures
-  // what transits the namespace instead of what originates in it.
-  repeated string exclude_cidrs = 3;
+  // the relay when capturing this namespace's egress - a Kubernetes
+  // cluster's own pod and service subnets, so pod-to-pod and
+  // pod-to-service traffic keeps working normally. A non-empty list is
+  // also what tells the relay this namespace routes traffic for others
+  // rather than only generating its own, so it captures what transits the
+  // namespace instead of what originates in it.
+  repeated string exclude_cidrs = 4;
+}
+
+// StepContainers is one needs-step's reported containers, aggregated by
+// the engine into UpRequest.containers - order matches that step's
+// position in needs.
+message StepContainers {
+  // Step is the needs-step this container list belongs to - a same-scope
+  // step name, or "setup.<name>" for a cross-scope reference, the same
+  // string form needs itself already uses.
+  string step = 1;
+
+  repeated ContainerInfo containers = 2;
+}
+
+// NetworkFault is one netem impairment the relay should apply - see
+// Result.faults. Unlike ContainerInfo, this already carries a resolved
+// NetnsPath: the plugin that produces it (builtin:fault) resolves its own
+// target from UpRequest.containers before returning it, so the engine
+// does no fault-specific resolution of its own.
+message NetworkFault {
+  // ID identifies this fault for the relay's own bookkeeping, so a later
+  // teardown can remove exactly what was applied.
+  string id = 1;
+
+  // NetnsPath is the host path of the target network namespace.
+  string netns_path = 2;
+
+  // Interface is the network interface inside the namespace to impair.
+  // Empty means the relay's own default ("eth0").
+  string interface = 3;
+
+  // DelayMS and JitterMS are the fixed delay and its random jitter, in
+  // milliseconds. 0 means no delay.
+  int32 delay_ms = 4;
+  int32 jitter_ms = 5;
+
+  // LossPercent, CorruptPercent, DuplicatePercent, and ReorderPercent are
+  // each a percentage, 0-100, of packets affected. 0 means none.
+  double loss_percent = 6;
+  double corrupt_percent = 7;
+  double duplicate_percent = 8;
+  double reorder_percent = 9;
 }
 
 // ExposedPort is a raw TCP or UDP endpoint that a step publishes directly to
@@ -367,6 +422,12 @@ message ExportResponse {
   // "needs: [\"setup.<name>\"]" reference, and a "commands:" entry's "run"
   // ("${needs.<step>.out.<key>}"), both resolve against this.
   Outputs out = 2;
+
+  // Containers are the containers this step manages - the same
+  // information Result.containers carries for Up, mirrored here so a
+  // cross-scope ("setup.<name>") reference gets the same container
+  // identity a same-scope one does.
+  repeated ContainerInfo containers = 3;
 }
 
 message ToolCallRequest {

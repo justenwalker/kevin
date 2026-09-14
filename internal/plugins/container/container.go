@@ -148,8 +148,16 @@ func (Container) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitt
 		ExposedPorts: exposed,
 		EgressAllow:  cfg.Egress,
 		Details:      stepDetails(exposed),
-		NetnsPath:    info.NetnsPath,
+		Containers:   containerInfo(id, name, info),
 	}, nil
+}
+
+// containerInfo reports the one container a builtin:container step
+// manages, for the relay's transparent capture and for any dependent
+// step's UpRequest.Containers - empty when the container has no network
+// namespace of its own (info.NetnsPath is only set once it's running).
+func containerInfo(id, name string, info cri.Container) []plugin.ContainerInfo {
+	return []plugin.ContainerInfo{{ID: id, Name: name, NetnsPath: info.NetnsPath}}
 }
 
 // buildPorts is the full list of ports to publish: the step's own ports:
@@ -262,7 +270,8 @@ func (Container) Export(ctx context.Context, req *plugin.ExportRequest) (*plugin
 	}
 
 	return &plugin.ExportResult{
-		Out: plugin.StringMap(outputs(info.ID, name, info, req.Env.Network)),
+		Out:        plugin.StringMap(outputs(info.ID, name, info, req.Env.Network)),
+		Containers: containerInfo(info.ID, name, info),
 	}, nil
 }
 

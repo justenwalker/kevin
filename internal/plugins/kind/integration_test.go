@@ -207,21 +207,21 @@ func (s *KindSuite) TestNodeDNSPointsAtRelay() {
 	s.Contains(out, "nameserver "+s.relay.Addr())
 }
 
-// TestNetnsTargetsRegisterOneCaptureTargetPerNode proves that Up populates
-// NetnsTargets with one entry per node, each carrying the cluster's real pod
-// and service CIDRs read from kubeadm-config - the actual kubectl round
-// trip capture.go's unit tests can't exercise without a live cluster.
-func (s *KindSuite) TestNetnsTargetsRegisterOneCaptureTargetPerNode() {
+// TestContainersReportOnePerNode proves that Up populates Containers with
+// one entry per node, each carrying the cluster's real pod and service
+// CIDRs read from kubeadm-config - the actual kubectl round trip
+// capture.go's unit tests can't exercise without a live cluster.
+func (s *KindSuite) TestContainersReportOnePerNode() {
 	t := s.T()
 	nodeList := strings.Split(s.up.Outputs["nodes"].Reveal(), ",")
 
 	wantCIDRs, err := podAndServiceCIDRs(t.Context(), dockerClient, s.controlPlaneNode())
 	s.Require().NoError(err)
 
-	s.Require().Len(s.up.NetnsTargets, len(nodeList))
-	for _, target := range s.up.NetnsTargets {
-		s.NotEmpty(target.NetnsPath)
-		s.Equal(wantCIDRs, target.ExcludeCIDRs)
+	s.Require().Len(s.up.Containers, len(nodeList))
+	for _, c := range s.up.Containers {
+		s.NotEmpty(c.NetnsPath)
+		s.Equal(wantCIDRs, c.ExcludeCIDRs)
 	}
 }
 

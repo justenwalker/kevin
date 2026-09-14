@@ -134,6 +134,12 @@ type UpRequest struct {
 
 	// Deps maps the name of each upstream step to the outputs of that step.
 	Deps map[string]map[string]Value
+
+	// Containers carries each needs-step's own reported containers -
+	// ContainerInfo, not string Outputs - so a plugin can read a
+	// dependency's container identity directly. Only a needs-step that
+	// reported any appears here.
+	Containers []StepContainers
 }
 
 // DownRequest asks the plugin to remove one step.
@@ -170,6 +176,12 @@ type ExportRequest struct {
 // consume - the same Value shape Outputs uses.
 type ExportResult struct {
 	Out map[string]Value
+
+	// Containers are the containers this step manages - the same
+	// information Result.Containers carries for Up, mirrored here so a
+	// cross-scope ("setup.<name>") reference gets the same container
+	// identity a same-scope one does.
+	Containers []ContainerInfo
 }
 
 // ToolDef describes one MCP tool a step type offers.
@@ -327,18 +339,82 @@ type Result struct {
 	// card.
 	Details []Detail
 
-	// NetnsPath is the host path of this step's container network
-	// namespace, such as "/var/run/docker/netns/1234abcd" - empty for a
-	// step with no container workload of its own. The engine forwards it to
-	// the relay so the container's egress can be transparently redirected
-	// there.
+	// Containers are the containers this step manages - empty for a step
+	// with no container workload of its own. A container step reports
+	// exactly one; a step managing several (a kind cluster's nodes)
+	// reports one per container. The engine forwards these to the relay
+	// so each container's egress can be transparently redirected there,
+	// and hands a dependent step's own Containers to it directly on
+	// UpRequest.Containers.
+	Containers []ContainerInfo
+
+	// Faults are the network impairments this step wants the relay to
+	// apply - see NetworkFault.
+	Faults []NetworkFault
+}
+
+// ContainerInfo is what a plugin reports about one container it manages -
+// a builtin:container step's own container, or one node of a
+// builtin:kind cluster. Nothing about this type is specific to any one
+// plugin: a step that manages several containers just reports several
+// entries.
+type ContainerInfo struct {
+	// ID is the container engine's own id.
+	ID string
+
+	// Name is the container engine's own name.
+	Name string
+
+	// NetnsPath is the host path of this container's network namespace,
+	// such as "/proc/1234/ns/net" - empty if the container isn't running.
 	NetnsPath string
 
-	// NetnsTargets carries one network namespace per node of a step that
-	// manages several, such as a builtin:kind cluster's control-plane and
-	// worker nodes. Use this instead of NetnsPath for a step whose workload
-	// isn't a single container the namespace itself belongs to.
-	NetnsTargets []NetnsTarget
+	// ExcludeCIDRs lists destination CIDRs that must never be redirected
+	// to the relay when capturing this namespace's egress - a Kubernetes
+	// cluster's own pod and service subnets, so pod-to-pod and
+	// pod-to-service traffic keeps working normally. A non-empty list is
+	// also what tells the relay this namespace routes traffic for others
+	// rather than only generating its own, so it captures what transits
+	// the namespace instead of what originates in it.
+	ExcludeCIDRs []string
+}
+
+// StepContainers is one needs-step's reported containers, aggregated by
+// the engine into UpRequest.Containers - order matches that step's
+// position in needs.
+type StepContainers struct {
+	// Step is the needs-step this container list belongs to - a
+	// same-scope step name, or "setup.<name>" for a cross-scope
+	// reference, the same string form needs itself already uses.
+	Step string
+
+	Containers []ContainerInfo
+}
+
+// NetworkFault is one netem impairment the relay should apply - see
+// Result.Faults. Unlike ContainerInfo, this already carries a resolved
+// NetnsPath: the plugin that produces it (builtin:fault) resolves its own
+// target from UpRequest.Containers before returning it, so the engine does
+// no fault-specific resolution of its own.
+type NetworkFault struct {
+	// ID identifies this fault for the relay's own bookkeeping, so a
+	// later teardown can remove exactly what was applied.
+	ID string
+
+	// NetnsPath is the host path of the target network namespace.
+	NetnsPath string
+
+	// Interface is the network interface inside the namespace to impair.
+	// Empty means the relay's own default ("eth0").
+	Interface string
+
+	// DelayMS and JitterMS are the fixed delay and its random jitter, in
+	// milliseconds. 0 means no delay.
+	DelayMS, JitterMS int32
+
+	// LossPercent, CorruptPercent, DuplicatePercent, and ReorderPercent
+	// are each a percentage, 0-100, of packets affected. 0 means none.
+	LossPercent, CorruptPercent, DuplicatePercent, ReorderPercent float64
 }
 
 // NetnsTarget is one network namespace the relay should capture, for a step

@@ -323,7 +323,8 @@ func TestUp(t *testing.T) {
 		require.Len(t, result.ExposedPorts, 1)
 		require.Len(t, result.Details, 1, "every exposed port must also appear on the card")
 		assert.Equal(t, result.ExposedPorts[0].Detail(), result.Details[0])
-		assert.NotEmpty(t, result.NetnsPath, "the relay needs this to transparently capture the container's egress")
+		require.Len(t, result.Containers, 1)
+		assert.NotEmpty(t, result.Containers[0].NetnsPath, "the relay needs this to transparently capture the container's egress")
 
 		info, err := (docker.Client{}).Inspect(t.Context(), name)
 		require.NoError(t, err)
@@ -571,6 +572,26 @@ func TestUpWithFakeEngine(t *testing.T) {
 			Name: "postgres", Protocol: "socks5", Upstream: "socks5://127.0.0.1:54321/db:5432",
 		}, result.ExposedPorts[0])
 	})
+
+	t.Run("reports the container as its one Containers entry", func(t *testing.T) {
+		useFakeRuntime(t, fakeRuntime{
+			run: func(context.Context, cri.RunSpec) (string, error) { return "abc123", nil },
+			inspect: func(context.Context, string) (cri.Container, error) {
+				return cri.Container{Running: true, NetnsPath: "/proc/123/ns/net"}, nil
+			},
+		})
+
+		result, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+			Step:   "web",
+			Env:    plugin.Env{Project: "demo"},
+			Config: []byte(`{"image":"nginx"}`),
+		}, &noopEmitter{})
+		require.NoError(t, err)
+		require.Len(t, result.Containers, 1)
+		assert.Equal(t, plugin.ContainerInfo{
+			ID: "abc123", Name: "kevin-demo-web", NetnsPath: "/proc/123/ns/net",
+		}, result.Containers[0])
+	})
 }
 
 func TestDownWithFakeEngine(t *testing.T) {
@@ -616,6 +637,9 @@ func TestExportWithFakeEngine(t *testing.T) {
 		assert.Equal(t, "kevin-demo-web", result.Out["name"].Reveal())
 		assert.Equal(t, "abc123", result.Out["id"].Reveal())
 		assert.Equal(t, "10.0.0.2", result.Out["ip"].Reveal())
+		require.Len(t, result.Containers, 1)
+		assert.Equal(t, "abc123", result.Containers[0].ID)
+		assert.Equal(t, "kevin-demo-web", result.Containers[0].Name)
 	})
 
 	t.Run("fails when the container is not running", func(t *testing.T) {

@@ -733,8 +733,8 @@ func Teardown(ctx context.Context, opts Options) error {
 		if !stepExports(caps[ref.Plugin], ref.Step) {
 			continue
 		}
-		if outputs, expErr := r.exportCrossScopeStep(ctx, name); expErr == nil {
-			r.completed[name] = outputs
+		if exported, expErr := r.exportCrossScopeStep(ctx, name); expErr == nil {
+			r.completed[name] = exported.Outputs
 		}
 	}
 
@@ -961,10 +961,14 @@ type run struct {
 	systemOutputs map[string]dag.Outputs
 
 	// completed maps a step name to the outputs that the step published.
-	// completedMu guards it: r.up and a rerun triggered from the console
-	// can run concurrently once a step reaches Ready or Failed.
-	completedMu sync.Mutex
-	completed   map[string]dag.Outputs
+	// completedContainers maps a step name to the containers it
+	// published, the same way, for a dependent step's own
+	// UpRequest.Containers. completedMu guards both: r.up and a rerun
+	// triggered from the console can run concurrently once a step reaches
+	// Ready or Failed.
+	completedMu         sync.Mutex
+	completed           map[string]dag.Outputs
+	completedContainers map[string][]*pb.ContainerInfo
 
 	// exportGroup deduplicates concurrent exportCrossScopeStep calls for
 	// the same setup step name, so several consumers up at once share one
@@ -981,6 +985,14 @@ type run struct {
 	// or already mid-rerun - can never run Up twice at once for it.
 	stepLocksMu sync.Mutex
 	stepLocks   map[string]*sync.Mutex
+
+	// appliedFaults maps a step name to the fault IDs its most recent Up
+	// applied via the relay, so downStep can clear them at teardown even
+	// though DownRequest carries no Result (only Outputs) - see wireRelay
+	// and downStep. Session-lifetime only, no persistence, same as every
+	// other in-memory run field.
+	faultsMu      sync.Mutex
+	appliedFaults map[string][]string
 }
 
 // stepLock returns the mutex serializing upStep calls for name, creating it
@@ -1007,6 +1019,29 @@ func (r *run) snapshotCompleted() map[string]dag.Outputs {
 	out := make(map[string]dag.Outputs, len(r.completed))
 	maps.Copy(out, r.completed)
 	return out
+}
+
+// completedContainersFor returns the containers name last published, or
+// nil if it never published any.
+func (r *run) completedContainersFor(name string) []*pb.ContainerInfo {
+	r.completedMu.Lock()
+	defer r.completedMu.Unlock()
+	return r.completedContainers[name]
+}
+
+// recordContainers records name's published containers, replacing
+// whatever an earlier Up recorded for it.
+func (r *run) recordContainers(name string, containers []*pb.ContainerInfo) {
+	r.completedMu.Lock()
+	defer r.completedMu.Unlock()
+	if len(containers) == 0 {
+		delete(r.completedContainers, name)
+		return
+	}
+	if r.completedContainers == nil {
+		r.completedContainers = make(map[string][]*pb.ContainerInfo)
+	}
+	r.completedContainers[name] = containers
 }
 
 // mergeCompleted records every step in results as complete.
@@ -1235,7 +1270,7 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	}
 	client := r.plugins[ref.Plugin]
 
-	setupDeps, err := r.crossScopeDeps(ctx, name)
+	setupDeps, setupContainers, err := r.crossScopeDeps(ctx, name)
 	if err != nil {
 		r.reportUpFailure(ctx, name, err)
 		return nil, err
@@ -1248,11 +1283,12 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	}
 
 	req := &pb.UpRequest{
-		Step:   name,
-		Type:   ref.Step,
-		Env:    r.env,
-		Config: with,
-		Deps:   depsToProto(depsWithSetup(deps, setupDeps)),
+		Step:       name,
+		Type:       ref.Step,
+		Env:        r.env,
+		Config:     with,
+		Deps:       depsToProto(depsWithSetup(deps, setupDeps)),
+		Containers: r.stepContainersFor(deps, setupContainers),
 	}
 
 	estimate, _ := r.timings.EstimateUp(name, ref.String())
@@ -1275,6 +1311,7 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	if relayErr := r.wireRelay(ctx, name, result); relayErr != nil {
 		return nil, relayErr
 	}
+	r.recordContainers(name, result.GetContainers())
 	systemThis := dag.Outputs{}
 	for _, ep := range result.GetExposedPorts() {
 		r.emit(name, fmt.Sprintf("exposing %s %s at %s", ep.GetProtocol(), ep.GetName(), ep.GetUpstream()))
@@ -1326,27 +1363,39 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 }
 
 // wireRelay registers result's routes with the host proxy, and tells the
-// relay to transparently capture the step's egress: at result's own netns
-// path when it has a single container workload, and at each of
-// result's NetnsTargets when it manages several (a builtin:kind cluster's
-// nodes). A step with neither (exec, a resourceless step) has nothing to
-// register.
+// relay to transparently capture each of result's Containers' egress - a
+// builtin:container step reports one, a builtin:kind step one per node,
+// treated identically here. A step with none (exec, a resourceless step)
+// has nothing to register.
 func (r *run) wireRelay(ctx context.Context, name string, result *pb.Result) error {
 	if err := r.addRoutes(ctx, name, result.GetRoutes()); err != nil {
 		return err
 	}
-	if netnsPath := result.GetNetnsPath(); netnsPath != "" {
-		if err := r.relay.RegisterCapture(ctx, name, netnsPath, nil); err != nil {
+	containers := result.GetContainers()
+	for _, c := range containers {
+		netnsPath := c.GetNetnsPath()
+		if netnsPath == "" {
+			continue
+		}
+		id := name
+		if len(containers) > 1 {
+			id = name + "/" + c.GetName()
+		}
+		if err := r.relay.RegisterCapture(ctx, id, netnsPath, c.GetExcludeCidrs()); err != nil {
 			r.reportUpFailure(ctx, name, err)
 			return err
 		}
 	}
-	for _, t := range result.GetNetnsTargets() {
-		if err := r.relay.RegisterCapture(ctx, t.GetId(), t.GetNetnsPath(), t.GetExcludeCidrs()); err != nil {
+
+	ids := make([]string, 0, len(result.GetFaults()))
+	for _, f := range result.GetFaults() {
+		if err := r.relay.ApplyFault(ctx, f); err != nil {
 			r.reportUpFailure(ctx, name, err)
 			return err
 		}
+		ids = append(ids, f.GetId())
 	}
+	r.recordFaults(name, ids)
 	return nil
 }
 
@@ -1447,7 +1496,7 @@ func (r *run) exportStep(ctx context.Context, name string) (map[string]output.Va
 	if !ok {
 		return nil, fmt.Errorf("mcpserver: plugin %q not loaded", ref.Plugin)
 	}
-	setupDeps, err := r.crossScopeDeps(ctx, name)
+	setupDeps, _, err := r.crossScopeDeps(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1488,7 +1537,7 @@ func (r *run) callTool(ctx context.Context, name, tool string, args json.RawMess
 		return nil, false, "", fmt.Errorf("mcpserver: plugin %q not loaded", ref.Plugin)
 	}
 
-	setupDeps, err := r.crossScopeDeps(ctx, name)
+	setupDeps, _, err := r.crossScopeDeps(ctx, name)
 	if err != nil {
 		return nil, false, "", err
 	}
@@ -1606,6 +1655,8 @@ func (r *run) downStep(ctx context.Context, name string, deps []string, complete
 		return nil, nil //nolint:nilnil // a nil dag.Outputs is a valid empty result, not the caller ever mistaking it for "not found"
 	}
 
+	r.clearFaults(ctx, name)
+
 	step := r.steps[name]
 	ref, refErr := config.ParseStepRef(step.Uses)
 	if refErr != nil {
@@ -1622,7 +1673,7 @@ func (r *run) downStep(ctx context.Context, name string, deps []string, complete
 	for _, dep := range deps {
 		depOutputs[dep] = completed[dep]
 	}
-	setupDeps, err := r.crossScopeDeps(ctx, name)
+	setupDeps, _, err := r.crossScopeDeps(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1743,12 +1794,21 @@ func stepExports(info pluginhost.Info, name string) bool {
 	return false
 }
 
+// exportedStep is what exportCrossScopeStep resolves for one setup-scope
+// step: its Outputs (the "setup" CEL variable and cross-scope Deps use
+// this) and its Containers (UpRequest.Containers uses this) - one Export
+// call answers both.
+type exportedStep struct {
+	Outputs    dag.Outputs
+	Containers []*pb.ContainerInfo
+}
+
 // exportCrossScopeStep asks a setup-scope step's plugin how to reach what
 // it created - the same request exportStep makes against this session's
 // already-running plugin, sent with the setup step's own unrendered with
 // block, the same as exportStep. setupName is the name
 // with the "setup." prefix already stripped.
-func (r *run) exportCrossScopeStep(ctx context.Context, setupName string) (dag.Outputs, error) {
+func (r *run) exportCrossScopeStep(ctx context.Context, setupName string) (exportedStep, error) {
 	v, err, _ := r.exportGroup.Do(setupName, func() (any, error) {
 		if grp, ok := r.cfg.Groups(config.ScopeSetup)[setupName]; ok {
 			return r.doExportCrossScopeGroup(ctx, setupName, grp)
@@ -1756,61 +1816,69 @@ func (r *run) exportCrossScopeStep(ctx context.Context, setupName string) (dag.O
 		return r.doExportCrossScopeStep(ctx, setupName)
 	})
 	if err != nil {
-		return nil, err //nolint:wrapcheck // doExportCrossScopeStep already wraps its own errors; singleflight only relays them
+		return exportedStep{}, err //nolint:wrapcheck // doExportCrossScopeStep already wraps its own errors; singleflight only relays them
 	}
-	outputs, _ := v.(dag.Outputs) // this Group's Do calls only ever return dag.Outputs
-	return outputs, nil
+	exported, _ := v.(exportedStep) // this Group's Do calls only ever return exportedStep
+	return exported, nil
 }
 
 // doExportCrossScopeStep is exportCrossScopeStep's uncached call.
-func (r *run) doExportCrossScopeStep(ctx context.Context, setupName string) (dag.Outputs, error) {
+func (r *run) doExportCrossScopeStep(ctx context.Context, setupName string) (exportedStep, error) {
 	step := r.cfg.Setup[setupName]
 	ref, err := config.ParseStepRef(step.Uses)
 	if err != nil {
-		return nil, err
+		return exportedStep{}, err
 	}
 	client, ok := r.plugins[ref.Plugin]
 	if !ok {
-		return nil, fmt.Errorf("plugin %q not loaded", ref.Plugin)
+		return exportedStep{}, fmt.Errorf("plugin %q not loaded", ref.Plugin)
 	}
 	if !stepExports(r.caps[ref.Plugin], ref.Step) {
-		return nil, fmt.Errorf("setup step %q (%s) does not implement export", setupName, ref)
+		return exportedStep{}, fmt.Errorf("setup step %q (%s) does not implement export", setupName, ref)
 	}
 	with, err := expr.Render(step.With, setupName, expr.Scopes{Project: r.project})
 	if err != nil {
-		return nil, fmt.Errorf("setup step %q: %w", setupName, err)
+		return exportedStep{}, fmt.Errorf("setup step %q: %w", setupName, err)
 	}
 	resp, err := client.Export(ctx, &pb.ExportRequest{
 		Step: setupName, Type: ref.Step, Env: r.env, Config: with,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("export setup step %q: %w", setupName, err)
+		return exportedStep{}, fmt.Errorf("export setup step %q: %w", setupName, err)
 	}
-	return outputsFromProto(resp.GetOut()), nil
+	return exportedStep{Outputs: outputsFromProto(resp.GetOut()), Containers: resp.GetContainers()}, nil
 }
 
 // crossScopeDeps resolves every "setup."-prefixed entry in name's own
 // needs list via Export, keyed by the unprefixed setup-step name - the
-// shape both the "setup" CEL variable and the step's wire Deps use. A name
-// with no such entry returns (nil, nil) - the common case, most steps use
-// only same-scope needs.
-func (r *run) crossScopeDeps(ctx context.Context, name string) (map[string]dag.Outputs, error) {
+// shape both the "setup" CEL variable and the step's wire Deps use. The
+// second return value carries the same steps' Containers, for
+// UpRequest.Containers. A name with no such entry returns (nil, nil,
+// nil) - the common case, most steps use only same-scope needs.
+func (r *run) crossScopeDeps(ctx context.Context, name string) (map[string]dag.Outputs, map[string][]*pb.ContainerInfo, error) {
 	var out map[string]dag.Outputs
+	var containers map[string][]*pb.ContainerInfo
 	for _, dep := range r.steps[name].Needs {
 		setupName, ok := strings.CutPrefix(dep, setupPrefix)
 		if !ok {
 			continue // same-scope, resolved by the dag walk already.
 		}
-		vals, err := r.exportCrossScopeStep(ctx, setupName)
+		exported, err := r.exportCrossScopeStep(ctx, setupName)
 		if err != nil {
-			return nil, fmt.Errorf("%s: needs %q: %w", name, dep, err)
+			return nil, nil, fmt.Errorf("%s: needs %q: %w", name, dep, err)
 		}
 		if out == nil {
 			out = make(map[string]dag.Outputs)
 		}
-		out[setupName] = vals
+		out[setupName] = exported.Outputs
+		if len(exported.Containers) > 0 {
+			if containers == nil {
+				containers = make(map[string][]*pb.ContainerInfo)
+			}
+			containers[setupName] = exported.Containers
+		}
 	}
-	return out, nil
+	return out, containers, nil
 }
 
 // sameScopeDeps builds name's same-scope deps map from already-completed
@@ -1849,6 +1917,62 @@ func depsWithSetup(deps, setupDeps map[string]dag.Outputs) map[string]dag.Output
 	maps.Copy(out, deps)
 	for name, vals := range setupDeps {
 		out[setupPrefix+name] = vals
+	}
+	return out
+}
+
+// recordFaults replaces name's entry in appliedFaults with ids - a
+// rerun's new Up fully supersedes what an earlier Up recorded, mirroring
+// how ApplyFault itself replaces rather than stacks.
+func (r *run) recordFaults(name string, ids []string) {
+	r.faultsMu.Lock()
+	defer r.faultsMu.Unlock()
+	if len(ids) == 0 {
+		delete(r.appliedFaults, name)
+		return
+	}
+	if r.appliedFaults == nil {
+		r.appliedFaults = make(map[string][]string)
+	}
+	r.appliedFaults[name] = ids
+}
+
+// clearFaults removes every fault name's last Up applied, regardless of
+// whether name's own plugin implements Downer at all - a netem qdisc is
+// relay-side state a plugin process has no way to reach directly (see
+// wireRelay), so this must run engine-side, unconditionally, on the way
+// down. Does nothing for a step that never applied one. A ClearFault
+// failure (a namespace that's already gone, e.g. its container step was
+// torn down first) is logged, not fatal - the fault is moot either way.
+func (r *run) clearFaults(ctx context.Context, name string) {
+	r.faultsMu.Lock()
+	ids := r.appliedFaults[name]
+	delete(r.appliedFaults, name)
+	r.faultsMu.Unlock()
+
+	for _, id := range ids {
+		if err := r.relay.ClearFault(ctx, id); err != nil {
+			r.emit(name, "warning: clear fault: "+err.Error())
+		}
+	}
+}
+
+// stepContainersFor builds the UpRequest.Containers a step's own needs
+// resolve to: deps' keys name its same-scope needs, looked up in
+// r.completedContainers; setupContainers is what crossScopeDeps already
+// resolved for its "setup."-prefixed ones, reattaching that prefix here -
+// the same shape depsWithSetup gives the wire Deps field. A needs entry
+// that reported no containers (most step types) contributes no entry, not
+// an empty one.
+func (r *run) stepContainersFor(deps map[string]dag.Outputs, setupContainers map[string][]*pb.ContainerInfo) []*pb.StepContainers {
+	var out []*pb.StepContainers
+	for name := range deps {
+		if containers := r.completedContainersFor(name); len(containers) > 0 {
+			out = append(out, &pb.StepContainers{Step: name, Containers: containers})
+		}
+	}
+	for name, containers := range setupContainers {
+		out = append(out, &pb.StepContainers{Step: setupPrefix + name, Containers: containers})
 	}
 	return out
 }

@@ -155,7 +155,7 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 		relayAddress = relayAddr(relayHostPort)
 	}
 
-	exposedPorts, captureTargets, err := finishClusterSetup(ctx, rt, cfg, req, name, nodeList, relayAddress, useRelay, out)
+	exposedPorts, containers, err := finishClusterSetup(ctx, rt, cfg, req, name, nodeList, relayAddress, useRelay, out)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +175,7 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 		Outputs:      plugin.StringMap(outputs),
 		EgressAllow:  cfg.Egress,
 		Details:      exposedPortDetails(exposedPorts),
-		NetnsTargets: captureTargets,
+		Containers:   containers,
 	}, nil
 }
 
@@ -330,7 +330,7 @@ func proxyEnv(cfg config, env plugin.Env) map[string]string {
 // finishClusterSetup installs the trust CA, patches CoreDNS, registers
 // egress capture, and finishes the relay, each only when the config wants
 // it.
-func finishClusterSetup(ctx context.Context, rt cri.Runtime, cfg config, req *plugin.UpRequest, name string, nodeList []string, relayAddress string, useRelay bool, out plugin.Emitter) ([]plugin.ExposedPort, []plugin.NetnsTarget, error) {
+func finishClusterSetup(ctx context.Context, rt cri.Runtime, cfg config, req *plugin.UpRequest, name string, nodeList []string, relayAddress string, useRelay bool, out plugin.Emitter) ([]plugin.ExposedPort, []plugin.ContainerInfo, error) {
 	// The proxy intercepts TLS for a pull. A node trusts the kevin root
 	// certificate, so the pull verifies.
 	if wantsTrustCA(cfg, req.Env) {
@@ -347,22 +347,22 @@ func finishClusterSetup(ctx context.Context, rt cri.Runtime, cfg config, req *pl
 		}
 	}
 
-	var targets []plugin.NetnsTarget
+	var containers []plugin.ContainerInfo
 	if wantsCapture(req.Env) {
 		var err error
-		if targets, err = netnsTargets(ctx, rt, req.Step, nodeList, out); err != nil {
+		if containers, err = nodeContainers(ctx, rt, nodeList, out); err != nil {
 			return nil, nil, err
 		}
 	}
 
 	if !useRelay {
-		return nil, targets, nil
+		return nil, containers, nil
 	}
 	exposedPorts, err := finishRelay(ctx, rt, cfg, name, nodeList, relayAddress, req.Env, out)
 	if err != nil {
 		return nil, nil, err
 	}
-	return exposedPorts, targets, nil
+	return exposedPorts, containers, nil
 }
 
 // clusterOutputs builds the values that Up publishes for dependent steps.
@@ -412,7 +412,15 @@ func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitte
 // back from relayAddrFile) for this cluster. It touches neither Docker nor
 // Kubernetes, so it can't report nodes, and fails only when the cluster
 // has never come up.
-func (Step) Export(_ context.Context, req *plugin.ExportRequest) (*plugin.ExportResult, error) {
+// Export reads what Up already wrote to the workspace (kubeconfig,
+// relay_addr) with no live docker/kubectl calls, except for Containers:
+// reporting each node's current container identity needs a live GetNodes
+// and Inspect (via nodeContainers, the same helper Up uses) - the one
+// piece Export can't answer from a static file. A discovery failure fails
+// open (nil Containers, no error), same as Up: a cross-scope
+// builtin:fault target simply finds nothing to resolve against, rather
+// than an unrelated "${setup.<name>.out...}" reference failing over it.
+func (Step) Export(ctx context.Context, req *plugin.ExportRequest) (*plugin.ExportResult, error) {
 	cfg, err := decode(req.Config)
 	if err != nil {
 		return nil, err
@@ -420,8 +428,8 @@ func (Step) Export(_ context.Context, req *plugin.ExportRequest) (*plugin.Export
 
 	name := clusterName(cfg, req.Env.Project, req.Step)
 	kubeconfig := filepath.Join(req.Env.Workspace, "kubeconfig", name)
-	if _, err := os.Stat(kubeconfig); err != nil {
-		return nil, fmt.Errorf("kind: cluster %q has no kubeconfig yet, run `kevin run` or `kevin setup` first: %w", name, err)
+	if _, statErr := os.Stat(kubeconfig); statErr != nil {
+		return nil, fmt.Errorf("kind: cluster %q has no kubeconfig yet, run `kevin run` or `kevin setup` first: %w", name, statErr)
 	}
 
 	out := map[string]string{
@@ -429,15 +437,41 @@ func (Step) Export(_ context.Context, req *plugin.ExportRequest) (*plugin.Export
 		"kubeconfig": kubeconfig,
 		"context":    "kind-" + name,
 	}
-	if relayAddress, err := os.ReadFile(relayAddrFile(kubeconfig)); err == nil {
+	if relayAddress, readErr := os.ReadFile(relayAddrFile(kubeconfig)); readErr == nil {
 		out["relay_addr"] = string(relayAddress)
-	} else if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("kind: read the relay address for %q: %w", name, err)
+	} else if !os.IsNotExist(readErr) {
+		return nil, fmt.Errorf("kind: read the relay address for %q: %w", name, readErr)
+	}
+
+	containers, err := exportContainers(ctx, req, name)
+	if err != nil {
+		return nil, err
 	}
 
 	return &plugin.ExportResult{
-		Out: plugin.StringMap(out),
+		Out:        plugin.StringMap(out),
+		Containers: containers,
 	}, nil
+}
+
+// exportContainers reports the cluster's current per-node containers for
+// Export - nil, with no error, when the nodes can't be listed at all (the
+// cluster has been torn down since Up, or the engine is unreachable),
+// matching Up's own fail-open handling of a live-inspect problem it
+// can't resolve.
+func exportContainers(ctx context.Context, req *plugin.ExportRequest, name string) ([]plugin.ContainerInfo, error) {
+	rt, err := engines.New(req.Env.Engine, req.Env.EngineConfig)
+	if err != nil {
+		return nil, nil //nolint:nilerr // an unusable engine is nothing Export can report containers against
+	}
+	nodeList, err := kindcmd.GetNodes(ctx, name, providerEnv(req.Env))
+	if err != nil || len(nodeList) == 0 {
+		// The cluster may be gone since Up - kind reports that as an empty
+		// node list, not an error. Export still reports Out from the
+		// workspace files either way.
+		return nil, nil //nolint:nilerr // see comment above
+	}
+	return nodeContainers(ctx, rt, nodeList, nil)
 }
 
 // clusterName builds the name of the cluster. kind prefixes every container

@@ -21,6 +21,8 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	RelayControl_RegisterCapture_FullMethodName = "/kevin.relay.v1.RelayControl/RegisterCapture"
 	RelayControl_EnsureListener_FullMethodName  = "/kevin.relay.v1.RelayControl/EnsureListener"
+	RelayControl_ApplyFault_FullMethodName      = "/kevin.relay.v1.RelayControl/ApplyFault"
+	RelayControl_ClearFault_FullMethodName      = "/kevin.relay.v1.RelayControl/ClearFault"
 )
 
 // RelayControlClient is the client API for RelayControl service.
@@ -51,6 +53,21 @@ type RelayControlClient interface {
 	// already registered - so a route declared after some containers already
 	// exist still reaches them.
 	EnsureListener(ctx context.Context, in *EnsureListenerRequest, opts ...grpc.CallOption) (*EnsureListenerResponse, error)
+	// ApplyFault installs a netem qdisc on interface, inside the network
+	// namespace at netns_path, that delays, drops, corrupts, duplicates,
+	// and/or reorders packets on it, all at once, in a single qdisc. Re-applying
+	// with the same id replaces the qdisc's parameters rather than stacking
+	// a second one - unlike RegisterCapture, a fault is not implicitly moot
+	// when a step goes away, since the namespace it targets usually belongs
+	// to a different, still-running step. A caller must call ClearFault
+	// explicitly to remove it.
+	ApplyFault(ctx context.Context, in *ApplyFaultRequest, opts ...grpc.CallOption) (*ApplyFaultResponse, error)
+	// ClearFault removes the netem qdisc that an earlier ApplyFault with the
+	// same id installed, restoring the interface's default qdisc. A no-op,
+	// not an error, when id names no currently-applied fault - a step's
+	// teardown always calls this, whether or not its last Up ever applied
+	// one.
+	ClearFault(ctx context.Context, in *ClearFaultRequest, opts ...grpc.CallOption) (*ClearFaultResponse, error)
 }
 
 type relayControlClient struct {
@@ -75,6 +92,26 @@ func (c *relayControlClient) EnsureListener(ctx context.Context, in *EnsureListe
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EnsureListenerResponse)
 	err := c.cc.Invoke(ctx, RelayControl_EnsureListener_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *relayControlClient) ApplyFault(ctx context.Context, in *ApplyFaultRequest, opts ...grpc.CallOption) (*ApplyFaultResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApplyFaultResponse)
+	err := c.cc.Invoke(ctx, RelayControl_ApplyFault_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *relayControlClient) ClearFault(ctx context.Context, in *ClearFaultRequest, opts ...grpc.CallOption) (*ClearFaultResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClearFaultResponse)
+	err := c.cc.Invoke(ctx, RelayControl_ClearFault_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +146,21 @@ type RelayControlServer interface {
 	// already registered - so a route declared after some containers already
 	// exist still reaches them.
 	EnsureListener(context.Context, *EnsureListenerRequest) (*EnsureListenerResponse, error)
+	// ApplyFault installs a netem qdisc on interface, inside the network
+	// namespace at netns_path, that delays, drops, corrupts, duplicates,
+	// and/or reorders packets on it, all at once, in a single qdisc. Re-applying
+	// with the same id replaces the qdisc's parameters rather than stacking
+	// a second one - unlike RegisterCapture, a fault is not implicitly moot
+	// when a step goes away, since the namespace it targets usually belongs
+	// to a different, still-running step. A caller must call ClearFault
+	// explicitly to remove it.
+	ApplyFault(context.Context, *ApplyFaultRequest) (*ApplyFaultResponse, error)
+	// ClearFault removes the netem qdisc that an earlier ApplyFault with the
+	// same id installed, restoring the interface's default qdisc. A no-op,
+	// not an error, when id names no currently-applied fault - a step's
+	// teardown always calls this, whether or not its last Up ever applied
+	// one.
+	ClearFault(context.Context, *ClearFaultRequest) (*ClearFaultResponse, error)
 }
 
 // UnimplementedRelayControlServer should be embedded to have
@@ -123,6 +175,12 @@ func (UnimplementedRelayControlServer) RegisterCapture(context.Context, *Registe
 }
 func (UnimplementedRelayControlServer) EnsureListener(context.Context, *EnsureListenerRequest) (*EnsureListenerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method EnsureListener not implemented")
+}
+func (UnimplementedRelayControlServer) ApplyFault(context.Context, *ApplyFaultRequest) (*ApplyFaultResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ApplyFault not implemented")
+}
+func (UnimplementedRelayControlServer) ClearFault(context.Context, *ClearFaultRequest) (*ClearFaultResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ClearFault not implemented")
 }
 func (UnimplementedRelayControlServer) testEmbeddedByValue() {}
 
@@ -180,6 +238,42 @@ func _RelayControl_EnsureListener_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RelayControl_ApplyFault_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyFaultRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelayControlServer).ApplyFault(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelayControl_ApplyFault_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelayControlServer).ApplyFault(ctx, req.(*ApplyFaultRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RelayControl_ClearFault_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ClearFaultRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelayControlServer).ClearFault(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelayControl_ClearFault_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelayControlServer).ClearFault(ctx, req.(*ClearFaultRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RelayControl_ServiceDesc is the grpc.ServiceDesc for RelayControl service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -194,6 +288,14 @@ var RelayControl_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "EnsureListener",
 			Handler:    _RelayControl_EnsureListener_Handler,
+		},
+		{
+			MethodName: "ApplyFault",
+			Handler:    _RelayControl_ApplyFault_Handler,
+		},
+		{
+			MethodName: "ClearFault",
+			Handler:    _RelayControl_ClearFault_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

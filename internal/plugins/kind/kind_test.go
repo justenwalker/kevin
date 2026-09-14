@@ -333,6 +333,27 @@ func TestDownIsIdempotent(t *testing.T) {
 	assert.Contains(t, strings.Join(out.stdout, "\n"), "removing cluster kevin-kind-absent-cluster")
 }
 
+func TestExportContainers(t *testing.T) {
+	t.Run("an unsupported engine fails open", func(t *testing.T) {
+		containers, err := exportContainers(t.Context(), &plugin.ExportRequest{
+			Env: plugin.Env{Engine: "bogus"},
+		}, "kevin-kind-absent-cluster")
+		require.NoError(t, err)
+		assert.Nil(t, containers)
+	})
+
+	t.Run("a cluster that no longer exists fails open", func(t *testing.T) {
+		requireDocker(t)
+		requireKind(t)
+
+		containers, err := exportContainers(t.Context(), &plugin.ExportRequest{
+			Env: plugin.Env{},
+		}, "kevin-kind-absent-cluster")
+		require.NoError(t, err)
+		assert.Nil(t, containers)
+	})
+}
+
 func TestReadRelayPort(t *testing.T) {
 	t.Run("no relay address file yet", func(t *testing.T) {
 		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
