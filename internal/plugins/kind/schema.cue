@@ -7,14 +7,27 @@
 	// own default when this is empty.
 	image?: string
 
+	// control_plane passes additional per-node kind config through to the
+	// control-plane node's generated entry - image, extraMounts,
+	// extraPortMappings, kubeadmConfigPatches, and so on, using kind's own
+	// field names directly:
+	// https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options
+	// Merged with what kevin itself generates for this node, not replacing
+	// it: labels combine (a "kevin.node" key here is rejected - Up manages
+	// that one itself), extraPortMappings combine (the relay's own mapping,
+	// when one exists, stays alongside yours), and role may not be set at
+	// all - it's structural, not configurable.
+	control_plane?: #NodeConfig
+
 	// workers names each worker node to create, on top of the one control
 	// plane node - the map key is the node's own name, applied as a
 	// Kubernetes node label ("kevin.node") so a dependent step (such as
 	// builtin:fault) can address it by that name directly, instead of
-	// kind's own "<cluster>-workerN" container naming. A map, not a list,
-	// for the same reason expose is: one entry can be added or changed
-	// without replacing the whole set.
-	workers?: [string]: {}
+	// kind's own "<cluster>-workerN" container naming. Each entry also
+	// passes through additional per-node config the same way control_plane
+	// does. A map, not a list, for the same reason expose is: one entry can
+	// be added or changed without replacing the whole set.
+	workers?: [string]: #NodeConfig
 
 	// config is a kind cluster configuration in YAML. It replaces the
 	// generated one, thus workers is ignored when this is set.
@@ -61,23 +74,13 @@
 	// a subdomain into the cluster with builtin:route, without also
 	// needing an expose entry.
 	relay?: bool | *false
-
-	// extra_mounts bind-mounts a host directory into the control-plane
-	// node, such as a live source tree for a workload that expects one -
-	// merged into the generated cluster config, so relay and expose still
-	// work. Ignored when config is set: write mounts into your own raw
-	// config instead.
-	extra_mounts?: [...#ExtraMount]
 }
 
-#ExtraMount: {
-	// host_path is the directory on the host to mount. A relative path
-	// resolves against the project directory.
-	host_path!: string
-
-	// container_path is where it lands inside the node.
-	container_path!: string
-}
+// #NodeConfig is an open passthrough for one node's kind config -
+// control_plane's and each workers entry's value type. kevin doesn't chase
+// every kind Node field it might want to expose, the same trade #Config's
+// own config field already makes for the whole cluster.
+#NodeConfig: {...}
 
 #Expose: {
 	// address is the in-cluster host:port to reach, such as

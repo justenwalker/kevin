@@ -25,3 +25,14 @@ const ErrNoControlPlaneNode = Error("kind: no control-plane node found")
 // podSubnet or serviceSubnet - capture cannot safely exclude cluster-internal
 // traffic without both.
 const ErrNoClusterCIDRs = Error("kind: the cluster reports no pod or service subnet")
+
+// ErrReservedNodeField reports that a control_plane or workers passthrough
+// entry set a per-node kind config field kevin manages itself - "role", or
+// the "kevin.node" label.
+const ErrReservedNodeField = Error("kind: a node config passthrough may not set a field kevin manages")
+
+// ErrInvalidNodeField reports that a control_plane or workers passthrough
+// entry set a field kevin itself also populates - "labels" or
+// "extraPortMappings" - to a value shaped unlike what kind itself expects
+// there, so kevin cannot merge its own contribution into it.
+const ErrInvalidNodeField = Error("kind: a node config passthrough field has the wrong shape")

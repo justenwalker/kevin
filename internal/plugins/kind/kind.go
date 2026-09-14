@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/engines"
 	"github.com/justenwalker/kevin/internal/kindcmd"
@@ -77,27 +79,19 @@ func mergeEnv(a, b map[string]string) map[string]string {
 
 // config is the decoded with block of one step.
 type config struct {
-	Name        string                `json:"name"`
-	Image       string                `json:"image"`
-	Workers     map[string]struct{}   `json:"workers"`
-	Config      string                `json:"config"`
-	Wait        string                `json:"wait"`
-	Retain      bool                  `json:"retain"`
-	Proxy       bool                  `json:"proxy"`
-	Egress      []string              `json:"egress"`
-	CoreDNS     bool                  `json:"coredns"`
-	TrustCA     bool                  `json:"trust_ca"`
-	Expose      map[string]kindExpose `json:"expose"`
-	Relay       bool                  `json:"relay"`
-	ExtraMounts []kindExtraMount      `json:"extra_mounts"`
-}
-
-// kindExtraMount is one entry of the with block's extra_mounts list: a host
-// directory bind-mounted into the control-plane node, generated config
-// only - ignored the same way workers is when config is set.
-type kindExtraMount struct {
-	HostPath      string `json:"host_path"`
-	ContainerPath string `json:"container_path"`
+	Name         string                    `json:"name"`
+	Image        string                    `json:"image"`
+	ControlPlane map[string]any            `json:"control_plane"`
+	Workers      map[string]map[string]any `json:"workers"`
+	Config       string                    `json:"config"`
+	Wait         string                    `json:"wait"`
+	Retain       bool                      `json:"retain"`
+	Proxy        bool                      `json:"proxy"`
+	Egress       []string                  `json:"egress"`
+	CoreDNS      bool                      `json:"coredns"`
+	TrustCA      bool                      `json:"trust_ca"`
+	Expose       map[string]kindExpose     `json:"expose"`
+	Relay        bool                      `json:"relay"`
 }
 
 // kindExpose is one entry of the with block's expose map: an in-cluster
@@ -135,8 +129,9 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 	if err != nil {
 		return nil, err
 	}
-	for i := range cfg.ExtraMounts {
-		cfg.ExtraMounts[i].HostPath = resolvePath(cfg.ExtraMounts[i].HostPath, req.Env.ProjectDir)
+	resolveMountPaths(cfg.ControlPlane, req.Env.ProjectDir)
+	for _, w := range cfg.Workers {
+		resolveMountPaths(w, req.Env.ProjectDir)
 	}
 
 	wait, err := time.ParseDuration(cfg.Wait)
@@ -201,6 +196,28 @@ func resolvePath(path, projectDir string) string {
 	return filepath.Join(projectDir, path)
 }
 
+// resolveMountPaths rewrites node["extraMounts"][*]["hostPath"] entries that
+// are relative, against projectDir - a no-op when node has no extraMounts
+// key, when an entry isn't shaped like a mount, or when a path is already
+// absolute.
+func resolveMountPaths(node map[string]any, projectDir string) {
+	mounts, ok := node["extraMounts"].([]any)
+	if !ok {
+		return
+	}
+	for _, m := range mounts {
+		mount, ok := m.(map[string]any)
+		if !ok {
+			continue
+		}
+		hostPath, ok := mount["hostPath"].(string)
+		if !ok {
+			continue
+		}
+		mount["hostPath"] = resolvePath(hostPath, projectDir)
+	}
+}
+
 // configMarkerFile is where reuseOrCreateCluster persists the kind config
 // text it last created name with, alongside kubeconfig - the fingerprint
 // clusterMatches compares against to decide whether a persistent cluster
@@ -256,7 +273,10 @@ func reuseOrCreateCluster(ctx context.Context, cfg config, req *plugin.UpRequest
 		// A cluster created against one proxy address must not be reused
 		// against another - kind bakes the proxy env into containerd once,
 		// at creation, and nothing updates it afterward.
-		wantConfig := reuseFingerprint(cfg, relayHostPort, proxyEnv(cfg, req.Env))
+		wantConfig, fingerprintErr := reuseFingerprint(cfg, relayHostPort, proxyEnv(cfg, req.Env))
+		if fingerprintErr != nil {
+			return nil, 0, fingerprintErr
+		}
 		if marker, readErr := os.ReadFile(configMarkerFile(kubeconfig)); readErr == nil && string(marker) == wantConfig {
 			out.Log("stdout", fmt.Sprintf("reusing cluster %s with %d node(s)", name, len(existingNodes)))
 			return existingNodes, relayHostPort, nil
@@ -272,7 +292,11 @@ func reuseOrCreateCluster(ctx context.Context, cfg config, req *plugin.UpRequest
 	if err != nil {
 		return nil, 0, err
 	}
-	if err = os.WriteFile(configMarkerFile(kubeconfig), []byte(reuseFingerprint(cfg, relayHostPort, proxyEnv(cfg, req.Env))), 0o600); err != nil {
+	marker, err := reuseFingerprint(cfg, relayHostPort, proxyEnv(cfg, req.Env))
+	if err != nil {
+		return nil, 0, err
+	}
+	if err = os.WriteFile(configMarkerFile(kubeconfig), []byte(marker), 0o600); err != nil {
 		return nil, 0, fmt.Errorf("kind: write the cluster config marker for %q: %w", name, err)
 	}
 	return nodeList, relayHostPort, nil
@@ -280,8 +304,12 @@ func reuseOrCreateCluster(ctx context.Context, cfg config, req *plugin.UpRequest
 
 // reuseFingerprint reports the generated kind config plus the resolved
 // proxy endpoint, as a single comparable string.
-func reuseFingerprint(cfg config, relayHostPort int, proxy map[string]string) string {
-	return clusterConfig(cfg, relayHostPort) + "\n# proxy=" + proxy["HTTP_PROXY"]
+func reuseFingerprint(cfg config, relayHostPort int, proxy map[string]string) (string, error) {
+	generated, err := clusterConfig(cfg, relayHostPort)
+	if err != nil {
+		return "", err
+	}
+	return generated + "\n# proxy=" + proxy["HTTP_PROXY"], nil
 }
 
 // createCluster removes a stale cluster of the same name, then creates a
@@ -300,18 +328,23 @@ func createCluster(ctx context.Context, cfg config, req *plugin.UpRequest, name,
 	out.Log("stdout", "creating cluster "+name)
 	out.Progress("creating "+name, 0, 0)
 
+	generatedConfig, err := clusterConfig(cfg, relayHostPort)
+	if err != nil {
+		return nil, err
+	}
+
 	env := mergeEnv(proxyEnv(cfg, req.Env), provider)
 	env = mergeEnv(env, map[string]string{kindNetworkEnvVar: req.Env.Network})
 	spec := kindcmd.CreateSpec{
 		Name:       name,
 		Kubeconfig: kubeconfig,
-		Config:     clusterConfig(cfg, relayHostPort),
+		Config:     generatedConfig,
 		Wait:       wait,
 		Retain:     cfg.Retain,
 		Image:      cfg.Image,
 		Env:        env,
 	}
-	if err := kindcmd.Create(ctx, spec, plugin.NewLineWriter(out, "stdout"), plugin.NewLineWriter(out, "stderr")); err != nil {
+	if err = kindcmd.Create(ctx, spec, plugin.NewLineWriter(out, "stdout"), plugin.NewLineWriter(out, "stderr")); err != nil {
 		return nil, fmt.Errorf("kind: create the cluster %q: %w", name, err)
 	}
 
@@ -494,6 +527,58 @@ func clusterName(cfg config, project, step string) string {
 	return project + "-" + step
 }
 
+// buildNode merges passthrough (a control_plane or workers entry, or nil)
+// with kevin's own required fields for one node: role always wins over
+// passthrough (ErrReservedNodeField if passthrough sets it - it's
+// structural, not configurable); labels combine, with nodeLabelKey reserved
+// the same way (ErrReservedNodeField if passthrough's own labels sets it);
+// extraPortMappings combine by concatenation, kevin's own entries first;
+// every other passthrough key copies through unchanged.
+func buildNode(role string, kevinLabels map[string]string, kevinPortMappings []map[string]any, passthrough map[string]any) (map[string]any, error) {
+	if _, ok := passthrough["role"]; ok {
+		return nil, fmt.Errorf("kind: node config: %w: %q", ErrReservedNodeField, "role")
+	}
+
+	node := make(map[string]any, len(passthrough)+2)
+	maps.Copy(node, passthrough)
+	node["role"] = role
+
+	labels := make(map[string]any, len(kevinLabels))
+	for k, v := range kevinLabels {
+		labels[k] = v
+	}
+	if raw, ok := passthrough["labels"]; ok {
+		userLabels, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("kind: node config: labels: %w", ErrInvalidNodeField)
+		}
+		for k, v := range userLabels {
+			if k == nodeLabelKey {
+				return nil, fmt.Errorf("kind: node config: labels: %w: %q", ErrReservedNodeField, nodeLabelKey)
+			}
+			labels[k] = v
+		}
+	}
+	node["labels"] = labels
+
+	if len(kevinPortMappings) > 0 {
+		merged := make([]any, 0, len(kevinPortMappings))
+		for _, m := range kevinPortMappings {
+			merged = append(merged, m)
+		}
+		if raw, ok := passthrough["extraPortMappings"]; ok {
+			userMappings, ok := raw.([]any)
+			if !ok {
+				return nil, fmt.Errorf("kind: node config: extraPortMappings: %w", ErrInvalidNodeField)
+			}
+			merged = append(merged, userMappings...)
+		}
+		node["extraPortMappings"] = merged
+	}
+
+	return node, nil
+}
+
 // clusterConfig returns the kind configuration for a step. An explicit
 // config wins over the generated one, thus a hand-written config is on its
 // own for extraPortMappings too, the same as it already is for workers.
@@ -503,30 +588,46 @@ func clusterName(cfg config, project, step string) string {
 // cluster comes up. It must be baked in here, before creation - unlike a
 // container's port publish, kind's node port mappings are fixed at cluster
 // creation and cannot be added later.
-func clusterConfig(cfg config, relayHostPort int) string {
+func clusterConfig(cfg config, relayHostPort int) (string, error) {
 	if strings.TrimSpace(cfg.Config) != "" {
-		return cfg.Config
+		return cfg.Config, nil
 	}
 
-	var b strings.Builder
-	b.WriteString("kind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nnodes:\n")
-	b.WriteString("- role: control-plane\n")
-	fmt.Fprintf(&b, "  labels:\n    %s: %s\n", nodeLabelKey, controlPlaneNodeName)
+	var relayPorts []map[string]any
 	if relayHostPort > 0 {
-		fmt.Fprintf(&b, "  extraPortMappings:\n  - containerPort: %d\n    hostPort: %d\n    listenAddress: \"127.0.0.1\"\n    protocol: TCP\n",
-			relayNodePort, relayHostPort)
+		relayPorts = []map[string]any{{
+			"containerPort": relayNodePort,
+			"hostPort":      relayHostPort,
+			"listenAddress": "127.0.0.1",
+			"protocol":      "TCP",
+		}}
 	}
-	if len(cfg.ExtraMounts) > 0 {
-		b.WriteString("  extraMounts:\n")
-		for _, m := range cfg.ExtraMounts {
-			fmt.Fprintf(&b, "  - hostPath: %s\n    containerPath: %s\n",
-				strconv.Quote(m.HostPath), strconv.Quote(m.ContainerPath))
-		}
+
+	controlPlane, err := buildNode("control-plane", map[string]string{nodeLabelKey: controlPlaneNodeName}, relayPorts, cfg.ControlPlane)
+	if err != nil {
+		return "", err
 	}
+	nodes := []map[string]any{controlPlane}
+
 	for _, name := range slices.Sorted(maps.Keys(cfg.Workers)) {
-		fmt.Fprintf(&b, "- role: worker\n  labels:\n    %s: %s\n", nodeLabelKey, name)
+		var worker map[string]any
+		worker, err = buildNode("worker", map[string]string{nodeLabelKey: name}, nil, cfg.Workers[name])
+		if err != nil {
+			return "", err
+		}
+		nodes = append(nodes, worker)
 	}
-	return b.String()
+
+	doc := map[string]any{
+		"kind":       "Cluster",
+		"apiVersion": "kind.x-k8s.io/v1alpha4",
+		"nodes":      nodes,
+	}
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return "", fmt.Errorf("kind: marshal the cluster config: %w", err)
+	}
+	return string(out), nil
 }
 
 // wantsCoreDNSPatch reports whether Up must patch the cluster DNS. A relay
