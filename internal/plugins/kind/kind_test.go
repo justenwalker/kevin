@@ -51,7 +51,7 @@ func TestDecode(t *testing.T) {
 		assert.True(t, cfg.Proxy)
 		assert.True(t, cfg.CoreDNS, "a pod resolves a step unless a step opts out")
 		assert.True(t, cfg.TrustCA, "a pull through the proxy must verify unless a step opts out")
-		assert.Equal(t, 0, cfg.Workers, "one control plane node is enough by default")
+		assert.Empty(t, cfg.Workers, "one control plane node is enough by default")
 	})
 
 	t.Run("reports broken JSON", func(t *testing.T) {
@@ -78,6 +78,13 @@ func TestDecode(t *testing.T) {
 
 		require.Len(t, cfg.Expose, 1)
 		assert.Equal(t, kindExpose{Address: "postgres.default.svc:5432", HostPort: 15432}, cfg.Expose["postgres"])
+	})
+
+	t.Run("reads workers", func(t *testing.T) {
+		cfg, err := decode([]byte(`{"workers":{"worker_a":{},"worker_b":{}}}`))
+		require.NoError(t, err)
+
+		assert.Equal(t, map[string]struct{}{"worker_a": {}, "worker_b": {}}, cfg.Workers)
 	})
 }
 
@@ -166,12 +173,12 @@ func TestClusterConfig(t *testing.T) {
 	t.Run("counts the nodes", func(t *testing.T) {
 		tests := []struct {
 			name    string
-			workers int
+			workers map[string]struct{}
 			want    int
 		}{
-			{name: "control plane only", workers: 0, want: 1},
-			{name: "one worker", workers: 1, want: 2},
-			{name: "three workers", workers: 3, want: 4},
+			{name: "control plane only", workers: nil, want: 1},
+			{name: "one worker", workers: map[string]struct{}{"worker": {}}, want: 2},
+			{name: "three workers", workers: map[string]struct{}{"a": {}, "b": {}, "c": {}}, want: 4},
 		}
 
 		for _, tt := range tests {
@@ -180,16 +187,24 @@ func TestClusterConfig(t *testing.T) {
 
 				assert.Contains(t, got, "apiVersion: kind.x-k8s.io/v1alpha4")
 				assert.Equal(t, 1, strings.Count(got, "role: control-plane"))
-				assert.Equal(t, tt.workers, strings.Count(got, "role: worker"))
+				assert.Equal(t, len(tt.workers), strings.Count(got, "role: worker"))
 				assert.Equal(t, tt.want, strings.Count(got, "- role:"))
 			})
 		}
 	})
 
+	t.Run("labels the control plane and each worker by name", func(t *testing.T) {
+		got := clusterConfig(config{Workers: map[string]struct{}{"worker_a": {}, "worker_b": {}}}, 0)
+
+		assert.Contains(t, got, "kevin.node: control-plane")
+		assert.Contains(t, got, "kevin.node: worker_a")
+		assert.Contains(t, got, "kevin.node: worker_b")
+	})
+
 	t.Run("prefers an explicit config", func(t *testing.T) {
 		raw := "kind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nnetworking:\n  apiServerPort: 6443\n"
 
-		got := clusterConfig(config{Config: raw, Workers: 5}, 0)
+		got := clusterConfig(config{Config: raw, Workers: map[string]struct{}{"a": {}, "b": {}}}, 0)
 
 		assert.Equal(t, raw, got)
 		assert.NotContains(t, got, "role: worker", "workers is ignored when config is set")
@@ -234,7 +249,7 @@ func TestClusterConfig(t *testing.T) {
 }
 
 func TestReuseFingerprint(t *testing.T) {
-	cfg := config{Workers: 1}
+	cfg := config{Workers: map[string]struct{}{"worker": {}}}
 
 	t.Run("no proxy env yields the same fingerprint regardless of the map", func(t *testing.T) {
 		without := reuseFingerprint(cfg, 0, nil)

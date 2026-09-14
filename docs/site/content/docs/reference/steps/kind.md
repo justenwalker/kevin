@@ -14,17 +14,23 @@ using the host `kind` binary.
 cluster: {
     uses: "builtin:kind"
     with: {
-        workers: 1
+        workers: worker_a: {}
         egress: ["docker.io", "*.docker.io", "*.docker.com"]
     }
 }
 ```
 
+Each key of `workers` names a node - applied as a `kevin.node` Kubernetes
+node label, so a dependent step can address it by that name directly
+(see [`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}})),
+instead of kind's own `"<cluster>-workerN"` container naming. The
+control-plane node always gets the fixed label `kevin.node: control-plane`.
+
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
 | `name` | `string` | - | The cluster name. It defaults to the step name, prefixed with the project. |
 | `image` | `string` | - | The node image, such as `"kindest/node:v1.34.0"`. kind picks its own default when this is empty. |
-| `workers` | `int` | `0` | How many worker nodes to create, on top of the one control plane node. |
+| `workers` | `[string]: {}` | - | Names each worker node to create, on top of the one control plane node - the map key is the node's own name, applied as a Kubernetes node label (`"kevin.node"`) so a dependent step (such as builtin:fault) can address it by that name directly, instead of kind's own `"<cluster>-workerN"` container naming. A map, not a list, for the same reason expose is: one entry can be added or changed without replacing the whole set. |
 | `config` | `string` | - | A kind cluster configuration in YAML. It replaces the generated one, thus workers is ignored when this is set. |
 | `wait` | `string` | `"5m"` | How long to wait for the control plane to become ready. The value is a Go duration. |
 | `retain` | `bool` | - | Keeps the nodes when creation fails, so that the logs of a broken cluster survive. |

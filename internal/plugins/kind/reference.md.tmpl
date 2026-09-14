@@ -14,11 +14,17 @@ using the host `kind` binary.
 cluster: {
     uses: "builtin:kind"
     with: {
-        workers: 1
+        workers: worker_a: {}
         egress: ["docker.io", "*.docker.io", "*.docker.com"]
     }
 }
 ```
+
+Each key of `workers` names a node - applied as a `kevin.node` Kubernetes
+node label, so a dependent step can address it by that name directly
+(see [`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}})),
+instead of kind's own `"<cluster>-workerN"` container naming. The
+control-plane node always gets the fixed label `kevin.node: control-plane`.
 
 [[template "table" .Definitions.Config]]
 

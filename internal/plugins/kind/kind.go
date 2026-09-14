@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +37,16 @@ const kindProviderEnvVar = "KIND_EXPERIMENTAL_PROVIDER"
 // network - pointed at the project's shared network, so a node never touches
 // a network shared with another project's nodes.
 const kindNetworkEnvVar = "KIND_EXPERIMENTAL_DOCKER_NETWORK"
+
+// nodeLabelKey is the Kubernetes node label kevin applies to every node -
+// the control-plane node gets controlPlaneNodeName, a worker node gets its
+// own key from with.workers. nodeNames (capture.go) reads it back.
+const nodeLabelKey = cri.LabelPrefix + "node"
+
+// controlPlaneNodeName is the fixed nodeLabelKey value for the cluster's
+// one control-plane node - not user-configurable, since there's only ever
+// one, nothing to disambiguate.
+const controlPlaneNodeName = "control-plane"
 
 // providerEnv reports the KIND_EXPERIMENTAL_PROVIDER addition every kindcmd
 // call for one cluster needs when the project's engine is podman - kind's
@@ -68,7 +79,7 @@ func mergeEnv(a, b map[string]string) map[string]string {
 type config struct {
 	Name        string                `json:"name"`
 	Image       string                `json:"image"`
-	Workers     int                   `json:"workers"`
+	Workers     map[string]struct{}   `json:"workers"`
 	Config      string                `json:"config"`
 	Wait        string                `json:"wait"`
 	Retain      bool                  `json:"retain"`
@@ -500,6 +511,7 @@ func clusterConfig(cfg config, relayHostPort int) string {
 	var b strings.Builder
 	b.WriteString("kind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nnodes:\n")
 	b.WriteString("- role: control-plane\n")
+	fmt.Fprintf(&b, "  labels:\n    %s: %s\n", nodeLabelKey, controlPlaneNodeName)
 	if relayHostPort > 0 {
 		fmt.Fprintf(&b, "  extraPortMappings:\n  - containerPort: %d\n    hostPort: %d\n    listenAddress: \"127.0.0.1\"\n    protocol: TCP\n",
 			relayNodePort, relayHostPort)
@@ -511,8 +523,8 @@ func clusterConfig(cfg config, relayHostPort int) string {
 				strconv.Quote(m.HostPath), strconv.Quote(m.ContainerPath))
 		}
 	}
-	for range cfg.Workers {
-		b.WriteString("- role: worker\n")
+	for _, name := range slices.Sorted(maps.Keys(cfg.Workers)) {
+		fmt.Fprintf(&b, "- role: worker\n  labels:\n    %s: %s\n", nodeLabelKey, name)
 	}
 	return b.String()
 }

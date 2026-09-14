@@ -7,9 +7,14 @@
 	// own default when this is empty.
 	image?: string
 
-	// workers is how many worker nodes to create, on top of the one control
-	// plane node.
-	workers?: int | *0
+	// workers names each worker node to create, on top of the one control
+	// plane node - the map key is the node's own name, applied as a
+	// Kubernetes node label ("kevin.node") so a dependent step (such as
+	// builtin:fault) can address it by that name directly, instead of
+	// kind's own "<cluster>-workerN" container naming. A map, not a list,
+	// for the same reason expose is: one entry can be added or changed
+	// without replacing the whole set.
+	workers?: [string]: {}
 
 	// config is a kind cluster configuration in YAML. It replaces the
 	// generated one, thus workers is ignored when this is set.

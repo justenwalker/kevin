@@ -73,7 +73,7 @@ env: {
 		label: "Kind Cluster"
 		needs: ["registry"]
 		with: {
-			workers: 1
+			workers: worker: {}
 			wait:    "5m"
 			// A pod pulls a public image through the proxy. Allow Docker Hub,
 			// so the pull reaches the internet instead of the deny page.

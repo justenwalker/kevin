@@ -107,7 +107,7 @@ func (s *KindSuite) SetupSuite() {
 			Domain:    kindDomain,
 			Relay:     s.relay.Addr(),
 		},
-		Config: []byte(`{"workers":0,"expose":{"apiserver":{"address":"kubernetes.default.svc:443"}}}`),
+		Config: []byte(`{"expose":{"apiserver":{"address":"kubernetes.default.svc:443"}}}`),
 	}, &capture{})
 	s.Require().NoError(err, "Up must create the cluster")
 	s.up = res
@@ -123,7 +123,7 @@ func (s *KindSuite) TearDownSuite() {
 	downErr := Step{}.Down(t.Context(), &plugin.DownRequest{
 		Step:   kindStepName,
 		Env:    plugin.Env{Project: kindProject, Workspace: s.workspace},
-		Config: []byte(`{"workers":0}`),
+		Config: []byte(`{}`),
 	}, &capture{})
 	s.NoError(downErr, "Down must remove the cluster without error")
 	if downErr != nil {
@@ -209,7 +209,8 @@ func (s *KindSuite) TestNodeDNSPointsAtRelay() {
 
 // TestContainersReportOnePerNode proves that Up populates Containers with
 // one entry per node, each carrying the cluster's real pod and service
-// CIDRs read from kubeadm-config - the actual kubectl round trip
+// CIDRs read from kubeadm-config, and the control-plane node's Name
+// carrying its kevin.node label - the actual kubectl round trip
 // capture.go's unit tests can't exercise without a live cluster.
 func (s *KindSuite) TestContainersReportOnePerNode() {
 	t := s.T()
@@ -223,6 +224,8 @@ func (s *KindSuite) TestContainersReportOnePerNode() {
 		s.NotEmpty(c.NetnsPath)
 		s.Equal(wantCIDRs, c.ExcludeCIDRs)
 	}
+	s.Equal(controlPlaneNodeName, s.up.Containers[0].Name,
+		"the suite cluster has one node, the control plane, whose Name must carry its kevin.node label")
 }
 
 // TestNodeTrustsTheKevinRoot proves that Up installs the kevin root
@@ -356,7 +359,7 @@ func (s *KindSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 			Domain:    kindDomain,
 			Relay:     s.relay.Addr(),
 		},
-		Config: []byte(`{"workers":0,"expose":{"apiserver":{"address":"kubernetes.default.svc:443"}}}`),
+		Config: []byte(`{"expose":{"apiserver":{"address":"kubernetes.default.svc:443"}}}`),
 	}, out)
 	s.Require().NoError(err)
 

@@ -2,6 +2,7 @@ package kind
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"strings"
@@ -41,6 +42,12 @@ func nodeContainers(ctx context.Context, rt cri.Runtime, allNodes []string, out 
 		return nil, nil
 	}
 
+	// A missing or unreadable set of friendly names is a UX degradation
+	// (Name below falls back to the raw container name), never a reason
+	// to fail Up or skip capture over - unlike a missing CIDR list, a
+	// missing name carries no safety consequence.
+	names := nodeNames(ctx, rt, controlPlane)
+
 	containers := make([]plugin.ContainerInfo, 0, len(allNodes))
 	for _, node := range allNodes {
 		info, err := rt.Inspect(ctx, node)
@@ -50,14 +57,68 @@ func nodeContainers(ctx context.Context, rt cri.Runtime, allNodes []string, out 
 		if info.NetnsPath == "" {
 			continue
 		}
-		containers = append(containers, plugin.ContainerInfo{
-			ID:           info.ID,
-			Name:         node,
-			NetnsPath:    info.NetnsPath,
-			ExcludeCIDRs: exclude,
-		})
+		containers = append(containers, containerInfoFor(node, info, exclude, names))
 	}
 	return containers, nil
+}
+
+// containerInfoFor builds one node's ContainerInfo. name takes node's
+// kevin.node label value from names when it has one, the raw container
+// name otherwise.
+func containerInfoFor(node string, info cri.Container, exclude []string, names map[string]string) plugin.ContainerInfo {
+	name := node
+	if friendly, ok := names[node]; ok {
+		name = friendly
+	}
+	return plugin.ContainerInfo{
+		ID:           info.ID,
+		Name:         name,
+		NetnsPath:    info.NetnsPath,
+		ExcludeCIDRs: exclude,
+	}
+}
+
+// nodeNames reads back nodeLabelKey off every node in the cluster, keyed
+// by the node's own name - which, in kind, is always identical to its
+// docker container name, so this maps directly onto allNodes' own
+// entries. Returns nil when the read fails: the cluster may not be fully
+// up yet, or kubectl/the engine may be unreachable - a missing friendly
+// name is a reason to fall back to the raw container name, not to fail
+// the caller, so there is no error to report back.
+func nodeNames(ctx context.Context, rt cri.Runtime, controlPlaneNode string) map[string]string {
+	out, err := kubectl(ctx, rt, controlPlaneNode, "get", "nodes", "-o", "json")
+	if err != nil {
+		return nil
+	}
+	names, err := parseNodeLabels(out)
+	if err != nil {
+		return nil
+	}
+	return names
+}
+
+// parseNodeLabels extracts nodeLabelKey's value off each node in a
+// "kubectl get nodes -o json" response, keyed by the node's own name.
+func parseNodeLabels(nodesJSON string) (map[string]string, error) {
+	var list struct {
+		Items []struct {
+			Metadata struct {
+				Name   string            `json:"name"`
+				Labels map[string]string `json:"labels"`
+			} `json:"metadata"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(nodesJSON), &list); err != nil {
+		return nil, fmt.Errorf("kind: parse node list: %w", err)
+	}
+
+	names := make(map[string]string, len(list.Items))
+	for _, item := range list.Items {
+		if name, ok := item.Metadata.Labels[nodeLabelKey]; ok {
+			names[item.Metadata.Name] = name
+		}
+	}
+	return names, nil
 }
 
 // podAndServiceCIDRs reads the cluster's pod and service subnets from

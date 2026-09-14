@@ -52,7 +52,7 @@ env: {
 		label: "Kind Cluster"
 		needs: ["registry"]
 		with: {
-			workers: 1
+			workers: worker: {}
 			wait:    "5m"
 			egress:  ["docker.io", "*.docker.io", "*.docker.com"]
 			expose: apiserver: address: "kubernetes.default.svc:443"
@@ -364,7 +364,7 @@ setup: cluster: {
 	uses:  "builtin:kind"
 	label: "Kind Cluster"
 	with: {
-		workers: 0
+		workers: {}
 		wait:    "5m"
 	}
 }
