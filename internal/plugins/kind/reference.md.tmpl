@@ -28,13 +28,35 @@ control-plane node always gets the fixed label `kevin.node: control-plane`.
 
 [[template "table" .Definitions.Config]]
 
+## `#NodeConfig`
+
+`control_plane` and each `workers` entry pass additional per-node kind
+config straight through, using kind's own field names directly - see
+[kind's per-node options](https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options)
+for what's available (`image`, `extraMounts`, `extraPortMappings`,
+`kubeadmConfigPatches`, and so on). A field here is merged with what kevin
+itself generates for that node, not a wholesale replacement of it:
+
+- `labels` combines with kevin's own `kevin.node` label - setting
+  `kevin.node` yourself is rejected, since a dependent step relies on it
+  to address the node.
+- `extraPortMappings` combines with the relay's own mapping (when one
+  exists on the control-plane node), rather than replacing it.
+- `role` can't be set at all - it's structural, not configurable.
+
+```cue
+cluster: {
+    uses: "builtin:kind"
+    with: {
+        control_plane: extraMounts: [{hostPath: "./src", containerPath: "/workspace"}]
+        workers: worker_a: image: "kindest/node:v1.34.0"
+    }
+}
+```
+
 ## `#Expose`
 
 [[template "table" .Definitions.Expose]]
-
-## `#ExtraMount`
-
-[[template "table" .Definitions.ExtraMount]]
 
 ## Publishes
 

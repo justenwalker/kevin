@@ -30,7 +30,8 @@ control-plane node always gets the fixed label `kevin.node: control-plane`.
 |:------|:----:|:-------:|:------------|
 | `name` | `string` | - | The cluster name. It defaults to the step name, prefixed with the project. |
 | `image` | `string` | - | The node image, such as `"kindest/node:v1.34.0"`. kind picks its own default when this is empty. |
-| `workers` | `[string]: {}` | - | Names each worker node to create, on top of the one control plane node - the map key is the node's own name, applied as a Kubernetes node label (`"kevin.node"`) so a dependent step (such as builtin:fault) can address it by that name directly, instead of kind's own `"<cluster>-workerN"` container naming. A map, not a list, for the same reason expose is: one entry can be added or changed without replacing the whole set. |
+| `control_plane` | `#NodeConfig` | - | Passes additional per-node kind config through to the control-plane node's generated entry - image, extraMounts, extraPortMappings, kubeadmConfigPatches, and so on - using kind's own field names directly (see kind's own per-node options: https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options). Merged with what kevin itself generates for this node, not replacing it: labels combine (a `"kevin.node"` key here is rejected - Up manages that one itself), extraPortMappings combine (the relay's own mapping, when one exists, stays alongside yours), and role may not be set at all - it's structural, not configurable. |
+| `workers` | `[string]: #NodeConfig` | - | Names each worker node to create, on top of the one control plane node - the map key is the node's own name, applied as a Kubernetes node label (`"kevin.node"`) so a dependent step (such as builtin:fault) can address it by that name directly, instead of kind's own `"<cluster>-workerN"` container naming. Each entry also passes through additional per-node config the same way control_plane does. A map, not a list, for the same reason expose is: one entry can be added or changed without replacing the whole set. |
 | `config` | `string` | - | A kind cluster configuration in YAML. It replaces the generated one, thus workers is ignored when this is set. |
 | `wait` | `string` | `"5m"` | How long to wait for the control plane to become ready. The value is a Go duration. |
 | `retain` | `bool` | - | Keeps the nodes when creation fails, so that the logs of a broken cluster survive. |
@@ -40,7 +41,32 @@ control-plane node always gets the fixed label `kevin.node: control-plane`.
 | `trust_ca` | `bool` | `true` | Installs the kevin root certificate into every node, so a pull through the proxy verifies. Set it to false to opt out. |
 | `expose` | `[string]: #Expose` | - | Lets a client outside the cluster dial an arbitrary in-cluster address (a Service DNS name or a Pod IP, with its port) through a single SOCKS5 relay pod inside the cluster, keyed by a name that labels the entry in the console and the ready log line. Unlike a container step, Up does not create what expose names. The target may come from a manifest applied separately, after the cluster is up, so Up does not wait for it to be dialable, only wires the relay and reports the address. Up also reports each entry's relay address as an `"expose_<name>"` output, for a downstream step (such as builtin:wait) to read. A map, not a list, so one entry can be added or changed without replacing the whole set. |
 | `relay` | `bool` | `false` | Deploys the SOCKS5 relay pod even with no expose entries, and publishes its address as the `"relay_addr"` output. Set this to route a subdomain into the cluster with builtin:route, without also needing an expose entry. |
-| `extra_mounts` | `[...#ExtraMount]` | - | Bind-mounts a host directory into the control-plane node, such as a live source tree for a workload that expects one - merged into the generated cluster config, so relay and expose still work. Ignored when config is set: write mounts into your own raw config instead. |
+
+## `#NodeConfig`
+
+`control_plane` and each `workers` entry pass additional per-node kind
+config straight through, using kind's own field names directly - see
+[kind's per-node options](https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options)
+for what's available (`image`, `extraMounts`, `extraPortMappings`,
+`kubeadmConfigPatches`, and so on). A field here is merged with what kevin
+itself generates for that node, not a wholesale replacement of it:
+
+- `labels` combines with kevin's own `kevin.node` label - setting
+  `kevin.node` yourself is rejected, since a dependent step relies on it
+  to address the node.
+- `extraPortMappings` combines with the relay's own mapping (when one
+  exists on the control-plane node), rather than replacing it.
+- `role` can't be set at all - it's structural, not configurable.
+
+```cue
+cluster: {
+    uses: "builtin:kind"
+    with: {
+        control_plane: extraMounts: [{hostPath: "./src", containerPath: "/workspace"}]
+        workers: worker_a: image: "kindest/node:v1.34.0"
+    }
+}
+```
 
 ## `#Expose`
 
@@ -48,13 +74,6 @@ control-plane node always gets the fixed label `kevin.node: control-plane`.
 |:------|:----:|:-------:|:------------|
 | `address` | `string` | - | **Required.** The in-cluster host:port to reach, such as `"postgres.default.svc.cluster.local:5432"`. |
 | `host_port` | `int` | - | Pins the port of the local forward that lets a host process dial this entry directly, reported as the `"forward_<name>"` output. Omitted, the OS assigns one. |
-
-## `#ExtraMount`
-
-| Field | Type | Default | Description |
-|:------|:----:|:-------:|:------------|
-| `host_path` | `string` | - | **Required.** The directory on the host to mount. A relative path resolves against the project directory. |
-| `container_path` | `string` | - | **Required.** Where it lands inside the node. |
 
 ## Publishes
 

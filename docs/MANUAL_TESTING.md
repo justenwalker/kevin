@@ -315,16 +315,34 @@ DNS-based intercept.
       ever left the node, with no `hostAliases`, no proxy environment
       variable, and no route registered for the host.
 
-Add `extra_mounts: [{host_path: "/tmp/some-dir", container_path: "/host-src"}]`
-to `cluster`'s `with` block, alongside `relay: true` or an `expose` entry:
+Add `control_plane: extraMounts: [{hostPath: "/tmp/some-dir", containerPath:
+"/host-src"}]` to `cluster`'s `with` block, alongside `relay: true` or an
+`expose` entry:
 
 - [ ] `docker exec <cluster>-control-plane ls /host-src` shows the host
       directory's contents - a bind mount into the node, generated
       alongside the relay's `extraPortMappings` in the same config, not a
       replacement for it.
 - [ ] Setting `config:` (a raw kind config) at the same time makes
-      `extra_mounts` a no-op, the same way it already does for `workers` -
-      write the mount into the raw config yourself instead.
+      `control_plane` and `workers` both a no-op, the same way it already
+      is for the generated node list - write the mount into the raw config
+      yourself instead.
+
+Add `workers: worker_a: image: "kindest/node:v1.34.0"` (a different tag than
+the cluster's own default, or `image:` if set) to the same `with` block -
+kind names the container `<cluster>-worker` for a single worker, regardless
+of what its `workers` map key is:
+
+- [ ] `docker inspect <cluster>-worker --format '{{.Config.Image}}'` reports
+      the overridden image, while the control-plane node still runs the
+      cluster default - a worker's own passthrough only ever touches that
+      one node.
+
+Add `control_plane: labels: {"kevin.node": "not-allowed"}` (or `role:
+"worker"`) to the same `with` block:
+
+- [ ] `Up` fails immediately with a clear error naming the reserved field,
+      not a silently broken or mislabeled cluster.
 
 Put `cluster` in `setup` scope instead, and add an `env` step needing
 `setup.cluster` that applies a manifest with `keep: true`:

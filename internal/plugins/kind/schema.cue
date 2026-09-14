@@ -9,9 +9,9 @@
 
 	// control_plane passes additional per-node kind config through to the
 	// control-plane node's generated entry - image, extraMounts,
-	// extraPortMappings, kubeadmConfigPatches, and so on, using kind's own
-	// field names directly:
-	// https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options
+	// extraPortMappings, kubeadmConfigPatches, and so on - using kind's own
+	// field names directly (see kind's own per-node options:
+	// https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options).
 	// Merged with what kevin itself generates for this node, not replacing
 	// it: labels combine (a "kevin.node" key here is rejected - Up manages
 	// that one itself), extraPortMappings combine (the relay's own mapping,
