@@ -7,18 +7,18 @@ weight: 9
 
 # `builtin:fault`
 
-Installs a Linux netem qdisc on a target container's network interface -
-delay, jitter, packet loss, corruption, duplication, and reordering, all
-composed into one qdisc - via the relay's privileged netlink access.
-Operates purely at the network-namespace level: no interaction with
-[`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) or the kevin
-proxy at all.
+Simulates a bad network on one or more containers: delay, jitter, packet
+loss, corruption, duplication, and reordering, set together in one `with`
+block. Use it to see how your app handles a slow or unreliable dependency.
+It works underneath [`builtin:route`]({{< relref "/docs/reference/steps/route" >}})
+and the kevin proxy, so it impairs a container's traffic no matter how
+that traffic gets there.
 
-A fault step never names a target by path - only by `needs`. With no
-`containers` set, it faults every container every needs entry resolves to,
-which is enough for the common case (a
+Like other steps, you target containers through `needs`. With no
+`containers` set, a fault step affects every container its `needs`
+entries resolve to. That covers the common case: a
 [`builtin:container`]({{< relref "/docs/reference/steps/container" >}})
-step reports exactly one, so there's nothing to narrow):
+step reports exactly one container, so there's nothing to narrow:
 
 ```cue
 backend: {uses: "builtin:container", with: {image: "myapp/backend"}}

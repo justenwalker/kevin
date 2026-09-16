@@ -84,9 +84,8 @@ on the same mTLS control channel `RegisterCapture`/`EnsureListener` already
 use, served by `github.com/vishvananda/netlink` rather than
 `github.com/google/nftables`, the same relay binary, no shelled `tc`.
 
-Fault injection has no interaction with transparent capture, `builtin:
-route`, or the proxy - it operates purely on the target namespace's
-interface, orthogonal to everything else in this document. Unlike
+Fault injection acts directly on the target namespace's interface,
+independent of transparent capture, `builtin:route`, and the proxy. Unlike
 capture, which the engine registers automatically for every container a
 step creates, a fault is only ever applied because a `builtin:fault` step
 asked for it, and only for as long as that step (or its target) stays up -
