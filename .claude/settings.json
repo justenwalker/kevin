@@ -14,7 +14,8 @@
       {
         "matcher": "Edit|Write",
         "hooks": [
-          { "type": "command", "command": "gofmt -l -w $CLAUDE_FILE_PATHS 2>/dev/null; go build ./... 2>&1 | head -30" }
+          { "type": "command", "command": "gofmt -l -w $CLAUDE_FILE_PATHS 2>/dev/null; go build ./... 2>&1 | head -30" },
+          { "type": "command", "command": "./.claude/hooks/check-comments.sh" }
         ]
       }
     ],

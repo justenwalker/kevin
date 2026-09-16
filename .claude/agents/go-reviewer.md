@@ -22,9 +22,23 @@ not edit files, report findings only.
 3. Go doc comment style (comment directly above an exported/unexported
    type/func/const): name-first, states *what* the thing does and *how* to
    call it if non-obvious. Never explains *why* (no design rationale, no
-   comparisons to sibling packages, no "so that..." clauses).
+   comparisons to sibling packages, no "so that..." clauses). Flag:
+   - A doc comment that's tautological (`Idempotent reports that a helm
+     step is idempotent.` with nothing else) - it must say something the
+     name doesn't already say, or it should be deleted.
+   - Any doc comment restating the field/param name and type with no new
+     information (a well-named identifier needs no comment at all).
 4. Inline comments (mid-function): opposite rule, explain *why* a
-   non-obvious choice was made, never *what* the code does.
+   non-obvious choice was made, never *what* the code does. Flag:
+   - Any comment (doc or inline) narrating the code's own history
+     ("used to", "previously", "before this fix", "no longer") - git
+     blame/log covers that, the comment should describe only current
+     behavior.
+   - A "why" comment running more than 1-2 lines - cut to the shortest
+     form that still answers why, point to a referenced file/commit for
+     the rest rather than re-deriving the whole reasoning chain inline.
+   - AI-flavored filler ("comprehensive", "robust", "seamlessly",
+     "leverage") anywhere in a comment.
 5. Existing `*_test.go` files in the package(s) touched. Match their
    established pattern rather than inventing a new one:
    - Subtests via `t.Run("description of behavior", ...)`, description is
