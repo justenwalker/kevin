@@ -1,0 +1,99 @@
+{
+  "name": "AWS Roundtrip",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "run",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "wh1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [0, 0],
+      "webhookId": "kevin-demo-run"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "bucketName": "kevin-demo",
+        "binaryData": false,
+        "fileName": "run.txt",
+        "fileContent": "=hello from kevin at {{$now}}",
+        "additionalFields": {}
+      },
+      "id": "s3a",
+      "name": "Upload to S3",
+      "type": "n8n-nodes-base.awsS3",
+      "typeVersion": 2,
+      "position": [200, 0],
+      "credentials": {
+        "aws": {
+          "id": "__AWS_CREDENTIAL_ID__",
+          "name": "MiniStack AWS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "queue": "https://sqs.us-east-1.amazonaws.com/000000000000/kevin-demo",
+        "queueType": "standard",
+        "sendInputData": false,
+        "message": "=uploaded run.txt to kevin-demo at {{$now}}",
+        "options": {}
+      },
+      "id": "sqsa",
+      "name": "Send SQS Message",
+      "type": "n8n-nodes-base.awsSqs",
+      "typeVersion": 1,
+      "position": [400, 0],
+      "credentials": {
+        "aws": {
+          "id": "__AWS_CREDENTIAL_ID__",
+          "name": "MiniStack AWS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "send",
+        "isBodyHtml": false,
+        "subject": "kevin n8n-aws demo run complete",
+        "body": "=The demo workflow ran at {{$now}} and touched S3, SQS, and SES - all through kevin's interception, landing on MiniStack instead of real AWS.",
+        "fromEmail": "kevin@example.com",
+        "toAddresses": ["kevin@example.com"],
+        "additionalFields": {}
+      },
+      "id": "sesa",
+      "name": "Send SES Email",
+      "type": "n8n-nodes-base.awsSes",
+      "typeVersion": 1,
+      "position": [600, 0],
+      "credentials": {
+        "aws": {
+          "id": "__AWS_CREDENTIAL_ID__",
+          "name": "MiniStack AWS"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "Upload to S3", "type": "main", "index": 0}]]
+    },
+    "Upload to S3": {
+      "main": [[{"node": "Send SQS Message", "type": "main", "index": 0}]]
+    },
+    "Send SQS Message": {
+      "main": [[{"node": "Send SES Email", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "saveDataSuccessExecution": "all"
+  }
+}
