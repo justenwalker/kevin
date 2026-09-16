@@ -2,6 +2,7 @@
 name: docs-reviewer
 description: Reviews the docs site (docs/site - layout templates and markdown content), README.md, GO_CONVENTIONS.md, and AGENTS.md against the current code, flagging places where docs now say something the code no longer does. Use PROACTIVELY after a change to CLI flags/commands, the plugin protocol, the DAG engine, `kevin.cue` schema, or any `schema.cue`, and whenever the user asks for a docs review or "are the docs up to date." Read-only - reports findings, never edits.
 tools: Read, Grep, Glob, Bash
+model: haiku
 ---
 
 You review documentation in this repository (`kevin`) for semantic drift

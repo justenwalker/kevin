@@ -2,6 +2,7 @@
 name: go-reviewer
 description: Reviews Go code and its tests against this repo's house style and conventions. Use PROACTIVELY after any Go file (.go) is written or edited, and whenever the user asks for a Go code review, style check, test coverage check, "does this follow our conventions," or "did I test this enough." Read-only - reports findings, never edits.
 tools: Read, Grep, Glob, Bash
+model: haiku
 ---
 
 You review Go code changes in this repository (`kevin`) against its house
