@@ -46,13 +46,15 @@ func TestDecode(t *testing.T) {
 		cfg, err := decode([]byte(`{
 			"containers": ["worker_a", "worker_b"], "interface": "eth1",
 			"delay_ms": 500, "jitter_ms": 100, "loss_percent": 10,
-			"corrupt_percent": 1, "duplicate_percent": 2, "reorder_percent": 3
+			"corrupt_percent": 1, "duplicate_percent": 2, "reorder_percent": 3,
+			"rate_kbit": 400
 		}`))
 		require.NoError(t, err)
 		assert.Equal(t, config{
 			Containers: []string{"worker_a", "worker_b"}, Interface: "eth1",
 			DelayMS: 500, JitterMS: 100, LossPercent: 10,
 			CorruptPercent: 1, DuplicatePercent: 2, ReorderPercent: 3,
+			RateKbit: 400,
 		}, cfg)
 	})
 }
@@ -71,6 +73,7 @@ func TestValidateImpairment(t *testing.T) {
 		{name: "corrupt", cfg: config{CorruptPercent: 1}},
 		{name: "duplicate", cfg: config{DuplicatePercent: 1}},
 		{name: "reorder", cfg: config{ReorderPercent: 1}},
+		{name: "rate", cfg: config{RateKbit: 100}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" alone is enough", func(t *testing.T) {
@@ -166,13 +169,13 @@ func TestUpBuildsNetworkFaults(t *testing.T) {
 		result, err := Step{}.Up(t.Context(), &plugin.UpRequest{
 			Step:       "backend_fault",
 			Containers: single,
-			Config:     []byte(`{"interface": "eth1", "delay_ms": 500, "loss_percent": 10}`),
+			Config:     []byte(`{"interface": "eth1", "delay_ms": 500, "loss_percent": 10, "rate_kbit": 400}`),
 		}, noopEmitter{})
 		require.NoError(t, err)
 		require.Len(t, result.Faults, 1)
 		assert.Equal(t, plugin.NetworkFault{
 			ID: "backend_fault", NetnsPath: "/proc/1/ns/net", Interface: "eth1",
-			DelayMS: 500, LossPercent: 10,
+			DelayMS: 500, LossPercent: 10, RateKbit: 400,
 		}, result.Faults[0])
 	})
 

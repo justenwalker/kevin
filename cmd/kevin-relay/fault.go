@@ -18,6 +18,7 @@ type faultConfig struct {
 	CorruptPercent   float64
 	DuplicatePercent float64
 	ReorderPercent   float64
+	RateKbit         int32
 }
 
 // faultTarget is one applied fault: enough to know where and what was
@@ -40,6 +41,7 @@ func (p *relayProcess) ApplyFault(ctx context.Context, req *pb.ApplyFaultRequest
 		CorruptPercent:   req.GetCorruptPercent(),
 		DuplicatePercent: req.GetDuplicatePercent(),
 		ReorderPercent:   req.GetReorderPercent(),
+		RateKbit:         req.GetRateKbit(),
 	}
 	if err := applyFault(req.GetNetnsPath(), cfg); err != nil {
 		return nil, fmt.Errorf("relay: apply fault for %q: %w", req.GetId(), err)

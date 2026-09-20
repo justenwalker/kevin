@@ -54,6 +54,7 @@ func buildFaultQdisc(handle *netlink.Handle, cfg faultConfig) error {
 		Duplicate:   float32(cfg.DuplicatePercent),
 		ReorderProb: float32(cfg.ReorderPercent),
 		CorruptProb: float32(cfg.CorruptPercent),
+		Rate64:      uint64(cfg.RateKbit) * 1000 / 8, //nolint:gosec // rate_kbit is a small, user-supplied bandwidth cap, not attacker-controlled
 	})
 	if err := handle.QdiscReplace(netem); err != nil {
 		return fmt.Errorf("replace netem qdisc: %w", err)

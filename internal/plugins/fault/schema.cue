@@ -35,4 +35,7 @@
 	// reorder_percent is the percentage of packets reordered ahead of
 	// delay_ms. Only meaningful alongside delay_ms.
 	reorder_percent?: float & >0 & <=100
+
+	// rate_kbit caps the interface's throughput, in kilobits/second.
+	rate_kbit?: int & >0
 }

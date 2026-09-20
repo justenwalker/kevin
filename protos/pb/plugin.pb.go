@@ -1576,8 +1576,11 @@ type NetworkFault struct {
 	CorruptPercent   float64 `protobuf:"fixed64,7,opt,name=corrupt_percent,json=corruptPercent,proto3" json:"corrupt_percent,omitempty"`
 	DuplicatePercent float64 `protobuf:"fixed64,8,opt,name=duplicate_percent,json=duplicatePercent,proto3" json:"duplicate_percent,omitempty"`
 	ReorderPercent   float64 `protobuf:"fixed64,9,opt,name=reorder_percent,json=reorderPercent,proto3" json:"reorder_percent,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// RateKbit caps the interface's throughput, in kilobits/second. 0 means
+	// no cap.
+	RateKbit      int32 `protobuf:"varint,10,opt,name=rate_kbit,json=rateKbit,proto3" json:"rate_kbit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NetworkFault) Reset() {
@@ -1669,6 +1672,13 @@ func (x *NetworkFault) GetDuplicatePercent() float64 {
 func (x *NetworkFault) GetReorderPercent() float64 {
 	if x != nil {
 		return x.ReorderPercent
+	}
+	return 0
+}
+
+func (x *NetworkFault) GetRateKbit() int32 {
+	if x != nil {
+		return x.RateKbit
 	}
 	return 0
 }
@@ -2433,7 +2443,7 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x04step\x18\x01 \x01(\tR\x04step\x12>\n" +
 	"\n" +
 	"containers\x18\x02 \x03(\v2\x1e.kevin.plugin.v1.ContainerInfoR\n" +
-	"containers\"\xb5\x02\n" +
+	"containers\"\xd2\x02\n" +
 	"\fNetworkFault\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -2444,7 +2454,9 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\floss_percent\x18\x06 \x01(\x01R\vlossPercent\x12'\n" +
 	"\x0fcorrupt_percent\x18\a \x01(\x01R\x0ecorruptPercent\x12+\n" +
 	"\x11duplicate_percent\x18\b \x01(\x01R\x10duplicatePercent\x12'\n" +
-	"\x0freorder_percent\x18\t \x01(\x01R\x0ereorderPercent\"v\n" +
+	"\x0freorder_percent\x18\t \x01(\x01R\x0ereorderPercent\x12\x1b\n" +
+	"\trate_kbit\x18\n" +
+	" \x01(\x05R\brateKbit\"v\n" +
 	"\vExposedPort\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\bprotocol\x18\x02 \x01(\tR\bprotocol\x12\x1a\n" +

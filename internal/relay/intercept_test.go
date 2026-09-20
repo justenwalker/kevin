@@ -141,6 +141,7 @@ func TestRelayApplyFault(t *testing.T) {
 			Id: "backend_fault", NetnsPath: "/proc/123/ns/net", Interface: "eth1",
 			DelayMs: 500, JitterMs: 100, LossPercent: 10,
 			CorruptPercent: 1, DuplicatePercent: 2, ReorderPercent: 3,
+			RateKbit: 400,
 		})
 		require.NoError(t, err)
 		require.NotNil(t, fake.lastApplyFault)
@@ -153,6 +154,7 @@ func TestRelayApplyFault(t *testing.T) {
 		assert.InDelta(t, 1, fake.lastApplyFault.GetCorruptPercent(), 0)
 		assert.InDelta(t, 2, fake.lastApplyFault.GetDuplicatePercent(), 0)
 		assert.InDelta(t, 3, fake.lastApplyFault.GetReorderPercent(), 0)
+		assert.Equal(t, int32(400), fake.lastApplyFault.GetRateKbit())
 	})
 
 	t.Run("wraps a server error", func(t *testing.T) {

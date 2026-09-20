@@ -370,6 +370,10 @@ message NetworkFault {
   double corrupt_percent = 7;
   double duplicate_percent = 8;
   double reorder_percent = 9;
+
+  // RateKbit caps the interface's throughput, in kilobits/second. 0 means
+  // no cap.
+  int32 rate_kbit = 10;
 }
 
 // ExposedPort is a raw TCP or UDP endpoint that a step publishes directly to

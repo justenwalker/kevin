@@ -190,6 +190,7 @@ func (s *server) Up(req *pb.UpRequest, stream grpc.ServerStreamingServer[pb.Even
 			DelayMs: f.DelayMS, JitterMs: f.JitterMS,
 			LossPercent: f.LossPercent, CorruptPercent: f.CorruptPercent,
 			DuplicatePercent: f.DuplicatePercent, ReorderPercent: f.ReorderPercent,
+			RateKbit: f.RateKbit,
 		})
 	}
 

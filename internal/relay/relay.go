@@ -437,6 +437,7 @@ func (r *Relay) ApplyFault(ctx context.Context, f *pb.NetworkFault) error {
 		DelayMs: f.GetDelayMs(), JitterMs: f.GetJitterMs(),
 		LossPercent: f.GetLossPercent(), CorruptPercent: f.GetCorruptPercent(),
 		DuplicatePercent: f.GetDuplicatePercent(), ReorderPercent: f.GetReorderPercent(),
+		RateKbit: f.GetRateKbit(),
 	}
 	if _, err := r.client.ApplyFault(ctx, req); err != nil {
 		return fmt.Errorf("relay: apply fault for %q: %w", f.GetId(), err)

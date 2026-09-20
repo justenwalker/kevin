@@ -1,9 +1,9 @@
 // Package fault installs pumba-style network chaos - delay, jitter,
-// packet loss, corruption, duplication, and reordering - on one or more
-// containers' network namespaces, via the relay's ApplyFault/ClearFault
-// RPCs (see internal/relay). It composes every impairment into a single
-// netem qdisc per container, since Linux's netem qdisc supports setting
-// all of them at once.
+// packet loss, corruption, duplication, reordering, and bandwidth caps -
+// on one or more containers' network namespaces, via the relay's
+// ApplyFault/ClearFault RPCs (see internal/relay). It composes every
+// impairment into a single netem qdisc per container, since Linux's netem
+// qdisc supports setting all of them at once.
 //
 // A fault step deploys nothing itself: it only tells the relay how to
 // treat a namespace another step already created. needs names which
@@ -45,6 +45,7 @@ type config struct {
 	CorruptPercent   float64  `json:"corrupt_percent"`
 	DuplicatePercent float64  `json:"duplicate_percent"`
 	ReorderPercent   float64  `json:"reorder_percent"`
+	RateKbit         int32    `json:"rate_kbit"`
 }
 
 // Step is the fault step.
@@ -109,6 +110,7 @@ func (Step) Up(_ context.Context, req *plugin.UpRequest, _ plugin.Emitter) (*plu
 			CorruptPercent:   cfg.CorruptPercent,
 			DuplicatePercent: cfg.DuplicatePercent,
 			ReorderPercent:   cfg.ReorderPercent,
+			RateKbit:         cfg.RateKbit,
 		})
 	}
 	return &plugin.Result{Faults: faults}, nil
@@ -119,7 +121,7 @@ func (Step) Up(_ context.Context, req *plugin.UpRequest, _ plugin.Emitter) (*plu
 // impairment would be a meaningless no-op.
 func validateImpairment(cfg config) error {
 	if cfg.DelayMS == 0 && cfg.LossPercent == 0 && cfg.CorruptPercent == 0 &&
-		cfg.DuplicatePercent == 0 && cfg.ReorderPercent == 0 {
+		cfg.DuplicatePercent == 0 && cfg.ReorderPercent == 0 && cfg.RateKbit == 0 {
 		return ErrNoImpairment
 	}
 	return nil

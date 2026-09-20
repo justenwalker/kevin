@@ -246,8 +246,11 @@ type ApplyFaultRequest struct {
 	// delay above, 0-100. Ignored when delay_ms is 0 - netem's own reorder
 	// model only has meaning relative to a base delay.
 	ReorderPercent float64 `protobuf:"fixed64,9,opt,name=reorder_percent,json=reorderPercent,proto3" json:"reorder_percent,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// RateKbit caps the interface's throughput, in kilobits/second. 0 means
+	// no cap.
+	RateKbit      int32 `protobuf:"varint,10,opt,name=rate_kbit,json=rateKbit,proto3" json:"rate_kbit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ApplyFaultRequest) Reset() {
@@ -339,6 +342,13 @@ func (x *ApplyFaultRequest) GetDuplicatePercent() float64 {
 func (x *ApplyFaultRequest) GetReorderPercent() float64 {
 	if x != nil {
 		return x.ReorderPercent
+	}
+	return 0
+}
+
+func (x *ApplyFaultRequest) GetRateKbit() int32 {
+	if x != nil {
+		return x.RateKbit
 	}
 	return 0
 }
@@ -475,7 +485,7 @@ const file_pb_relay_proto_rawDesc = "" +
 	"\x15EnsureListenerRequest\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x14\n" +
 	"\x05ports\x18\x02 \x03(\x05R\x05ports\"\x18\n" +
-	"\x16EnsureListenerResponse\"\xba\x02\n" +
+	"\x16EnsureListenerResponse\"\xd7\x02\n" +
 	"\x11ApplyFaultRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -486,7 +496,9 @@ const file_pb_relay_proto_rawDesc = "" +
 	"\floss_percent\x18\x06 \x01(\x01R\vlossPercent\x12'\n" +
 	"\x0fcorrupt_percent\x18\a \x01(\x01R\x0ecorruptPercent\x12+\n" +
 	"\x11duplicate_percent\x18\b \x01(\x01R\x10duplicatePercent\x12'\n" +
-	"\x0freorder_percent\x18\t \x01(\x01R\x0ereorderPercent\"\x14\n" +
+	"\x0freorder_percent\x18\t \x01(\x01R\x0ereorderPercent\x12\x1b\n" +
+	"\trate_kbit\x18\n" +
+	" \x01(\x05R\brateKbit\"\x14\n" +
 	"\x12ApplyFaultResponse\"#\n" +
 	"\x11ClearFaultRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x14\n" +

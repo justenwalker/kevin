@@ -415,6 +415,10 @@ type NetworkFault struct {
 	// LossPercent, CorruptPercent, DuplicatePercent, and ReorderPercent
 	// are each a percentage, 0-100, of packets affected. 0 means none.
 	LossPercent, CorruptPercent, DuplicatePercent, ReorderPercent float64
+
+	// RateKbit caps the interface's throughput, in kilobits/second. 0
+	// means no cap.
+	RateKbit int32
 }
 
 // NetnsTarget is one network namespace the relay should capture, for a step

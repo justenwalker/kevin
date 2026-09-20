@@ -8,8 +8,9 @@ weight: 9
 # `builtin:fault`
 
 Simulates a bad network on one or more containers: delay, jitter, packet
-loss, corruption, duplication, and reordering, set together in one `with`
-block. Use it to see how your app handles a slow or unreliable dependency.
+loss, corruption, duplication, reordering, and bandwidth caps, set
+together in one `with` block. Use it to see how your app handles a slow
+or unreliable dependency.
 It works underneath [`builtin:route`]({{< relref "/docs/reference/steps/route" >}})
 and the kevin proxy, so it impairs a container's traffic no matter how
 that traffic gets there.

@@ -114,6 +114,10 @@ message ApplyFaultRequest {
   // delay above, 0-100. Ignored when delay_ms is 0 - netem's own reorder
   // model only has meaning relative to a base delay.
   double reorder_percent = 9;
+
+  // RateKbit caps the interface's throughput, in kilobits/second. 0 means
+  // no cap.
+  int32 rate_kbit = 10;
 }
 
 message ApplyFaultResponse {}
