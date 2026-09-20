@@ -12,4 +12,6 @@ It mounts at `/_mcp` on the console's own HTTP router, rather than binding a lis
 
 `get_proxy_info` reads the proxy's routing table and egress allow list directly, and `export_step` calls a step's plugin `Export` RPC through the session's already-running plugin connection - the same RPC a `commands:` entry's `needs` makes through `kevin do`, but against the live session instead of a freshly relaunched one, since an MCP client is asking about an environment that's already up. The console's own **MCP** tab shows the URL and the `claude mcp add` command to register it, the same page that shows the proxy's PAC URL and export line.
 
+`get_step`'s logs come from the session's durable log file, not the console's own bounded in-memory tail, so they cover a step's full history rather than its last couple thousand lines. Each call returns a `cursor`; passing it back as the next call's `since` fetches only what was logged after that point, so an agent watching a long-running step polls cheaply instead of re-fetching everything each time.
+
 A plugin can contribute its own tools alongside these five, through the `CallTool` RPC. See [The plugin protocol]({{< relref "/docs/extending/plugin-protocol" >}}) for the wire method and [Writing a plugin]({{< relref "/docs/extending/writing-a-plugin" >}}) for `ToolProvider`.

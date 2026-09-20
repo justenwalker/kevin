@@ -1,0 +1,20 @@
+---
+title: "status"
+weight: 12
+---
+
+[[template "banner"]]
+
+# `kevin status`
+
+Reports every step's current state for a `kevin run` (started plain or
+with `--detach`) for this project and environment - the same data the
+web console shows, without opening a browser. Prints `not running` if
+there's nothing to report.
+
+```sh
+kevin status
+```
+
+See [`kevin logs`]({{< relref "/docs/reference/commands/logs" >}}) for a
+step's actual output.

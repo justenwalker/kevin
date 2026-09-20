@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -56,10 +58,28 @@ func defaultView() *session.View {
 				},
 			},
 		},
-		StepLogs: map[string][]session.Line{
-			"api": {{Step: "api", Stream: "stdout", Text: "listening"}},
-		},
 	}
+}
+
+// newLogsFile writes an NDJSON durable-log fixture - the shape
+// internal/engine/ndjsonlog.go writes for a running session - with one
+// "listening" line for the "api" step, and returns its path.
+func newLogsFile(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "logs.ndjson")
+	line := `{"time":"2026-01-01T00:00:00Z","level":"INFO","msg":"listening","step":"api","stream":"stdout"}` + "\n"
+	require.NoError(t, os.WriteFile(path, []byte(line), 0o600))
+	return path
+}
+
+// appendLogLine appends one more NDJSON line to a file newLogsFile built.
+func appendLogLine(t *testing.T, path, step, text string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	require.NoError(t, err)
+	_, err = f.WriteString(`{"time":"2026-01-01T00:00:01Z","level":"INFO","msg":"` + text + `","step":"` + step + `","stream":"stdout"}` + "\n")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
 }
 
 // newTestServer builds a Server against fake session state and connects an
@@ -83,6 +103,19 @@ func newTestServerWithView(t *testing.T, view *session.View,
 	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (any, bool, string, error),
 ) *mcp.ClientSession {
 	t.Helper()
+	return newTestServerWithLogs(t, view, newLogsFile(t), rerun, export, tools, dispatch)
+}
+
+// newTestServerWithLogs is newTestServerWithView for a test that needs to
+// append to the durable log file (e.g. a since-cursor test) after the
+// Server is built.
+func newTestServerWithLogs(t *testing.T, view *session.View, logsPath string,
+	rerun func(ctx context.Context, step string, cascade bool) error,
+	export func(ctx context.Context, step string) (map[string]output.Value, error),
+	tools []mcpserver.ToolDef,
+	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (any, bool, string, error),
+) *mcp.ClientSession {
+	t.Helper()
 
 	px := fakeProxy{
 		routes:    []proxy.Route{{Host: "api.kevin.home", Upstream: "api:8080"}},
@@ -91,7 +124,7 @@ func newTestServerWithView(t *testing.T, view *session.View,
 		deny:      true,
 	}
 
-	s := mcpserver.New("demo", "kevin.home", fakeView{v: view}, px, rerun, export, tools, dispatch)
+	s := mcpserver.New("demo", "kevin.home", logsPath, fakeView{v: view}, px, rerun, export, tools, dispatch)
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
 
@@ -142,6 +175,27 @@ func TestTools(t *testing.T) {
 		assert.Equal(t, "url", out.Details[0].Label)
 		require.Len(t, out.Logs, 1)
 		assert.Equal(t, "listening", out.Logs[0].Text)
+		assert.NotEmpty(t, out.Cursor)
+	})
+
+	t.Run("get_step with since only returns what was logged after that cursor", func(t *testing.T) {
+		logsPath := newLogsFile(t)
+		sess := newTestServerWithLogs(t, defaultView(), logsPath, noopRerun, noopExport, nil, nil)
+
+		res := callTool(t, sess, "get_step", mcpserver.GetStepInput{Name: "api"})
+		var first mcpserver.GetStepOutput
+		decodeStructured(t, res, &first)
+		require.Len(t, first.Logs, 1)
+		require.NotEmpty(t, first.Cursor)
+
+		appendLogLine(t, logsPath, "api", "second line")
+
+		res = callTool(t, sess, "get_step", mcpserver.GetStepInput{Name: "api", Since: first.Cursor})
+		require.False(t, res.IsError)
+		var second mcpserver.GetStepOutput
+		decodeStructured(t, res, &second)
+		require.Len(t, second.Logs, 1, "only the line appended after the cursor, not the whole history again")
+		assert.Equal(t, "second line", second.Logs[0].Text)
 	})
 
 	t.Run("get_step masks a sensitive detail's value", func(t *testing.T) {

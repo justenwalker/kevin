@@ -135,6 +135,8 @@ func NewRootCommand() (*cobra.Command, *options) {
 	root.AddCommand(
 		runCommand(opts),
 		stopCommand(opts),
+		statusCommand(opts),
+		logsCommand(opts),
 		setupCommand(opts),
 		teardownCommand(opts),
 		initCommand(opts),

@@ -51,6 +51,7 @@ type ToolDef struct {
 type Server struct {
 	project  string
 	domain   string
+	logsPath string
 	view     stepViewer
 	proxy    egressViewer
 	rerun    func(ctx context.Context, step string, cascade bool) error
@@ -60,11 +61,14 @@ type Server struct {
 }
 
 // New builds a Server for one project. view answers the step-list/status
-// tools, px answers the proxy-info tool, rerun and export are the engine's
-// live-session hooks for the rerun_step and export_step tools. tools and
-// callTool add every plugin-declared tool alongside the five above.
+// tools, px answers the proxy-info tool, logsPath is the session's durable
+// NDJSON log file (internal/engine's LogsFile, under its workspace) that
+// get_step and rerun_step read a step's log lines from, rerun and export
+// are the engine's live-session hooks for the rerun_step and export_step
+// tools. tools and callTool add every plugin-declared tool alongside the
+// five above.
 func New(
-	project, domain string,
+	project, domain, logsPath string,
 	view stepViewer,
 	px egressViewer,
 	rerun func(ctx context.Context, step string, cascade bool) error,
@@ -75,6 +79,7 @@ func New(
 	return &Server{
 		project:  project,
 		domain:   domain,
+		logsPath: logsPath,
 		view:     view,
 		proxy:    px,
 		rerun:    rerun,
@@ -99,9 +104,10 @@ func (s *Server) Handler() http.Handler {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "get_step",
 		Description: "Get everything list_steps reports about one step, plus its detail rows " +
-			"(e.g. an exposed address or routed hostname the step published) and its buffered " +
-			"log output. Use this to see why a step failed, or what address/hostname it exposed " +
-			"once ready.",
+			"(e.g. an exposed address or routed hostname the step published) and its full " +
+			"logged output. Use this to see why a step failed, or what address/hostname it " +
+			"exposed once ready. Watching a running step? Pass the cursor field back as since " +
+			"on the next call to fetch only what's new instead of the whole history again.",
 	}, s.getStep)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "rerun_step",

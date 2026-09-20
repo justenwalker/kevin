@@ -233,7 +233,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	tools, toolRoutes := collectTools(ctx, r.steps, caps)
 	r.toolRoutes = toolRoutes
-	mcpServer := mcpserver.New(cfg.Project, cfg.Domain, store, server.proxy, r.RerunStep, r.exportStep, tools, r.callTool)
+	mcpServer := mcpserver.New(cfg.Project, cfg.Domain, filepath.Join(workspace, LogsFile), store, server.proxy, r.RerunStep, r.exportStep, tools, r.callTool)
 	view := console.New(console.Config{
 		Project: cfg.Project,
 		Network: network,

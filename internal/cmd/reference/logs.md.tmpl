@@ -1,0 +1,26 @@
+---
+title: "logs"
+weight: 13
+---
+
+[[template "banner"]]
+
+# `kevin logs`
+
+Prints a step's recorded output for this project and environment. With no
+step name, it prints every step's output interleaved. It reads straight
+from the durable log file rather than asking a running process, so it
+works whether or not `kevin run` is still active, including after a
+crash.
+
+```sh
+kevin logs
+kevin logs web
+kevin logs web --follow
+```
+
+[[template "flags" .]]
+
+See [`kevin status`]({{< relref "/docs/reference/commands/status" >}})
+for step state, and [`kevin run`]({{< relref "/docs/reference/commands/run" >}})'s
+`--detach`/`-d` flag.

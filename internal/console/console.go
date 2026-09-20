@@ -160,6 +160,7 @@ func (s *Server) View(host string) View {
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /static/", http.FileServerFS(static))
 	mux.HandleFunc("GET /events", s.events)
+	mux.HandleFunc("GET /api/status", s.status)
 	mux.HandleFunc("POST /steps/{name}/rerun", s.rerun)
 	mux.HandleFunc("GET /{$}", s.page)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/steplog"
 )
 
 // StepSummary is one step's status, as list_steps and get_step report it.
@@ -25,7 +26,9 @@ type StepSummary struct {
 	Idempotent bool     `json:"idempotent"         jsonschema:"whether rerun_step's cascade may re-run this step as a side effect of rerunning something it depends on"`
 }
 
-func stepSummary(s session.Step) StepSummary {
+// StepSummaryOf builds one step's summary, as list_steps, get_step, and
+// the console's status endpoint all report it.
+func StepSummaryOf(s session.Step) StepSummary {
 	return StepSummary{
 		Name:       s.Name,
 		Label:      s.Label,
@@ -47,7 +50,7 @@ func (s *Server) listSteps(_ context.Context, _ *mcp.CallToolRequest, _ struct{}
 	steps := s.view.Snapshot().Steps
 	out := make([]StepSummary, len(steps))
 	for i, st := range steps {
-		out[i] = stepSummary(st)
+		out[i] = StepSummaryOf(st)
 	}
 	return nil, ListStepsOutput{Steps: out}, nil
 }
@@ -55,6 +58,9 @@ func (s *Server) listSteps(_ context.Context, _ *mcp.CallToolRequest, _ struct{}
 // GetStepInput names the step get_step reports on.
 type GetStepInput struct {
 	Name string `json:"name" jsonschema:"the step's name, from kevin.cue - see list_steps"`
+	// Since is a Cursor, kept as a plain string at the tool boundary - that's
+	// what the JSON schema and wire format need it to be.
+	Since string `json:"since,omitempty" jsonschema:"opaque cursor from a previous get_step or rerun_step call's cursor field - pass it back to fetch only log lines recorded after that point. Omit it (or pass an empty string) for the step's full log history. Never construct or inspect this value yourself."`
 }
 
 // sensitiveMask replaces a Sensitive Detail's real value, matching
@@ -68,10 +74,11 @@ type DetailRow struct {
 	Sensitive bool   `json:"sensitive" jsonschema:"whether value is masked and must not be treated as the real secret"`
 }
 
-// LogLine is one buffered line of a step's output.
+// LogLine is one durably-logged line of a step's output.
 type LogLine struct {
-	Stream string `json:"stream" jsonschema:"the output stream this line came from, e.g. stdout or stderr"`
-	Text   string `json:"text"   jsonschema:"the line's content"`
+	Time   time.Time `json:"time"   jsonschema:"when this line was logged"`
+	Stream string    `json:"stream" jsonschema:"the output stream this line came from, e.g. stdout or stderr"`
+	Text   string    `json:"text"   jsonschema:"the line's content"`
 }
 
 // GetStepOutput is the result of get_step.
@@ -79,7 +86,10 @@ type GetStepOutput struct {
 	StepSummary
 
 	Details []DetailRow `json:"details,omitempty" jsonschema:"the step's card rows - an exposed address, a routed hostname, a generated credential path, etc."`
-	Logs    []LogLine   `json:"logs,omitempty"    jsonschema:"the step's buffered output, oldest first"`
+	Logs    []LogLine   `json:"logs,omitempty"    jsonschema:"the step's log lines recorded since the since cursor (or its full history, if since was omitted), oldest first"`
+	// Cursor is a Cursor, kept as a plain string at the tool boundary for
+	// the same reason Since is.
+	Cursor string `json:"cursor,omitempty" jsonschema:"pass this back as since on a later get_step call to fetch only what's new"`
 }
 
 func (s *Server) getStep(_ context.Context, _ *mcp.CallToolRequest, in GetStepInput) (*mcp.CallToolResult, GetStepOutput, error) {
@@ -88,14 +98,19 @@ func (s *Server) getStep(_ context.Context, _ *mcp.CallToolRequest, in GetStepIn
 		if st.Name != in.Name {
 			continue
 		}
-		return nil, stepOutput(st, v), nil
+		out, err := stepOutput(st, s.logsPath, steplog.Cursor(in.Since))
+		if err != nil {
+			return nil, GetStepOutput{}, fmt.Errorf("mcpserver: get_step %s: %w", in.Name, err)
+		}
+		return nil, out, nil
 	}
 	return nil, GetStepOutput{}, fmt.Errorf("mcpserver: no step named %q", in.Name)
 }
 
 // stepOutput builds one step's full get_step/rerun_step report: its
-// summary, detail rows (sensitive values masked), and buffered logs.
-func stepOutput(st session.Step, v session.View) GetStepOutput {
+// summary, detail rows (sensitive values masked), and log lines recorded
+// after cursor since (see logsPath, internal/steplog).
+func stepOutput(st session.Step, logsPath string, since steplog.Cursor) (GetStepOutput, error) {
 	details := make([]DetailRow, len(st.Details))
 	for i, d := range st.Details {
 		value := d.Value
@@ -104,12 +119,15 @@ func stepOutput(st session.Step, v session.View) GetStepOutput {
 		}
 		details[i] = DetailRow{Label: d.Label, Value: value, Sensitive: d.Sensitive}
 	}
-	lines := v.StepLogs[st.Name]
-	logs := make([]LogLine, len(lines))
-	for i, l := range lines {
-		logs[i] = LogLine{Stream: l.Stream, Text: l.Text}
+	entries, cursor, err := steplog.ReadSince(logsPath, st.Name, since)
+	if err != nil {
+		return GetStepOutput{}, err
 	}
-	return GetStepOutput{StepSummary: stepSummary(st), Details: details, Logs: logs}
+	logs := make([]LogLine, len(entries))
+	for i, e := range entries {
+		logs[i] = LogLine{Time: e.Time, Stream: e.Stream, Text: e.Text}
+	}
+	return GetStepOutput{StepSummary: StepSummaryOf(st), Details: details, Logs: logs, Cursor: string(cursor)}, nil
 }
 
 // RerunStepInput names the step to re-run and whether to cascade to its
@@ -145,7 +163,11 @@ func (s *Server) rerunStep(ctx context.Context, _ *mcp.CallToolRequest, in Rerun
 	var steps []GetStepOutput
 	for _, st := range v.Steps {
 		if before[st.Name] != st.State {
-			steps = append(steps, stepOutput(st, v))
+			out, err := stepOutput(st, s.logsPath, "")
+			if err != nil {
+				return nil, RerunStepOutput{}, fmt.Errorf("mcpserver: rerun %s: %w", in.Name, err)
+			}
+			steps = append(steps, out)
 		}
 	}
 	return nil, RerunStepOutput{Name: in.Name, Steps: steps, Denials: deniedSince(v.Requests, start)}, nil
