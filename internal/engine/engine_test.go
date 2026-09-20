@@ -131,13 +131,30 @@ func buildPackagedEchoPlugin() (string, error) {
 // required fields with no default, so project fills them in with freshly
 // reserved ports - a case that needs to control them itself uses configDir
 // instead, with proxyBlock to fill in the same required fields.
+// project writes a kevin.cue fixture under a fresh t.TempDir and returns
+// its directory. Unless body sets its own project field (a handful of
+// tests need one fixed across a t.Cleanup or a second process), it gets a
+// name unique to this call: project defaults to the directory's own base
+// name otherwise (config.projectName), which is just t.TempDir's per-call
+// sequence number ("001", "002", ...) - identical across nearly every
+// subtest in this file, so every one of them would create, use, and tear
+// down a Docker network of the exact same name back to back. Real usage
+// never recreates a network under the same name in rapid succession;
+// hammering that pattern hundreds of times a test run is what surfaces
+// Docker's own daemon-side removal/recreate race, not a bug in the code
+// under test.
 func project(t *testing.T, body string) string {
 	t.Helper()
 	bin, err := echoPlugin()
 	require.NoError(t, err)
 
 	dir := t.TempDir()
-	src := "plugins: echo: cmd: " + strconv.Quote(bin) + "\n" + proxyBlock(t) + body
+	src := "plugins: echo: cmd: " + strconv.Quote(bin) + "\n" + proxyBlock(t)
+	if !strings.Contains(body, "project:") {
+		name := config.SlugName(t.Name()) + "-" + filepath.Base(dir)
+		src += "project: " + strconv.Quote(name) + "\n"
+	}
+	src += body
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(src), 0o600))
 	return dir
 }
