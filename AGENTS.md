@@ -290,15 +290,25 @@ registry (`internal/ocipkg`), `http` names the same package fetched over a
 plain URL (`internal/httppkg`) - `oci` and `http` share one
 content-addressed cache (`internal/pkgcache`) - all extracted into the
 project workspace and launched exactly like `cmd`. A `file`/`oci`/`http`
-entry can also set `signed: true` (never `cmd`, which is a local binary
-kevin already trusts by construction): kevin then requires a detached
-minisign signature alongside the package - a sibling `.minisig` file for
-`file`/`http`, or an OCI artifact at a cosign-style fallback tag for `oci`
-- verified against the local trust store (`~/.kevin/trusted-keys`,
-`internal/pkgtrust`), managed with `kevin plugin trust
-add`/`list`/`remove`. `kevin plugin pack` builds a package from a
-directory and `kevin plugin push` publishes one (plus its `.minisig`
-sibling, if present) to an OCI registry. An optional `config` block is
-delivered once via `Configure`). See
+entry can also set `signing` (never `cmd`, which is a local binary kevin
+already trusts by construction), under one of two schemes.
+`signing: {scheme: "minisign"}` requires a detached minisign signature
+alongside the package - a sibling `.minisig` file for `file`/`http`, or an
+OCI artifact at a cosign-style fallback tag for `oci` - verified against
+the local trust store (`~/.kevin/trusted-keys`, `internal/pkgtrust`),
+managed with `kevin plugin trust add`/`list`/`remove`.
+`signing: {scheme: "sigstore", identity:, issuer:}` requires a sigstore
+(cosign) keyless bundle the same way (a sibling `.sigstore.json`, or the
+same fallback-tag convention for `oci`), shelled out to `cosign
+verify-blob` (`internal/sigstorepkg`, see ADR-0007), gated by a second
+local trust store (`~/.kevin/trusted-identities`, `kevin plugin trust
+add-identity`/`remove-identity`) since an inline `identity`/`issuer` in
+`kevin.cue` alone isn't a trust boundary. `kevin plugin pack` builds a
+package from a directory and `kevin plugin push` publishes one (plus its
+`.minisig`/`.sigstore.json` sibling, if present) to an OCI registry. Every
+plugin fetch and signature verification - both schemes - runs in
+`LoadAndLaunch` before `startProxy` (`internal/engine/engine.go`'s `Run`),
+so it's unproxied host traffic, out of scope for `proxy: egress: deny`. An
+optional `config` block is delivered once via `Configure`). See
 [docs/site/content/docs/environment-file.md](docs/site/content/docs/environment-file.md)
 for worked examples.

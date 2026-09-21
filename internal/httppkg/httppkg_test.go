@@ -205,7 +205,7 @@ func TestFetchSignature(t *testing.T) {
 		srv := httptest.NewServer(mux)
 		t.Cleanup(srv.Close)
 
-		got, err := httppkg.FetchSignature(t.Context(), srv.URL+"/plugin.tar.gz")
+		got, err := httppkg.FetchSignature(t.Context(), srv.URL+"/plugin.tar.gz", ".minisig")
 		require.NoError(t, err)
 		assert.Equal(t, sigBody, got)
 	})
@@ -214,7 +214,7 @@ func TestFetchSignature(t *testing.T) {
 		srv := serve(t, []byte("not found"), http.StatusNotFound)
 		t.Cleanup(srv.Close)
 
-		_, err := httppkg.FetchSignature(t.Context(), srv.URL+"/plugin.tar.gz")
+		_, err := httppkg.FetchSignature(t.Context(), srv.URL+"/plugin.tar.gz", ".minisig")
 		require.ErrorIs(t, err, httppkg.ErrFetch)
 	})
 
@@ -225,7 +225,7 @@ func TestFetchSignature(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
-		_, err := httppkg.FetchSignature(ctx, srv.URL+"/plugin.tar.gz")
+		_, err := httppkg.FetchSignature(ctx, srv.URL+"/plugin.tar.gz", ".minisig")
 		require.ErrorIs(t, err, httppkg.ErrFetch)
 	})
 }

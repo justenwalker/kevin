@@ -502,6 +502,57 @@ plugins: {
 					assert.JSONEq(t, `{"greeting":"hi"}`, string(spec.Config))
 				},
 			},
+			{
+				name: "no signing block",
+				src:  `plugins: mine: file: "./plugin.tar"`,
+				check: func(t *testing.T, spec config.PluginSpec) {
+					t.Helper()
+					assert.Nil(t, spec.Signing)
+				},
+			},
+			{
+				name: "signing: false",
+				src: `plugins: mine: {
+					file:    "./plugin.tar"
+					signing: false
+				}`,
+				check: func(t *testing.T, spec config.PluginSpec) {
+					t.Helper()
+					assert.Nil(t, spec.Signing)
+				},
+			},
+			{
+				name: "signing minisign",
+				src: `plugins: mine: {
+					file: "./plugin.tar"
+					signing: scheme: "minisign"
+				}`,
+				check: func(t *testing.T, spec config.PluginSpec) {
+					t.Helper()
+					require.NotNil(t, spec.Signing)
+					assert.Equal(t, &config.SigningSpec{Scheme: config.SigningSchemeMinisign}, spec.Signing)
+				},
+			},
+			{
+				name: "signing sigstore",
+				src: `plugins: mine: {
+					file: "./plugin.tar"
+					signing: {
+						scheme:   "sigstore"
+						identity: "ci@acme.example"
+						issuer:   "https://token.actions.githubusercontent.com"
+					}
+				}`,
+				check: func(t *testing.T, spec config.PluginSpec) {
+					t.Helper()
+					require.NotNil(t, spec.Signing)
+					assert.Equal(t, &config.SigningSpec{
+						Scheme:   config.SigningSchemeSigstore,
+						Identity: "ci@acme.example",
+						Issuer:   "https://token.actions.githubusercontent.com",
+					}, spec.Signing)
+				},
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {

@@ -17,7 +17,11 @@ const (
 	// verify.
 	ErrSignatureInvalid = Error("pkgtrust: signature verification failed")
 
-	// ErrSignatureMissing reports a plugins.<name> entry with signed: true
-	// whose package has no detached signature to verify.
-	ErrSignatureMissing = Error("pkgtrust: signed: true but the package has no signature")
+	// ErrSignatureMissing reports a plugins.<name> entry with a signing
+	// block whose package has no detached signature to verify.
+	ErrSignatureMissing = Error("pkgtrust: signing is set but the package has no signature")
+
+	// ErrIdentityUntrusted reports a sigstore identity/issuer pair, or a
+	// RemoveIdentity target, that matches no entry in the trust store.
+	ErrIdentityUntrusted = Error("pkgtrust: identity is not trusted")
 )

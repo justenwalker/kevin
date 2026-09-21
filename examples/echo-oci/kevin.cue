@@ -21,8 +21,8 @@ proxy: {
 console: listen: "127.0.0.1:18112"
 
 plugins: echo: {
-	oci:    "ghcr.io/justenwalker/kevin/plugin-echo:0.0.1"
-	signed: true
+	oci: "ghcr.io/justenwalker/kevin/plugin-echo:0.0.1"
+	signing: scheme: "minisign"
 	config: greeting: "hello from the OCI-packaged provider"
 }
 

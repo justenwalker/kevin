@@ -559,11 +559,11 @@ Already exercised structurally in sections 6-8 (`${needs.cluster.out.kubeconfig}
       (Automated at the unit level - `internal/config/config_test.go`'s
       `TestValidateNeedsReferences`.)
 
-## 13. Plugin packaging: pack / push / trust / signed
+## 13. Plugin packaging: pack / push / trust / signing
 
-_Automated by `gnob e2e` (`tests/e2e/plugin_test.go`), minus the minisign and
-oci parts, which need a signing key and a registry reachable over HTTPS -
-those stay manual._
+_Automated by `gnob e2e` (`tests/e2e/plugin_test.go`), minus the minisign,
+sigstore, and oci parts, which need a signing key (or an interactive OIDC
+login), and a registry reachable over HTTPS - those stay manual._
 
 Using the echo plugin as the guinea pig:
 
@@ -603,8 +603,8 @@ kevin plugin trust add /tmp/kevin-pkg/echo.pub
 
 ```cue
 plugins: echo: {
-    file:   "/tmp/kevin-pkg/echo.tar.gz"
-    signed: true
+    file: "/tmp/kevin-pkg/echo.tar.gz"
+    signing: scheme: "minisign"
 }
 ```
 
@@ -612,8 +612,51 @@ plugins: echo: {
 - [ ] `kevin plugin trust remove <key-id>`, rerun - now fails closed with a
       "no such key in the trust store" error, refuses to extract.
 - [ ] Delete the `.minisig` file entirely (trust re-added) - fails with a
-      clear "signed: true but the package has no signature" error, not a
-      silent skip.
+      clear "has a signing block but ships no .minisig signature" error, not
+      a silent skip.
+
+Sigstore (keyless) signing - needs `cosign` on `PATH`:
+
+```sh
+cosign sign-blob --yes --bundle /tmp/kevin-pkg/echo.tar.gz.sigstore.json /tmp/kevin-pkg/echo.tar.gz
+```
+
+- [ ] Prints a device-flow URL and code - open it, log in, and it writes
+      `echo.tar.gz.sigstore.json` next to the archive.
+- [ ] Read the identity/issuer it signed with:
+      `openssl x509 -in <(python3 -c "import json,base64,sys; d=json.load(open('/tmp/kevin-pkg/echo.tar.gz.sigstore.json')); sys.stdout.buffer.write(base64.b64decode(d['verificationMaterial']['certificate']['rawBytes']))") -noout -text | grep -A1 "Subject Alternative Name"`
+      shows the signing identity (e.g. an email); the `1.3.6.1.4.1.57264.1.1`
+      OID line shows the OIDC issuer.
+
+```sh
+kevin plugin trust add-identity --identity <identity> --issuer <issuer>
+```
+
+- [ ] `kevin plugin trust list` shows it, tagged `sigstore`.
+
+```cue
+plugins: echo: {
+    file: "/tmp/kevin-pkg/echo.tar.gz"
+    signing: {
+        scheme:   "sigstore"
+        identity: "<identity>"
+        issuer:   "<issuer>"
+    }
+}
+```
+
+- [ ] Env using this entry runs successfully (valid bundle, trusted
+      identity).
+- [ ] `kevin plugin trust remove-identity <identity> <issuer>`, rerun - now
+      fails closed with "signing identity isn't trusted", refuses to
+      extract.
+- [ ] Re-add the identity, then append a byte to `echo.tar.gz` (tampering it
+      after signing) - fails closed with "sigstore signature doesn't verify
+      against its package", not a silent skip. Restore the original file
+      afterward.
+- [ ] Rename `cosign` off `PATH` temporarily (or unset `PATH`) - fails
+      closed with "needs cosign to verify its sigstore signature", not a
+      hang or an unrelated error.
 
 `oci:`/`http:` sources (needs a registry/HTTP server reachable, e.g.
 `python3 -m http.server` for `http:`). For `oci:`, kevin's registry client

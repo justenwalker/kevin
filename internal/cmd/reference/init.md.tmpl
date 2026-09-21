@@ -9,7 +9,7 @@ weight: 5
 
 Resolves each `plugins:` entry a step actually uses, downloading and
 extracting a `file:`/`oci:`/`http:` source and verifying its signature if
-`signed: true` is set. It starts no plugin process and validates nothing
+`signing` is set. It starts no plugin process and validates nothing
 against a schema.
 
 ```sh

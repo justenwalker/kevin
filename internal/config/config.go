@@ -74,7 +74,57 @@ type PluginSpec struct {
 	File     string `json:"file"`
 	Checksum string `json:"checksum"`
 	HTTP     string `json:"http"`
-	Signed   bool   `json:"signed"`
+
+	// Signing is nil when the package requires no signature. schema.cue's
+	// "signing" field unifies to JSON false (no signature required) or an
+	// object naming a scheme - UnmarshalJSON turns that union into
+	// nil-vs-populated here.
+	Signing *SigningSpec `json:"-"`
+}
+
+// UnmarshalJSON decodes a PluginSpec, additionally turning the "signing"
+// field's false/object union (see schema.cue) into a nil-vs-populated
+// [PluginSpec.Signing].
+func (p *PluginSpec) UnmarshalJSON(data []byte) error {
+	type alias PluginSpec
+	aux := struct {
+		*alias
+
+		Signing json.RawMessage `json:"signing"`
+	}{alias: (*alias)(p)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return fmt.Errorf("config: decode plugin spec: %w", err)
+	}
+	if len(aux.Signing) == 0 || string(aux.Signing) == "false" {
+		p.Signing = nil
+		return nil
+	}
+	spec := &SigningSpec{}
+	if err := json.Unmarshal(aux.Signing, spec); err != nil {
+		return fmt.Errorf("config: decode plugin spec signing: %w", err)
+	}
+	p.Signing = spec
+	return nil
+}
+
+// SigningScheme names a signature scheme a #Package's signing field can
+// require (see schema.cue).
+type SigningScheme string
+
+// Signature schemes a #Package's signing field can require.
+const (
+	SigningSchemeMinisign SigningScheme = "minisign"
+	SigningSchemeSigstore SigningScheme = "sigstore"
+)
+
+// SigningSpec is a #Package's signing field, decoded (see schema.cue's
+// #Minisign/#Sigstore).
+type SigningSpec struct {
+	Scheme SigningScheme `json:"scheme"`
+
+	// Identity and Issuer are set only for [SigningSchemeSigstore].
+	Identity string `json:"identity"`
+	Issuer   string `json:"issuer"`
 }
 
 // Step is one node of the DAG.

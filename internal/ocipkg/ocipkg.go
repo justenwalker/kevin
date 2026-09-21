@@ -36,6 +36,11 @@ const MediaType = "application/vnd.kevin.plugin.package.v1.tar"
 // bytes.
 const SignatureMediaType = "application/vnd.kevin.plugin.signature.v1+minisign"
 
+// SigstoreSignatureMediaType identifies an OCI manifest layer as a sigstore
+// (cosign) signature bundle (a .sigstore.json file) over a kevin plugin
+// package's tar bytes.
+const SigstoreSignatureMediaType = "application/vnd.kevin.plugin.signature.v1+sigstore-bundle"
+
 // dockerManifestListMediaType is the legacy Docker equivalent of
 // ocispec.MediaTypeImageIndex - some publishing tools still emit it.
 const dockerManifestListMediaType = "application/vnd.docker.distribution.manifest.list.v2+json"
@@ -153,13 +158,17 @@ func pushBlobLayer(ctx context.Context, reg ociregistry.Interface, repo, path, m
 	return desc, nil
 }
 
-// FetchSignature fetches the detached minisign signature published
-// alongside ref's package (pkgDigest, as returned by Fetch), tagged by the
-// cosign-style fallback convention ("sha256-<digest>.sig"). The OCI client
-// kevin uses has no referrers-API support, so this reuses the same
-// ResolveTag/GetManifest/GetBlob calls Fetch already makes for the package
-// itself. The result is never cached: a detached signature is tiny.
-func FetchSignature(ctx context.Context, ref, pkgDigest string) ([]byte, error) {
+// FetchSignature fetches the detached signature published alongside ref's
+// package (pkgDigest, as returned by Fetch), tagged by the cosign-style
+// fallback convention ("sha256-<digest>.sig"). mediaType selects which
+// scheme's signature to expect ([SignatureMediaType] or
+// [SigstoreSignatureMediaType]) - the fallback tag holds one manifest per
+// digest, so only one scheme's signature can be published for a given
+// digest at a time. The OCI client kevin uses has no referrers-API support,
+// so this reuses the same ResolveTag/GetManifest/GetBlob calls Fetch
+// already makes for the package itself. The result is never cached: a
+// detached signature is tiny.
+func FetchSignature(ctx context.Context, ref, pkgDigest, mediaType string) ([]byte, error) {
 	r, err := ociref.Parse(ref)
 	if err != nil {
 		return nil, fmt.Errorf("ocipkg: %q: %w: %w", ref, ErrBadReference, err)
@@ -173,12 +182,12 @@ func FetchSignature(ctx context.Context, ref, pkgDigest string) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	return fetchSignature(ctx, reg, r, dig)
+	return fetchSignature(ctx, reg, r, dig, mediaType)
 }
 
 // fetchSignature does the resolve-tag/fetch-manifest/fetch-blob work
 // against reg.
-func fetchSignature(ctx context.Context, reg ociregistry.Interface, r ociref.Reference, pkgDigest digest.Digest) ([]byte, error) {
+func fetchSignature(ctx context.Context, reg ociregistry.Interface, r ociref.Reference, pkgDigest digest.Digest, mediaType string) ([]byte, error) {
 	tag := signatureTag(pkgDigest)
 	desc, err := reg.ResolveTag(ctx, r.Repository, tag)
 	if err != nil {
@@ -188,7 +197,7 @@ func fetchSignature(ctx context.Context, reg ociregistry.Interface, r ociref.Ref
 	if err != nil {
 		return nil, err
 	}
-	layer, err := signatureLayer(manifest)
+	layer, err := signatureLayer(manifest, mediaType)
 	if err != nil {
 		return nil, err
 	}
@@ -211,23 +220,28 @@ func signatureTag(pkgDigest digest.Digest) string {
 	return "sha256-" + pkgDigest.Encoded() + ".sig"
 }
 
-// signatureLayer picks manifest's single detached-signature layer.
-func signatureLayer(m ocispec.Manifest) (ocispec.Descriptor, error) {
-	if len(m.Layers) == 0 || m.Layers[0].MediaType != SignatureMediaType {
+// signatureLayer picks manifest's single detached-signature layer, checking
+// it matches mediaType.
+func signatureLayer(m ocispec.Manifest, mediaType string) (ocispec.Descriptor, error) {
+	if len(m.Layers) == 0 || m.Layers[0].MediaType != mediaType {
 		got := "no layers"
 		if len(m.Layers) > 0 {
 			got = m.Layers[0].MediaType
 		}
-		return ocispec.Descriptor{}, fmt.Errorf("ocipkg: got %q, want %q: %w", got, SignatureMediaType, ErrMediaType)
+		return ocispec.Descriptor{}, fmt.Errorf("ocipkg: got %q, want %q: %w", got, mediaType, ErrMediaType)
 	}
 	return m.Layers[0], nil
 }
 
-// PushSignature publishes sigPath (a detached minisign .minisig file) as
+// PushSignature publishes sigPath (a detached signature file, in the scheme
+// mediaType names - [SignatureMediaType] for a minisign .minisig file,
+// [SigstoreSignatureMediaType] for a sigstore .sigstore.json bundle) as
 // ref's package signature, tagged by the cosign-style fallback convention
 // ("sha256-<digest>.sig"), resolving ref's own package tag or digest
-// first. It returns the pushed signature manifest's digest.
-func PushSignature(ctx context.Context, ref, sigPath string) (string, error) {
+// first. The fallback tag holds one manifest per digest, so pushing a
+// second scheme's signature for the same digest overwrites the first. It
+// returns the pushed signature manifest's digest.
+func PushSignature(ctx context.Context, ref, sigPath, mediaType string) (string, error) {
 	r, err := ociref.Parse(ref)
 	if err != nil {
 		return "", fmt.Errorf("ocipkg: %q: %w: %w", ref, ErrBadReference, err)
@@ -236,12 +250,12 @@ func PushSignature(ctx context.Context, ref, sigPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return pushSignature(ctx, reg, r, sigPath)
+	return pushSignature(ctx, reg, r, sigPath, mediaType)
 }
 
 // pushSignature does the resolve/hash/push-blob/push-manifest work against
 // reg.
-func pushSignature(ctx context.Context, reg ociregistry.Interface, r ociref.Reference, sigPath string) (string, error) {
+func pushSignature(ctx context.Context, reg ociregistry.Interface, r ociref.Reference, sigPath, mediaType string) (string, error) {
 	// The fallback tag must carry the same digest Fetch resolves and
 	// reports - the package layer's digest, not the manifest's - so
 	// resolve the package exactly as Fetch does.
@@ -254,11 +268,11 @@ func pushSignature(ctx context.Context, reg ociregistry.Interface, r ociref.Refe
 		return "", err
 	}
 
-	layer, err := pushBlobLayer(ctx, reg, r.Repository, sigPath, SignatureMediaType)
+	layer, err := pushBlobLayer(ctx, reg, r.Repository, sigPath, mediaType)
 	if err != nil {
 		return "", err
 	}
-	return pushArtifactManifest(ctx, reg, r.Repository, signatureTag(pkgLayer.Digest), layer, SignatureMediaType)
+	return pushArtifactManifest(ctx, reg, r.Repository, signatureTag(pkgLayer.Digest), layer, mediaType)
 }
 
 // newRegistry builds an authenticated client for host, reusing whatever

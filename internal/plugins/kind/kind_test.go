@@ -1,8 +1,12 @@
 package kind
 
 import (
+	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -10,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
 
+	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/docker"
 	"github.com/justenwalker/kevin/internal/kindcmd"
 	"github.com/justenwalker/kevin/plugin"
@@ -35,11 +40,75 @@ func (c *capture) Log(stream, text string) {
 
 func (c *capture) Progress(string, int64, int64) {}
 
+// fakeRuntime is a hand-written cri.Runtime double. It lets a test drive the
+// kubectl-over-Exec orchestration in capture.go, coredns.go, and trustca.go
+// without a live docker daemon or kind cluster.
+type fakeRuntime struct {
+	exec      func(ctx context.Context, container string, args ...string) (string, error)
+	execInput func(ctx context.Context, container string, stdin io.Reader, args ...string) (string, error)
+	inspect   func(ctx context.Context, container string) (cri.Container, error)
+	save      func(ctx context.Context, image string) (io.ReadCloser, error)
+}
+
+var _ cri.Runtime = fakeRuntime{}
+
+func (f fakeRuntime) Exec(ctx context.Context, container string, args ...string) (string, error) {
+	if f.exec == nil {
+		return "", nil
+	}
+	return f.exec(ctx, container, args...)
+}
+
+func (f fakeRuntime) ExecInput(ctx context.Context, container string, stdin io.Reader, args ...string) (string, error) {
+	if f.execInput == nil {
+		return "", nil
+	}
+	return f.execInput(ctx, container, stdin, args...)
+}
+
+func (f fakeRuntime) Inspect(ctx context.Context, name string) (cri.Container, error) {
+	if f.inspect == nil {
+		return cri.Container{}, nil
+	}
+	return f.inspect(ctx, name)
+}
+
+func (fakeRuntime) Available(context.Context) error { return nil }
+
+func (fakeRuntime) Run(context.Context, cri.RunSpec) (string, error) { return "", nil }
+
+func (fakeRuntime) Remove(context.Context, string) error { return nil }
+
+func (f fakeRuntime) Save(ctx context.Context, image string) (io.ReadCloser, error) {
+	if f.save == nil {
+		return io.NopCloser(strings.NewReader("")), nil
+	}
+	return f.save(ctx, image)
+}
+
+func (fakeRuntime) NetworkCreate(context.Context, string, cri.NetworkOptions) error { return nil }
+
+func (fakeRuntime) NetworkRemove(context.Context, string) error { return nil }
+
+func (fakeRuntime) NetworkConnect(context.Context, string, string) error { return nil }
+
+func (fakeRuntime) NetworkGateway(context.Context, string) (cri.Gateway, error) {
+	return cri.Gateway{}, nil
+}
+
+func (fakeRuntime) ListByLabel(context.Context, string, string) ([]string, error) { return nil, nil }
+
 func TestSchemaCarriesTheEmbeddedSchema(t *testing.T) {
 	schema := Step{}.Schema()
 
 	assert.Contains(t, string(schema), "#Config")
 	assert.Contains(t, string(schema), "workers")
+}
+
+func TestStep(t *testing.T) {
+	assert.Equal(t, Step{}, New())
+	assert.Equal(t, plugin.StepKindResource, Step{}.Kind())
+	assert.True(t, Step{}.Idempotent(), "Up always removes a stale cluster before creating a fresh one")
 }
 
 func TestDecode(t *testing.T) {
@@ -450,6 +519,11 @@ func TestReuseFingerprint(t *testing.T) {
 		assert.NotEqual(t, a, b, "a cluster created against one proxy address must not fingerprint as reusable against another")
 	})
 
+	t.Run("propagates a clusterConfig failure", func(t *testing.T) {
+		_, err := reuseFingerprint(config{ControlPlane: map[string]any{"role": "worker"}}, 0, nil)
+		require.ErrorIs(t, err, ErrReservedNodeField)
+	})
+
 	t.Run("the cluster config prefix is unchanged", func(t *testing.T) {
 		got, err := reuseFingerprint(cfg, 0, map[string]string{"HTTP_PROXY": "http://host.docker.internal:54321"})
 		require.NoError(t, err)
@@ -512,6 +586,150 @@ func TestUpReportsABadWait(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "wait")
+}
+
+func TestUpReportsABadEngine(t *testing.T) {
+	_, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+		Step:   "cluster",
+		Config: []byte(`{}`),
+		Env:    plugin.Env{Project: "demo", Workspace: t.TempDir(), Engine: "bogus"},
+	}, &capture{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "bogus")
+}
+
+func TestFinishClusterSetup(t *testing.T) {
+	nodes := []string{"demo-cluster-control-plane"}
+
+	happyRT := fakeRuntime{
+		exec: func(_ context.Context, _ string, args ...string) (string, error) {
+			switch {
+			case slices.Contains(args, "kubeadm-config"):
+				return clusterConfigurationFixture, nil
+			case slices.Contains(args, "get") && slices.Contains(args, "coredns"):
+				return ".:53 {\n    forward . 8.8.8.8\n}\n", nil
+			}
+			return "", nil
+		},
+		execInput: func(context.Context, string, io.Reader, ...string) (string, error) { return "", nil },
+		inspect: func(_ context.Context, name string) (cri.Container, error) {
+			return cri.Container{ID: name + "-id", NetnsPath: "/proc/1/ns/net"}, nil
+		},
+	}
+
+	t.Run("with every opt-out set, does nothing", func(t *testing.T) {
+		exposed, containers, err := finishClusterSetup(t.Context(), fakeRuntime{}, config{},
+			&plugin.UpRequest{}, "demo-cluster", nodes, "", false, &capture{})
+		require.NoError(t, err)
+		assert.Nil(t, exposed)
+		assert.Nil(t, containers)
+	})
+
+	t.Run("propagates a trust CA failure", func(t *testing.T) {
+		req := &plugin.UpRequest{Env: plugin.Env{CAPath: filepath.Join(t.TempDir(), "missing.pem")}}
+		_, _, err := finishClusterSetup(t.Context(), happyRT, config{TrustCA: true}, req, "demo-cluster", nodes, "", false, &capture{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "read the kevin root certificate")
+	})
+
+	t.Run("propagates a coredns patch failure", func(t *testing.T) {
+		req := &plugin.UpRequest{Env: plugin.Env{Domain: "kevin.home", Relay: "10.244.0.5:53"}}
+		rt := fakeRuntime{exec: func(context.Context, string, ...string) (string, error) {
+			return "", errors.New("exec failed")
+		}}
+		_, _, err := finishClusterSetup(t.Context(), rt, config{CoreDNS: true}, req, "demo-cluster", nodes, "", false, &capture{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "read the coredns Corefile")
+	})
+
+	t.Run("propagates a capture discovery failure", func(t *testing.T) {
+		req := &plugin.UpRequest{Env: plugin.Env{Relay: "10.244.0.5:53"}}
+		_, _, err := finishClusterSetup(t.Context(), fakeRuntime{}, config{}, req, "demo-cluster",
+			[]string{"demo-cluster-worker"}, "", false, &capture{})
+		require.ErrorIs(t, err, ErrNoControlPlaneNode)
+	})
+
+	t.Run("propagates a relay failure", func(t *testing.T) {
+		_, _, err := finishClusterSetup(t.Context(), fakeRuntime{}, config{}, &plugin.UpRequest{}, "demo-cluster",
+			[]string{"demo-cluster-worker"}, "127.0.0.1:54321", true, &capture{})
+		require.ErrorIs(t, err, ErrNoControlPlaneNode)
+	})
+
+	t.Run("assembles containers when capture is on and no relay is wanted", func(t *testing.T) {
+		req := &plugin.UpRequest{Env: plugin.Env{Relay: "10.244.0.5:53"}}
+		exposed, containers, err := finishClusterSetup(t.Context(), happyRT, config{}, req, "demo-cluster", nodes, "", false, &capture{})
+		require.NoError(t, err)
+		assert.Nil(t, exposed)
+		require.Len(t, containers, 1)
+	})
+}
+
+func TestClusterOutputs(t *testing.T) {
+	got := clusterOutputs("demo-cluster", "/workspace/kubeconfig/demo-cluster", []string{"demo-cluster-control-plane", "demo-cluster-worker"})
+
+	assert.Equal(t, map[string]string{
+		"name":       "demo-cluster",
+		"kubeconfig": "/workspace/kubeconfig/demo-cluster",
+		"context":    "kind-demo-cluster",
+		"nodes":      "demo-cluster-control-plane,demo-cluster-worker",
+	}, got)
+}
+
+func TestExport(t *testing.T) {
+	t.Run("reports broken JSON", func(t *testing.T) {
+		_, err := Step{}.Export(t.Context(), &plugin.ExportRequest{Config: []byte(`{`)})
+		require.Error(t, err)
+	})
+
+	t.Run("no kubeconfig yet is an error", func(t *testing.T) {
+		_, err := Step{}.Export(t.Context(), &plugin.ExportRequest{
+			Env: plugin.Env{Project: "demo", Workspace: t.TempDir()},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "run `kevin run` or `kevin setup` first")
+	})
+
+	t.Run("reports the persisted values with no live containers when the engine can't be reached", func(t *testing.T) {
+		workspace := t.TempDir()
+		name := "demo-cluster"
+		kubeconfig := filepath.Join(workspace, "kubeconfig", name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(kubeconfig), 0o700))
+		require.NoError(t, os.WriteFile(kubeconfig, []byte("apiVersion: v1\n"), 0o600))
+
+		got, err := Step{}.Export(t.Context(), &plugin.ExportRequest{
+			Step: "cluster",
+			Env:  plugin.Env{Project: "demo", Workspace: workspace, Engine: "bogus"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, plugin.StringMap(map[string]string{
+			"name":       name,
+			"kubeconfig": kubeconfig,
+			"context":    "kind-" + name,
+		}), got.Out)
+		assert.Nil(t, got.Containers)
+	})
+
+	t.Run("reads the relay address back when Up left one", func(t *testing.T) {
+		workspace := t.TempDir()
+		name := "demo-cluster"
+		kubeconfig := filepath.Join(workspace, "kubeconfig", name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(kubeconfig), 0o700))
+		require.NoError(t, os.WriteFile(kubeconfig, []byte("apiVersion: v1\n"), 0o600))
+		require.NoError(t, os.WriteFile(relayAddrFile(kubeconfig), []byte("127.0.0.1:54321"), 0o600))
+
+		got, err := Step{}.Export(t.Context(), &plugin.ExportRequest{
+			Step: "cluster",
+			Env:  plugin.Env{Project: "demo", Workspace: workspace, Engine: "bogus"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "127.0.0.1:54321", got.Out["relay_addr"].Reveal())
+	})
+}
+
+func TestDownReportsBadConfig(t *testing.T) {
+	err := Step{}.Down(t.Context(), &plugin.DownRequest{Config: []byte(`{`)}, &capture{})
+	require.Error(t, err)
 }
 
 func TestDownIsIdempotent(t *testing.T) {
@@ -633,6 +851,68 @@ func TestRelayPodManifest(t *testing.T) {
 	assert.Contains(t, got, `args: ["socks5-gateway", "--listen", ":1080"]`)
 	assert.Contains(t, got, "containerPort: 1080")
 	assert.Contains(t, got, "hostPort: 1080")
+}
+
+func TestExposedPortDetails(t *testing.T) {
+	exposed := []plugin.ExposedPort{
+		{Name: "postgres", Protocol: "socks5", Upstream: "socks5://127.0.0.1:54321/postgres.default.svc:5432"},
+	}
+
+	got := exposedPortDetails(exposed)
+
+	require.Len(t, got, 1)
+	assert.Equal(t, exposed[0].Detail(), got[0], "Up must mirror every exposed port onto the card the same way")
+}
+
+func TestSaveImageToTempFile(t *testing.T) {
+	t.Run("writes the image stream to a temp file", func(t *testing.T) {
+		rt := fakeRuntime{save: func(context.Context, string) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("fake tar contents")), nil
+		}}
+
+		path, err := saveImageToTempFile(t.Context(), rt, "kevin-relay:dev")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = os.Remove(path) })
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, "fake tar contents", string(data))
+	})
+
+	t.Run("the save failing is an error", func(t *testing.T) {
+		rt := fakeRuntime{save: func(context.Context, string) (io.ReadCloser, error) {
+			return nil, errors.New("no such image")
+		}}
+
+		_, err := saveImageToTempFile(t.Context(), rt, "kevin-relay:dev")
+		require.Error(t, err)
+	})
+}
+
+func TestDeployRelay(t *testing.T) {
+	t.Run("no control-plane node is a hard failure", func(t *testing.T) {
+		err := deployRelay(t.Context(), fakeRuntime{}, "demo-cluster", []string{"demo-cluster-worker"},
+			"kevin-relay:dev", plugin.Env{}, &capture{})
+		require.ErrorIs(t, err, ErrNoControlPlaneNode)
+	})
+
+	t.Run("saving the relay image fails before kind ever loads it", func(t *testing.T) {
+		rt := fakeRuntime{save: func(context.Context, string) (io.ReadCloser, error) {
+			return nil, errors.New("no such image")
+		}}
+
+		err := deployRelay(t.Context(), rt, "demo-cluster", []string{"demo-cluster-control-plane"},
+			"kevin-relay:dev", plugin.Env{}, &capture{})
+		require.Error(t, err)
+	})
+}
+
+func TestFinishRelay(t *testing.T) {
+	t.Run("propagates a deployRelay failure instead of reporting exposed ports", func(t *testing.T) {
+		_, err := finishRelay(t.Context(), fakeRuntime{}, config{}, "demo-cluster", []string{"demo-cluster-worker"},
+			"127.0.0.1:54321", plugin.Env{}, &capture{})
+		require.ErrorIs(t, err, ErrNoControlPlaneNode)
+	})
 }
 
 func TestBootstrapControlPlaneNode(t *testing.T) {

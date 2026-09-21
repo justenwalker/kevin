@@ -28,7 +28,7 @@ func resolveSpec(ctx context.Context, name, dir string, specs map[string]config.
 	destDir := filepath.Join(dir, WorkspaceDir, PluginPkgDir, name)
 	switch {
 	case spec.File != "":
-		return resolveFileSpec(name, dir, destDir, spec)
+		return resolveFileSpec(ctx, name, dir, destDir, spec)
 	case spec.OCI != "":
 		return resolveOCISpec(ctx, name, destDir, spec)
 	case spec.HTTP != "":
@@ -38,13 +38,13 @@ func resolveSpec(ctx context.Context, name, dir string, specs map[string]config.
 }
 
 // resolveFileSpec extracts a file: package, verifying its signature first
-// when spec.Signed is set.
-func resolveFileSpec(name, dir, destDir string, spec config.PluginSpec) (pluginhost.Spec, error) {
+// when spec.Signing is set.
+func resolveFileSpec(ctx context.Context, name, dir, destDir string, spec config.PluginSpec) (pluginhost.Spec, error) {
 	pkgPath := spec.File
 	if !filepath.IsAbs(pkgPath) {
 		pkgPath = filepath.Join(dir, pkgPath)
 	}
-	if err := verifyFileSignature(pkgPath, spec.Signed); err != nil {
+	if err := verifyFileSignature(ctx, pkgPath, spec.Signing); err != nil {
 		return pluginhost.Spec{}, fmt.Errorf("supervisor: plugins.%s: %w", name, friendlySignatureErr(err, name))
 	}
 	result, err := pluginpkg.Extract(pkgPath, destDir, spec.Checksum)
@@ -55,13 +55,13 @@ func resolveFileSpec(name, dir, destDir string, spec config.PluginSpec) (pluginh
 }
 
 // resolveOCISpec fetches and extracts an oci: package, verifying its
-// signature first when spec.Signed is set.
+// signature first when spec.Signing is set.
 func resolveOCISpec(ctx context.Context, name, destDir string, spec config.PluginSpec) (pluginhost.Spec, error) {
 	pkgPath, digest, err := ocipkg.Fetch(ctx, spec.OCI)
 	if err != nil {
 		return pluginhost.Spec{}, fmt.Errorf("supervisor: plugins.%s: %w", name, err)
 	}
-	if verifyErr := verifyOCISignature(ctx, spec.OCI, digest, pkgPath, spec.Signed); verifyErr != nil {
+	if verifyErr := verifyOCISignature(ctx, spec.OCI, digest, pkgPath, spec.Signing); verifyErr != nil {
 		return pluginhost.Spec{}, fmt.Errorf("supervisor: plugins.%s: %w", name, friendlySignatureErr(verifyErr, name))
 	}
 	result, err := pluginpkg.Extract(pkgPath, destDir, digest)
@@ -72,13 +72,13 @@ func resolveOCISpec(ctx context.Context, name, destDir string, spec config.Plugi
 }
 
 // resolveHTTPSpec fetches and extracts an http: package, verifying its
-// signature first when spec.Signed is set.
+// signature first when spec.Signing is set.
 func resolveHTTPSpec(ctx context.Context, name, destDir string, spec config.PluginSpec) (pluginhost.Spec, error) {
 	pkgPath, digest, err := httppkg.Fetch(ctx, spec.HTTP, spec.Checksum)
 	if err != nil {
 		return pluginhost.Spec{}, fmt.Errorf("supervisor: plugins.%s: %w", name, err)
 	}
-	if verifyErr := verifyHTTPSignature(ctx, spec.HTTP, pkgPath, spec.Signed); verifyErr != nil {
+	if verifyErr := verifyHTTPSignature(ctx, spec.HTTP, pkgPath, spec.Signing); verifyErr != nil {
 		return pluginhost.Spec{}, fmt.Errorf("supervisor: plugins.%s: %w", name, friendlySignatureErr(verifyErr, name))
 	}
 	result, err := pluginpkg.Extract(pkgPath, destDir, digest)

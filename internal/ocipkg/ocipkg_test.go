@@ -299,7 +299,7 @@ func TestFetchSignature(t *testing.T) {
 		_, err = reg.PushManifest(t.Context(), testRepo, signatureTag(pkgLayer.Digest), data, ocispec.MediaTypeImageManifest)
 		require.NoError(t, err)
 
-		got, err := fetchSignature(t.Context(), reg, ociref.Reference{Repository: testRepo}, pkgLayer.Digest)
+		got, err := fetchSignature(t.Context(), reg, ociref.Reference{Repository: testRepo}, pkgLayer.Digest, SignatureMediaType)
 		require.NoError(t, err)
 		assert.Equal(t, sigContent, got)
 	})
@@ -307,7 +307,7 @@ func TestFetchSignature(t *testing.T) {
 	t.Run("reports a missing fallback tag", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		reg := ocimem.New()
-		_, err := fetchSignature(t.Context(), reg, ociref.Reference{Repository: testRepo}, digest.FromBytes([]byte("no such package")))
+		_, err := fetchSignature(t.Context(), reg, ociref.Reference{Repository: testRepo}, digest.FromBytes([]byte("no such package")), SignatureMediaType)
 		require.ErrorIs(t, err, ErrFetch)
 	})
 
@@ -317,19 +317,19 @@ func TestFetchSignature(t *testing.T) {
 		pkgLayer := pushLayer(t, reg, []byte("plugin package bytes"))
 		pushManifest(t, reg, signatureTag(pkgLayer.Digest), pkgLayer) // package-typed layer, not a signature
 
-		_, err := fetchSignature(t.Context(), reg, ociref.Reference{Repository: testRepo}, pkgLayer.Digest)
+		_, err := fetchSignature(t.Context(), reg, ociref.Reference{Repository: testRepo}, pkgLayer.Digest, SignatureMediaType)
 		require.ErrorIs(t, err, ErrMediaType)
 	})
 
 	t.Run("rejects a bad reference", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		_, err := FetchSignature(t.Context(), "not a valid ref!!", "sha256:deadbeef")
+		_, err := FetchSignature(t.Context(), "not a valid ref!!", "sha256:deadbeef", SignatureMediaType)
 		require.ErrorIs(t, err, ErrBadReference)
 	})
 
 	t.Run("rejects a bad digest", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		_, err := FetchSignature(t.Context(), "registry.example.com/acme/plugin:v1", "not a digest")
+		_, err := FetchSignature(t.Context(), "registry.example.com/acme/plugin:v1", "not a digest", SignatureMediaType)
 		require.ErrorIs(t, err, ErrBadReference)
 	})
 }
@@ -346,17 +346,17 @@ func TestPushSignature(t *testing.T) {
 		sigPath := filepath.Join(dir, "pkg.tar.gz.minisig")
 		require.NoError(t, os.WriteFile(sigPath, sigContent, 0o600))
 
-		_, err := pushSignature(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"}, sigPath)
+		_, err := pushSignature(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"}, sigPath, SignatureMediaType)
 		require.NoError(t, err)
 
-		got, err := fetchSignature(t.Context(), reg, ociref.Reference{Repository: testRepo}, pkgLayer.Digest)
+		got, err := fetchSignature(t.Context(), reg, ociref.Reference{Repository: testRepo}, pkgLayer.Digest, SignatureMediaType)
 		require.NoError(t, err)
 		assert.Equal(t, sigContent, got)
 	})
 
 	t.Run("rejects a bad reference", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		_, err := PushSignature(t.Context(), "not a valid ref!!", "irrelevant")
+		_, err := PushSignature(t.Context(), "not a valid ref!!", "irrelevant", SignatureMediaType)
 		require.ErrorIs(t, err, ErrBadReference)
 	})
 
@@ -366,7 +366,7 @@ func TestPushSignature(t *testing.T) {
 		sigPath := filepath.Join(dir, "pkg.tar.gz.minisig")
 		require.NoError(t, os.WriteFile(sigPath, []byte("x"), 0o600))
 
-		_, err := pushSignature(t.Context(), ocimem.New(), ociref.Reference{Repository: testRepo, Tag: "v1"}, sigPath)
+		_, err := pushSignature(t.Context(), ocimem.New(), ociref.Reference{Repository: testRepo, Tag: "v1"}, sigPath, SignatureMediaType)
 		require.ErrorIs(t, err, ErrPush)
 	})
 }

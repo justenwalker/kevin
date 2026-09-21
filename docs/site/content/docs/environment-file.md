@@ -118,7 +118,7 @@ plugins: echo: {
 
 ### Signing packages
 
-`file`, `oci`, and `http` all support `signed`, which pins provenance instead of (or alongside) `checksum`. Rather than pinning one archive's exact bytes, it requires a valid [minisign](https://jedisct1.github.io/minisign/) signature from a key in the local trust store. This suits a moving `oci` tag, or a plugin author who cuts releases faster than `kevin.cue` gets updated.
+`file`, `oci`, and `http` all support `signing`, which pins provenance instead of (or alongside) `checksum`. Rather than pinning one archive's exact bytes, it requires a valid signature from a scheme's trust store. This suits a moving `oci` tag, or a plugin author who cuts releases faster than `kevin.cue` gets updated. Two schemes are available: `signing: scheme: "minisign"`, checked against a [minisign](https://jedisct1.github.io/minisign/) key in the local trust store, and `signing: scheme: "sigstore"`, checked against a keyless [sigstore](https://www.sigstore.dev/) (cosign) identity in a separate local trust store.
 
 Sign the archive `kevin plugin pack` built:
 
@@ -126,7 +126,7 @@ Sign the archive `kevin plugin pack` built:
 minisign -Sm ./dist/kevin-plugin-echo.tar.gz
 ```
 
-This writes `kevin-plugin-echo.tar.gz.minisig` next to the archive. `kevin plugin push` picks it up automatically and publishes it alongside the package; for `file` and `http`, kevin looks for the same `<archive>.minisig` sibling (or `<url>.minisig`, for `http`).
+This writes `kevin-plugin-echo.tar.gz.minisig` next to the archive. `kevin plugin push` picks it up automatically and publishes it alongside the package; for `file` and `http`, kevin looks for the same `<archive>.minisig` sibling (or `<url>.minisig`, for `http`). `push` also looks for a `<archive>.sigstore.json` sibling and publishes that too, for a plugin author already signing with `cosign sign-blob --bundle` - the OCI fallback tag holds one signature per digest, so publishing both leaves only the one pushed last.
 
 On the consuming side, add the signer's public key to the trust store, `~/.kevin/trusted-keys/`. This store is global and lives outside `kevin.cue` on purpose, so editing the project file alone can never add a trusted signer. Then opt the plugin in:
 
@@ -136,12 +136,39 @@ kevin plugin trust add ./signer.pub
 
 ```cue
 plugins: echo: {
-    oci:    "ghcr.io/acme/kevin-plugin-echo:v1"
-    signed: true
+    oci: "ghcr.io/acme/kevin-plugin-echo:v1"
+    signing: scheme: "minisign"
 }
 ```
 
 `kevin plugin trust list` shows the keys currently trusted, and `kevin plugin trust remove <key-id>` retires one. A package with no valid signature from a trusted key fails closed: kevin refuses to extract it.
+
+**Sigstore (keyless) signing** suits "only accept a package built and signed by CI workflow X in repo Y" - a long-lived key's identity says nothing about *what* signed it, but a Fulcio-issued certificate carries the OIDC identity that signed at that moment (an email, or a GitHub Actions workflow-ref URI). It needs [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/) installed. Sign the archive:
+
+```sh
+cosign sign-blob --yes --bundle ./dist/kevin-plugin-echo.tar.gz.sigstore.json ./dist/kevin-plugin-echo.tar.gz
+```
+
+This opens a browser for OIDC login (or picks up CI-ambient credentials) and writes `kevin-plugin-echo.tar.gz.sigstore.json` next to the archive - `kevin plugin push` publishes it the same way it does a `.minisig` file.
+
+A `signing.identity`/`signing.issuer` pair in `kevin.cue` alone is not a trust boundary: Fulcio issues a certificate to any authenticated OIDC identity, so anyone who can edit `kevin.cue` could self-sign a malicious package and satisfy an inline-only check. kevin also requires that same pair in the local identity trust store, `~/.kevin/trusted-identities/`:
+
+```sh
+kevin plugin trust add-identity --identity ci@acme.example --issuer https://token.actions.githubusercontent.com
+```
+
+```cue
+plugins: echo: {
+    oci: "ghcr.io/acme/kevin-plugin-echo:v1"
+    signing: {
+        scheme:   "sigstore"
+        identity: "ci@acme.example"
+        issuer:   "https://token.actions.githubusercontent.com"
+    }
+}
+```
+
+`kevin plugin trust list` shows both minisign keys and sigstore identities, scheme-tagged, and `kevin plugin trust remove-identity <identity> <issuer>` retires one. Verification checks the bundle's embedded Rekor inclusion proof offline - no live Rekor call - but may refresh Sigstore's public TUF trust root (cached under `~/.sigstore/root/`), and this refresh runs before kevin's own proxy exists, so it's unproxied host traffic like an `oci:`/`http:` fetch. `cosign verify-blob` collapses every failure reason (identity mismatch, issuer mismatch, a bad certificate chain, a bad Rekor proof) into one error, less precise than minisign's distinct failure messages.
 
 Only a plugin that a step references starts. `kevin plugin list` prints every builtin name.
 
@@ -242,7 +269,7 @@ Steps live in one of two scopes. `setup` steps persist across runs and are manag
 
 `kevin validate` loads the environment file, starts the declared plugins, and checks every step's `with` block against its plugin's schema: everything `run`/`setup` do before touching Docker. It creates nothing and needs no Docker daemon.
 
-`kevin init` downloads and extracts each `plugins:` entry a step actually uses, verifying its signature if `signed: true` is set. It starts no plugin process and checks nothing against a schema.
+`kevin init` downloads and extracts each `plugins:` entry a step actually uses, verifying its signature if `signing` is set. It starts no plugin process and checks nothing against a schema.
 
 ## Ordering
 

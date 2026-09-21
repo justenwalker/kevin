@@ -50,12 +50,13 @@ func Fetch(ctx context.Context, rawURL, checksum string) (string, string, error)
 	return download(ctx, rawURL, wantHex, prior)
 }
 
-// FetchSignature downloads rawURL + ".minisig" - minisign's own default
-// suffix for `minisign -S`/`-Sm` - and returns its raw bytes, ready for
-// minisign.DecodeSignature. Unlike Fetch, the result is never cached: a
-// signature file is tiny, and re-fetching it costs nothing.
-func FetchSignature(ctx context.Context, rawURL string) ([]byte, error) {
-	sigURL := rawURL + ".minisig"
+// FetchSignature downloads rawURL + suffix - ".minisig" (minisign's own
+// default suffix for `minisign -S`/`-Sm`) or ".sigstore.json" (`cosign
+// sign-blob --bundle`'s own default naming) - and returns its raw bytes.
+// Unlike Fetch, the result is never cached: a signature file is tiny, and
+// re-fetching it costs nothing.
+func FetchSignature(ctx context.Context, rawURL, suffix string) ([]byte, error) {
+	sigURL := rawURL + suffix
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sigURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("httppkg: %q: %w: %w", sigURL, ErrFetch, err)

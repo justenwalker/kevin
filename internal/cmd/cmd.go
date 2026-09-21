@@ -322,7 +322,7 @@ func initCommand(opts *options) *cobra.Command {
 		Use:   "init",
 		Short: "Download every plugin the environment file references",
 		Long: "init resolves each plugins: entry a step actually uses, downloading and extracting " +
-			"a file:/oci:/http: source and verifying its signature if signed: true is set. It " +
+			"a file:/oci:/http: source and verifying its signature if signing is set. It " +
 			"starts no plugin process and validates nothing against a schema.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -449,9 +449,10 @@ func pluginPushCommand(opts *options) *cobra.Command {
 		Short: "Push a plugin package to an OCI registry",
 		Long: "push uploads the plugin package at tar.gz to oci-ref (e.g. " +
 			"ghcr.io/acme/plugin:v1), reusing whatever credentials docker login already wrote. " +
-			"If tar.gz.minisig exists (minisign -Sm tar.gz's default output), push uploads it too, " +
-			"for consumers with signed: true and the signing key in their trust store " +
-			"(see kevin plugin trust).",
+			"If tar.gz.minisig or tar.gz.sigstore.json exists, push uploads whichever it finds too, " +
+			"for consumers with a matching signing: scheme and the signer trusted " +
+			"(see kevin plugin trust). The fallback tag holds one signature per digest, so " +
+			"pushing both schemes for the same package leaves only the one pushed last.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.ran = true
@@ -467,29 +468,69 @@ func pluginPushCommand(opts *options) *cobra.Command {
 	}
 }
 
-// pushSignatureIfPresent uploads tarPath's sibling minisig file
-// (tarPath+".minisig", minisign's own default output name) as ref's
-// detached signature. Signing stays opt-in: an absent sibling file prints a
-// hint instead of failing the push.
-func pushSignatureIfPresent(cmd *cobra.Command, ref, tarPath string) error {
-	sigPath := tarPath + ".minisig"
-	if _, err := os.Stat(sigPath); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("cmd: push: stat %q: %w", sigPath, err)
+// signatureSibling is a scheme-recognized detached signature file
+// [pushSignatureIfPresent] looks for next to a plugin package tar, and the
+// OCI media type it publishes under.
+type signatureSibling struct {
+	suffix    string
+	mediaType string
+	signHint  string
+}
+
+// signatureSiblings are the sibling files [pushSignatureIfPresent] checks
+// for, one per signature scheme.
+var signatureSiblings = []signatureSibling{
+	{suffix: ".minisig", mediaType: ocipkg.SignatureMediaType, signHint: "minisign -Sm %s"},
+	{suffix: ".sigstore.json", mediaType: ocipkg.SigstoreSignatureMediaType, signHint: "cosign sign-blob --bundle %[1]s.sigstore.json %[1]s"},
+}
+
+// foundSignatureSiblings reports which of signatureSiblings has a file
+// present next to tarPath, in signatureSiblings order.
+func foundSignatureSiblings(tarPath string) ([]signatureSibling, error) {
+	var found []signatureSibling
+	for _, sib := range signatureSiblings {
+		if _, err := os.Stat(tarPath + sib.suffix); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("cmd: push: stat %q: %w", tarPath+sib.suffix, err)
+			}
+			continue
 		}
-		_, err := fmt.Fprintf(cmd.OutOrStdout(),
-			"no %s found - sign with \"minisign -Sm %s\" to publish a signature\n", sigPath, tarPath)
+		found = append(found, sib)
+	}
+	return found, nil
+}
+
+// pushSignatureIfPresent uploads tarPath's sibling signature file, one per
+// recognized scheme (see signatureSiblings), as ref's detached signature.
+// Signing stays opt-in: no sibling file present prints a hint instead of
+// failing the push. The OCI fallback tag both schemes publish to holds one
+// manifest per digest, so pushing more than one sibling for the same
+// package leaves only the last one pushed live.
+func pushSignatureIfPresent(cmd *cobra.Command, ref, tarPath string) error {
+	found, err := foundSignatureSiblings(tarPath)
+	if err != nil {
+		return err
+	}
+	if len(found) == 0 {
+		hints := make([]string, len(signatureSiblings))
+		for i, sib := range signatureSiblings {
+			hints[i] = fmt.Sprintf("%q", fmt.Sprintf(sib.signHint, tarPath))
+		}
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "no signature found for %s - sign with %s to publish one\n",
+			tarPath, strings.Join(hints, " or "))
 		if err != nil {
 			return fmt.Errorf("cmd: push: %w", err)
 		}
 		return nil
 	}
-	digest, err := ocipkg.PushSignature(cmd.Context(), ref, sigPath)
-	if err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s@%s (signature)\n", ref, digest); err != nil {
-		return fmt.Errorf("cmd: push: %w", err)
+	for _, sib := range found {
+		digest, err := ocipkg.PushSignature(cmd.Context(), ref, tarPath+sib.suffix, sib.mediaType)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s@%s (signature)\n", ref, digest); err != nil {
+			return fmt.Errorf("cmd: push: %w", err)
+		}
 	}
 	return nil
 }

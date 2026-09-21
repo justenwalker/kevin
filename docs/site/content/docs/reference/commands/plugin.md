@@ -37,9 +37,12 @@ kevin plugin pack ./my-plugin -o my-plugin.tar.gz
 
 Uploads the plugin package at `tar.gz` to `oci-ref` (e.g.
 `ghcr.io/acme/plugin:v1`), reusing whatever credentials `docker login`
-already wrote. If `tar.gz.minisig` exists (`minisign -Sm tar.gz`'s default
-output), push uploads it too, for consumers with `signed: true` and the
-signing key in their trust store (see `kevin plugin trust` below).
+already wrote. If `tar.gz.minisig` (`minisign -Sm tar.gz`'s default output)
+or `tar.gz.sigstore.json` (`cosign sign-blob --bundle`'s output) exists,
+push uploads whichever it finds too, for consumers with a matching
+`signing:` scheme and the signer trusted (see `kevin plugin trust` below).
+The OCI fallback tag holds one signature per digest, so pushing both
+schemes for the same package leaves only the one pushed last.
 
 ```sh
 kevin plugin push my-plugin.tar.gz ghcr.io/acme/plugin:v1
@@ -47,11 +50,13 @@ kevin plugin push my-plugin.tar.gz ghcr.io/acme/plugin:v1
 
 ## `kevin plugin trust`
 
-Manages the local minisign trust store (`~/.kevin/trusted-keys`) that a
-`plugins.<name>` entry's `signed: true` verifies against. See
-[the CA and trust guide]({{< relref "/docs/guides/ca-and-trust" >}}) for
-the machine trust store this is not - `kevin plugin trust` is a separate,
-per-key store used only for plugin package signatures.
+Manages the local trust stores a `plugins.<name>` entry's signing block
+verifies against: `~/.kevin/trusted-keys` for `signing: scheme:
+"minisign"`, and `~/.kevin/trusted-identities` for `signing: scheme:
+"sigstore"`. See [the CA and trust guide]({{< relref "/docs/guides/ca-and-trust" >}})
+for the machine trust store this is not - `kevin plugin trust` is a
+separate, per-key/per-identity store used only for plugin package
+signatures.
 
 ### `kevin plugin trust add <pubkey-file>`
 
@@ -59,8 +64,23 @@ Adds a minisign public key to the trust store.
 
 ### `kevin plugin trust list`
 
-Lists the keys in the trust store.
+Lists the trust store's keys and identities, scheme-tagged.
 
 ### `kevin plugin trust remove <key-id>`
 
 Removes a key from the trust store.
+
+### `kevin plugin trust add-identity`
+
+Trusts a sigstore signing identity - the certificate identity (an email,
+or a GitHub Actions workflow-ref URI) and OIDC issuer URL a
+`signing: scheme: "sigstore"` package's bundle must carry.
+
+| Flag | Type | Default | Description |
+|:-----|:----:|:-------:|:------------|
+| `--identity` | `string` | - | **Required.** the trusted certificate identity (e.g. an email, or a GitHub Actions workflow-ref URI) |
+| `--issuer` | `string` | - | **Required.** the trusted OIDC issuer URL (e.g. https://token.actions.githubusercontent.com) |
+
+### `kevin plugin trust remove-identity <identity> <issuer>`
+
+Removes a sigstore signing identity from the trust store.

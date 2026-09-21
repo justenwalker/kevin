@@ -22,6 +22,7 @@ import (
 	"github.com/justenwalker/kevin/internal/pkgtrust"
 	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/internal/pluginpkg"
+	"github.com/justenwalker/kevin/internal/sigstorepkg"
 )
 
 // writePackage builds a fixture plugin package tar at dir/pkg.tar, with a
@@ -65,7 +66,7 @@ func writePackage(t *testing.T, dir string, edit func(*pluginpkg.Manifest)) stri
 }
 
 // signingKey is a freshly generated, unencrypted minisign key pair, for
-// exercising the signed: true path in resolveSpec.
+// exercising the signing verification path in resolveSpec.
 type signingKey struct {
 	sk minisign.PrivateKey
 }
@@ -270,6 +271,7 @@ func TestResolveSpec(t *testing.T) {
 
 	t.Run("signed via a local file", testResolveSpecSignedFile)
 	t.Run("signed via HTTP", testResolveSpecSignedHTTP)
+	t.Run("sigstore-signed via a local file", testResolveSpecSigstoreFile)
 }
 
 func testResolveSpecSignedFile(t *testing.T) {
@@ -282,7 +284,7 @@ func testResolveSpecSignedFile(t *testing.T) {
 		k.trust(t)
 		k.signFile(t, pkgPath)
 
-		specs := map[string]config.PluginSpec{"acme": {File: pkgPath, Signed: true}}
+		specs := map[string]config.PluginSpec{"acme": {File: pkgPath, Signing: &config.SigningSpec{Scheme: config.SigningSchemeMinisign}}}
 		spec, err := resolveSpec(t.Context(), "acme", dir, specs)
 		require.NoError(t, err)
 		assert.Equal(t, filepath.Join(dir, WorkspaceDir, PluginPkgDir, "acme", "acme-plugin"), spec.Cmd)
@@ -293,7 +295,7 @@ func testResolveSpecSignedFile(t *testing.T) {
 		dir := t.TempDir()
 		pkgPath := writePackage(t, dir, nil)
 
-		specs := map[string]config.PluginSpec{"acme": {File: pkgPath, Signed: true}}
+		specs := map[string]config.PluginSpec{"acme": {File: pkgPath, Signing: &config.SigningSpec{Scheme: config.SigningSchemeMinisign}}}
 		_, err := resolveSpec(t.Context(), "acme", dir, specs)
 		require.ErrorIs(t, err, pkgtrust.ErrSignatureMissing)
 	})
@@ -304,7 +306,7 @@ func testResolveSpecSignedFile(t *testing.T) {
 		pkgPath := writePackage(t, dir, nil)
 		require.NoError(t, os.WriteFile(pkgPath+".minisig", []byte("not a minisig file"), 0o600))
 
-		specs := map[string]config.PluginSpec{"acme": {File: pkgPath, Signed: true}}
+		specs := map[string]config.PluginSpec{"acme": {File: pkgPath, Signing: &config.SigningSpec{Scheme: config.SigningSchemeMinisign}}}
 		_, err := resolveSpec(t.Context(), "acme", dir, specs)
 		require.ErrorIs(t, err, pkgtrust.ErrSignatureInvalid)
 	})
@@ -317,7 +319,7 @@ func testResolveSpecSignedFile(t *testing.T) {
 		untrusted := newSigningKey(t)
 		untrusted.signFile(t, pkgPath)
 
-		specs := map[string]config.PluginSpec{"acme": {File: pkgPath, Signed: true}}
+		specs := map[string]config.PluginSpec{"acme": {File: pkgPath, Signing: &config.SigningSpec{Scheme: config.SigningSchemeMinisign}}}
 		_, err := resolveSpec(t.Context(), "acme", dir, specs)
 		require.ErrorIs(t, err, pkgtrust.ErrUnknownKeyID)
 	})
@@ -336,12 +338,12 @@ func testResolveSpecSignedFile(t *testing.T) {
 		// signature.
 		require.NoError(t, os.WriteFile(pkgPath, []byte("tampered"), 0o600))
 
-		specs := map[string]config.PluginSpec{"acme": {File: pkgPath, Signed: true}}
+		specs := map[string]config.PluginSpec{"acme": {File: pkgPath, Signing: &config.SigningSpec{Scheme: config.SigningSchemeMinisign}}}
 		_, err := resolveSpec(t.Context(), "acme", dir, specs)
 		require.ErrorIs(t, err, pkgtrust.ErrSignatureInvalid)
 	})
 
-	t.Run("skips verification when signed is false", func(t *testing.T) {
+	t.Run("skips verification when signing is unset", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		dir := t.TempDir()
 		pkgPath := writePackage(t, dir, nil)
@@ -349,6 +351,47 @@ func testResolveSpecSignedFile(t *testing.T) {
 		specs := map[string]config.PluginSpec{"acme": {File: pkgPath}}
 		_, err := resolveSpec(t.Context(), "acme", dir, specs)
 		require.NoError(t, err)
+	})
+}
+
+func testResolveSpecSigstoreFile(t *testing.T) {
+	sigstoreSpec := func(pkgPath string) map[string]config.PluginSpec {
+		return map[string]config.PluginSpec{"acme": {File: pkgPath, Signing: &config.SigningSpec{
+			Scheme:   config.SigningSchemeSigstore,
+			Identity: "ci@acme.example",
+			Issuer:   "https://token.actions.githubusercontent.com",
+		}}}
+	}
+
+	t.Run("fails closed with no bundle file", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		dir := t.TempDir()
+		pkgPath := writePackage(t, dir, nil)
+
+		_, err := resolveSpec(t.Context(), "acme", dir, sigstoreSpec(pkgPath))
+		require.ErrorIs(t, err, pkgtrust.ErrSignatureMissing)
+	})
+
+	t.Run("fails closed when the identity is not trusted", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		dir := t.TempDir()
+		pkgPath := writePackage(t, dir, nil)
+		require.NoError(t, os.WriteFile(pkgPath+".sigstore.json", []byte("{}"), 0o600))
+
+		_, err := resolveSpec(t.Context(), "acme", dir, sigstoreSpec(pkgPath))
+		require.ErrorIs(t, err, pkgtrust.ErrIdentityUntrusted)
+	})
+
+	t.Run("fails closed when cosign is not installed", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		t.Setenv("PATH", t.TempDir()) // an empty PATH: cosign cannot resolve
+		dir := t.TempDir()
+		pkgPath := writePackage(t, dir, nil)
+		require.NoError(t, os.WriteFile(pkgPath+".sigstore.json", []byte("{}"), 0o600))
+		require.NoError(t, pkgtrust.AddIdentity("ci@acme.example", "https://token.actions.githubusercontent.com"))
+
+		_, err := resolveSpec(t.Context(), "acme", dir, sigstoreSpec(pkgPath))
+		require.ErrorIs(t, err, sigstorepkg.ErrCosignNotFound)
 	})
 }
 
@@ -372,7 +415,7 @@ func testResolveSpecSignedHTTP(t *testing.T) {
 		srv := httptest.NewServer(mux)
 		t.Cleanup(srv.Close)
 
-		specs := map[string]config.PluginSpec{"acme": {HTTP: srv.URL + "/pkg.tar", Signed: true}}
+		specs := map[string]config.PluginSpec{"acme": {HTTP: srv.URL + "/pkg.tar", Signing: &config.SigningSpec{Scheme: config.SigningSchemeMinisign}}}
 		spec, err := resolveSpec(t.Context(), "acme", t.TempDir(), specs)
 		require.NoError(t, err)
 		assert.Equal(t, "acme-plugin", filepath.Base(spec.Cmd))
@@ -394,8 +437,35 @@ func testResolveSpecSignedHTTP(t *testing.T) {
 		}))
 		t.Cleanup(srv.Close)
 
-		specs := map[string]config.PluginSpec{"acme": {HTTP: srv.URL + "/pkg.tar", Signed: true}}
+		specs := map[string]config.PluginSpec{"acme": {HTTP: srv.URL + "/pkg.tar", Signing: &config.SigningSpec{Scheme: config.SigningSchemeMinisign}}}
 		_, err = resolveSpec(t.Context(), "acme", t.TempDir(), specs)
 		require.ErrorIs(t, err, httppkg.ErrFetch)
+	})
+
+	t.Run("fetches a sigstore bundle before verifying, when the identity is trusted", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		t.Setenv("PATH", t.TempDir()) // an empty PATH: cosign cannot resolve
+		srcDir := t.TempDir()
+		pkgPath := writePackage(t, srcDir, nil)
+		pkgData, err := os.ReadFile(pkgPath)
+		require.NoError(t, err)
+
+		mux := http.NewServeMux()
+		mux.HandleFunc("/pkg.tar", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(pkgData) })
+		mux.HandleFunc("/pkg.tar.sigstore.json", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("{}")) })
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+
+		require.NoError(t, pkgtrust.AddIdentity("ci@acme.example", "https://token.actions.githubusercontent.com"))
+		specs := map[string]config.PluginSpec{"acme": {HTTP: srv.URL + "/pkg.tar", Signing: &config.SigningSpec{
+			Scheme:   config.SigningSchemeSigstore,
+			Identity: "ci@acme.example",
+			Issuer:   "https://token.actions.githubusercontent.com",
+		}}}
+		// The bundle fetches fine and the identity is trusted, so this
+		// reaches sigstorepkg.VerifyBlob - proving verifySigstoreBlobBytes'
+		// temp-file plumbing works, not just the identity gate.
+		_, err = resolveSpec(t.Context(), "acme", t.TempDir(), specs)
+		require.ErrorIs(t, err, sigstorepkg.ErrCosignNotFound)
 	})
 }

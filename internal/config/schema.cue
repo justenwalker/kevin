@@ -33,12 +33,26 @@ plugins: close({[=~"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"]: #Plugin})
 	// manifest never sets these - env always comes from kevin.cue.
 	env?: [string]: string
 
-	// signed requires a valid minisign signature from a key in the local
-	// trust store (`kevin plugin trust`) before the package is extracted.
-	// Trust lives outside kevin.cue on purpose: editing this file alone
-	// can never add a trusted signer.
-	signed: bool | *false
+	// signing requires a valid signature before the package is extracted,
+	// under one of two schemes. Trust lives outside kevin.cue on purpose:
+	// editing this file alone can never add a trusted signer.
+	signing: *false | #Minisign | #Sigstore
 }
+
+// #Minisign requires a signature from a key in the local trust store
+// (`kevin plugin trust add`).
+#Minisign: close({
+	scheme: "minisign"
+})
+
+// #Sigstore requires a sigstore (cosign) keyless signature from the given
+// OIDC identity and issuer, present in the local trust store
+// (`kevin plugin trust add-identity`).
+#Sigstore: close({
+	scheme:    "sigstore"
+	identity!: string
+	issuer!:   string
+})
 
 // #Downloadable is a #Package fetched over a plain URL or from disk -
 // unlike oci:, neither carries a built-in digest, so both offer a pin.

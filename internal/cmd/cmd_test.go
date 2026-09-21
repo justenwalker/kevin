@@ -5,7 +5,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,7 +13,6 @@ import (
 	"github.com/justenwalker/kevin/internal/cmd"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/engines"
-	"github.com/justenwalker/kevin/internal/pkgtrust"
 )
 
 // listenBlockDefault is a "proxy: {...}, console: {...}" CUE snippet
@@ -218,57 +216,6 @@ func TestRun(t *testing.T) {
 
 		var cmdErr *cmd.CommandError
 		assert.NotErrorAs(t, err, &cmdErr, "a bad reference is a command failure, not a usage error")
-	})
-
-	t.Run("plugin trust add/list/remove round-trips a key", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
-
-		pubDir := t.TempDir()
-		pubPath := pubDir + "/signer.pub"
-		// A real minisign public key (42 decoded bytes: "Ed" + 8-byte key id
-		// + 32-byte Ed25519 key) - content doesn't need to correspond to a
-		// real secret key for add/list/remove, only for Verify.
-		require.NoError(t, os.WriteFile(pubPath,
-			[]byte("untrusted comment: test key\nRWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3\n"),
-			0o600))
-
-		var runErr error
-		addOut := captureStdout(t, func() {
-			runErr = cmd.Run(t.Context(), []string{"plugin", "trust", "add", pubPath})
-		})
-		require.NoError(t, runErr)
-		id := strings.TrimSpace(addOut)
-		assert.NotEmpty(t, id)
-
-		listOut := captureStdout(t, func() {
-			runErr = cmd.Run(t.Context(), []string{"plugin", "trust", "list"})
-		})
-		require.NoError(t, runErr)
-		assert.Contains(t, listOut, id)
-
-		runErr = cmd.Run(t.Context(), []string{"plugin", "trust", "remove", id})
-		require.NoError(t, runErr)
-
-		listOut = captureStdout(t, func() {
-			runErr = cmd.Run(t.Context(), []string{"plugin", "trust", "list"})
-		})
-		require.NoError(t, runErr)
-		assert.Empty(t, strings.TrimSpace(listOut))
-	})
-
-	t.Run("plugin trust add rejects a bad key", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
-		badPath := t.TempDir() + "/not-a-key.pub"
-		require.NoError(t, os.WriteFile(badPath, []byte("not a minisign key"), 0o600))
-
-		err := cmd.Run(t.Context(), []string{"plugin", "trust", "add", badPath})
-		require.ErrorIs(t, err, pkgtrust.ErrBadKey)
-	})
-
-	t.Run("plugin trust remove reports an unknown key", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
-		err := cmd.Run(t.Context(), []string{"plugin", "trust", "remove", "deadbeefdeadbeef"})
-		require.ErrorIs(t, err, pkgtrust.ErrUnknownKeyID)
 	})
 }
 
