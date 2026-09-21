@@ -109,6 +109,11 @@ type Env struct {
 	// disabled.
 	RelaySOCKS5Addr string
 
+	// RelaySOCKS5UDPAddrs maps a container-side UDP relay port (decimal
+	// string) to its host-reachable address - see
+	// ExposedPort.RelayUDPAddrs. Empty when the relay is disabled.
+	RelaySOCKS5UDPAddrs map[string]string
+
 	// ProjectDir is the absolute path of the directory that holds kevin.cue.
 	// A step resolves a relative with-block path against this.
 	ProjectDir string
@@ -263,22 +268,38 @@ type RouteIntercept struct {
 	Ports []int
 }
 
-// ExposedPort is a raw TCP or UDP endpoint that a step publishes directly to
-// the host, bypassing the HTTP proxy - for a service that doesn't speak
-// HTTP, such as a database's wire protocol.
+// ExposedPort is a raw TCP or UDP endpoint that a step publishes, bypassing
+// the HTTP proxy - for a service that doesn't speak HTTP, such as a
+// database's wire protocol - either directly on the host or through the
+// environment's relay.
 type ExposedPort struct {
 	Name string
 
-	// Protocol is "tcp" or "udp".
+	// Protocol is "tcp" or "udp" - the real wire protocol spoken to the
+	// target, regardless of whether Relay routes it through the SOCKS5
+	// gateway.
 	Protocol string
 
-	// Upstream is the host-reachable address, such as "127.0.0.1:54321".
+	// Upstream is the host-reachable address when !Relay, such as
+	// "127.0.0.1:54321", or a "socks5://<relay>/<target>" upstream when
+	// Relay is true.
 	Upstream string
 
-	// HostPort pins the port of the engine's local forward for a "socks5"
-	// protocol entry. Zero lets the OS assign one. Ignored for a "tcp"/"udp"
-	// entry, which is already a fixed host-reachable address in Upstream.
+	// HostPort pins the port of the engine's local forward. Ignored unless
+	// Relay is true; zero lets the OS assign one.
 	HostPort int
+
+	// Relay is true when Upstream must be reached through the
+	// environment's SOCKS5 relay instead of dialed directly.
+	Relay bool
+
+	// RelayUDPAddrs maps a container-side UDP relay port (decimal string)
+	// to its host-reachable address. Set only when Relay and Protocol ==
+	// "udp": the relay's ASSOCIATE reply names one of these container
+	// ports, and the engine's local UDP forward looks it up here, since
+	// the relay's own bind address is a docker-network address the host
+	// can't dial directly.
+	RelayUDPAddrs map[string]string
 }
 
 // Detail is one extra piece of information a step shows on its console
@@ -310,10 +331,16 @@ func (r Route) Detail() Detail {
 }
 
 // Detail returns a card row for e: a copyable "<protocol> <name>": value
-// row. Append it to Result.Details to keep an exposed port visible on the
-// card, or build a Detail by hand for something different.
+// row, with " (relay)" appended to the label when the port is reached
+// through the environment's relay instead of published directly. Append it
+// to Result.Details to keep an exposed port visible on the card, or build a
+// Detail by hand for something different.
 func (e ExposedPort) Detail() Detail {
-	return Detail{Label: e.Protocol + " " + e.Name, Value: String(e.Upstream), Copyable: true}
+	label := e.Protocol + " " + e.Name
+	if e.Relay {
+		label += " (relay)"
+	}
+	return Detail{Label: label, Value: String(e.Upstream), Copyable: true}
 }
 
 // Result is what a successful Up publishes.

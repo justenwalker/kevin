@@ -65,7 +65,7 @@
 	// "expose_<name>" system output (a socks5:// upstream) and, once the
 	// engine's local forward is up, a "forward_<name>" output carrying a
 	// plain host:port a non-SOCKS5-aware tool can dial directly - the same
-	// shape a builtin:kind step's expose entry uses. protocol must stay
-	// "tcp" - the relay is a SOCKS5 gateway, TCP only.
+	// shape a builtin:kind step's expose entry uses. Works with either
+	// protocol.
 	relay?: bool | *false
 }

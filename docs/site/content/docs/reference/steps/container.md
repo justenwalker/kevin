@@ -42,7 +42,7 @@ web: {
 | `port` | `int` | - | **Required.** The container port to publish. |
 | `protocol` | `"tcp"` \| `"udp"` | `"tcp"` |  |
 | `host_port` | `int` | - | Pins the port on the host. Omitted, the OS assigns one. Ignored when relay is true - there's no dedicated port to pin. |
-| `relay` | `bool` | `false` | Routes this entry through the environment's relay container instead of publishing a dedicated host port on this container - one relay, shared by every relay-routed entry across every container step, instead of one host port per entry. Up reports the entry as an `"expose_<name>"` system output (a socks5:// upstream) and, once the engine's local forward is up, a `"forward_<name>"` output carrying a plain host:port a non-SOCKS5-aware tool can dial directly - the same shape a builtin:kind step's expose entry uses. protocol must stay `"tcp"` - the relay is a SOCKS5 gateway, TCP only. |
+| `relay` | `bool` | `false` | Routes this entry through the environment's relay container instead of publishing a dedicated host port on this container - one relay, shared by every relay-routed entry across every container step, instead of one host port per entry. Up reports the entry as an `"expose_<name>"` system output (a socks5:// upstream) and, once the engine's local forward is up, a `"forward_<name>"` output carrying a plain host:port a non-SOCKS5-aware tool can dial directly - the same shape a builtin:kind step's expose entry uses. Works with either protocol. |
 
 ## Publishes
 

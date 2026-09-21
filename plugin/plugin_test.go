@@ -32,6 +32,11 @@ func TestDetail(t *testing.T) {
 			give: ExposedPort{Name: "postgres", Protocol: "tcp", Upstream: "127.0.0.1:54321"},
 			want: Detail{Label: "tcp postgres", Value: String("127.0.0.1:54321"), Copyable: true},
 		},
+		{
+			name: "a relay-routed ExposedPort marks the label so a relay hop stays visible",
+			give: ExposedPort{Name: "postgres", Protocol: "tcp", Relay: true, Upstream: "socks5://127.0.0.1:1080/postgres:5432"},
+			want: Detail{Label: "tcp postgres (relay)", Value: String("socks5://127.0.0.1:1080/postgres:5432"), Copyable: true},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

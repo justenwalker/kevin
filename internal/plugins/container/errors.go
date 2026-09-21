@@ -17,13 +17,14 @@ const (
 	// plugin does not implement.
 	ErrUnsupportedEngine = Error("container: unsupported engine")
 
-	// ErrRelayUDP reports that an expose entry combines relay routing with
-	// the udp protocol, which the relay's SOCKS5 gateway cannot carry.
-	ErrRelayUDP = Error("container: expose relay does not support udp")
-
 	// ErrNoRelay reports that an expose entry sets relay, but no relay
 	// address is available.
 	ErrNoRelay = Error("container: expose relay: no relay address available")
+
+	// ErrNoRelayUDPPool reports that a relay+udp expose entry has no UDP
+	// relay pool to draw from - the relay publishes none, typically
+	// because KEVIN_RELAY_UDP_POOL_SIZE is set to 0.
+	ErrNoRelayUDPPool = Error("container: expose relay: no udp relay pool available")
 
 	// ErrNotRunning reports that Export found the container, but it isn't
 	// running.

@@ -22,6 +22,7 @@ func TestForwardFlags(t *testing.T) {
 		assert.Equal(t, ":80", cfg.httpListen)
 		assert.Equal(t, ":443", cfg.httpsListen)
 		assert.Equal(t, "127.0.0.11:53", cfg.upstreamDNS)
+		assert.Empty(t, cfg.udpRelayPorts, "no UDP ASSOCIATE capacity by default")
 	})
 
 	t.Run("overrides every default", func(t *testing.T) {
@@ -33,6 +34,7 @@ func TestForwardFlags(t *testing.T) {
 			"--http-listen", "127.0.0.1:8080",
 			"--https-listen", "127.0.0.1:8443",
 			"--upstream-dns", "8.8.8.8:53",
+			"--udp-relay-ports", "40000-40015",
 		})
 
 		assert.Equal(t, "172.20.0.9", cfg.self)
@@ -40,6 +42,7 @@ func TestForwardFlags(t *testing.T) {
 		assert.Equal(t, "127.0.0.1:8080", cfg.httpListen)
 		assert.Equal(t, "127.0.0.1:8443", cfg.httpsListen)
 		assert.Equal(t, "8.8.8.8:53", cfg.upstreamDNS)
+		assert.Equal(t, "40000-40015", cfg.udpRelayPorts)
 	})
 }
 

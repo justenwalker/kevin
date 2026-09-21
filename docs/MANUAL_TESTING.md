@@ -880,8 +880,15 @@ KEVIN_RELAY_IMAGE=kevin-relay:dev kevin -C /path/to/this run
       output (a plain host:port the engine's own local forward publishes on
       loopback) reaches the same container with no SOCKS5-aware client
       needed.
-- [ ] `expose: [{port: 53, protocol: "udp", relay: true}]` fails validation
-      up front - the relay's gateway is SOCKS5 CONNECT, TCP only.
+- [ ] Add a `protocol: "udp", relay: true` expose entry against a UDP echo
+      container and confirm a UDP client round-trips through the forwarded
+      local port (`forward_<name>`) - the relay's gateway now carries UDP
+      via SOCKS5 ASSOCIATE, not just CONNECT.
+- [ ] Run two such clients concurrently against the same forwarded port and
+      confirm both receive replies - the documented fan-out model, not just
+      the newest sender.
+- [ ] `KEVIN_RELAY_UDP_POOL_SIZE=1` with two relay+udp entries: the second
+      fails immediately with a clear pool-exhaustion error, not a hang.
 
 ## 20. `examples/s3-app` - persistent cluster, intercepted S3, cross-scope route
 

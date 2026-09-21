@@ -565,8 +565,13 @@ type Environment struct {
 	// it to reach a docker-network address through a single host port
 	// instead of a dedicated published port.
 	RelaySocks5Addr string `protobuf:"bytes,14,opt,name=relay_socks5_addr,json=relaySocks5Addr,proto3" json:"relay_socks5_addr,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// RelaySocks5UdpAddrs maps a container-side UDP relay port (decimal
+	// string) to its host-reachable address. The relay publishes a fixed
+	// pool of these so a SOCKS5 UDP ASSOCIATE session can bind one before
+	// the container/pod that needs it exists - see ExposedPort.relay_udp_addrs.
+	RelaySocks5UdpAddrs map[string]string `protobuf:"bytes,15,rep,name=relay_socks5_udp_addrs,json=relaySocks5UdpAddrs,proto3" json:"relay_socks5_udp_addrs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Environment) Reset() {
@@ -695,6 +700,13 @@ func (x *Environment) GetRelaySocks5Addr() string {
 		return x.RelaySocks5Addr
 	}
 	return ""
+}
+
+func (x *Environment) GetRelaySocks5UdpAddrs() map[string]string {
+	if x != nil {
+		return x.RelaySocks5UdpAddrs
+	}
+	return nil
 }
 
 // DockerEngineConfig is the engine_config message for the "docker" engine.
@@ -1683,18 +1695,31 @@ func (x *NetworkFault) GetRateKbit() int32 {
 	return 0
 }
 
-// ExposedPort is a raw TCP or UDP endpoint that a step publishes directly to
-// the host.
+// ExposedPort is a raw TCP or UDP endpoint that a step publishes, either
+// directly on the host or through the environment's relay.
 type ExposedPort struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// Protocol is "tcp" or "udp".
+	// Protocol is "tcp" or "udp" - the real wire protocol spoken to the
+	// target, regardless of whether Relay routes it through the SOCKS5
+	// gateway.
 	Protocol string `protobuf:"bytes,2,opt,name=protocol,proto3" json:"protocol,omitempty"`
-	// Upstream is the host-reachable address, such as "127.0.0.1:54321".
+	// Upstream is the host-reachable address when !Relay, such as
+	// "127.0.0.1:54321", or a "socks5://<relay>/<target>" upstream when
+	// Relay is true.
 	Upstream string `protobuf:"bytes,3,opt,name=upstream,proto3" json:"upstream,omitempty"`
-	// HostPort pins the port of the engine's local forward for a "socks5"
-	// protocol entry. Zero lets the OS assign one.
-	HostPort      int32 `protobuf:"varint,4,opt,name=host_port,json=hostPort,proto3" json:"host_port,omitempty"`
+	// HostPort pins the port of the engine's local forward. Ignored unless
+	// Relay is true; zero lets the OS assign one.
+	HostPort int32 `protobuf:"varint,4,opt,name=host_port,json=hostPort,proto3" json:"host_port,omitempty"`
+	// Relay is true when Upstream must be reached through the environment's
+	// SOCKS5 relay instead of dialed directly.
+	Relay bool `protobuf:"varint,5,opt,name=relay,proto3" json:"relay,omitempty"`
+	// RelayUdpAddrs maps a container-side UDP relay port (decimal string) to
+	// its host-reachable address. Set only when Relay and Protocol == "udp":
+	// the relay's ASSOCIATE reply names one of these container ports, and
+	// the engine's local UDP forward looks it up here, since the relay's own
+	// bind address is a docker-network address the host can't dial directly.
+	RelayUdpAddrs map[string]string `protobuf:"bytes,6,rep,name=relay_udp_addrs,json=relayUdpAddrs,proto3" json:"relay_udp_addrs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1755,6 +1780,20 @@ func (x *ExposedPort) GetHostPort() int32 {
 		return x.HostPort
 	}
 	return 0
+}
+
+func (x *ExposedPort) GetRelay() bool {
+	if x != nil {
+		return x.Relay
+	}
+	return false
+}
+
+func (x *ExposedPort) GetRelayUdpAddrs() map[string]string {
+	if x != nil {
+		return x.RelayUdpAddrs
+	}
+	return nil
 }
 
 // Detail is one extra piece of information that a step shows on its
@@ -2355,7 +2394,7 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x10ConfigureRequest\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\x12.\n" +
 	"\x03env\x18\x02 \x01(\v2\x1c.kevin.plugin.v1.EnvironmentR\x03env\"\x13\n" +
-	"\x11ConfigureResponse\"\x97\x04\n" +
+	"\x11ConfigureResponse\"\xcb\x05\n" +
 	"\vEnvironment\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x1c\n" +
 	"\tworkspace\x18\x02 \x01(\tR\tworkspace\x12\x18\n" +
@@ -2372,8 +2411,12 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x06engine\x18\v \x01(\tR\x06engine\x12#\n" +
 	"\rengine_config\x18\f \x01(\fR\fengineConfig\x12\x14\n" +
 	"\x05scope\x18\r \x01(\tR\x05scope\x12*\n" +
-	"\x11relay_socks5_addr\x18\x0e \x01(\tR\x0frelaySocks5Addr\x1a;\n" +
+	"\x11relay_socks5_addr\x18\x0e \x01(\tR\x0frelaySocks5Addr\x12j\n" +
+	"\x16relay_socks5_udp_addrs\x18\x0f \x03(\v25.kevin.plugin.v1.Environment.RelaySocks5UdpAddrsEntryR\x13relaySocks5UdpAddrs\x1a;\n" +
 	"\rProxyEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aF\n" +
+	"\x18RelaySocks5UdpAddrsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x14\n" +
 	"\x12DockerEngineConfig\"\x14\n" +
@@ -2456,12 +2499,17 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x11duplicate_percent\x18\b \x01(\x01R\x10duplicatePercent\x12'\n" +
 	"\x0freorder_percent\x18\t \x01(\x01R\x0ereorderPercent\x12\x1b\n" +
 	"\trate_kbit\x18\n" +
-	" \x01(\x05R\brateKbit\"v\n" +
+	" \x01(\x05R\brateKbit\"\xa7\x02\n" +
 	"\vExposedPort\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\bprotocol\x18\x02 \x01(\tR\bprotocol\x12\x1a\n" +
 	"\bupstream\x18\x03 \x01(\tR\bupstream\x12\x1b\n" +
-	"\thost_port\x18\x04 \x01(\x05R\bhostPort\"|\n" +
+	"\thost_port\x18\x04 \x01(\x05R\bhostPort\x12\x14\n" +
+	"\x05relay\x18\x05 \x01(\bR\x05relay\x12W\n" +
+	"\x0frelay_udp_addrs\x18\x06 \x03(\v2/.kevin.plugin.v1.ExposedPort.RelayUdpAddrsEntryR\rrelayUdpAddrs\x1a@\n" +
+	"\x12RelayUdpAddrsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"|\n" +
 	"\x06Detail\x12\x14\n" +
 	"\x05label\x18\x01 \x01(\tR\x05label\x12,\n" +
 	"\x05value\x18\x02 \x01(\v2\x16.kevin.plugin.v1.ValueR\x05value\x12\x1a\n" +
@@ -2533,7 +2581,7 @@ func file_pb_plugin_proto_rawDescGZIP() []byte {
 }
 
 var file_pb_plugin_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_pb_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
+var file_pb_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
 var file_pb_plugin_proto_goTypes = []any{
 	(StepKind)(0),              // 0: kevin.plugin.v1.StepKind
 	(RouteMode)(0),             // 1: kevin.plugin.v1.RouteMode
@@ -2567,10 +2615,12 @@ var file_pb_plugin_proto_goTypes = []any{
 	(*Intercept)(nil),          // 29: kevin.plugin.v1.Intercept
 	(*UserMessage)(nil),        // 30: kevin.plugin.v1.UserMessage
 	nil,                        // 31: kevin.plugin.v1.Environment.ProxyEnvEntry
-	nil,                        // 32: kevin.plugin.v1.Outputs.ValuesEntry
-	nil,                        // 33: kevin.plugin.v1.UpRequest.DepsEntry
-	nil,                        // 34: kevin.plugin.v1.DownRequest.DepsEntry
-	nil,                        // 35: kevin.plugin.v1.ToolCallRequest.DepsEntry
+	nil,                        // 32: kevin.plugin.v1.Environment.RelaySocks5UdpAddrsEntry
+	nil,                        // 33: kevin.plugin.v1.Outputs.ValuesEntry
+	nil,                        // 34: kevin.plugin.v1.UpRequest.DepsEntry
+	nil,                        // 35: kevin.plugin.v1.DownRequest.DepsEntry
+	nil,                        // 36: kevin.plugin.v1.ExposedPort.RelayUdpAddrsEntry
+	nil,                        // 37: kevin.plugin.v1.ToolCallRequest.DepsEntry
 }
 var file_pb_plugin_proto_depIdxs = []int32{
 	4,  // 0: kevin.plugin.v1.InfoResponse.steps:type_name -> kevin.plugin.v1.StepType
@@ -2578,52 +2628,54 @@ var file_pb_plugin_proto_depIdxs = []int32{
 	5,  // 2: kevin.plugin.v1.StepType.tools:type_name -> kevin.plugin.v1.ToolDefinition
 	8,  // 3: kevin.plugin.v1.ConfigureRequest.env:type_name -> kevin.plugin.v1.Environment
 	31, // 4: kevin.plugin.v1.Environment.proxy_env:type_name -> kevin.plugin.v1.Environment.ProxyEnvEntry
-	32, // 5: kevin.plugin.v1.Outputs.values:type_name -> kevin.plugin.v1.Outputs.ValuesEntry
-	8,  // 6: kevin.plugin.v1.UpRequest.env:type_name -> kevin.plugin.v1.Environment
-	33, // 7: kevin.plugin.v1.UpRequest.deps:type_name -> kevin.plugin.v1.UpRequest.DepsEntry
-	20, // 8: kevin.plugin.v1.UpRequest.containers:type_name -> kevin.plugin.v1.StepContainers
-	8,  // 9: kevin.plugin.v1.DownRequest.env:type_name -> kevin.plugin.v1.Environment
-	34, // 10: kevin.plugin.v1.DownRequest.deps:type_name -> kevin.plugin.v1.DownRequest.DepsEntry
-	12, // 11: kevin.plugin.v1.DownRequest.outputs:type_name -> kevin.plugin.v1.Outputs
-	16, // 12: kevin.plugin.v1.Event.log:type_name -> kevin.plugin.v1.LogLine
-	17, // 13: kevin.plugin.v1.Event.progress:type_name -> kevin.plugin.v1.Progress
-	18, // 14: kevin.plugin.v1.Event.result:type_name -> kevin.plugin.v1.Result
-	12, // 15: kevin.plugin.v1.Result.outputs:type_name -> kevin.plugin.v1.Outputs
-	28, // 16: kevin.plugin.v1.Result.routes:type_name -> kevin.plugin.v1.Route
-	22, // 17: kevin.plugin.v1.Result.exposed_ports:type_name -> kevin.plugin.v1.ExposedPort
-	23, // 18: kevin.plugin.v1.Result.details:type_name -> kevin.plugin.v1.Detail
-	19, // 19: kevin.plugin.v1.Result.containers:type_name -> kevin.plugin.v1.ContainerInfo
-	21, // 20: kevin.plugin.v1.Result.faults:type_name -> kevin.plugin.v1.NetworkFault
-	19, // 21: kevin.plugin.v1.StepContainers.containers:type_name -> kevin.plugin.v1.ContainerInfo
-	11, // 22: kevin.plugin.v1.Detail.value:type_name -> kevin.plugin.v1.Value
-	8,  // 23: kevin.plugin.v1.ExportRequest.env:type_name -> kevin.plugin.v1.Environment
-	12, // 24: kevin.plugin.v1.ExportResponse.out:type_name -> kevin.plugin.v1.Outputs
-	19, // 25: kevin.plugin.v1.ExportResponse.containers:type_name -> kevin.plugin.v1.ContainerInfo
-	8,  // 26: kevin.plugin.v1.ToolCallRequest.env:type_name -> kevin.plugin.v1.Environment
-	35, // 27: kevin.plugin.v1.ToolCallRequest.deps:type_name -> kevin.plugin.v1.ToolCallRequest.DepsEntry
-	29, // 28: kevin.plugin.v1.Route.intercept:type_name -> kevin.plugin.v1.Intercept
-	1,  // 29: kevin.plugin.v1.Route.mode:type_name -> kevin.plugin.v1.RouteMode
-	11, // 30: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
-	12, // 31: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	12, // 32: kevin.plugin.v1.DownRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	12, // 33: kevin.plugin.v1.ToolCallRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	2,  // 34: kevin.plugin.v1.Plugin.Info:input_type -> kevin.plugin.v1.InfoRequest
-	6,  // 35: kevin.plugin.v1.Plugin.Configure:input_type -> kevin.plugin.v1.ConfigureRequest
-	13, // 36: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
-	14, // 37: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
-	24, // 38: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
-	26, // 39: kevin.plugin.v1.Plugin.CallTool:input_type -> kevin.plugin.v1.ToolCallRequest
-	3,  // 40: kevin.plugin.v1.Plugin.Info:output_type -> kevin.plugin.v1.InfoResponse
-	7,  // 41: kevin.plugin.v1.Plugin.Configure:output_type -> kevin.plugin.v1.ConfigureResponse
-	15, // 42: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
-	15, // 43: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
-	25, // 44: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
-	27, // 45: kevin.plugin.v1.Plugin.CallTool:output_type -> kevin.plugin.v1.ToolCallResponse
-	40, // [40:46] is the sub-list for method output_type
-	34, // [34:40] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	32, // 5: kevin.plugin.v1.Environment.relay_socks5_udp_addrs:type_name -> kevin.plugin.v1.Environment.RelaySocks5UdpAddrsEntry
+	33, // 6: kevin.plugin.v1.Outputs.values:type_name -> kevin.plugin.v1.Outputs.ValuesEntry
+	8,  // 7: kevin.plugin.v1.UpRequest.env:type_name -> kevin.plugin.v1.Environment
+	34, // 8: kevin.plugin.v1.UpRequest.deps:type_name -> kevin.plugin.v1.UpRequest.DepsEntry
+	20, // 9: kevin.plugin.v1.UpRequest.containers:type_name -> kevin.plugin.v1.StepContainers
+	8,  // 10: kevin.plugin.v1.DownRequest.env:type_name -> kevin.plugin.v1.Environment
+	35, // 11: kevin.plugin.v1.DownRequest.deps:type_name -> kevin.plugin.v1.DownRequest.DepsEntry
+	12, // 12: kevin.plugin.v1.DownRequest.outputs:type_name -> kevin.plugin.v1.Outputs
+	16, // 13: kevin.plugin.v1.Event.log:type_name -> kevin.plugin.v1.LogLine
+	17, // 14: kevin.plugin.v1.Event.progress:type_name -> kevin.plugin.v1.Progress
+	18, // 15: kevin.plugin.v1.Event.result:type_name -> kevin.plugin.v1.Result
+	12, // 16: kevin.plugin.v1.Result.outputs:type_name -> kevin.plugin.v1.Outputs
+	28, // 17: kevin.plugin.v1.Result.routes:type_name -> kevin.plugin.v1.Route
+	22, // 18: kevin.plugin.v1.Result.exposed_ports:type_name -> kevin.plugin.v1.ExposedPort
+	23, // 19: kevin.plugin.v1.Result.details:type_name -> kevin.plugin.v1.Detail
+	19, // 20: kevin.plugin.v1.Result.containers:type_name -> kevin.plugin.v1.ContainerInfo
+	21, // 21: kevin.plugin.v1.Result.faults:type_name -> kevin.plugin.v1.NetworkFault
+	19, // 22: kevin.plugin.v1.StepContainers.containers:type_name -> kevin.plugin.v1.ContainerInfo
+	36, // 23: kevin.plugin.v1.ExposedPort.relay_udp_addrs:type_name -> kevin.plugin.v1.ExposedPort.RelayUdpAddrsEntry
+	11, // 24: kevin.plugin.v1.Detail.value:type_name -> kevin.plugin.v1.Value
+	8,  // 25: kevin.plugin.v1.ExportRequest.env:type_name -> kevin.plugin.v1.Environment
+	12, // 26: kevin.plugin.v1.ExportResponse.out:type_name -> kevin.plugin.v1.Outputs
+	19, // 27: kevin.plugin.v1.ExportResponse.containers:type_name -> kevin.plugin.v1.ContainerInfo
+	8,  // 28: kevin.plugin.v1.ToolCallRequest.env:type_name -> kevin.plugin.v1.Environment
+	37, // 29: kevin.plugin.v1.ToolCallRequest.deps:type_name -> kevin.plugin.v1.ToolCallRequest.DepsEntry
+	29, // 30: kevin.plugin.v1.Route.intercept:type_name -> kevin.plugin.v1.Intercept
+	1,  // 31: kevin.plugin.v1.Route.mode:type_name -> kevin.plugin.v1.RouteMode
+	11, // 32: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
+	12, // 33: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	12, // 34: kevin.plugin.v1.DownRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	12, // 35: kevin.plugin.v1.ToolCallRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	2,  // 36: kevin.plugin.v1.Plugin.Info:input_type -> kevin.plugin.v1.InfoRequest
+	6,  // 37: kevin.plugin.v1.Plugin.Configure:input_type -> kevin.plugin.v1.ConfigureRequest
+	13, // 38: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
+	14, // 39: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
+	24, // 40: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
+	26, // 41: kevin.plugin.v1.Plugin.CallTool:input_type -> kevin.plugin.v1.ToolCallRequest
+	3,  // 42: kevin.plugin.v1.Plugin.Info:output_type -> kevin.plugin.v1.InfoResponse
+	7,  // 43: kevin.plugin.v1.Plugin.Configure:output_type -> kevin.plugin.v1.ConfigureResponse
+	15, // 44: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
+	15, // 45: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
+	25, // 46: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
+	27, // 47: kevin.plugin.v1.Plugin.CallTool:output_type -> kevin.plugin.v1.ToolCallResponse
+	42, // [42:48] is the sub-list for method output_type
+	36, // [36:42] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_pb_plugin_proto_init() }
@@ -2645,7 +2697,7 @@ func file_pb_plugin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pb_plugin_proto_rawDesc), len(file_pb_plugin_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   34,
+			NumMessages:   36,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

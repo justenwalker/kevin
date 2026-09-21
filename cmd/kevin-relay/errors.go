@@ -40,4 +40,12 @@ const (
 	// ErrFaultUnsupported reports that this relay build cannot install
 	// network-fault qdiscs - only a linux build can.
 	ErrFaultUnsupported = Error("relay: fault injection requires linux")
+
+	// ErrInvalidUDPRelayPorts reports that --udp-relay-ports is not a
+	// "<start>-<end>" inclusive port range.
+	ErrInvalidUDPRelayPorts = Error("relay: --udp-relay-ports must be a \"<start>-<end>\" port range")
+
+	// ErrUDPPoolExhausted reports that a SOCKS5 ASSOCIATE request arrived
+	// with no free port left in the UDP relay pool.
+	ErrUDPPoolExhausted = Error("relay: the udp relay port pool is exhausted")
 )

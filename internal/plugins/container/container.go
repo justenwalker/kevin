@@ -138,7 +138,7 @@ func (Container) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitt
 
 	out.Log("stdout", "running as "+name)
 
-	exposed, err := exposedPorts(cfg, info, req.Step, req.Env.RelaySOCKS5Addr)
+	exposed, err := exposedPorts(cfg, info, req.Step, req.Env.RelaySOCKS5Addr, req.Env.RelaySOCKS5UDPAddrs)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func stepDetails(exposed []plugin.ExposedPort) []plugin.Detail {
 // Iterates cfg.Expose in name order, so the reported list (and the card/log
 // output built from it) stays stable run to run despite Go's randomized
 // map iteration.
-func exposedPorts(cfg config, info cri.Container, step, relaySOCKS5Addr string) ([]plugin.ExposedPort, error) {
+func exposedPorts(cfg config, info cri.Container, step, relaySOCKS5Addr string, relaySOCKS5UDPAddrs map[string]string) ([]plugin.ExposedPort, error) {
 	out := make([]plugin.ExposedPort, 0, len(cfg.Expose))
 	for _, name := range slices.Sorted(maps.Keys(cfg.Expose)) {
 		e := cfg.Expose[name]
@@ -216,11 +216,21 @@ func exposedPorts(cfg config, info cri.Container, step, relaySOCKS5Addr string) 
 					fmt.Errorf("container: expose %s: %w", name, ErrNoRelay),
 					"expose %q sets relay, but no relay address is available", name)
 			}
-			out = append(out, plugin.ExposedPort{
+			ep := plugin.ExposedPort{
 				Name:     name,
-				Protocol: "socks5",
+				Protocol: e.Protocol,
+				Relay:    true,
 				Upstream: fmt.Sprintf("socks5://%s/%s:%d", relaySOCKS5Addr, step, e.Port),
-			})
+			}
+			if e.Protocol == "udp" {
+				if len(relaySOCKS5UDPAddrs) == 0 {
+					return nil, plugin.Wrap(
+						fmt.Errorf("container: expose %s: %w", name, ErrNoRelayUDPPool),
+						"expose %q combines relay with udp, but the relay publishes no udp pool - check KEVIN_RELAY_UDP_POOL_SIZE", name)
+				}
+				ep.RelayUDPAddrs = relaySOCKS5UDPAddrs
+			}
+			out = append(out, ep)
 			continue
 		}
 		upstream, ok := info.Ports[strconv.Itoa(e.Port)+"/"+e.Protocol]
@@ -378,13 +388,6 @@ func decode(data []byte) (config, error) {
 		if e.Protocol == "" {
 			e.Protocol = "tcp"
 			cfg.Expose[name] = e
-		}
-	}
-	for name, e := range cfg.Expose {
-		if e.Relay && e.Protocol == "udp" {
-			return cfg, plugin.Wrap(
-				fmt.Errorf("container: expose %s: relay with udp: %w", name, ErrRelayUDP),
-				"expose %q combines relay with udp - the relay's SOCKS5 gateway only carries TCP; drop relay or set protocol to \"tcp\"", name)
 		}
 	}
 	return cfg, nil

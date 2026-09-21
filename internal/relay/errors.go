@@ -21,3 +21,7 @@ const ErrNoControlAddr = Error("relay: the relay container publishes no control 
 // certificate's private key is not ECDSA - every leaf [ca.CA.NewLeaf]
 // mints is, so this should not happen.
 const ErrUnsupportedControlKey = Error("relay: the control certificate's key is not ecdsa")
+
+// ErrInvalidUDPPoolSize reports that UDPPoolSizeEnvVar holds a value that
+// is not a non-negative integer.
+const ErrInvalidUDPPoolSize = Error("relay: " + UDPPoolSizeEnvVar + " must be a non-negative integer")

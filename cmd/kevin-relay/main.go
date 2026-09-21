@@ -5,9 +5,11 @@
 // container on the shared docker network. A workload reaches a step under
 // the domain with no proxy configuration, because the relay resolves the
 // domain and forwards the traffic to the proxy on the host; the host, in
-// the opposite direction, reaches an arbitrary address on the docker
+// the opposite direction, reaches an arbitrary TCP address on the docker
 // network (such as a builtin:container step's expose entry with
-// relay: true) through the SOCKS5 gateway's one published port.
+// relay: true) through the SOCKS5 gateway's one published port, or a UDP
+// address through a SOCKS5 UDP ASSOCIATE session bound to one of
+// --udp-relay-ports' pre-published ports.
 //
 // socks5-gateway runs the same SOCKS5 relay standalone, without the
 // DNS/HTTP/HTTPS listeners - run as a Pod inside a kind cluster so a client
@@ -71,6 +73,7 @@ type config struct {
 	upstreamDNS   string
 	fakeIPv4Range string
 	fakeIPv6Range string
+	udpRelayPorts string
 }
 
 func main() {
@@ -146,12 +149,13 @@ func bindForwardFlags(fs *pflag.FlagSet, cfg *config) {
 	fs.StringVar(&cfg.upstreamDNS, "upstream-dns", "127.0.0.11:53", "the DNS server for a query outside the domain")
 	fs.StringVar(&cfg.fakeIPv4Range, "fake-ipv4-range", defaultFakeIPv4Range, "the IPv4 pool a registered intercept route's synthetic address is allocated from")
 	fs.StringVar(&cfg.fakeIPv6Range, "fake-ipv6-range", defaultFakeIPv6Range, "the IPv6 pool a registered intercept route's synthetic address is allocated from")
+	fs.StringVar(&cfg.udpRelayPorts, "udp-relay-ports", "", "the pre-published \"<start>-<end>\" port range a SOCKS5 UDP ASSOCIATE session binds from (default: no UDP ASSOCIATE capacity)")
 }
 
 // socks5GatewayCommand runs a SOCKS5 relay for a client outside a kind
 // cluster to reach an arbitrary in-cluster address.
 func socks5GatewayCommand() *cobra.Command {
-	var listen string
+	var listen, udpRelayPorts string
 
 	cmd := &cobra.Command{
 		Use:   "socks5-gateway",
@@ -163,10 +167,15 @@ func socks5GatewayCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("relay: listen socks5: %w", err)
 			}
-			return serveSOCKS5(cmd.Context(), ln)
+			udpPorts, err := parseUDPRelayPorts(udpRelayPorts)
+			if err != nil {
+				return err
+			}
+			return serveSOCKS5(cmd.Context(), ln, udpPorts)
 		},
 	}
 	cmd.Flags().StringVar(&listen, "listen", "", "the address the SOCKS5 relay listens on (required)")
+	cmd.Flags().StringVar(&udpRelayPorts, "udp-relay-ports", "", "the pre-published \"<start>-<end>\" port range a SOCKS5 UDP ASSOCIATE session binds from (default: no UDP ASSOCIATE capacity)")
 	if err := cmd.MarkFlagRequired("listen"); err != nil {
 		panic(err)
 	}
@@ -195,6 +204,7 @@ type relayProcess struct {
 	proxyAddr  string
 	self       selfAddrs
 	intercept  *dnsRelay
+	udpPorts   []int
 
 	// runCtx and runGrp let a control RPC handler (RegisterCapture,
 	// EnsureListener), dispatched on its own goroutine by controlSrv, join
@@ -249,6 +259,10 @@ func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
 	if err != nil {
 		return nil, fmt.Errorf("relay: listen control: %w", err)
 	}
+	udpPorts, err := parseUDPRelayPorts(cfg.udpRelayPorts)
+	if err != nil {
+		return nil, err
+	}
 
 	controlTLS, err := controlTLSConfig()
 	if err != nil {
@@ -270,12 +284,12 @@ func newRelayProcess(ctx context.Context, cfg config) (*relayProcess, error) {
 	log.Ctx(ctx).Info("relay starting",
 		"domain", cfg.domain, "self_v4", self.V4, "self_v6", self.V6, "proxy", cfg.proxyAddr,
 		"dns_listen", dnsSrv.addr(), "http_listen", httpLn.Addr(), "https_listen", httpsLn.Addr(),
-		"socks5_listen", socks5Ln.Addr(), "control_listen", controlLn.Addr())
+		"socks5_listen", socks5Ln.Addr(), "control_listen", controlLn.Addr(), "udp_pool_size", len(udpPorts))
 
 	p := &relayProcess{
 		dns: dnsSrv, httpsLn: httpsLn, httpLn: httpLn, socks5Ln: socks5Ln,
 		controlLn: controlLn, controlSrv: controlSrv, proxyAddr: cfg.proxyAddr,
-		self: self, intercept: relay,
+		self: self, intercept: relay, udpPorts: udpPorts,
 	}
 	pb.RegisterRelayControlServer(controlSrv, p)
 	return p, nil
@@ -297,7 +311,7 @@ func (p *relayProcess) run(ctx context.Context) error {
 			dispatch(ctx, conn, p.proxyAddr, 80, p.intercept.fakeIPs, func(c net.Conn) { handleHTTP(ctx, c, p.proxyAddr) })
 		})
 	})
-	grp.Go(func() error { return serveSOCKS5(ctx, p.socks5Ln) })
+	grp.Go(func() error { return serveSOCKS5(ctx, p.socks5Ln, p.udpPorts) })
 	grp.Go(func() error { return p.runControl(ctx) })
 	return grp.Wait() //nolint:wrapcheck // each sub-server already wraps its own error; wrapping again here would double it
 }

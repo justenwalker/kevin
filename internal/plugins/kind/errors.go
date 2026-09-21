@@ -36,3 +36,8 @@ const ErrReservedNodeField = Error("kind: a node config passthrough may not set 
 // "extraPortMappings" - to a value shaped unlike what kind itself expects
 // there, so kevin cannot merge its own contribution into it.
 const ErrInvalidNodeField = Error("kind: a node config passthrough field has the wrong shape")
+
+// ErrNoRelayUDPPool reports that a udp expose entry has no UDP relay pool
+// to draw from - the relay pod publishes none, typically because
+// KEVIN_RELAY_UDP_POOL_SIZE is set to 0.
+const ErrNoRelayUDPPool = Error("kind: expose relay: no udp relay pool available")

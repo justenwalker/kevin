@@ -87,6 +87,9 @@
 	// "postgres.default.svc.cluster.local:5432".
 	address!: string
 
+	// protocol is the wire protocol address speaks.
+	protocol?: "tcp" | "udp" | *"tcp"
+
 	// host_port pins the port of the local forward that lets a host
 	// process dial this entry directly, reported as the "forward_<name>"
 	// output. Omitted, the OS assigns one.

@@ -186,6 +186,13 @@ func TestStartAndClose(t *testing.T) {
 	assert.Regexp(t, `^127\.0\.0\.1:\d+$`, r.SOCKS5Addr(),
 		"SOCKS5Addr must report the loopback address the socks5 gateway is published on")
 
+	udpAddrs := r.SOCKS5UDPAddrs()
+	assert.Len(t, udpAddrs, 16, "the default pool size must be published")
+	for port, addr := range udpAddrs {
+		assert.Regexp(t, `^\d+$`, port)
+		assert.Regexp(t, `^127\.0\.0\.1:\d+$`, addr)
+	}
+
 	require.NoError(t, r.Close())
 	_, err = dockerClient.Inspect(t.Context(), name)
 	require.ErrorIs(t, err, cri.ErrNotFound, "Close must remove the container")
@@ -318,6 +325,7 @@ func TestLookup(t *testing.T) {
 	require.NotNil(t, found)
 	assert.Equal(t, started.Addr(), found.Addr())
 	assert.Equal(t, started.SOCKS5Addr(), found.SOCKS5Addr())
+	assert.Equal(t, started.SOCKS5UDPAddrs(), found.SOCKS5UDPAddrs())
 
 	require.NoError(t, found.Close())
 	afterClose, err := relay.Lookup(t.Context(), dockerClient, "relay-lookup-test", network)

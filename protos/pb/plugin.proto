@@ -178,6 +178,12 @@ message Environment {
   // it to reach a docker-network address through a single host port
   // instead of a dedicated published port.
   string relay_socks5_addr = 14;
+
+  // RelaySocks5UdpAddrs maps a container-side UDP relay port (decimal
+  // string) to its host-reachable address. The relay publishes a fixed
+  // pool of these so a SOCKS5 UDP ASSOCIATE session can bind one before
+  // the container/pod that needs it exists - see ExposedPort.relay_udp_addrs.
+  map<string, string> relay_socks5_udp_addrs = 15;
 }
 
 // DockerEngineConfig is the engine_config message for the "docker" engine.
@@ -376,20 +382,35 @@ message NetworkFault {
   int32 rate_kbit = 10;
 }
 
-// ExposedPort is a raw TCP or UDP endpoint that a step publishes directly to
-// the host.
+// ExposedPort is a raw TCP or UDP endpoint that a step publishes, either
+// directly on the host or through the environment's relay.
 message ExposedPort {
   string name = 1;
 
-  // Protocol is "tcp" or "udp".
+  // Protocol is "tcp" or "udp" - the real wire protocol spoken to the
+  // target, regardless of whether Relay routes it through the SOCKS5
+  // gateway.
   string protocol = 2;
 
-  // Upstream is the host-reachable address, such as "127.0.0.1:54321".
+  // Upstream is the host-reachable address when !Relay, such as
+  // "127.0.0.1:54321", or a "socks5://<relay>/<target>" upstream when
+  // Relay is true.
   string upstream = 3;
 
-  // HostPort pins the port of the engine's local forward for a "socks5"
-  // protocol entry. Zero lets the OS assign one.
+  // HostPort pins the port of the engine's local forward. Ignored unless
+  // Relay is true; zero lets the OS assign one.
   int32 host_port = 4;
+
+  // Relay is true when Upstream must be reached through the environment's
+  // SOCKS5 relay instead of dialed directly.
+  bool relay = 5;
+
+  // RelayUdpAddrs maps a container-side UDP relay port (decimal string) to
+  // its host-reachable address. Set only when Relay and Protocol == "udp":
+  // the relay's ASSOCIATE reply names one of these container ports, and
+  // the engine's local UDP forward looks it up here, since the relay's own
+  // bind address is a docker-network address the host can't dial directly.
+  map<string, string> relay_udp_addrs = 6;
 }
 
 // Detail is one extra piece of information that a step shows on its

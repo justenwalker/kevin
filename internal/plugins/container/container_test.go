@@ -91,9 +91,11 @@ func TestDecode(t *testing.T) {
 		assert.Contains(t, err.Error(), "decode config")
 	})
 
-	t.Run("rejects relay combined with udp", func(t *testing.T) {
-		_, err := decode([]byte(`{"image": "postgres:16", "expose": {"dns": {"port": 53, "protocol": "udp", "relay": true}}}`))
-		require.ErrorIs(t, err, ErrRelayUDP)
+	t.Run("accepts relay combined with udp", func(t *testing.T) {
+		cfg, err := decode([]byte(`{"image": "postgres:16", "expose": {"dns": {"port": 53, "protocol": "udp", "relay": true}}}`))
+		require.NoError(t, err)
+		assert.True(t, cfg.Expose["dns"].Relay)
+		assert.Equal(t, "udp", cfg.Expose["dns"].Protocol)
 	})
 }
 
@@ -205,7 +207,7 @@ func TestExposedPorts(t *testing.T) {
 			"53/udp":   "127.0.0.1:49002",
 		}}
 
-		got, err := exposedPorts(cfg, info, "db", "")
+		got, err := exposedPorts(cfg, info, "db", "", nil)
 		require.NoError(t, err)
 		require.Len(t, got, 2)
 		assert.Equal(t, plugin.ExposedPort{Name: "dns", Protocol: "udp", Upstream: "127.0.0.1:49002"}, got[0])
@@ -215,7 +217,7 @@ func TestExposedPorts(t *testing.T) {
 	t.Run("reports an unpublished port", func(t *testing.T) {
 		cfg := config{Expose: map[string]expose{"postgres": {Port: 5432, Protocol: "tcp"}}}
 
-		_, err := exposedPorts(cfg, cri.Container{Ports: map[string]string{}}, "db", "")
+		_, err := exposedPorts(cfg, cri.Container{Ports: map[string]string{}}, "db", "", nil)
 
 		require.ErrorIs(t, err, ErrNoPort)
 		assert.Contains(t, err.Error(), "5432")
@@ -226,18 +228,39 @@ func TestExposedPorts(t *testing.T) {
 	t.Run("builds a socks5 upstream for a relay entry", func(t *testing.T) {
 		cfg := config{Expose: map[string]expose{"postgres": {Port: 5432, Protocol: "tcp", Relay: true}}}
 
-		got, err := exposedPorts(cfg, cri.Container{}, "db", "127.0.0.1:54321")
+		got, err := exposedPorts(cfg, cri.Container{}, "db", "127.0.0.1:54321", nil)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
-		assert.Equal(t, plugin.ExposedPort{Name: "postgres", Protocol: "socks5", Upstream: "socks5://127.0.0.1:54321/db:5432"}, got[0])
+		assert.Equal(t, plugin.ExposedPort{Name: "postgres", Protocol: "tcp", Relay: true, Upstream: "socks5://127.0.0.1:54321/db:5432"}, got[0])
 	})
 
 	t.Run("reports a relay entry with no relay address", func(t *testing.T) {
 		cfg := config{Expose: map[string]expose{"postgres": {Port: 5432, Protocol: "tcp", Relay: true}}}
 
-		_, err := exposedPorts(cfg, cri.Container{}, "db", "")
+		_, err := exposedPorts(cfg, cri.Container{}, "db", "", nil)
 
 		require.ErrorIs(t, err, ErrNoRelay)
+	})
+
+	t.Run("builds a relay+udp entry with the relay's pool addresses", func(t *testing.T) {
+		cfg := config{Expose: map[string]expose{"dns": {Port: 53, Protocol: "udp", Relay: true}}}
+		udpAddrs := map[string]string{"40000": "127.0.0.1:41000"}
+
+		got, err := exposedPorts(cfg, cri.Container{}, "db", "127.0.0.1:54321", udpAddrs)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, plugin.ExposedPort{
+			Name: "dns", Protocol: "udp", Relay: true,
+			Upstream: "socks5://127.0.0.1:54321/db:53", RelayUDPAddrs: udpAddrs,
+		}, got[0])
+	})
+
+	t.Run("reports a relay+udp entry with no udp pool", func(t *testing.T) {
+		cfg := config{Expose: map[string]expose{"dns": {Port: 53, Protocol: "udp", Relay: true}}}
+
+		_, err := exposedPorts(cfg, cri.Container{}, "db", "127.0.0.1:54321", nil)
+
+		require.ErrorIs(t, err, ErrNoRelayUDPPool)
 	})
 }
 
@@ -569,7 +592,35 @@ func TestUpWithFakeEngine(t *testing.T) {
 		assert.Empty(t, gotSpec.Ports, "a relay entry must never appear in the docker --publish list")
 		require.Len(t, result.ExposedPorts, 1)
 		assert.Equal(t, plugin.ExposedPort{
-			Name: "postgres", Protocol: "socks5", Upstream: "socks5://127.0.0.1:54321/db:5432",
+			Name: "postgres", Protocol: "tcp", Relay: true, Upstream: "socks5://127.0.0.1:54321/db:5432",
+		}, result.ExposedPorts[0])
+	})
+
+	t.Run("routes a relay+udp entry through the relay's udp pool", func(t *testing.T) {
+		useFakeRuntime(t, fakeRuntime{
+			run: func(context.Context, cri.RunSpec) (string, error) { return "abc123", nil },
+			inspect: func(context.Context, string) (cri.Container, error) {
+				return cri.Container{Running: true}, nil
+			},
+		})
+
+		result, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+			Step: "db",
+			Env: plugin.Env{
+				RelaySOCKS5Addr:     "127.0.0.1:54321",
+				RelaySOCKS5UDPAddrs: map[string]string{"40000": "127.0.0.1:41000"},
+			},
+			Config: []byte(`{"image":"coredns","expose":{
+				"dns": {"port": 53, "protocol": "udp", "relay": true}
+			}}`),
+		}, &noopEmitter{})
+		require.NoError(t, err)
+
+		require.Len(t, result.ExposedPorts, 1)
+		assert.Equal(t, plugin.ExposedPort{
+			Name: "dns", Protocol: "udp", Relay: true,
+			Upstream:      "socks5://127.0.0.1:54321/db:53",
+			RelayUDPAddrs: map[string]string{"40000": "127.0.0.1:41000"},
 		}, result.ExposedPorts[0])
 	})
 

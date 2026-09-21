@@ -190,11 +190,12 @@ const controlPort = "8053/tcp"
 
 // Relay is a running relay container.
 type Relay struct {
-	name        string
-	addr        string
-	socks5Addr  string
-	controlAddr string
-	runtime     cri.Runtime
+	name           string
+	addr           string
+	socks5Addr     string
+	socks5UDPAddrs map[string]string
+	controlAddr    string
+	runtime        cri.Runtime
 
 	conn   *grpc.ClientConn
 	client pb.RelayControlClient
@@ -237,6 +238,15 @@ func create(ctx context.Context, client cri.Runtime, name string, opts Options) 
 		return nil, err
 	}
 
+	poolSize, err := UDPPoolSize()
+	if err != nil {
+		return nil, err
+	}
+	ports := []string{"127.0.0.1::1080", "127.0.0.1::8053"}
+	for _, p := range udpRelayPorts(poolSize) {
+		ports = append(ports, fmt.Sprintf("127.0.0.1::%d/udp", p))
+	}
+
 	spec := cri.RunSpec{
 		Image:   opts.Image,
 		Name:    name,
@@ -277,12 +287,12 @@ func create(ctx context.Context, client cri.Runtime, name string, opts Options) 
 			tlsKeyEnv:      serverKey,
 			tlsClientCAEnv: opts.Authority.RootPEM(),
 		},
-		Cmd: fakeIPArgs(opts, []string{"forward", "--domain", opts.Domain, "--proxy", opts.ProxyAddr}),
-		// The SOCKS5 gateway and the control endpoint are the two things on
-		// the relay a host process needs to dial directly - everything else
+		Cmd: udpRelayPortsArg(poolSize, fakeIPArgs(opts, []string{"forward", "--domain", opts.Domain, "--proxy", opts.ProxyAddr})),
+		// The SOCKS5 gateway, the control endpoint, and the UDP relay pool
+		// are what a host process needs to dial directly - everything else
 		// (DNS, HTTP/HTTPS forwarding) is reached only from inside the
 		// docker network.
-		Ports: []string{"127.0.0.1::1080", "127.0.0.1::8053"},
+		Ports: ports,
 	}
 	if _, runErr := client.Run(ctx, spec); runErr != nil {
 		return nil, runErr
@@ -376,7 +386,10 @@ func relayFromInfo(rt cri.Runtime, name, network string, info cri.Container) (*R
 	if !ok {
 		return nil, fmt.Errorf("relay: %w", ErrNoControlAddr)
 	}
-	return &Relay{name: name, addr: addr, socks5Addr: socks5Addr, controlAddr: controlAddr, runtime: rt}, nil
+	return &Relay{
+		name: name, addr: addr, socks5Addr: socks5Addr, controlAddr: controlAddr,
+		socks5UDPAddrs: udpAddrsFromInfo(info), runtime: rt,
+	}, nil
 }
 
 // Addr is the address of the relay container on the shared network. A
@@ -388,6 +401,11 @@ func (r *Relay) Addr() string { return r.addr }
 // reach a docker-network address through a single host port instead of a
 // dedicated published port.
 func (r *Relay) SOCKS5Addr() string { return r.socks5Addr }
+
+// SOCKS5UDPAddrs maps a container-side UDP relay port (decimal string) to
+// its host-reachable address - the relay's fixed pool of ports a SOCKS5
+// UDP ASSOCIATE session can bind, published the same way SOCKS5Addr is.
+func (r *Relay) SOCKS5UDPAddrs() map[string]string { return r.socks5UDPAddrs }
 
 // Close removes the relay container, and the control channel's client
 // connection, if one was dialed. Close is idempotent.

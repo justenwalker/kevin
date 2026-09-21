@@ -263,19 +263,20 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	env := &pb.Environment{
-		Project:         cfg.Project,
-		Workspace:       workspace,
-		Network:         network,
-		CaPath:          ca.RootCertPath(),
-		HttpProxyAddr:   server.addr,
-		ConsoleAddr:     web.addr,
-		ProxyEnv:        ProxyEnv(server.addr, network, stepNames(cfg)),
-		Domain:          cfg.Domain,
-		Relay:           rl.Addr(),
-		RelaySocks5Addr: rl.SOCKS5Addr(),
-		ProjectDir:      cfg.Dir,
-		Scope:           opts.Scope,
-		Engine:          opts.Engine,
+		Project:             cfg.Project,
+		Workspace:           workspace,
+		Network:             network,
+		CaPath:              ca.RootCertPath(),
+		HttpProxyAddr:       server.addr,
+		ConsoleAddr:         web.addr,
+		ProxyEnv:            ProxyEnv(server.addr, network, stepNames(cfg)),
+		Domain:              cfg.Domain,
+		Relay:               rl.Addr(),
+		RelaySocks5Addr:     rl.SOCKS5Addr(),
+		RelaySocks5UdpAddrs: rl.SOCKS5UDPAddrs(),
+		ProjectDir:          cfg.Dir,
+		Scope:               opts.Scope,
+		Engine:              opts.Engine,
 	}
 	r.env = env
 	r.relay = rl
@@ -951,7 +952,7 @@ type run struct {
 	stepLog    *slog.Logger
 
 	forwardsMu sync.Mutex
-	forwards   []*portForward
+	forwards   []forward
 
 	// systemOutputs maps a step name to kevin-computed values (currently
 	// expose_<name>/forward_<name> for an ExposedPort) - kept separate from
@@ -1054,12 +1055,51 @@ func (r *run) mergeCompleted(results map[string]dag.Outputs) {
 	maps.Copy(r.completed, results)
 }
 
-// addForward records pf for closeForwards to close at session teardown.
+// forward is a local loopback listener that r.up opened for a relay-routed
+// exposed port - a TCP *portForward or a UDP *udpPortForward - closed at
+// session teardown by closeForwards.
+type forward interface {
+	Addr() net.Addr
+	Close() error
+}
+
+// addForward records f for closeForwards to close at session teardown.
 // Concurrent DAG steps call this from separate goroutines during r.up.
-func (r *run) addForward(pf *portForward) {
+func (r *run) addForward(f forward) {
 	r.forwardsMu.Lock()
-	r.forwards = append(r.forwards, pf)
+	r.forwards = append(r.forwards, f)
 	r.forwardsMu.Unlock()
+}
+
+// exposePort records ep's upstream as a system output, and - for a
+// relay-routed entry - opens a local forward for it (a TCP dial-per-
+// connection forward, or a UDP ASSOCIATE session, by ep's protocol),
+// recording that too. Extracted from upStep to keep its complexity down.
+func (r *run) exposePort(ctx context.Context, name string, ep *pb.ExposedPort, systemThis dag.Outputs) {
+	r.emit(name, fmt.Sprintf("exposing %s %s at %s", ep.GetProtocol(), ep.GetName(), ep.GetUpstream()))
+	systemThis["expose_"+ep.GetName()] = output.Value{String: ep.GetUpstream()}
+
+	if !ep.GetRelay() {
+		return
+	}
+	var pf forward
+	var fwdErr error
+	if ep.GetProtocol() == "udp" {
+		pf, fwdErr = newUDPPortForward(ctx, ep)
+	} else {
+		pf, fwdErr = newPortForward(ctx, ep)
+	}
+	if fwdErr != nil {
+		r.emit(name, "warning: local forward for "+ep.GetName()+": "+fwdErr.Error())
+		return
+	}
+	r.addForward(pf)
+	addr := pf.Addr().String()
+	r.emit(name, fmt.Sprintf("forwarding %s at %s", ep.GetName(), addr))
+	r.store.AddStepDetail(name, session.Detail{
+		Label: ep.GetName() + " (local)", Value: addr, Copyable: true,
+	})
+	systemThis["forward_"+ep.GetName()] = output.Value{String: addr}
 }
 
 // closeForwards closes every forward listener r.up opened.
@@ -1314,23 +1354,7 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	r.recordContainers(name, result.GetContainers())
 	systemThis := dag.Outputs{}
 	for _, ep := range result.GetExposedPorts() {
-		r.emit(name, fmt.Sprintf("exposing %s %s at %s", ep.GetProtocol(), ep.GetName(), ep.GetUpstream()))
-		systemThis["expose_"+ep.GetName()] = output.Value{String: ep.GetUpstream()}
-
-		if ep.GetProtocol() == "socks5" {
-			pf, fwdErr := newPortForward(ctx, ep)
-			if fwdErr != nil {
-				r.emit(name, "warning: local forward for "+ep.GetName()+": "+fwdErr.Error())
-				continue
-			}
-			r.addForward(pf)
-			addr := pf.Addr().String()
-			r.emit(name, fmt.Sprintf("forwarding %s at %s", ep.GetName(), addr))
-			r.store.AddStepDetail(name, session.Detail{
-				Label: ep.GetName() + " (local)", Value: addr, Copyable: true,
-			})
-			systemThis["forward_"+ep.GetName()] = output.Value{String: addr}
-		}
+		r.exposePort(ctx, name, ep, systemThis)
 	}
 	if len(systemThis) > 0 {
 		r.systemMu.Lock()

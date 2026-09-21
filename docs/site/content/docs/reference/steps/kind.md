@@ -73,6 +73,7 @@ cluster: {
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
 | `address` | `string` | - | **Required.** The in-cluster host:port to reach, such as `"postgres.default.svc.cluster.local:5432"`. |
+| `protocol` | `"tcp"` \| `"udp"` | `"tcp"` | The wire protocol address speaks. |
 | `host_port` | `int` | - | Pins the port of the local forward that lets a host process dial this entry directly, reported as the `"forward_<name>"` output. Omitted, the OS assigns one. |
 
 ## Publishes

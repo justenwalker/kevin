@@ -13,14 +13,18 @@ import (
 // outside the cluster dials an arbitrary in-cluster address) or as a
 // listener on the domain relay itself (a client outside the docker network
 // dials an arbitrary container on it) - same server, same binary.
-func serveSOCKS5(ctx context.Context, ln net.Listener) error {
+// udpPorts is the pre-published port pool a UDP ASSOCIATE session binds
+// from; an empty udpPorts serves CONNECT normally but fails every
+// ASSOCIATE immediately.
+func serveSOCKS5(ctx context.Context, ln net.Listener, udpPorts []int) error {
 	go func() {
 		<-ctx.Done()
 		_ = ln.Close()
 	}()
 
-	log.Ctx(ctx).Info("socks5 relay starting", "listen", ln.Addr())
-	if err := socks5.NewServer().Serve(ln); err != nil && ctx.Err() == nil {
+	log.Ctx(ctx).Info("socks5 relay starting", "listen", ln.Addr(), "udp_pool_size", len(udpPorts))
+	srv := socks5.NewServer(socks5.WithAssociateHandle(newAssociateHandler(newUDPPool(udpPorts))))
+	if err := srv.Serve(ln); err != nil && ctx.Err() == nil {
 		return fmt.Errorf("relay: socks5 serve: %w", err)
 	}
 	return nil

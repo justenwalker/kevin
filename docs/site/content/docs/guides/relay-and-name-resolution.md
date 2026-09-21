@@ -42,9 +42,11 @@ db: {
 }
 ```
 
-`relay` only carries TCP - the relay's gateway is a SOCKS5 CONNECT server.
-A plain (non-relay) `expose` entry keeps publishing directly, and a step
-can mix both kinds of entry freely. See [container reference]({{< relref
+`relay` works with either `protocol` - the relay's gateway speaks SOCKS5
+CONNECT for `tcp` and SOCKS5 UDP ASSOCIATE for `udp` (see
+[Relay]({{< relref "/docs/concepts/relay#udp-tunnel" >}})). A plain
+(non-relay) `expose` entry keeps publishing directly, and a step can mix
+both kinds of entry freely. See [container reference]({{< relref
 "/docs/reference/steps/container" >}}) for the `expose` field.
 
 ## HTTP routing

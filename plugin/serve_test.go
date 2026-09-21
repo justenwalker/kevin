@@ -492,6 +492,44 @@ func TestServerUp(t *testing.T) {
 	})
 }
 
+func TestServerUpRelayUDPExposedPort(t *testing.T) {
+	t.Run("translates a relay-routed udp exposed port and its pool addresses", func(t *testing.T) {
+		var gotUp *UpRequest
+		impl := NewMockStep(t)
+		impl.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).
+			Run(func(_ context.Context, req *UpRequest, _ Emitter) { gotUp = req }).
+			Return(&Result{
+				ExposedPorts: []ExposedPort{{
+					Name: "dns", Protocol: "udp", Relay: true,
+					Upstream:      "socks5://172.20.0.5:1080/dns:53",
+					RelayUDPAddrs: map[string]string{"40000": "127.0.0.1:41234"},
+				}},
+			}, nil)
+		srv := &server{provider: Plugin{Steps: map[string]Step{"widget": impl}}}
+		stream := &fakeStream{}
+
+		req := &pb.UpRequest{
+			Step: "dns", Type: "widget",
+			Env: &pb.Environment{
+				RelaySocks5Addr:     "172.20.0.5:1080",
+				RelaySocks5UdpAddrs: map[string]string{"40000": "127.0.0.1:41234"},
+			},
+		}
+		require.NoError(t, srv.Up(req, stream))
+
+		require.NotNil(t, gotUp)
+		assert.Equal(t, "172.20.0.5:1080", gotUp.Env.RelaySOCKS5Addr)
+		assert.Equal(t, map[string]string{"40000": "127.0.0.1:41234"}, gotUp.Env.RelaySOCKS5UDPAddrs)
+
+		result := stream.events[0].GetResult()
+		require.Len(t, result.GetExposedPorts(), 1)
+		ep := result.GetExposedPorts()[0]
+		assert.Equal(t, "udp", ep.GetProtocol())
+		assert.True(t, ep.GetRelay())
+		assert.Equal(t, map[string]string{"40000": "127.0.0.1:41234"}, ep.GetRelayUdpAddrs())
+	})
+}
+
 func TestServerDown(t *testing.T) {
 	t.Run("calls down and streams the log", func(t *testing.T) {
 		var gotDown *DownRequest

@@ -146,7 +146,15 @@ func TestDecode(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Len(t, cfg.Expose, 1)
-		assert.Equal(t, kindExpose{Address: "postgres.default.svc:5432", HostPort: 15432}, cfg.Expose["postgres"])
+		assert.Equal(t, kindExpose{Address: "postgres.default.svc:5432", Protocol: "tcp", HostPort: 15432}, cfg.Expose["postgres"])
+	})
+
+	t.Run("reads an explicit udp expose protocol", func(t *testing.T) {
+		cfg, err := decode([]byte(`{"expose":{"dns":{"address":"kube-dns.kube-system.svc:53","protocol":"udp"}}}`))
+		require.NoError(t, err)
+
+		require.Len(t, cfg.Expose, 1)
+		assert.Equal(t, "udp", cfg.Expose["dns"].Protocol)
 	})
 
 	t.Run("reads workers", func(t *testing.T) {
@@ -346,7 +354,7 @@ func TestClusterConfig(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				got, err := clusterConfig(config{Workers: tt.workers}, 0)
+				got, err := clusterConfig(config{Workers: tt.workers}, relayPorts{})
 				require.NoError(t, err)
 
 				doc := parseClusterConfig(t, got)
@@ -369,7 +377,7 @@ func TestClusterConfig(t *testing.T) {
 	})
 
 	t.Run("labels the control plane and each worker by name", func(t *testing.T) {
-		got, err := clusterConfig(config{Workers: map[string]map[string]any{"worker_a": {}, "worker_b": {}}}, 0)
+		got, err := clusterConfig(config{Workers: map[string]map[string]any{"worker_a": {}, "worker_b": {}}}, relayPorts{})
 		require.NoError(t, err)
 
 		doc := parseClusterConfig(t, got)
@@ -383,7 +391,7 @@ func TestClusterConfig(t *testing.T) {
 	t.Run("prefers an explicit config", func(t *testing.T) {
 		raw := "kind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nnetworking:\n  apiServerPort: 6443\n"
 
-		got, err := clusterConfig(config{Config: raw, Workers: map[string]map[string]any{"a": {}, "b": {}}}, 0)
+		got, err := clusterConfig(config{Config: raw, Workers: map[string]map[string]any{"a": {}, "b": {}}}, relayPorts{})
 		require.NoError(t, err)
 
 		assert.Equal(t, raw, got)
@@ -391,11 +399,11 @@ func TestClusterConfig(t *testing.T) {
 	})
 
 	t.Run("adds extra port mappings for the relay", func(t *testing.T) {
-		without, err := clusterConfig(config{}, 0)
+		without, err := clusterConfig(config{}, relayPorts{})
 		require.NoError(t, err)
 		assert.Empty(t, parseClusterConfig(t, without).Nodes[0].ExtraPortMappings, "no relay means no port mapping")
 
-		with, err := clusterConfig(config{}, 54321)
+		with, err := clusterConfig(config{}, relayPorts{TCP: 54321})
 		require.NoError(t, err)
 		mappings := parseClusterConfig(t, with).Nodes[0].ExtraPortMappings
 		require.Len(t, mappings, 1)
@@ -408,7 +416,7 @@ func TestClusterConfig(t *testing.T) {
 			"extraMounts": []any{
 				map[string]any{"hostPath": "/src", "containerPath": "/workspace"},
 			},
-		}}, 0)
+		}}, relayPorts{})
 		require.NoError(t, err)
 
 		node := parseClusterConfig(t, got).Nodes[0]
@@ -420,7 +428,7 @@ func TestClusterConfig(t *testing.T) {
 	t.Run("a worker's own passthrough merges its own image", func(t *testing.T) {
 		got, err := clusterConfig(config{Workers: map[string]map[string]any{
 			"worker_a": {"image": "kindest/node:worker-only"},
-		}}, 0)
+		}}, relayPorts{})
 		require.NoError(t, err)
 
 		doc := parseClusterConfig(t, got)
@@ -436,7 +444,7 @@ func TestClusterConfig(t *testing.T) {
 	t.Run("a passthrough labels entry merges alongside kevin's own", func(t *testing.T) {
 		got, err := clusterConfig(config{ControlPlane: map[string]any{
 			"labels": map[string]any{"custom-label": "yes"},
-		}}, 0)
+		}}, relayPorts{})
 		require.NoError(t, err)
 
 		node := parseClusterConfig(t, got).Nodes[0]
@@ -449,7 +457,7 @@ func TestClusterConfig(t *testing.T) {
 			"extraPortMappings": []any{
 				map[string]any{"containerPort": 8080, "hostPort": 18080, "listenAddress": "0.0.0.0", "protocol": "TCP"},
 			},
-		}}, 54321)
+		}}, relayPorts{TCP: 54321})
 		require.NoError(t, err)
 
 		mappings := parseClusterConfig(t, got).Nodes[0].ExtraPortMappings
@@ -460,27 +468,27 @@ func TestClusterConfig(t *testing.T) {
 	})
 
 	t.Run("role in a passthrough errors", func(t *testing.T) {
-		_, err := clusterConfig(config{ControlPlane: map[string]any{"role": "worker"}}, 0)
+		_, err := clusterConfig(config{ControlPlane: map[string]any{"role": "worker"}}, relayPorts{})
 		require.ErrorIs(t, err, ErrReservedNodeField)
 
-		_, err = clusterConfig(config{Workers: map[string]map[string]any{"a": {"role": "control-plane"}}}, 0)
+		_, err = clusterConfig(config{Workers: map[string]map[string]any{"a": {"role": "control-plane"}}}, relayPorts{})
 		require.ErrorIs(t, err, ErrReservedNodeField)
 	})
 
 	t.Run("a kevin.node label in a passthrough errors", func(t *testing.T) {
 		_, err := clusterConfig(config{ControlPlane: map[string]any{
 			"labels": map[string]any{nodeLabelKey: "not-allowed"},
-		}}, 0)
+		}}, relayPorts{})
 		require.ErrorIs(t, err, ErrReservedNodeField)
 	})
 
 	t.Run("a labels passthrough shaped unlike a map errors", func(t *testing.T) {
-		_, err := clusterConfig(config{ControlPlane: map[string]any{"labels": "not-a-map"}}, 0)
+		_, err := clusterConfig(config{ControlPlane: map[string]any{"labels": "not-a-map"}}, relayPorts{})
 		require.ErrorIs(t, err, ErrInvalidNodeField)
 	})
 
 	t.Run("an extraPortMappings passthrough shaped unlike a list errors when kevin also contributes one", func(t *testing.T) {
-		_, err := clusterConfig(config{ControlPlane: map[string]any{"extraPortMappings": "not-a-list"}}, 54321)
+		_, err := clusterConfig(config{ControlPlane: map[string]any{"extraPortMappings": "not-a-list"}}, relayPorts{TCP: 54321})
 		require.ErrorIs(t, err, ErrInvalidNodeField)
 	})
 
@@ -488,7 +496,7 @@ func TestClusterConfig(t *testing.T) {
 		raw := "kind: Cluster\n"
 		got, err := clusterConfig(config{Config: raw, ControlPlane: map[string]any{
 			"extraMounts": []any{map[string]any{"hostPath": "/src", "containerPath": "/workspace"}},
-		}}, 0)
+		}}, relayPorts{})
 		require.NoError(t, err)
 		assert.Equal(t, raw, got)
 	})
@@ -498,36 +506,36 @@ func TestReuseFingerprint(t *testing.T) {
 	cfg := config{Workers: map[string]map[string]any{"worker": {}}}
 
 	t.Run("no proxy env yields the same fingerprint regardless of the map", func(t *testing.T) {
-		without, err := reuseFingerprint(cfg, 0, nil)
+		without, err := reuseFingerprint(cfg, relayPorts{}, nil)
 		require.NoError(t, err)
-		empty, err := reuseFingerprint(cfg, 0, map[string]string{})
+		empty, err := reuseFingerprint(cfg, relayPorts{}, map[string]string{})
 		require.NoError(t, err)
 		assert.Equal(t, without, empty)
 	})
 
 	t.Run("carries the resolved proxy endpoint", func(t *testing.T) {
-		got, err := reuseFingerprint(cfg, 0, map[string]string{"HTTP_PROXY": "http://host.docker.internal:54321"})
+		got, err := reuseFingerprint(cfg, relayPorts{}, map[string]string{"HTTP_PROXY": "http://host.docker.internal:54321"})
 		require.NoError(t, err)
 		assert.Contains(t, got, "http://host.docker.internal:54321")
 	})
 
 	t.Run("a different proxy endpoint changes the fingerprint", func(t *testing.T) {
-		a, err := reuseFingerprint(cfg, 0, map[string]string{"HTTP_PROXY": "http://host.docker.internal:1"})
+		a, err := reuseFingerprint(cfg, relayPorts{}, map[string]string{"HTTP_PROXY": "http://host.docker.internal:1"})
 		require.NoError(t, err)
-		b, err := reuseFingerprint(cfg, 0, map[string]string{"HTTP_PROXY": "http://host.docker.internal:2"})
+		b, err := reuseFingerprint(cfg, relayPorts{}, map[string]string{"HTTP_PROXY": "http://host.docker.internal:2"})
 		require.NoError(t, err)
 		assert.NotEqual(t, a, b, "a cluster created against one proxy address must not fingerprint as reusable against another")
 	})
 
 	t.Run("propagates a clusterConfig failure", func(t *testing.T) {
-		_, err := reuseFingerprint(config{ControlPlane: map[string]any{"role": "worker"}}, 0, nil)
+		_, err := reuseFingerprint(config{ControlPlane: map[string]any{"role": "worker"}}, relayPorts{}, nil)
 		require.ErrorIs(t, err, ErrReservedNodeField)
 	})
 
 	t.Run("the cluster config prefix is unchanged", func(t *testing.T) {
-		got, err := reuseFingerprint(cfg, 0, map[string]string{"HTTP_PROXY": "http://host.docker.internal:54321"})
+		got, err := reuseFingerprint(cfg, relayPorts{}, map[string]string{"HTTP_PROXY": "http://host.docker.internal:54321"})
 		require.NoError(t, err)
-		generated, err := clusterConfig(cfg, 0)
+		generated, err := clusterConfig(cfg, relayPorts{})
 		require.NoError(t, err)
 		assert.True(t, strings.HasPrefix(got, generated),
 			"the fingerprint must extend clusterConfig's own text, not replace it - configMarkerFile's content is never fed back into kind create")
@@ -620,7 +628,7 @@ func TestFinishClusterSetup(t *testing.T) {
 
 	t.Run("with every opt-out set, does nothing", func(t *testing.T) {
 		exposed, containers, err := finishClusterSetup(t.Context(), fakeRuntime{}, config{},
-			&plugin.UpRequest{}, "demo-cluster", nodes, "", false, &capture{})
+			&plugin.UpRequest{}, "demo-cluster", nodes, "", nil, false, &capture{})
 		require.NoError(t, err)
 		assert.Nil(t, exposed)
 		assert.Nil(t, containers)
@@ -628,7 +636,7 @@ func TestFinishClusterSetup(t *testing.T) {
 
 	t.Run("propagates a trust CA failure", func(t *testing.T) {
 		req := &plugin.UpRequest{Env: plugin.Env{CAPath: filepath.Join(t.TempDir(), "missing.pem")}}
-		_, _, err := finishClusterSetup(t.Context(), happyRT, config{TrustCA: true}, req, "demo-cluster", nodes, "", false, &capture{})
+		_, _, err := finishClusterSetup(t.Context(), happyRT, config{TrustCA: true}, req, "demo-cluster", nodes, "", nil, false, &capture{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read the kevin root certificate")
 	})
@@ -638,7 +646,7 @@ func TestFinishClusterSetup(t *testing.T) {
 		rt := fakeRuntime{exec: func(context.Context, string, ...string) (string, error) {
 			return "", errors.New("exec failed")
 		}}
-		_, _, err := finishClusterSetup(t.Context(), rt, config{CoreDNS: true}, req, "demo-cluster", nodes, "", false, &capture{})
+		_, _, err := finishClusterSetup(t.Context(), rt, config{CoreDNS: true}, req, "demo-cluster", nodes, "", nil, false, &capture{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read the coredns Corefile")
 	})
@@ -646,19 +654,19 @@ func TestFinishClusterSetup(t *testing.T) {
 	t.Run("propagates a capture discovery failure", func(t *testing.T) {
 		req := &plugin.UpRequest{Env: plugin.Env{Relay: "10.244.0.5:53"}}
 		_, _, err := finishClusterSetup(t.Context(), fakeRuntime{}, config{}, req, "demo-cluster",
-			[]string{"demo-cluster-worker"}, "", false, &capture{})
+			[]string{"demo-cluster-worker"}, "", nil, false, &capture{})
 		require.ErrorIs(t, err, ErrNoControlPlaneNode)
 	})
 
 	t.Run("propagates a relay failure", func(t *testing.T) {
 		_, _, err := finishClusterSetup(t.Context(), fakeRuntime{}, config{}, &plugin.UpRequest{}, "demo-cluster",
-			[]string{"demo-cluster-worker"}, "127.0.0.1:54321", true, &capture{})
+			[]string{"demo-cluster-worker"}, "127.0.0.1:54321", nil, true, &capture{})
 		require.ErrorIs(t, err, ErrNoControlPlaneNode)
 	})
 
 	t.Run("assembles containers when capture is on and no relay is wanted", func(t *testing.T) {
 		req := &plugin.UpRequest{Env: plugin.Env{Relay: "10.244.0.5:53"}}
-		exposed, containers, err := finishClusterSetup(t.Context(), happyRT, config{}, req, "demo-cluster", nodes, "", false, &capture{})
+		exposed, containers, err := finishClusterSetup(t.Context(), happyRT, config{}, req, "demo-cluster", nodes, "", nil, false, &capture{})
 		require.NoError(t, err)
 		assert.Nil(t, exposed)
 		require.Len(t, containers, 1)
@@ -799,58 +807,166 @@ func TestReadRelayPort(t *testing.T) {
 	})
 }
 
+func TestRelayUDPPorts(t *testing.T) {
+	t.Run("no file yet is not reusable", func(t *testing.T) {
+		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
+		ports, ok := readRelayUDPPorts(kubeconfig)
+		assert.False(t, ok)
+		assert.Nil(t, ports)
+	})
+
+	t.Run("round trips a pool through write and read", func(t *testing.T) {
+		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
+		require.NoError(t, writeRelayUDPPorts(kubeconfig, []int{40000, 40001, 40002}))
+
+		ports, ok := readRelayUDPPorts(kubeconfig)
+		require.True(t, ok)
+		assert.Equal(t, []int{40000, 40001, 40002}, ports)
+	})
+
+	t.Run("an empty pool is a valid, reusable state", func(t *testing.T) {
+		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
+		require.NoError(t, writeRelayUDPPorts(kubeconfig, nil))
+
+		ports, ok := readRelayUDPPorts(kubeconfig)
+		require.True(t, ok)
+		assert.Empty(t, ports)
+	})
+
+	t.Run("a malformed file is not reusable", func(t *testing.T) {
+		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
+		require.NoError(t, os.WriteFile(relayUDPAddrFile(kubeconfig), []byte("not,a,port,list"), 0o600))
+
+		ports, ok := readRelayUDPPorts(kubeconfig)
+		assert.False(t, ok)
+		assert.Nil(t, ports)
+	})
+}
+
 func TestPickHostPort(t *testing.T) {
 	port, err := findFreePort(t.Context())
 	require.NoError(t, err)
 	assert.Positive(t, port)
 }
 
+func TestFindFreePorts(t *testing.T) {
+	t.Run("returns n distinct ports", func(t *testing.T) {
+		ports, err := findFreePorts(t.Context(), 4)
+		require.NoError(t, err)
+		require.Len(t, ports, 4)
+
+		seen := make(map[int]bool, len(ports))
+		for _, p := range ports {
+			assert.Positive(t, p)
+			assert.False(t, seen[p], "each port must be distinct")
+			seen[p] = true
+		}
+	})
+
+	t.Run("n zero returns no ports", func(t *testing.T) {
+		ports, err := findFreePorts(t.Context(), 0)
+		require.NoError(t, err)
+		assert.Empty(t, ports)
+	})
+}
+
+func TestRelayUDPAddrs(t *testing.T) {
+	t.Run("maps each fixed node port to its host address", func(t *testing.T) {
+		got := relayUDPAddrs([]int{41000, 41001})
+		assert.Equal(t, map[string]string{
+			"40000": "127.0.0.1:41000",
+			"40001": "127.0.0.1:41001",
+		}, got)
+	})
+
+	t.Run("no host ports reports nil", func(t *testing.T) {
+		assert.Nil(t, relayUDPAddrs(nil))
+	})
+}
+
 func TestExposedViaRelay(t *testing.T) {
 	t.Run("builds a socks5 upstream per entry, sorted by name", func(t *testing.T) {
-		got := exposedViaRelay(map[string]kindExpose{
-			"postgres":   {Address: "postgres.default.svc:5432"},
-			"kubernetes": {Address: "kubernetes.default.svc:443"},
-		}, "127.0.0.1:54321")
+		got, err := exposedViaRelay(map[string]kindExpose{
+			"postgres":   {Address: "postgres.default.svc:5432", Protocol: "tcp"},
+			"kubernetes": {Address: "kubernetes.default.svc:443", Protocol: "tcp"},
+		}, "127.0.0.1:54321", nil)
+		require.NoError(t, err)
 
 		require.Len(t, got, 2)
 		assert.Equal(t, plugin.ExposedPort{
-			Name: "kubernetes", Protocol: "socks5",
+			Name: "kubernetes", Protocol: "tcp", Relay: true,
 			Upstream: "socks5://127.0.0.1:54321/kubernetes.default.svc:443",
 		}, got[0])
 		assert.Equal(t, plugin.ExposedPort{
-			Name: "postgres", Protocol: "socks5",
+			Name: "postgres", Protocol: "tcp", Relay: true,
 			Upstream: "socks5://127.0.0.1:54321/postgres.default.svc:5432",
 		}, got[1])
 	})
 
 	t.Run("entries convert to card details", func(t *testing.T) {
-		got := exposedViaRelay(map[string]kindExpose{"postgres": {Address: "postgres.default.svc:5432"}}, "127.0.0.1:54321")
+		got, err := exposedViaRelay(map[string]kindExpose{"postgres": {Address: "postgres.default.svc:5432", Protocol: "tcp"}}, "127.0.0.1:54321", nil)
+		require.NoError(t, err)
 
 		require.Len(t, got, 1)
 		assert.Equal(t, plugin.Detail{
-			Label: "socks5 postgres", Value: plugin.String("socks5://127.0.0.1:54321/postgres.default.svc:5432"), Copyable: true,
+			Label: "tcp postgres (relay)", Value: plugin.String("socks5://127.0.0.1:54321/postgres.default.svc:5432"), Copyable: true,
 		}, got[0].Detail(), "Up must mirror every exposed port onto the card the same way")
 	})
 
 	t.Run("threads host_port through to the exposed port", func(t *testing.T) {
-		got := exposedViaRelay(map[string]kindExpose{
-			"postgres": {Address: "postgres.default.svc:5432", HostPort: 15432},
-		}, "127.0.0.1:54321")
+		got, err := exposedViaRelay(map[string]kindExpose{
+			"postgres": {Address: "postgres.default.svc:5432", Protocol: "tcp", HostPort: 15432},
+		}, "127.0.0.1:54321", nil)
+		require.NoError(t, err)
 
 		require.Len(t, got, 1)
 		assert.Equal(t, 15432, got[0].HostPort)
 	})
+
+	t.Run("attaches the relay's udp pool to a udp entry", func(t *testing.T) {
+		udpAddrs := map[string]string{"40000": "127.0.0.1:41000"}
+		got, err := exposedViaRelay(map[string]kindExpose{
+			"dns": {Address: "kube-dns.kube-system.svc:53", Protocol: "udp"},
+		}, "127.0.0.1:54321", udpAddrs)
+		require.NoError(t, err)
+
+		require.Len(t, got, 1)
+		assert.Equal(t, plugin.ExposedPort{
+			Name: "dns", Protocol: "udp", Relay: true,
+			Upstream: "socks5://127.0.0.1:54321/kube-dns.kube-system.svc:53", RelayUDPAddrs: udpAddrs,
+		}, got[0])
+	})
+
+	t.Run("a udp entry with no udp pool errors", func(t *testing.T) {
+		_, err := exposedViaRelay(map[string]kindExpose{
+			"dns": {Address: "kube-dns.kube-system.svc:53", Protocol: "udp"},
+		}, "127.0.0.1:54321", nil)
+		require.ErrorIs(t, err, ErrNoRelayUDPPool)
+	})
 }
 
 func TestRelayPodManifest(t *testing.T) {
-	got := relayPodManifest("kind-example-control-plane", "kevin-relay:dev")
+	t.Run("no udp pool adds no udp args or ports", func(t *testing.T) {
+		got := relayPodManifest("kind-example-control-plane", "kevin-relay:dev", 0)
 
-	assert.Contains(t, got, "nodeName: kind-example-control-plane")
-	assert.Contains(t, got, "image: kevin-relay:dev")
-	assert.Contains(t, got, "imagePullPolicy: Never")
-	assert.Contains(t, got, `args: ["socks5-gateway", "--listen", ":1080"]`)
-	assert.Contains(t, got, "containerPort: 1080")
-	assert.Contains(t, got, "hostPort: 1080")
+		assert.Contains(t, got, "nodeName: kind-example-control-plane")
+		assert.Contains(t, got, "image: kevin-relay:dev")
+		assert.Contains(t, got, "imagePullPolicy: Never")
+		assert.Contains(t, got, `args: ["socks5-gateway", "--listen", ":1080"]`)
+		assert.Contains(t, got, "containerPort: 1080")
+		assert.Contains(t, got, "hostPort: 1080")
+		assert.NotContains(t, got, "udp-relay-ports")
+		assert.NotContains(t, got, "UDP")
+	})
+
+	t.Run("a udp pool adds the flag and one ports entry per port", func(t *testing.T) {
+		got := relayPodManifest("kind-example-control-plane", "kevin-relay:dev", 3)
+
+		assert.Contains(t, got, `"--udp-relay-ports", "40000-40002"`)
+		assert.Contains(t, got, "containerPort: 40000\n      hostPort: 40000\n      protocol: UDP")
+		assert.Contains(t, got, "containerPort: 40001\n      hostPort: 40001\n      protocol: UDP")
+		assert.Contains(t, got, "containerPort: 40002\n      hostPort: 40002\n      protocol: UDP")
+	})
 }
 
 func TestExposedPortDetails(t *testing.T) {
@@ -892,7 +1008,7 @@ func TestSaveImageToTempFile(t *testing.T) {
 func TestDeployRelay(t *testing.T) {
 	t.Run("no control-plane node is a hard failure", func(t *testing.T) {
 		err := deployRelay(t.Context(), fakeRuntime{}, "demo-cluster", []string{"demo-cluster-worker"},
-			"kevin-relay:dev", plugin.Env{}, &capture{})
+			"kevin-relay:dev", 0, plugin.Env{}, &capture{})
 		require.ErrorIs(t, err, ErrNoControlPlaneNode)
 	})
 
@@ -902,7 +1018,7 @@ func TestDeployRelay(t *testing.T) {
 		}}
 
 		err := deployRelay(t.Context(), rt, "demo-cluster", []string{"demo-cluster-control-plane"},
-			"kevin-relay:dev", plugin.Env{}, &capture{})
+			"kevin-relay:dev", 0, plugin.Env{}, &capture{})
 		require.Error(t, err)
 	})
 }
@@ -910,7 +1026,7 @@ func TestDeployRelay(t *testing.T) {
 func TestFinishRelay(t *testing.T) {
 	t.Run("propagates a deployRelay failure instead of reporting exposed ports", func(t *testing.T) {
 		_, err := finishRelay(t.Context(), fakeRuntime{}, config{}, "demo-cluster", []string{"demo-cluster-worker"},
-			"127.0.0.1:54321", plugin.Env{}, &capture{})
+			"127.0.0.1:54321", nil, plugin.Env{}, &capture{})
 		require.ErrorIs(t, err, ErrNoControlPlaneNode)
 	})
 }
