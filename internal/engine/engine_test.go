@@ -39,6 +39,7 @@ import (
 	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/internal/pluginpkg"
 	"github.com/justenwalker/kevin/internal/proxy"
+	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/protos/pb"
 )
@@ -1339,6 +1340,62 @@ env: {}
 
 	assert.Contains(t, w.String(), orphan,
 		"the report must name the container, not its ID")
+}
+
+// TestRunRemovesTheNetworkWhenRelayFailsToStart proves that Run cleans up the
+// docker network it already created even when a later startup step - here,
+// the relay - fails before any step ever comes up. Without this, Run
+// returned the bare error and left the network behind: nothing ever reaps
+// it, since each failed run used a fresh, one-off project name.
+func TestRunRemovesTheNetworkWhenRelayFailsToStart(t *testing.T) {
+	requireDocker(t)
+	t.Setenv(relay.ImageEnvVar, "INVALID/UPPERCASE:tag")
+
+	const projectName = "kevin-run-removes-network-on-relay-failure-test"
+	dir := project(t, `
+project: "`+projectName+`"
+env: a: {uses: "echo:echo", with: message: "A"}
+`)
+	require.Error(t, runEnv(t, dir))
+
+	_, err := dockerClient.NetworkGateway(t.Context(), NetworkName(projectName))
+	require.ErrorIs(t, err, cri.ErrNotFound,
+		"Run must remove the network it created when the relay never starts")
+}
+
+// TestRunStopsTheRelayWhenStartupFailsAfterwards proves the same cleanup
+// reaches a relay that already started: here the console's own listener
+// fails to bind (its address is already taken) after the relay is up but
+// before Run commits to its steady state, so shutdown must stop the
+// still-running relay before reap removes the network - a relay left
+// attached would make that removal fail.
+func TestRunStopsTheRelayWhenStartupFailsAfterwards(t *testing.T) {
+	requireRelay(t)
+
+	var lc net.ListenConfig
+	busy, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = busy.Close() })
+
+	bin, err := echoPlugin()
+	require.NoError(t, err)
+
+	const projectName = "kevin-run-stops-relay-on-later-failure-test"
+	_, gatewayPort, err := net.SplitHostPort(freeAddr(t))
+	require.NoError(t, err)
+	dir := configDir(t, "plugins: echo: cmd: "+strconv.Quote(bin)+"\n"+
+		"project: "+strconv.Quote(projectName)+"\n"+
+		"proxy: {listen: "+strconv.Quote(freeAddr(t))+", gateway_port: "+gatewayPort+", egress: deny: true}\n"+
+		"console: listen: "+strconv.Quote(busy.Addr().String())+"\n"+
+		`env: a: {uses: "echo:echo", with: message: "A"}`+"\n")
+
+	require.Error(t, runEnv(t, dir))
+
+	_, err = dockerClient.Inspect(t.Context(), "kevin-"+projectName+"-relay")
+	require.ErrorIs(t, err, cri.ErrNotFound, "Run must stop the relay it already started")
+
+	_, err = dockerClient.NetworkGateway(t.Context(), NetworkName(projectName))
+	require.ErrorIs(t, err, cri.ErrNotFound, "Run must remove the network once the relay is stopped")
 }
 
 // TestRunOnEvent covers what Run's real plugins never trigger through the

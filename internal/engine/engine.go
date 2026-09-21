@@ -152,6 +152,14 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	// r exists from here on, and every subsequent early return past this
+	// point has already created some project-labeled docker resource
+	// (network, relay). committed flips true only once r.up is about to
+	// run - shutdown owns cleanup from there.
+	r := &run{cfg: cfg, runtime: rt, scope: opts.Scope, events: opts.Events}
+	committed := false
+	defer earlyCleanup(ctx, r, &committed)()
+
 	workspace, authority, err := prepare(ctx, cfg, rt)
 	if err != nil {
 		return err
@@ -192,10 +200,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	// shutdown, below, decides whether the relay actually closes - keep or
-	// a still-live other scope leaves it running for a later process to
-	// reuse. An unconditional defer here would override that decision on
-	// every exit path, including the ones shutdown gets right.
+	r.relay = rl
 
 	store := session.NewStore()
 	store.SetProxyAddr(server.addr)
@@ -217,20 +222,14 @@ func Run(ctx context.Context, opts Options) error {
 			"routed", req.Routed, "denied", req.Denied)
 	})
 
-	r := &run{
-		cfg:     cfg,
-		runtime: rt,
-		proxy:   server.proxy,
-		store:   store,
-		scope:   opts.Scope,
-		steps:   cfg.Steps(opts.Scope),
-		groups:  cfg.Groups(opts.Scope),
-		plugins: plugins,
-		caps:    caps,
-		events:  opts.Events,
-		timings: timings,
-		stepLog: stepLog.Logger,
-	}
+	r.proxy = server.proxy
+	r.store = store
+	r.steps = cfg.Steps(opts.Scope)
+	r.groups = cfg.Groups(opts.Scope)
+	r.plugins = plugins
+	r.caps = caps
+	r.timings = timings
+	r.stepLog = stepLog.Logger
 	tools, toolRoutes := collectTools(ctx, r.steps, caps)
 	r.toolRoutes = toolRoutes
 	mcpServer := mcpserver.New(cfg.Project, cfg.Domain, filepath.Join(workspace, LogsFile), store, server.proxy, r.RerunStep, r.exportStep, tools, r.callTool)
@@ -279,7 +278,6 @@ func Run(ctx context.Context, opts Options) error {
 		Engine:              opts.Engine,
 	}
 	r.env = env
-	r.relay = rl
 	r.project = ca.ProjectVars(cfg.Dir, cfg.Name)
 	r.project["http_proxy_addr"] = server.addr
 	r.project["relay"] = rl.Addr()
@@ -297,6 +295,10 @@ func Run(ctx context.Context, opts Options) error {
 		stop := termui.New(os.Stderr).Start(ctx, store)
 		defer stop()
 	}
+
+	// Every step's own resources are now shutdown's responsibility, called
+	// unconditionally below - the deferred cleanup above must step aside.
+	committed = true
 
 	_ = r.up(ctx)
 	awaitDone(ctx, opts.NoWait)
@@ -323,6 +325,19 @@ func awaitDone(ctx context.Context, noWait bool) {
 	<-ctx.Done()
 }
 
+// earlyCleanup returns Run's deferred cleanup for everything created before
+// *committed goes true. reap derives what to remove from live docker state,
+// so it does nothing wherever nothing was created yet, and correctly leaves
+// a network or relay still shared with the other scope alone.
+func earlyCleanup(ctx context.Context, r *run, committed *bool) func() {
+	return func() {
+		if *committed {
+			return
+		}
+		_ = r.shutdown(context.WithoutCancel(ctx), r.relay, false)
+	}
+}
+
 // shutdown removes the run's steps. keep leaves everything, including the
 // relay, in place; otherwise the relay only stops if the other scope
 // isn't still live and sharing it.
@@ -336,9 +351,11 @@ func (r *run) shutdown(ctx context.Context, rl *relay.Relay, keep bool) error {
 	}
 
 	var relayErr error
-	if !keep {
-		// Stop the relay before reap removes the network: a container still
-		// joined to the network blocks the removal.
+	if !keep && rl != nil {
+		// rl is nil when Run's own early cleanup calls this before the
+		// relay ever started. Stop the relay before reap removes the
+		// network: a container still joined to the network blocks the
+		// removal.
 		otherLive, liveErr := r.otherScopeLive(downCtx)
 		if liveErr != nil {
 			relayErr = liveErr
