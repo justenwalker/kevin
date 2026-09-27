@@ -135,6 +135,11 @@ templ Page(v View) {
 					</section>
 				</main>
 			</div>
+			for _, s := range v.Steps {
+				if !s.IsGroup {
+					@stepDetailDialog(s)
+				}
+			}
 		</body>
 	</html>
 }
@@ -307,7 +312,7 @@ templ StepItem(s Step) {
 
 templ fullStepItem(s Step) {
 	<li id={ "step-" + s.Name } hx-swap-oob="true" class={ "state-" + string(s.State) } data-needs={ strings.Join(sameScopeNeeds(s.Needs), ",") }>
-		<span class="name">
+		<span class="name" data-step={ s.Name } onclick="openDetail(this)" title="view details, inputs, and outputs">
 			@pluginIcon(s)
 			{ s.Label }
 		</span>
@@ -349,7 +354,7 @@ templ oobProgress(p session.StepProgress) {
 
 templ compactStepItem(s Step) {
 	<li id={ "step-" + s.Name } hx-swap-oob="true" class={ "compact", "state-" + string(s.State) } data-needs={ strings.Join(sameScopeNeeds(s.Needs), ",") }>
-		<span class="name">
+		<span class="name" data-step={ s.Name } onclick="openDetail(this)" title="view details, inputs, and outputs">
 			@pluginIcon(s)
 			{ s.Label }
 		</span>
@@ -451,21 +456,15 @@ templ rerunActions(s Step) {
 	}
 }
 
-// StepCard is one step's card in the Services tab. A step with no route yet
-// still gets a card - the "exposed" class just keeps it hidden until one
-// exists - so a later out of band update always has a target to land on.
-templ StepCard(s Step) {
-	<div id={ "card-" + s.Name } hx-swap-oob="true" class={ "card", templ.KV("exposed", len(s.Details) > 0) }>
-		<h3>
-			@pluginIcon(s)
-			{ s.Label }
-		</h3>
-		if s.Kind != "" {
-			<span class={ "pill", "kind-" + s.Kind }>{ kindIcon(s.Kind) } { s.Kind }</span>
-		}
-		@idempotentBadge(s)
-		<span class="pill">{ string(s.State) }</span>
-		for _, d := range s.Details {
+// detailRows is one Detail slice rendered as a step card or detail dialog's
+// rows - shared by StepCard's curated Details and the detail dialog's
+// Details/Inputs/Outputs tabs, so all four render identically (masking,
+// copy button, links).
+templ detailRows(rows []Detail) {
+	if len(rows) == 0 {
+		<p class="empty-inline">none</p>
+	} else {
+		for _, d := range rows {
 			<div class="detail">
 				if d.Label != "" {
 					<span class="detail-label">{ d.Label }</span>
@@ -484,18 +483,98 @@ templ StepCard(s Step) {
 				</div>
 			</div>
 		}
+	}
+}
+
+// StepCard is one step's card in the Services tab. A step with no route yet
+// still gets a card - the "exposed" class just keeps it hidden until one
+// exists - so a later out of band update always has a target to land on.
+templ StepCard(s Step) {
+	<div id={ "card-" + s.Name } hx-swap-oob="true" class={ "card", templ.KV("exposed", len(s.Details) > 0) }>
+		<h3 data-step={ s.Name } onclick="openDetail(this)" title="view details, inputs, and outputs">
+			@pluginIcon(s)
+			{ s.Label }
+		</h3>
+		if s.Kind != "" {
+			<span class={ "pill", "kind-" + s.Kind }>{ kindIcon(s.Kind) } { s.Kind }</span>
+		}
+		@idempotentBadge(s)
+		<span class="pill">{ string(s.State) }</span>
+		@detailRows(s.Details)
 	</div>
 }
 
-// StepUpdate is everything that changes about a step: its sidebar entry and
-// its card. Every mutator publishes this, one call per event, so the two
-// regions never drift out of sync. A group's sidebar entry is its header
-// alone (see groupHeader) - its outer row is never replaced whole.
+// detailPanel is one tab's content in a step's detail dialog: an
+// out-of-band swappable-by-id div, so a live update refreshes it without
+// touching anything else in the dialog - in particular the tab radio
+// immediately ahead of it in stepDetailDialog, which the ".tabinput:checked
+// + .panel" rule (shared with the main tab bar) requires to be its literal
+// next sibling.
+templ detailPanel(id string, rows []Detail) {
+	<div id={ id } hx-swap-oob="true" class="panel">
+		@detailRows(rows)
+	</div>
+}
+
+// stepDetailPanels is the three tab panels a step's detail dialog shows -
+// Details, Inputs, Outputs - reused as-is for a live update (via
+// StepUpdate) and, interleaved with their tab radios, for the dialog's
+// first render (see stepDetailDialog). A live update only ever touches
+// these panels, never the radios, so whichever tab was open stays open.
+templ stepDetailPanels(s Step) {
+	@detailPanel("dpanel-"+s.Name+"-details", s.Details)
+	@detailPanel("dpanel-"+s.Name+"-inputs", s.Inputs)
+	@detailPanel("dpanel-"+s.Name+"-outputs", s.Outputs)
+}
+
+// stepDetailDialog is a step's detailed-inspection view: a native <dialog>
+// opened by clicking the step's name in the sidebar or its card header (see
+// openDetail in scripts()), with a tab per section (Details/Inputs/
+// Outputs) using the same checkbox-free radio+label technique as the main
+// tab bar (.tabbar/.tabinput/.panel) - no JS needed for tab switching
+// itself. Each radio sits directly before its own panel, not grouped
+// together, so the panel's out-of-band swap (detailPanel) can replace just
+// that content without ever touching the radios. Not rendered for a
+// group's own row - a group has no plugin, `with` block, or outputs of its
+// own to show.
+templ stepDetailDialog(s Step) {
+	<dialog id={ "detail-" + s.Name } class="detail-dialog">
+		<div class="dialog-head">
+			@pluginIcon(s)
+			<strong>{ s.Label }</strong>
+			if s.Kind != "" {
+				<span class={ "pill", "kind-" + s.Kind }>{ kindIcon(s.Kind) } { s.Kind }</span>
+			}
+			<span class="pill">{ string(s.State) }</span>
+			<button type="button" class="dialog-close" onclick="this.closest('dialog').close()" title="close">✕</button>
+		</div>
+		<div class="tabbar">
+			<label for={ "dtab-" + s.Name + "-details" }>Details</label>
+			<label for={ "dtab-" + s.Name + "-inputs" }>Inputs</label>
+			<label for={ "dtab-" + s.Name + "-outputs" }>Outputs</label>
+		</div>
+		<div class="dialog-body">
+			<input type="radio" name={ "dtab-" + s.Name } id={ "dtab-" + s.Name + "-details" } class="tabinput" checked/>
+			@detailPanel("dpanel-"+s.Name+"-details", s.Details)
+			<input type="radio" name={ "dtab-" + s.Name } id={ "dtab-" + s.Name + "-inputs" } class="tabinput"/>
+			@detailPanel("dpanel-"+s.Name+"-inputs", s.Inputs)
+			<input type="radio" name={ "dtab-" + s.Name } id={ "dtab-" + s.Name + "-outputs" } class="tabinput"/>
+			@detailPanel("dpanel-"+s.Name+"-outputs", s.Outputs)
+		</div>
+	</dialog>
+}
+
+// StepUpdate is everything that changes about a step: its sidebar entry,
+// its card, and its detail dialog's tab panels. Every mutator publishes
+// this, one call per event, so these regions never drift out of sync. A
+// group's sidebar entry is its header alone (see groupHeader) - its outer
+// row is never replaced whole - and a group has no detail dialog at all.
 templ StepUpdate(s Step) {
 	if s.IsGroup {
 		@groupHeader(s)
 	} else {
 		@StepItem(s)
+		@stepDetailPanels(s)
 	}
 	@StepCard(s)
 }
@@ -772,28 +851,46 @@ templ styles() {
 		.cards:not(:has(.card.exposed)) .empty { display: block; }
 		.card { display: none; border: 1px solid var(--line); border-radius: 8px; padding: var(--sp-7); }
 		.card.exposed { display: block; }
-		.card h3 { margin: 0 0 var(--sp-4); font-size: .95rem; }
-		.card .detail { margin-top: var(--sp-5); color: var(--muted); }
-		.card .detail-label {
+		.card h3 { margin: 0 0 var(--sp-4); font-size: .95rem; cursor: pointer; }
+		.dialog-head strong { font-size: .95rem; }
+		/* .detail rows: shared by a step's card and its detail dialog's tabs. */
+		.detail { margin-top: var(--sp-5); color: var(--muted); }
+		.detail-label {
 			display: block; text-transform: uppercase; font-size: var(--text-2xs);
 			letter-spacing: .04em; margin-bottom: var(--sp-1);
 		}
-		.card .detail-value { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
-		.card .detail-value > a, .card .detail-value > code {
+		.detail-value { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+		.detail-value > a, .detail-value > code {
 			flex: 1 1 auto; min-width: 0; overflow: hidden;
 			white-space: nowrap; text-overflow: ellipsis;
 		}
+		.empty-inline { color: var(--muted); font-size: var(--text-sm); margin: var(--sp-5) 0 0; }
 		.copy-btn {
 			border: none; background: none; color: var(--muted); cursor: pointer;
 			font-size: var(--text-md); line-height: 1; padding: 0 var(--sp-2); flex: none;
 		}
 		.copy-btn:hover { color: var(--fg); }
 		.copy-btn:disabled { color: var(--ok); cursor: default; }
+
+		/* A step's detail dialog: opened by clicking its name/card header. */
+		#sidebar .name[data-step] { cursor: pointer; }
+		.detail-dialog {
+			background: var(--bg); color: var(--fg); border: 1px solid var(--line);
+			border-radius: 8px; padding: var(--sp-8); width: min(32rem, 90vw);
+		}
+		.detail-dialog::backdrop { background: rgb(0 0 0 / 40%); }
+		.dialog-head { display: flex; align-items: center; gap: var(--sp-5); margin-bottom: var(--sp-6); }
+		.dialog-close {
+			margin-left: auto; border: none; background: none; color: var(--muted);
+			cursor: pointer; font-size: 1rem; line-height: 1;
+		}
+		.dialog-close:hover { color: var(--fg); }
+		.dialog-body .panel { padding-top: var(--sp-5); }
 	</style>
 }
 
 // scripts holds the page's client-side behavior beyond what htmx covers -
-// currently just the copy-to-clipboard button on a card's addresses.
+// copy-to-clipboard buttons and opening a step's detail dialog.
 templ scripts() {
 	<script>
 		function copyAddr(btn) {
@@ -807,6 +904,13 @@ templ scripts() {
 					btn.disabled = false;
 				}, 1000);
 			});
+		}
+
+		// openDetail shows el's step's detail dialog - el carries the step
+		// name in data-step (the sidebar row's name span, or the card's h3).
+		function openDetail(el) {
+			var dlg = document.getElementById('detail-' + el.getAttribute('data-step'));
+			if (dlg) dlg.showModal();
 		}
 
 		// colorFor picks a color for a step by its position in the sidebar,

@@ -187,6 +187,8 @@ func TestPage(t *testing.T) {
 		assert.Contains(t, body, `<input type="checkbox" id="group-toggle-db" class="group-toggle" onchange="drawDepLines()">`,
 			"collapsed by default: the toggle carries no checked attribute")
 		assert.Equal(t, 1, strings.Count(body, `id="step-db.primary"`), "a member never appears a second time at the top level")
+		assert.NotContains(t, body, `id="detail-db"`, "a group's own row has no plugin behind it, so it gets no detail dialog")
+		assert.Contains(t, body, `id="detail-db.primary"`, "a group member is a real step and still gets its own detail dialog")
 	})
 
 	t.Run("a denied request renders differently from an allowed one", func(t *testing.T) {
@@ -264,6 +266,45 @@ func TestPage(t *testing.T) {
 			assert.Equal(t, 200, rec.Code, "%s must ship in the binary", name)
 			assert.NotEmpty(t, rec.Body.Bytes())
 		}
+	})
+}
+
+func TestStepDetailDialog(t *testing.T) {
+	t.Run("a step gets a detail dialog with its details, inputs, and outputs", func(t *testing.T) {
+		store := session.NewStore()
+		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
+		store.AddStep("db", "", "", "", nil, nil, false, "", false)
+		store.SetStep("db", Ready, "")
+		store.AddStepDetail("db", Detail{Label: "address", Value: "localhost:55432"})
+		store.SetStepInputs("db", []Detail{{Label: "image", Value: "postgres:16"}})
+		store.SetStepOutputs("db", []Detail{{Label: "endpoint", Value: "localhost:55432"}})
+
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
+
+		body := rec.Body.String()
+		assert.Contains(t, body, `<dialog id="detail-db"`)
+		assert.Contains(t, body, `data-step="db"`, "the sidebar row and card header must carry the step name openDetail() reads")
+		assert.Contains(t, body, ">address<")
+		assert.Contains(t, body, ">image<", "the Inputs tab must show the step's resolved with fields")
+		assert.Contains(t, body, ">endpoint<", "the Outputs tab must show the step's published outputs")
+	})
+
+	t.Run("a sensitive input or output is masked", func(t *testing.T) {
+		store := session.NewStore()
+		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
+		store.AddStep("db", "", "", "", nil, nil, false, "", false)
+		store.SetStepInputs("db", []Detail{{Label: "password", Value: "hunter2", Sensitive: true}})
+		store.SetStepOutputs("db", []Detail{{Label: "dsn", Value: "postgres://x:hunter2@db", Sensitive: true}})
+
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
+
+		body := rec.Body.String()
+		assert.Contains(t, body, "password", "the label is not secret and still shows")
+		assert.Contains(t, body, "dsn")
+		assert.NotContains(t, body, "hunter2", "a sensitive input's value must not leak into the page")
+		assert.NotContains(t, body, "postgres://x:hunter2@db", "a sensitive output's value must not leak into the page")
 	})
 }
 
