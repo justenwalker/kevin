@@ -61,7 +61,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	mf := makefile.New(Default, Generate, Build, PackagePlugin, Test, Integration, Lint, Fmt, Tidy, Clean, E2E, Coverage, RelayImage, Release, Docs, DocsServe, GHPages)
+	mf := makefile.New(Default, Generate, Build, PackagePlugin, PublishEchoPlugin, Test, Integration, Lint, Fmt, Tidy, Clean, E2E, Coverage, RelayImage, Release, Docs, DocsServe, GHPages)
 	mf.Run(context.Background())
 }
 
@@ -143,6 +143,12 @@ var Build = GnobMakeTarget{
 	},
 }
 
+// EchoPluginStageDir holds the staged kevin-plugin-echo entrypoint that
+// PackagePlugin and PublishEchoPlugin both pack. kevin plugin pack tars its
+// whole source directory, so the entrypoint is staged alone rather than
+// packing bin/ itself, which holds every built binary.
+const EchoPluginStageDir = "bin/pkg/echo"
+
 var PackagePlugin = GnobMakeTarget{
 	Name: "package-kevin-echo-plugin",
 	Desc: "package kevin-plugin-echo as a file: source tar",
@@ -153,20 +159,104 @@ var PackagePlugin = GnobMakeTarget{
 		if err := mf.Depend(ctx, "build"); err != nil {
 			return err
 		}
-		// kevin plugin pack tars its whole source directory, so the
-		// entrypoint is staged alone rather than packing bin/ itself,
-		// which holds every built binary.
-		stageDir := "bin/pkg/echo"
-		if err := stageFile("bin/kevin-plugin-echo", filepath.Join(stageDir, "kevin-plugin-echo")); err != nil {
+		if err := stageFile("bin/kevin-plugin-echo", filepath.Join(EchoPluginStageDir, "kevin-plugin-echo")); err != nil {
 			return err
 		}
-		return run(ctx, nil, "bin/kevin", "plugin", "pack", stageDir,
+		return run(ctx, nil, "bin/kevin", "plugin", "pack", EchoPluginStageDir,
 			"-o", "bin/kevin-plugin-echo.tar.gz",
 			"--name", "echo",
 			"--version", "v0.1.0",
 			"--description", "Example Plugin 'echo'",
 			"--entrypoint", "kevin-plugin-echo",
 		)
+	},
+}
+
+// echoPluginIndexVersionPattern matches a bare pluginindex semver
+// (X.Y.Z[-pre], no v prefix - see internal/pluginindex's version format),
+// not releaseVersionPattern's vX.Y.Z, which is kevin's own release tag
+// format.
+var echoPluginIndexVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-.+)?$`)
+
+// EchoPluginOCIRepo is the OCI repository PublishEchoPlugin pushes the echo
+// plugin to.
+const EchoPluginOCIRepo = "ghcr.io/justenwalker/kevin/plugin-echo"
+
+var PublishEchoPlugin = GnobMakeTarget{
+	Name: "publish-echo-plugin",
+	Desc: "publish a new echo plugin version to the local plugin index",
+	LongDesc: "Usage: `./build/gnob publish-echo-plugin X.Y.Z`. Packages\n" +
+		"bin/kevin-plugin-echo, signs the package with minisign (prompts for\n" +
+		"the key password on stdin), pushes it to " + EchoPluginOCIRepo + ":X.Y.Z\n" +
+		"(reusing docker login ghcr.io credentials, same as kevin plugin\n" +
+		"push), and appends plugins/echo/versions/X.Y.Z.yaml to the index\n" +
+		"repo at $KEVIN_PLUGIN_INDEX_DIR, committing it there. Requires the\n" +
+		"minisign binary on PATH and KEVIN_PLUGIN_INDEX_DIR set to a local\n" +
+		"clone of the index repo with plugins/echo/plugin.yaml already in\n" +
+		"it. Pushing either repo to its remote stays a manual step.",
+	Body: func(ctx context.Context, mf *GnobMakefile) error {
+		args := mf.TargetArgs()
+		if len(args) != 1 || !echoPluginIndexVersionPattern.MatchString(args[0]) {
+			return fmt.Errorf("publish-echo-plugin: usage: ./build/gnob publish-echo-plugin X.Y.Z")
+		}
+		version := args[0]
+
+		indexDir := os.Getenv("KEVIN_PLUGIN_INDEX_DIR")
+		if indexDir == "" {
+			return fmt.Errorf("publish-echo-plugin: KEVIN_PLUGIN_INDEX_DIR is not set")
+		}
+		echoDir := filepath.Join(indexDir, "plugins", "echo")
+		if _, err := os.Stat(filepath.Join(echoDir, "plugin.yaml")); err != nil {
+			return fmt.Errorf("publish-echo-plugin: %w", err)
+		}
+		versionFile := filepath.Join(echoDir, "versions", version+".yaml")
+		if _, err := os.Stat(versionFile); err == nil {
+			return fmt.Errorf("publish-echo-plugin: %s already exists, versions are never overwritten", versionFile)
+		}
+
+		if err := mf.Depend(ctx, "build"); err != nil {
+			return err
+		}
+		if err := stageFile("bin/kevin-plugin-echo", filepath.Join(EchoPluginStageDir, "kevin-plugin-echo")); err != nil {
+			return err
+		}
+
+		tarPath := filepath.Join("bin", "kevin-plugin-echo-"+version+".tar.gz")
+		if err := run(ctx, nil, "bin/kevin", "plugin", "pack", EchoPluginStageDir,
+			"-o", tarPath,
+			"--name", "echo",
+			"--version", version,
+			"--description", "Example Plugin 'echo'",
+			"--entrypoint", "kevin-plugin-echo",
+		); err != nil {
+			return err
+		}
+
+		if err := run(ctx, cmd.WithStdin(os.Stdin), "minisign", "-Sm", tarPath); err != nil {
+			return fmt.Errorf("publish-echo-plugin: sign %s: %w", tarPath, err)
+		}
+
+		ociRef := EchoPluginOCIRepo + ":" + version
+		if err := run(ctx, nil, "bin/kevin", "plugin", "push", tarPath, ociRef); err != nil {
+			return err
+		}
+
+		body := "version: " + version + "\nsource:\n  oci: " + ociRef + "\n  signing:\n    scheme: minisign\n"
+		if err := os.WriteFile(versionFile, []byte(body), 0o644); err != nil {
+			return fmt.Errorf("publish-echo-plugin: write %s: %w", versionFile, err)
+		}
+
+		relVersionFile := filepath.Join("plugins", "echo", "versions", version+".yaml")
+		if err := run(ctx, cmd.WithDir(indexDir), "git", "add", relVersionFile); err != nil {
+			return fmt.Errorf("publish-echo-plugin: stage %s: %w", relVersionFile, err)
+		}
+		if err := run(ctx, cmd.WithDir(indexDir), "git", "commit", "-m", "Release echo "+version); err != nil {
+			return fmt.Errorf("publish-echo-plugin: commit %s: %w", relVersionFile, err)
+		}
+
+		logger.Info("[kevin:publish-echo-plugin] published, push both repos to their remotes when ready",
+			"oci", ociRef, "index", indexDir)
+		return nil
 	},
 }
 
