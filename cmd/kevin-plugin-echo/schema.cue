@@ -22,6 +22,11 @@
 	// export_sensitive lists which keys of export must be marked sensitive.
 	export_sensitive?: [...string]
 
+	// secret is not read by the plugin - it exists so a test can set it to a
+	// literal value and confirm the console always redacts it, since it
+	// carries no "${needs...}" reference to trace.
+	secret?: string @sensitive()
+
 	// details are extra rows the step publishes for its console card.
 	details?: [...{
 		label:     string | *""

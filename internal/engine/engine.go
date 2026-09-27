@@ -30,6 +30,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/console"
 	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/cueschema"
 	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/engines"
 	"github.com/justenwalker/kevin/internal/expr"
@@ -1290,7 +1291,15 @@ func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[stri
 // "${needs.../setup...}" marker inside it resolves to a sensitive value in
 // scopes. A `with` block with no fields (a step that declared none) reports
 // no rows.
-func inputRows(raw, rendered json.RawMessage, scopes expr.Scopes) ([]session.Detail, error) {
+// inputRows builds one Detail row per top-level field of raw (name's
+// declared `with:` block, before rendering), pairing it with rendered's
+// corresponding value. A field is Sensitive when its schema declares it so
+// (schemaSensitive, from sensitiveWithFields - the only signal for a
+// literal secret with no marker at all) or when any of its
+// "${needs.../setup...}" markers resolve to a sensitive value in scopes
+// (expr.FieldSensitive) - either is sufficient reason to redact. A `with`
+// block with no fields (a step that declared none) reports no rows.
+func inputRows(raw, rendered json.RawMessage, scopes expr.Scopes, schemaSensitive map[string]bool) ([]session.Detail, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
@@ -1311,14 +1320,16 @@ func inputRows(raw, rendered json.RawMessage, scopes expr.Scopes) ([]session.Det
 
 	rows := make([]session.Detail, 0, len(names))
 	for _, field := range names {
-		sensitive, err := expr.FieldSensitive(rawFields[field], scopes)
+		markerSensitive, err := expr.FieldSensitive(rawFields[field], scopes)
 		if err != nil {
 			return nil, fmt.Errorf("with.%s: %w", field, err)
 		}
+		sensitive := schemaSensitive[field] || markerSensitive
 		rows = append(rows, session.Detail{
 			Label:     field,
 			Value:     scalarString(renderedFields[field]),
 			Sensitive: sensitive,
+			Copyable:  !sensitive,
 		})
 	}
 	return rows, nil
@@ -1416,7 +1427,10 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 		r.reportUpFailure(ctx, name, err)
 		return nil, err
 	}
-	if rows, rowsErr := inputRows(step.With, with, r.scopesFor(name, deps, setupDeps)); rowsErr != nil {
+	schemaSensitive, schemaErr := sensitiveWithFields(stepSchema(r.caps[ref.Plugin], ref.Step))
+	if schemaErr != nil {
+		r.emit(name, "warning: inputs: "+uerr.Display(schemaErr))
+	} else if rows, rowsErr := inputRows(step.With, with, r.scopesFor(name, deps, setupDeps), schemaSensitive); rowsErr != nil {
 		r.emit(name, "warning: inputs: "+uerr.Display(rowsErr))
 	} else {
 		r.store.SetStepInputs(name, rows)
@@ -1917,6 +1931,41 @@ func stepExports(info pluginhost.Info, name string) bool {
 		}
 	}
 	return false
+}
+
+// stepSchema returns info's step type name's raw schema.cue bytes, or nil
+// if name names no step this plugin offers.
+func stepSchema(info pluginhost.Info, name string) []byte {
+	for _, st := range info.Steps {
+		if st.Name == name {
+			return st.Schema
+		}
+	}
+	return nil
+}
+
+// sensitiveWithFields reports which of schema's #Config fields carry a
+// "@sensitive()" attribute - a with-block field whose resolved value must
+// always be redacted, independent of whether it arrived as a literal or
+// via a "${needs...}" reference to an already-sensitive output (the only
+// case expr.FieldSensitive can trace on its own). A schema.cue this
+// lightweight lets inputRows call it once per Up rather than caching it.
+func sensitiveWithFields(schema []byte) (map[string]bool, error) {
+	if len(schema) == 0 {
+		return nil, nil //nolint:nilnil // no schema means no sensitive fields, a valid empty result
+	}
+	s, err := cueschema.ParseSource("schema.cue", schema)
+	if err != nil {
+		return nil, fmt.Errorf("with: parse schema: %w", err)
+	}
+	fields := s.Definitions["Config"].Fields
+	sensitive := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		if f.Sensitive {
+			sensitive[f.Name] = true
+		}
+	}
+	return sensitive, nil
 }
 
 // exportedStep is what exportCrossScopeStep resolves for one setup-scope

@@ -1302,7 +1302,10 @@ env: {
 // TestRunPopulatesStepInputsAndOutputs proves a step's resolved with block
 // and published outputs reach the console's detail dialog: b's rendered
 // with value (not the raw "${needs...}" template) and a's published output
-// both show up on the page.
+// both show up on the page. It also proves a's "secret" field - a plain
+// literal with no "${needs...}" marker to trace, but declared @sensitive()
+// in echo's schema.cue - is still redacted, closing the gap
+// expr.FieldSensitive alone can't: nothing to trace a literal back to.
 func TestRunPopulatesStepInputsAndOutputs(t *testing.T) {
 	requireRelay(t)
 
@@ -1310,7 +1313,7 @@ func TestRunPopulatesStepInputsAndOutputs(t *testing.T) {
 	dir := project(t, `
 console: listen: "`+consoleAddr+`"
 env: {
-	a: {uses: "echo:echo", with: {message: "A", outputs: greeting: "hi"}}
+	a: {uses: "echo:echo", with: {message: "A", secret: "sh0uldb3hidden", outputs: greeting: "hi"}}
 	b: {uses: "echo:echo", needs: ["a"], with: message: "hello ${needs.a.out.greeting}"}
 }
 `)
@@ -1330,6 +1333,9 @@ env: {
 	assert.Contains(t, page, ">message<", "b's inputs panel must show its with block's field name")
 	assert.Contains(t, page, `title="hello hi"`,
 		"b's inputs panel must show the rendered with value, not the raw needs.* template")
+	assert.Contains(t, page, ">secret<", "a's inputs panel must still show the field's label")
+	assert.NotContains(t, page, "sh0uldb3hidden",
+		"a schema-declared @sensitive() field must be redacted even as a literal with no marker to trace")
 
 	cancel()
 	require.NoError(t, <-done)
@@ -1502,39 +1508,69 @@ func TestOutputsToProto(t *testing.T) {
 
 func TestInputRows(t *testing.T) {
 	t.Run("no with block reports no rows", func(t *testing.T) {
-		rows, err := inputRows(nil, nil, expr.Scopes{})
+		rows, err := inputRows(nil, nil, expr.Scopes{}, nil)
 		require.NoError(t, err)
 		assert.Nil(t, rows)
 	})
 
-	t.Run("one row per top-level field, sorted, with the rendered value", func(t *testing.T) {
+	t.Run("one row per top-level field, sorted, with the rendered value, and a copy button since neither is sensitive", func(t *testing.T) {
 		raw := json.RawMessage(`{"image":"postgres:16","port":"${needs.db.out.port}"}`)
 		rendered := json.RawMessage(`{"image":"postgres:16","port":"5432"}`)
 		rows, err := inputRows(raw, rendered, expr.Scopes{Needs: map[string]dag.Outputs{
 			"db": {"port": output.Value{String: "5432"}},
-		}})
+		}}, nil)
 		require.NoError(t, err)
 		assert.Equal(t, []session.Detail{
-			{Label: "image", Value: "postgres:16"},
-			{Label: "port", Value: "5432"},
+			{Label: "image", Value: "postgres:16", Copyable: true},
+			{Label: "port", Value: "5432", Copyable: true},
 		}, rows)
 	})
 
-	t.Run("a field referencing a sensitive value is marked Sensitive", func(t *testing.T) {
+	t.Run("a field referencing a sensitive value is marked Sensitive and not Copyable", func(t *testing.T) {
 		raw := json.RawMessage(`{"password":"${needs.db.out.password}"}`)
 		rendered := json.RawMessage(`{"password":"hunter2"}`)
 		rows, err := inputRows(raw, rendered, expr.Scopes{Needs: map[string]dag.Outputs{
 			"db": {"password": output.Value{String: "hunter2", Sensitive: true}},
-		}})
+		}}, nil)
 		require.NoError(t, err)
-		assert.Equal(t, []session.Detail{{Label: "password", Value: "hunter2", Sensitive: true}}, rows)
+		assert.Equal(t, []session.Detail{{Label: "password", Value: "hunter2", Sensitive: true, Copyable: false}}, rows)
+	})
+
+	t.Run("a field the schema marks sensitive is redacted even as a literal with no marker at all", func(t *testing.T) {
+		raw := json.RawMessage(`{"password":"hunter2"}`)
+		rows, err := inputRows(raw, raw, expr.Scopes{}, map[string]bool{"password": true})
+		require.NoError(t, err)
+		assert.Equal(t, []session.Detail{{Label: "password", Value: "hunter2", Sensitive: true, Copyable: false}}, rows)
 	})
 
 	t.Run("a non-string field keeps its compact JSON form", func(t *testing.T) {
 		raw := json.RawMessage(`{"ports":[5432,5433]}`)
-		rows, err := inputRows(raw, raw, expr.Scopes{})
+		rows, err := inputRows(raw, raw, expr.Scopes{}, nil)
 		require.NoError(t, err)
-		assert.Equal(t, []session.Detail{{Label: "ports", Value: "[5432,5433]"}}, rows)
+		assert.Equal(t, []session.Detail{{Label: "ports", Value: "[5432,5433]", Copyable: true}}, rows)
+	})
+}
+
+func TestSensitiveWithFields(t *testing.T) {
+	t.Run("no schema reports no fields", func(t *testing.T) {
+		fields, err := sensitiveWithFields(nil)
+		require.NoError(t, err)
+		assert.Nil(t, fields)
+	})
+
+	t.Run("only a @sensitive() field is reported", func(t *testing.T) {
+		schema := []byte(`#Config: {
+			image?: string
+			password?: string @sensitive()
+		}`)
+		fields, err := sensitiveWithFields(schema)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]bool{"password": true}, fields)
+	})
+
+	t.Run("a malformed schema errors", func(t *testing.T) {
+		_, err := sensitiveWithFields([]byte(`#Config: {`))
+		require.Error(t, err)
 	})
 }
 
