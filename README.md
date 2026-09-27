@@ -69,4 +69,4 @@ See [Architecture](docs/site/content/docs/concepts/architecture.md) for the full
 
 ## Plugins
 
-Every step type - builtin or third-party - speaks the same gRPC protocol, documented in [Writing a Plugin](docs/site/content/docs/extending/writing-a-plugin.md). `kevin plugin list` prints every builtin step type; a project declares its own plugin binary under `plugins:` in `kevin.cue`.
+Every step type - builtin or third-party - speaks the same gRPC protocol, documented in [Writing a Plugin](docs/site/content/docs/extending/writing-a-plugin.md). `kevin plugin list` prints every builtin step type; a project declares its own plugin binary under `plugins:` in `kevin.cue`. `kevin plugin search` finds third-party plugins across git repos you point it at - see [Plugin discovery](docs/site/content/docs/guides/plugin-discovery.md).

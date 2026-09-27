@@ -373,7 +373,8 @@ func pluginCommand(opts *options) *cobra.Command {
 		Use:   "plugin",
 		Short: "Work with the plugins that ship inside kevin",
 	}
-	cmd.AddCommand(pluginRunCommand(opts), pluginListCommand(opts), pluginPackCommand(opts), pluginPushCommand(opts), pluginTrustCommand(opts))
+	cmd.AddCommand(pluginRunCommand(opts), pluginListCommand(opts), pluginPackCommand(opts), pluginPushCommand(opts), pluginTrustCommand(opts),
+		pluginIndexCommand(opts), pluginSearchCommand(opts))
 	return cmd
 }
 

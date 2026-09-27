@@ -73,6 +73,24 @@ func Add(pubkeyPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("pkgtrust: read %q: %w", pubkeyPath, err)
 	}
+	return addKeyBytes(pub, data)
+}
+
+// AddKeyText validates text as a minisign public key (the same two-line
+// "untrusted comment: ...\n<base64>\n" format Add reads from a file) and
+// copies it into Dir, named by its hex key id. Adding a key already in
+// the store is a no-op. AddKeyText returns the key's hex id.
+func AddKeyText(text string) (string, error) {
+	pub, err := minisign.DecodePublicKey(text)
+	if err != nil {
+		return "", fmt.Errorf("pkgtrust: %w: %w", ErrBadKey, err)
+	}
+	return addKeyBytes(pub, []byte(text))
+}
+
+// addKeyBytes copies data (a minisign public key's own file content) into
+// Dir, named by pub's hex key id.
+func addKeyBytes(pub minisign.PublicKey, data []byte) (string, error) {
 	if err := os.MkdirAll(Dir(), 0o700); err != nil {
 		return "", fmt.Errorf("pkgtrust: create %q: %w", Dir(), err)
 	}

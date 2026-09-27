@@ -73,3 +73,70 @@ or a GitHub Actions workflow-ref URI) and OIDC issuer URL a
 ### `kevin plugin trust remove-identity <identity> <issuer>`
 
 Removes a sigstore signing identity from the trust store.
+
+## `kevin plugin index`
+
+Manages git repos that publish discoverable plugins: each repo holds a
+`plugins/<name>/{plugin.yaml,versions/<semver>.yaml}` tree. See
+[the plugin discovery guide]({{< relref "/docs/guides/plugin-discovery" >}})
+for the repo format, the "latest" resolution rule, and the
+`<alias>/<name>` disambiguation syntax. This is a phonebook, not a trust
+boundary - `kevin plugin trust` above is still required before kevin ever
+fetches a signed package.
+
+### `kevin plugin index add <git-url>`
+
+Configures `git-url` as an index source, clones it immediately, and
+reports how many plugins it holds. Adding a URL that is already
+configured is a silent no-op that reports the existing source.
+
+[[template "flags" .Commands.index.Commands.add]]
+
+### `kevin plugin index list`
+
+Lists configured index sources: alias and URL.
+
+### `kevin plugin index remove <alias>`
+
+Removes a configured index source and its cloned repo cache.
+
+### `kevin plugin index update`
+
+Re-clones every configured index source from scratch, independently - one
+source's clone or load failure is reported on its own line and never
+blocks another source from updating. Exits non-zero if any source failed,
+even though every source is still attempted.
+
+### `kevin plugin index show <name-or-alias/name>`
+
+Prints a plugin's metadata, every known version (newest first), and the
+latest version's pasteable `plugins: <name>: {...}` snippet, ready to
+paste into `kevin.cue`. A bare `<name>` found in more than one configured
+source errors, naming every matching alias; retype it as
+`<alias>/<name>`.
+
+[[template "flags" .Commands.index.Commands.show]]
+
+### `kevin plugin index install <name-or-alias/name>`
+
+Resolves a plugin (the latest version, or `--version`'s exact match),
+trusts every signer `plugin.yaml` declares for that version's signing
+scheme (`kevin plugin trust add`/`add-identity`'s own stores - `install`
+is a convenience on top of them, not a new trust boundary: it only ever
+trusts a signer the plugin's own identity file names, the same signer a
+user would otherwise copy in by hand), and writes the plugin's
+`plugins:` entry straight into the environment file - no copy/paste. A
+version signed with no matching declared signer prints a warning and
+still installs; the entry is safe to write either way. Refuses if the
+environment file already declares that plugin name, or isn't a
+single-file CUE environment (a YAML/JSON file, or a CUE file using
+`package` mode) - either way, paste the printed snippet in by hand
+instead.
+
+[[template "flags" .Commands.index.Commands.install]]
+
+## `kevin plugin search [query]`
+
+Searches every configured index source's plugins by name and summary,
+case-insensitively. With no query, lists every plugin found. Each row is
+`<alias>/<name>`, its summary, and its latest version.

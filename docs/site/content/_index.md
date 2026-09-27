@@ -16,7 +16,7 @@ While all of this is possible to do, it is challenging to do correctly.
 `kevin` solves this with a step DAG, a plugin protocol, and a proxy that terminates TLS.
 
 1. A DAG ensures that steps can be defined in any order, dependencies can be defined, and steps can be run in parallel.
-2. A plugin protocol allows for extensibility and allows for the implementation of steps in any language.
+2. A plugin protocol allows for extensibility and allows for the implementation of steps in any language. `kevin plugin search` finds third-party plugins across git repos you point it at, before you ever write a `plugins:` entry.
 3. A forward proxy that terminates TLS allows the developer to reach the services under test, without making permanent modifications to their development machine, such as editing the `/etc/hosts` file.
 4. An egress proxy allows the developer to control the outbound traffic, and implement custom logic for the traffic between the services under test.
 5. Hostname interception lets a `route` step stand a local container in for a real-world hostname (e.g. `s3.amazonaws.com`), so code that talks to a third-party service can be pointed at a local fake with no code change and no `/etc/hosts` edit.

@@ -51,8 +51,9 @@ linters:
     errcheck:
       check-type-assertions: true
     goconst:
-      # A docker subcommand or flag is not a magic constant.
-      ignore-string-values: '^(-|run$|inspect$|network$)'
+      # A docker subcommand or flag, or a cobra subcommand's Use string, is
+      # not a magic constant.
+      ignore-string-values: '^(-|run$|inspect$|network$|list$)'
       # A literal repeated in a table-driven test is the test data.
       ignore-tests: true
     govet:

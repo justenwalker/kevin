@@ -13,3 +13,8 @@ const ErrUnknownPlugin = Error("cmd: unknown plugin")
 // project and environment - a second run against the same one would race
 // the same Docker resources instead of failing fast.
 const ErrAlreadyRunning = Error("cmd: run: already running")
+
+// ErrIndexUpdateFailed reports that "plugin index update" failed to clone
+// or load at least one configured source - every source was still
+// attempted, and its own failure is printed on its own line.
+const ErrIndexUpdateFailed = Error("cmd: index update: at least one source failed")

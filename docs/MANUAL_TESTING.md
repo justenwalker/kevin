@@ -991,3 +991,82 @@ to `web` instead of `needs: ["db"]`.
 - [ ] `kevin validate` fails clearly, naming the unaddressable member -
       a group's members are reachable only through the group's own name.
 
+## 23. Plugin index: federated `version_source` with sigstore signing
+
+_Automated for minisign (`internal/pluginindex/update_test.go`,
+`internal/pluginindex/verify_test.go`): a real generated key pair signs
+and verifies entirely offline. The sigstore path needs `cosign` and an
+interactive OIDC login, so only that half stays manual here - same
+reason section 13's own sigstore package-signing walkthrough is manual._
+
+Two local git fixtures: one plain (`index`) holding `plugin.yaml`, one
+(`releases`) holding the plugin's `versions/` tree instead.
+
+```sh
+mkdir -p /tmp/kevin-fed/index/plugins/demo
+mkdir -p /tmp/kevin-fed/releases/plugins/demo/versions
+echo "layout: 1" > /tmp/kevin-fed/releases/kevin-index.yaml
+cat > /tmp/kevin-fed/releases/plugins/demo/versions/1.0.0.yaml <<'EOF'
+version: 1.0.0
+source:
+  oci: ghcr.io/example/kevin-plugin-demo:v1.0.0
+EOF
+git -C /tmp/kevin-fed/releases init -q -b main
+git -C /tmp/kevin-fed/releases add -A
+git -C /tmp/kevin-fed/releases commit -q -m "1.0.0"
+```
+
+Sign the release with a real sigstore (keyless) signature:
+
+```sh
+cosign sign-blob --yes --bundle /tmp/kevin-fed/releases/plugins/demo/versions/1.0.0.yaml.sigstore.json \
+  /tmp/kevin-fed/releases/plugins/demo/versions/1.0.0.yaml
+git -C /tmp/kevin-fed/releases add -A
+git -C /tmp/kevin-fed/releases commit -q -m "sign 1.0.0"
+```
+
+- [ ] Opens a device-flow URL - log in, and it writes
+      `1.0.0.yaml.sigstore.json` next to the version file. Read the
+      identity/issuer it signed with the same `openssl`/`python3` one-liner
+      section 13 uses, and use that identity/issuer below.
+
+```sh
+echo "layout: 1" > /tmp/kevin-fed/index/kevin-index.yaml
+cat > /tmp/kevin-fed/index/plugins/demo/plugin.yaml <<EOF
+name: demo
+summary: a demo plugin with a federated version source
+signers:
+  - scheme: sigstore
+    identity: "<identity>"
+    issuer: "<issuer>"
+version_source: /tmp/kevin-fed/releases
+EOF
+git -C /tmp/kevin-fed/index init -q -b main
+git -C /tmp/kevin-fed/index add -A
+git -C /tmp/kevin-fed/index commit -q -m demo
+
+kevin plugin index add /tmp/kevin-fed/index --as fed
+kevin plugin index show demo
+```
+
+- [ ] `index add` reports `1 plugins`, no warnings.
+- [ ] `index show demo` lists `version 1.0.0 (latest)` and renders its
+      snippet - the version file was loaded from `/tmp/kevin-fed/releases`,
+      not from `/tmp/kevin-fed/index` at all, verified against the *index*
+      repo's own declared signer.
+
+Tamper with the already-signed release and re-run:
+
+```sh
+echo "  checksum: sha256:0000000000000000000000000000000000000000000000000000000000000000" \
+  >> /tmp/kevin-fed/releases/plugins/demo/versions/1.0.0.yaml
+kevin plugin index update
+```
+
+- [ ] Reports a warning for `demo` (signature no longer verifies against
+      the tampered content) and `index show demo` now fails with
+      `pluginindex: no such plugin` - the tampered version is excluded
+      entirely, not trusted with a note. Revert the file
+      (`git -C /tmp/kevin-fed/releases checkout -- plugins/demo/versions/1.0.0.yaml`)
+      and confirm `update` recovers it.
+

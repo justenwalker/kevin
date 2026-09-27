@@ -172,6 +172,8 @@ plugins: echo: {
 
 Only a plugin that a step references starts. `kevin plugin list` prints every builtin name.
 
+Finding a third-party plugin to reference here in the first place is a separate problem: `kevin plugin index`/`kevin plugin search` discover plugins published in configured git repos and print a pasteable `plugins:` snippet. See [Plugin discovery]({{< relref "/docs/guides/plugin-discovery" >}}).
+
 ## File name and format
 
 kevin validates the environment file against a schema, so CUE syntax is convenience, not a requirement: YAML and JSON work the same way, and decode to the same result. kevin picks the format from the file's extension.

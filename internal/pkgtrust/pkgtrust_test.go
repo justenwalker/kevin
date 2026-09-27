@@ -43,18 +43,22 @@ func newTestKey(t *testing.T) testKey {
 	return testKey{sk: sk, id: hex.EncodeToString(keyID[:])}
 }
 
-// pubkeyFile writes k's public key in minisign's 2-line text format to a
-// file under dir and returns its path.
-func (k testKey) pubkeyFile(t *testing.T, dir, name string) string {
-	t.Helper()
+// text renders k's public key in minisign's 2-line text format.
+func (k testKey) text() string {
 	pub := k.sk.PublicKey()
 	raw := make([]byte, 0, 42)
 	raw = append(raw, pub.SignatureAlgorithm[:]...)
 	raw = append(raw, pub.KeyId[:]...)
 	raw = append(raw, pub.PublicKey[:]...)
-	text := "untrusted comment: test key\n" + base64.StdEncoding.EncodeToString(raw) + "\n"
+	return "untrusted comment: test key\n" + base64.StdEncoding.EncodeToString(raw) + "\n"
+}
+
+// pubkeyFile writes k's public key in minisign's 2-line text format to a
+// file under dir and returns its path.
+func (k testKey) pubkeyFile(t *testing.T, dir, name string) string {
+	t.Helper()
 	path := filepath.Join(dir, name)
-	require.NoError(t, os.WriteFile(path, []byte(text), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte(k.text()), 0o600))
 	return path
 }
 
@@ -93,6 +97,37 @@ func TestAddListRemove(t *testing.T) {
 
 	err = pkgtrust.Remove(id)
 	assert.ErrorIs(t, err, pkgtrust.ErrUnknownKeyID)
+}
+
+func TestAddKeyText(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	k := newTestKey(t)
+
+	id, err := pkgtrust.AddKeyText(k.text())
+	require.NoError(t, err)
+	assert.Equal(t, k.id, id)
+
+	// Adding the same key again is a no-op, not an error.
+	id2, err := pkgtrust.AddKeyText(k.text())
+	require.NoError(t, err)
+	assert.Equal(t, id, id2)
+
+	keys, err := pkgtrust.List()
+	require.NoError(t, err)
+	require.Len(t, keys, 1)
+	assert.Equal(t, id, keys[0].ID)
+
+	kr, err := pkgtrust.Load()
+	require.NoError(t, err)
+	require.NoError(t, kr.Verify(k.sign(t, []byte("hello")), []byte("hello")))
+}
+
+func TestAddKeyTextRejectsBadKey(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	_, err := pkgtrust.AddKeyText("not a minisign key")
+	require.ErrorIs(t, err, pkgtrust.ErrBadKey)
 }
 
 func TestLoadEmptyWhenDirMissing(t *testing.T) {

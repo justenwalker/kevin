@@ -30,8 +30,11 @@ import (
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
+// CoreSchema is kevin's environment-file schema (schema.cue), exported so
+// [internal/pluginindex] can compile it alongside its own definitions.
+//
 //go:embed schema.cue
-var coreSchema []byte
+var CoreSchema []byte
 
 // FileNames are the unnamed environment filenames [Load] looks for in a
 // project directory, in the order it looks for them. A named environment
@@ -271,7 +274,7 @@ func init() {
 }
 
 func mustCompileCoreSchema(ctx *cue.Context) cue.Value {
-	v := ctx.CompileBytes(coreSchema, cue.Filename("kevin/schema.cue"))
+	v := ctx.CompileBytes(CoreSchema, cue.Filename("kevin/schema.cue"))
 	if err := v.Err(); err != nil {
 		panic(fmt.Errorf("config: compile core schema: %w", err))
 	}
