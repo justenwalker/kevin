@@ -123,6 +123,40 @@ func TestAddStepDetail(t *testing.T) {
 	assert.Len(t, s.Snapshot().Steps, 1)
 }
 
+func TestSetStepInputs(t *testing.T) {
+	s := NewStore()
+	s.AddStep("web", "", "", "", nil, nil, false, "", false)
+	assert.Empty(t, s.Snapshot().Steps[0].Inputs)
+
+	rows := []Detail{{Label: "image", Value: "postgres:16"}}
+	s.SetStepInputs("web", rows)
+	assert.Equal(t, rows, s.Snapshot().Steps[0].Inputs)
+
+	// A later call replaces the set rather than appending to it.
+	s.SetStepInputs("web", []Detail{{Label: "port", Value: "5432"}})
+	assert.Equal(t, []Detail{{Label: "port", Value: "5432"}}, s.Snapshot().Steps[0].Inputs)
+
+	s.SetStepInputs("nobody", rows) // must not panic or add a step
+	assert.Len(t, s.Snapshot().Steps, 1)
+}
+
+func TestSetStepOutputs(t *testing.T) {
+	s := NewStore()
+	s.AddStep("web", "", "", "", nil, nil, false, "", false)
+	assert.Empty(t, s.Snapshot().Steps[0].Outputs)
+
+	rows := []Detail{{Label: "endpoint", Value: "localhost:55432"}}
+	s.SetStepOutputs("web", rows)
+	assert.Equal(t, rows, s.Snapshot().Steps[0].Outputs)
+
+	// A later call replaces the set rather than appending to it.
+	s.SetStepOutputs("web", []Detail{{Label: "dsn", Value: "***", Sensitive: true}})
+	assert.Equal(t, []Detail{{Label: "dsn", Value: "***", Sensitive: true}}, s.Snapshot().Steps[0].Outputs)
+
+	s.SetStepOutputs("nobody", rows) // must not panic or add a step
+	assert.Len(t, s.Snapshot().Steps, 1)
+}
+
 func TestSetStepIdempotent(t *testing.T) {
 	s := NewStore()
 	s.AddStep("web", "", "", "", nil, nil, false, "", false)

@@ -159,6 +159,38 @@ func (s *Store) ClearStepDetails(name string) {
 	s.notify(snapshot)
 }
 
+// SetStepInputs records a step's resolved `with:` config rows, replacing
+// any previous set. An unknown step is a no-op.
+func (s *Store) SetStepInputs(name string, rows []Detail) {
+	s.mu.Lock()
+	step, ok := s.steps[name]
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
+	step.Inputs = append([]Detail(nil), rows...)
+	snapshot := *step
+	s.mu.Unlock()
+
+	s.notify(snapshot)
+}
+
+// SetStepOutputs records a step's published Result.Outputs rows, replacing
+// any previous set. An unknown step is a no-op.
+func (s *Store) SetStepOutputs(name string, rows []Detail) {
+	s.mu.Lock()
+	step, ok := s.steps[name]
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
+	step.Outputs = append([]Detail(nil), rows...)
+	snapshot := *step
+	s.mu.Unlock()
+
+	s.notify(snapshot)
+}
+
 // SetStepProgress records an estimated completion fraction for a step. An
 // unknown step is a no-op. Unlike the other setters, this notifies a
 // [StepProgress] rather than a [Step].

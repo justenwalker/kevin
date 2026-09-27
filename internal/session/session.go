@@ -78,6 +78,17 @@ type Step struct {
 	// Details are the rows this step's card shows.
 	Details []Detail
 
+	// Inputs are this step's resolved `with:` config, one row per top-level
+	// field, after `${needs...}`/`${setup...}` substitution - what was
+	// actually sent to the plugin's Up call. Sensitive is set when a field
+	// embeds a reference to a sensitive output.
+	Inputs []Detail
+
+	// Outputs are this step's published Result.Outputs, the values another
+	// step's `needs`/`setup` reference can read via `${needs.<name>.out.
+	// <key>}`.
+	Outputs []Detail
+
 	// Progress is the estimated fraction, in [0,1], of a running step's
 	// duration that has elapsed. The zero value means no estimate exists -
 	// the same value as "no history for this step" - and the page shows no
