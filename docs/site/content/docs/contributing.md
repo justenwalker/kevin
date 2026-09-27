@@ -5,7 +5,7 @@ weight: 95
 
 # Contributing
 
-Build orchestration is [gnob](https://github.com/justenwalker/gnob), vendored under `build/`. Bootstrap once, then it self-rebuilds when its own sources change:
+kevin builds with [gnob](https://github.com/justenwalker/gnob), vendored under `build/`. Bootstrap it once. After that, it rebuilds itself when its sources change:
 
 ```sh
 go generate -C ./build -tags gnob .            # bootstrap, once
@@ -14,26 +14,28 @@ go generate -C ./build -tags gnob .            # bootstrap, once
 ./bin/kevin -C examples/web run                # try it, Ctrl-C to remove
 ```
 
-Run a single test with `go test`'s own flags, same as any Go package:
+Run one test with `go test`:
 
 ```sh
 go test ./internal/dag/... -run TestName -v
 ```
 
-`golangci-lint` (`.golangci.yaml`) enables every linter and disables specific ones deliberately: read the config's comments before adding a `//nolint`, the exclusion you need probably already exists. [`docs/GO_CONVENTIONS.md`](https://github.com/justenwalker/kevin/blob/main/docs/GO_CONVENTIONS.md) covers the house style the linter can't check.
+`golangci-lint` (`.golangci.yaml`) enables every linter, then disables some. The comments in the file give the reason for each. Read them before you add a `//nolint`. [`docs/GO_CONVENTIONS.md`](https://github.com/justenwalker/kevin/blob/main/docs/GO_CONVENTIONS.md) covers the style rules that the linter cannot check.
 
-For *why* kevin is shaped the way it is, see [Architecture]({{< relref "/docs/concepts/architecture" >}}).
+See [Architecture]({{< relref "/docs/concepts/architecture" >}}) for how the parts of kevin fit together.
 
 ## This site
 
-This site is a [Hugo](https://gohugo.io) site under `docs/site/`, using the [hugo-book](https://github.com/alex-shpak/hugo-book) theme via Hugo Modules.
+This site is a [Hugo](https://gohugo.io) site in `docs/site/`, with the [hugo-book](https://github.com/alex-shpak/hugo-book) theme.
+
+The pages under Reference > Steps and Reference > Commands are generated. Edit `internal/plugins/<type>/reference.md.tmpl` and the field comments in `schema.cue`, or `internal/cmd/reference/<command>.md.tmpl`, then run `./build/gnob generate`.
 
 ```sh
 ./build/gnob docs-serve     # live preview at http://localhost:1313/
 ./build/gnob docs           # build into the gh-pages/ worktree
 ```
 
-`gh-pages/` is a persistent git worktree checked out to an orphan `gh-pages` branch. `./build/gnob gh-pages` sets it up (or rebuilds it from scratch) and commits the result as that branch's only commit; `gh-pages` history holds no information worth keeping, it's build output. Either way, pushing the branch is a separate, manual step:
+`gh-pages/` is a git worktree of the orphan `gh-pages` branch. `./build/gnob gh-pages` creates it, or rebuilds it, and commits the site as the only commit on the branch. To publish, push the branch:
 
 ```sh
 git push --force origin gh-pages
