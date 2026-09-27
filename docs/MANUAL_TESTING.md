@@ -977,8 +977,11 @@ kevin -C examples/groups run
       default on the next page load.
 - [ ] Dependency arrows in the sidebar still route correctly to/from a
       group's members whether the group is expanded or collapsed.
-- [ ] `Ctrl-C` removes `hold`, `web`, `db.replica`, `db.primary`, `net` in
-      reverse order; `db`'s own row has nothing to tear down.
+- [ ] `Ctrl-C` cancels `hold`'s still-blocked `Up` (1h duration) with no
+      `down`/`removed` line for it - a step whose `Up` never returned has
+      nothing to tear down - then removes `web`, `db.replica`, `db.primary`,
+      `net` in reverse order; `db`'s own row has nothing to tear down
+      either.
 
 Edit `examples/groups/kevin.cue` temporarily: add `needs: ["db.primary"]`
 to `web` instead of `needs: ["db"]`.
