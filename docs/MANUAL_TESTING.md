@@ -68,8 +68,12 @@ kevin -C examples/web run
 - [ ] `web`, `web_route`, `probe`, `noproxy` all reach `Ready`.
 - [ ] `.kevin/kevin.log` exists and contains full JSON lines, including
       debug-level ones, for this run.
-- [ ] `Ctrl-C` tears down `probe`, `noproxy`, `web_route`, `web` in reverse
-      order, and the containers are gone (`docker ps -a` shows none labeled
+- [ ] `Ctrl-C` tears down `probe` and `noproxy` (concurrently, both only
+      need `web`), then `web`. `web_route` produces no `down`/`removed`
+      line - `builtin:route` implements no `Down` RPC, since a route
+      registration dies with the proxy process rather than needing explicit
+      removal - but is still marked removed in the console. Containers are
+      gone afterward (`docker ps -a` shows none labeled
       `kevin.project=web-example`).
 - [ ] `kevin -C examples/web run --keep`, then `Ctrl-C`: containers are left
       running this time. Confirm with `docker ps`, then manually clean up
