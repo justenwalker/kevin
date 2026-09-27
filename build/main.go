@@ -61,7 +61,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	mf := makefile.New(Default, Generate, Build, PackagePlugin, PublishEchoPlugin, Test, Integration, Lint, Fmt, Tidy, Clean, E2E, Coverage, RelayImage, Release, Docs, DocsServe, GHPages)
+	mf := makefile.New(Default, Generate, Build, PackagePlugin, PublishEchoPlugin, Test, Integration, Lint, Fmt, Tidy, Clean, E2E, Coverage, RelayImage, Release, Docs, DocsServe, DocsCheck, GHPages)
 	mf.Run(context.Background())
 }
 
@@ -456,6 +456,25 @@ var Docs = GnobMakeTarget{
 				"`git worktree add --orphan -b gh-pages gh-pages`: %w", PagesDir, err)
 		}
 		return buildHugoSite(ctx)
+	},
+}
+
+var DocsCheck = GnobMakeTarget{
+	Name: "docs-check",
+	Desc: "build the documentation site and check its internal links",
+	LongDesc: "Builds docs/site/ into a temporary directory and runs cmd/docs-check,\n" +
+		"which fails on any internal link to a missing page or #anchor.\n" +
+		"Requires hugo on PATH.",
+	Body: func(ctx context.Context, _ *GnobMakefile) error {
+		dir, err := os.MkdirTemp("", "kevin-docs-check-")
+		if err != nil {
+			return fmt.Errorf("docs-check: create a temporary directory: %w", err)
+		}
+		defer os.RemoveAll(dir)
+		if err = run(ctx, cmd.WithDir(DocsDir), "hugo", "--quiet", "--baseURL", "/", "--destination", dir); err != nil {
+			return fmt.Errorf("docs-check: build the site: %w", err)
+		}
+		return goRun(ctx, "run", "./cmd/docs-check", dir)
 	},
 }
 

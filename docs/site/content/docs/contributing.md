@@ -32,6 +32,7 @@ The pages under Reference > Steps and Reference > Commands are generated. Edit `
 
 ```sh
 ./build/gnob docs-serve     # live preview at http://localhost:1313/
+./build/gnob docs-check     # build, then fail on links to a missing page or #anchor
 ./build/gnob docs           # build into the gh-pages/ worktree
 ```
 
