@@ -86,10 +86,27 @@ type GetStepOutput struct {
 	StepSummary
 
 	Details []DetailRow `json:"details,omitempty" jsonschema:"the step's card rows - an exposed address, a routed hostname, a generated credential path, etc."`
+	Inputs  []DetailRow `json:"inputs,omitempty"  jsonschema:"the step's resolved with: config, one row per top-level field, after \\${needs...}/\\${setup...} substitution - what was actually sent to the plugin's Up call"`
+	Outputs []DetailRow `json:"outputs,omitempty" jsonschema:"the step's published outputs, the values another step's needs/setup reference can read via \\${needs.<name>.out.<key>}"`
 	Logs    []LogLine   `json:"logs,omitempty"    jsonschema:"the step's log lines recorded since the since cursor (or its full history, if since was omitted), oldest first"`
 	// Cursor is a Cursor, kept as a plain string at the tool boundary for
 	// the same reason Since is.
 	Cursor string `json:"cursor,omitempty" jsonschema:"pass this back as since on a later get_step call to fetch only what's new"`
+}
+
+// toDetailRows converts a step's session.Detail rows into the get_step wire
+// shape, masking a Sensitive row's value the same way DetailRow's contract
+// requires.
+func toDetailRows(rows []session.Detail) []DetailRow {
+	out := make([]DetailRow, len(rows))
+	for i, d := range rows {
+		value := d.Value
+		if d.Sensitive {
+			value = sensitiveMask
+		}
+		out[i] = DetailRow{Label: d.Label, Value: value, Sensitive: d.Sensitive}
+	}
+	return out
 }
 
 func (s *Server) getStep(_ context.Context, _ *mcp.CallToolRequest, in GetStepInput) (*mcp.CallToolResult, GetStepOutput, error) {
@@ -111,14 +128,6 @@ func (s *Server) getStep(_ context.Context, _ *mcp.CallToolRequest, in GetStepIn
 // summary, detail rows (sensitive values masked), and log lines recorded
 // after cursor since (see logsPath, internal/steplog).
 func stepOutput(st session.Step, logsPath string, since steplog.Cursor) (GetStepOutput, error) {
-	details := make([]DetailRow, len(st.Details))
-	for i, d := range st.Details {
-		value := d.Value
-		if d.Sensitive {
-			value = sensitiveMask
-		}
-		details[i] = DetailRow{Label: d.Label, Value: value, Sensitive: d.Sensitive}
-	}
 	entries, cursor, err := steplog.ReadSince(logsPath, st.Name, since)
 	if err != nil {
 		return GetStepOutput{}, err
@@ -127,7 +136,14 @@ func stepOutput(st session.Step, logsPath string, since steplog.Cursor) (GetStep
 	for i, e := range entries {
 		logs[i] = LogLine{Time: e.Time, Stream: e.Stream, Text: e.Text}
 	}
-	return GetStepOutput{StepSummary: StepSummaryOf(st), Details: details, Logs: logs, Cursor: string(cursor)}, nil
+	return GetStepOutput{
+		StepSummary: StepSummaryOf(st),
+		Details:     toDetailRows(st.Details),
+		Inputs:      toDetailRows(st.Inputs),
+		Outputs:     toDetailRows(st.Outputs),
+		Logs:        logs,
+		Cursor:      string(cursor),
+	}, nil
 }
 
 // RerunStepInput names the step to re-run and whether to cascade to its

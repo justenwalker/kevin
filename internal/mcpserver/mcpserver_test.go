@@ -56,6 +56,14 @@ func defaultView() *session.View {
 					{Label: "url", Value: "http://api.kevin.home"},
 					{Label: "password", Value: "hunter2", Sensitive: true},
 				},
+				Inputs: []session.Detail{
+					{Label: "image", Value: "api:latest"},
+					{Label: "token", Value: "s3cr3t", Sensitive: true},
+				},
+				Outputs: []session.Detail{
+					{Label: "endpoint", Value: "http://api.kevin.home"},
+					{Label: "dsn", Value: "postgres://u:p@db", Sensitive: true},
+				},
 			},
 		},
 	}
@@ -173,6 +181,10 @@ func TestTools(t *testing.T) {
 		assert.Equal(t, "api", out.Name)
 		require.Len(t, out.Details, 2)
 		assert.Equal(t, "url", out.Details[0].Label)
+		require.Len(t, out.Inputs, 2)
+		assert.Equal(t, "image", out.Inputs[0].Label)
+		require.Len(t, out.Outputs, 2)
+		assert.Equal(t, "endpoint", out.Outputs[0].Label)
 		require.Len(t, out.Logs, 1)
 		assert.Equal(t, "listening", out.Logs[0].Text)
 		assert.NotEmpty(t, out.Cursor)
@@ -210,6 +222,24 @@ func TestTools(t *testing.T) {
 		assert.True(t, out.Details[1].Sensitive)
 		assert.NotContains(t, out.Details[1].Value, "hunter2")
 		assert.Equal(t, "********", out.Details[1].Value)
+	})
+
+	t.Run("get_step masks a sensitive input and output's value", func(t *testing.T) {
+		sess := newTestServer(t, noopRerun, noopExport, nil, nil)
+		res := callTool(t, sess, "get_step", mcpserver.GetStepInput{Name: "api"})
+		require.False(t, res.IsError)
+
+		var out mcpserver.GetStepOutput
+		decodeStructured(t, res, &out)
+		require.Len(t, out.Inputs, 2)
+		assert.Equal(t, "token", out.Inputs[1].Label)
+		assert.True(t, out.Inputs[1].Sensitive)
+		assert.Equal(t, "********", out.Inputs[1].Value)
+
+		require.Len(t, out.Outputs, 2)
+		assert.Equal(t, "dsn", out.Outputs[1].Label)
+		assert.True(t, out.Outputs[1].Sensitive)
+		assert.Equal(t, "********", out.Outputs[1].Value)
 	})
 
 	t.Run("get_step unknown name is a tool error", func(t *testing.T) {
