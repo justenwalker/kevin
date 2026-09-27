@@ -54,6 +54,13 @@ type Field struct {
 	// remaining word capitalized, so a template can use it as a sentence
 	// about the field rather than a restatement of the field's name.
 	Doc string
+
+	// Sensitive is true when the field carries a "@sensitive()" CUE
+	// attribute: its resolved value must always be redacted wherever a
+	// consumer displays it, regardless of whether the value reaching it is
+	// a literal or a "${needs...}" reference to an already-sensitive
+	// output.
+	Sensitive bool
 }
 
 // Parse reads and reduces one schema.cue file.
@@ -62,9 +69,16 @@ func Parse(path string) (*Schema, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cueschema: read %s: %w", path, err)
 	}
-	f, err := parser.ParseFile(path, src, parser.ParseComments)
+	return ParseSource(path, src)
+}
+
+// ParseSource reduces schema.cue source already in memory - a plugin's
+// schema, as its Info RPC response carries it, rather than a file on disk.
+// name is used only for error messages.
+func ParseSource(name string, src []byte) (*Schema, error) {
+	f, err := parser.ParseFile(name, src, parser.ParseComments)
 	if err != nil {
-		return nil, fmt.Errorf("cueschema: parse %s: %w", path, err)
+		return nil, fmt.Errorf("cueschema: parse %s: %w", name, err)
 	}
 
 	s := Schema{Definitions: map[string]Definition{}}
@@ -98,15 +112,26 @@ func fields(s *ast.StructLit) []Field {
 		}
 		typ, enum, def := typeEnumDefault(astField.Value)
 		out = append(out, Field{
-			Name:     labelName(astField.Label),
-			Required: astField.Constraint == token.NOT,
-			Type:     typ,
-			Enum:     enum,
-			Default:  def,
-			Doc:      doc(astField),
+			Name:      labelName(astField.Label),
+			Required:  astField.Constraint == token.NOT,
+			Type:      typ,
+			Enum:      enum,
+			Default:   def,
+			Doc:       doc(astField),
+			Sensitive: sensitive(astField),
 		})
 	}
 	return out
+}
+
+// sensitive reports whether field carries a "@sensitive()" attribute.
+func sensitive(field *ast.Field) bool {
+	for _, attr := range field.Attrs {
+		if attr.Name() == "sensitive" {
+			return true
+		}
+	}
+	return false
 }
 
 func labelName(l ast.Label) string {

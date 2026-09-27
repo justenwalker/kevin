@@ -39,6 +39,9 @@ const testSchema = `#Config: {
 
 	// nested has a "socks5://<relay>/<host:port>" URL, a placeholder inside a quoted string.
 	nested?: string
+
+	// password is always redacted, wherever it's shown.
+	password?: string @sensitive()
 }
 
 #Host: {
@@ -112,6 +115,22 @@ func TestParseReducesEachFieldOfTheRealShapeAConfigSchemaTakes(t *testing.T) {
 		got := fields["nested"].Doc
 		assert.Contains(t, got, "`\"socks5://<relay>/<host:port>\"`")
 	})
+
+	t.Run("a field with no attribute is not sensitive", func(t *testing.T) {
+		assert.False(t, fields["name"].Sensitive)
+	})
+
+	t.Run("a field with a @sensitive() attribute is marked Sensitive", func(t *testing.T) {
+		assert.True(t, fields["password"].Sensitive)
+	})
+}
+
+func TestParseSource(t *testing.T) {
+	schema, err := cueschema.ParseSource("schema.cue", []byte(testSchema))
+	require.NoError(t, err)
+
+	fields := fieldsByName(t, schema.Definitions["Config"].Fields)
+	assert.True(t, fields["password"].Sensitive, "ParseSource must reduce a field's attributes the same way Parse does")
 }
 
 func fieldsByName(t *testing.T, fs []cueschema.Field) map[string]cueschema.Field {
