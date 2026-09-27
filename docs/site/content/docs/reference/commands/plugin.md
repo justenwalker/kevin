@@ -86,11 +86,11 @@ Removes an index and its local copy.
 
 ### `kevin plugin index update`
 
-Clones each index again. An index that fails does not stop the others. Exits non-zero if any index failed.
+Clones each index again, and each `version_source` repository that its plugins name. An index that fails does not stop the others. A plugin whose `version_source` fails, or whose version file has no valid signature, gets its own warning. Exits non-zero if anything failed.
 
 ### `kevin plugin index show <name-or-alias/name>`
 
-Prints the metadata and versions of a plugin, newest first, and the `plugins:` entry for the latest version. The latest version is the highest version without a pre-release suffix. If the name is in more than one index, use `<alias>/<name>`.
+Prints the metadata and versions of a plugin, newest first, and the `plugins:` entry for the latest version. The latest version is the highest version without a pre-release suffix (see [Plugin index format]({{< relref "/docs/reference/plugin-index#latest-version" >}})). If the name is in more than one index, use `<alias>/<name>`.
 
 | Flag | Type | Default | Description |
 |:-----|:----:|:-------:|:------------|

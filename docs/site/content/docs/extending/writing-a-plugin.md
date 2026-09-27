@@ -89,7 +89,7 @@ If `Up` creates something, implement `plugin.Downer`:
 Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitter) error
 ```
 
-`Down` must be safe to call for a step that never started or is already gone. kevin keeps no state, so find what to remove from what exists, for example by container labels (see [Request data](#request-data)). `req` also has the step's last `Outputs`.
+`Down` must be safe to call for a step that never started or is already gone. kevin keeps no state file, so find what to remove from what exists, for example by container labels (see [Request data](#request-data)). `req.Outputs` has the step's outputs when the same kevin process ran its `Up`. After `kevin teardown` in a new process, it can be empty, so do not depend on it.
 
 A step type with nothing to remove does not implement `Downer`, and kevin does not call `Down` for it.
 

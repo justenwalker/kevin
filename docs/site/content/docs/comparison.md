@@ -13,7 +13,7 @@ kevin combines four things: an environment that exists only while you use it, a 
 
 The differences are size and traffic control. Garden's [configuration](https://docs.garden.io/using-garden/configuration-overview) has a project config, several action types (`Build`, `Deploy`, `Run`, `Test`), providers, and workflows. kevin has one file with a map of steps. Garden has no proxy: no TLS termination between services, no egress allow list, no log of requests, and no hostname interception.
 
-If you already use Garden and do not need traffic control, there is little reason to change. kevin fits a small environment of containers and Kubernetes where you want to see and control the traffic.
+If you use Garden and do not need traffic control, Garden covers the same job. kevin fits a small environment of containers and Kubernetes where you want to see and control the traffic.
 
 ## Terraform or OpenTofu
 
@@ -25,7 +25,7 @@ Use Terraform for the cloud resources an environment depends on. Use kevin for t
 
 ## Docker Compose
 
-Compose is the most common choice, and the closest in use: both start a set of containers from a file and remove them on command.
+Compose is the closest in use: both start a set of containers from a file and remove them on command.
 
 Compose orders containers with [`depends_on`](https://docs.docker.com/compose/how-tos/startup-order/). kevin runs every step with no dependency in parallel. By default, `depends_on` waits until a container is running, and Compose needs a health check to wait for readiness. A kevin container step is ready when its published port accepts a connection, and a `wait` step can add an HTTP, `kubectl`, or command check.
 

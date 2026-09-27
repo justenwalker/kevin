@@ -31,7 +31,7 @@ web: {
 | `proxy` | `bool` | `true` | Mounts the kevin CA certificate in the container and sets SSL_CERT_FILE to it, so the container trusts certificates from the kevin proxy. Outbound traffic goes through the proxy either way. |
 | `egress` | `[...string]` | - | Lists external hosts that this container can reach when proxy.egress.deny is true, in addition to proxy.egress.allow. |
 | `start_timeout` | `string` | `"30s"` | The maximum time to wait for the container to start, as a duration such as `"30s"`. |
-| `expose` | `[string]: #Expose` | - | Makes a container port reachable from the host, on 127.0.0.1. The key names the entry in the console. The step is ready when each published TCP port accepts connections. To give the port a name on the environment domain, add a builtin:route step. |
+| `expose` | `[string]: #Expose` | - | Makes a container port reachable from the host, published on 127.0.0.1 unless relay is true. The key names the entry in the console. The step is ready when each published TCP port accepts connections. To give the port a name on the environment domain, add a builtin:route step. |
 
 ## `#Expose`
 

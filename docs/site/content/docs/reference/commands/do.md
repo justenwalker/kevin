@@ -14,4 +14,4 @@ kevin do shell
 kevin do migrate -- --dry-run
 ```
 
-The steps in `needs` must be running, and their step types must support export. See [Environment file: commands]({{< relref "/docs/reference/environment-file#commands" >}}).
+The steps in `needs` must be up, and their step types must support export. See [Environment file: commands]({{< relref "/docs/reference/environment-file#commands" >}}).

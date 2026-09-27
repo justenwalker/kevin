@@ -73,9 +73,11 @@ probe: {
 }
 ```
 
-`AWS_CA_BUNDLE` points the AWS CLI at the kevin CA, which every container step has at `/usr/local/share/ca-certificates/kevin.crt`. Most tools use `SSL_CERT_FILE`, which kevin sets for you.
+`AWS_CA_BUNDLE` points the AWS CLI at the kevin CA. A container step with `proxy: true`, the default, has the CA at `/usr/local/share/ca-certificates/kevin.crt`, and `SSL_CERT_FILE` set to it. Most tools read `SSL_CERT_FILE`.
 
-From a pod in a [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}) cluster, no setting is needed. Use a Service address as the route `address` and set `relay` on the route step. See [Kubernetes clusters]({{< relref "kubernetes#give-a-service-a-name-on-the-environment-domain" >}}).
+From a pod in a [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}) cluster, no setting is needed. kevin sends the pod's traffic to the proxy at its node, and the relay answers DNS for the hostname.
+
+If the local service runs in the cluster, use its Service address as the route `address`, and set `relay` on the route step. See [Kubernetes clusters]({{< relref "kubernetes#give-a-service-a-name-on-the-environment-domain" >}}).
 
 ## Limits
 

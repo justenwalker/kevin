@@ -35,7 +35,8 @@
 	// as a duration such as "30s".
 	start_timeout?: string | *"30s"
 
-	// expose makes a container port reachable from the host, on 127.0.0.1.
+	// expose makes a container port reachable from the host, published on
+	// 127.0.0.1 unless relay is true.
 	// The key names the entry in the console. The step is ready when each
 	// published TCP port accepts connections. To give the port a name on
 	// the environment domain, add a builtin:route step.

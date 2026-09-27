@@ -30,8 +30,9 @@
 	// example to replace a cloud service with a local fake.
 	intercept?: bool
 
-	// ports lists the ports that clients use to connect to host. Has an
-	// effect only when intercept is true.
+	// ports lists the ports that clients use to connect to host. Ports 80
+	// and 443 are always intercepted. Has an effect only when intercept is
+	// true.
 	ports?: [...int] | *[443]
 
 	// mode selects how the proxy handles connections to this route. "mitm"

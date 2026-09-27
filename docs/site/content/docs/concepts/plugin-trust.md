@@ -19,7 +19,7 @@ A `checksum` on a `file` or `http` entry, or a digest in an `oci` reference, pin
 kevin supports two schemes:
 
 - **minisign** checks a signature against a public key. kevin verifies minisign signatures itself. Signing is done with the `minisign` tool, so kevin never handles a secret key.
-- **sigstore** checks a short-lived certificate that records the OIDC identity that signed, such as a specific CI workflow. This answers a question that a long-lived key cannot: which workflow built this package. kevin runs `cosign` to verify, and does not handle the OIDC token or certificate. Verification checks the transparency log proof in the bundle, with no call to the log. cosign can refresh its public trust root from the network before the proxy starts, so that traffic is not subject to egress control.
+- **sigstore** checks a short-lived certificate that records the OIDC identity that signed, such as a specific CI workflow. This answers a question that a long-lived key cannot: which workflow built this package. kevin runs `cosign` to verify, and does not handle the OIDC token or certificate. Verification checks the transparency log proof in the bundle, with no call to the log. cosign can refresh its public trust root from the network before the proxy starts, so that traffic is not subject to egress control. `cosign` reports every verification failure (wrong identity, wrong issuer, bad certificate chain, bad log proof) as one error, so the message does not say which check failed.
 
 ## Why trust stores are outside `kevin.cue`
 

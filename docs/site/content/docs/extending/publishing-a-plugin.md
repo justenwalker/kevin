@@ -63,92 +63,60 @@ kevin plugin push ./dist/kevin-plugin-echo.tar.gz ghcr.io/acme/kevin-plugin-echo
 
 `push` also uploads a `.minisig` or `.sigstore.json` file next to the archive. Push only one of them: a registry holds one signature for each package digest.
 
-To publish over HTTP, put the archive and its signature file at the same URL path, for example `https://example.com/echo.tar.gz` and `https://example.com/echo.tar.gz.minisig`.
+To publish over HTTP, put the signature file at the archive's URL with the signature suffix added, for example `https://example.com/echo.tar.gz` and `https://example.com/echo.tar.gz.minisig`.
 
 ## List the plugin in an index
 
-An index is a git repository with this layout:
+1. In the index repository, add `plugins/<name>/plugin.yaml` if the plugin is new:
 
-```
-kevin-index.yaml
-plugins/
-  echo/
-    plugin.yaml
-    versions/
-      1.0.0.yaml
-      1.1.0.yaml
-```
+   ```yaml
+   name: echo
+   summary: prints a message
+   homepage: https://github.com/acme/kevin-plugin-echo
+   signers:
+     - scheme: minisign
+       key: |
+         untrusted comment: echo release key
+         RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3
+   ```
 
-`kevin-index.yaml` contains one line:
+   A `minisign` signer's `key` is the content of your public key file.
 
-```yaml
-layout: 1
-```
+2. For each release, add `plugins/<name>/versions/<version>.yaml`. Do not change it after you publish it:
 
-### `plugin.yaml`
+   ```yaml
+   version: 1.1.0
+   source:
+     oci: ghcr.io/acme/kevin-plugin-echo:v1.1.0
+     signing:
+       scheme: minisign
+   ```
 
-| Field | Required | Description |
-|:------|:--------:|:------------|
-| `name` | yes | Plugin name. Lowercase letters, digits, and hyphens. |
-| `summary` | yes | One line, shown by `kevin plugin search`. |
-| `homepage` | no | URL. |
-| `maintainer` | no | Person or organization. |
-| `signers` | no | Signers that `kevin plugin index install` adds to the user's trust store. |
-| `version_source` | no | URL of a separate git repository that holds this plugin's `versions/` directory. |
+3. Commit and push.
 
-```yaml
-name: echo
-summary: prints a message
-homepage: https://github.com/acme/kevin-plugin-echo
-maintainer: Acme Inc
-signers:
-  - scheme: minisign
-    key: |
-      untrusted comment: echo release key
-      RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3
-  - scheme: sigstore
-    identity: ci@acme.example
-    issuer: https://token.actions.githubusercontent.com
-```
+See [Plugin index format]({{< relref "/docs/reference/plugin-index" >}}) for every field.
 
-A `minisign` signer's `key` is the content of the public key file.
+## Publish versions from a separate repository
 
-### Version files
+To let release automation publish versions without write access to the index:
 
-Add one file for each release, named `versions/<version>.yaml`. Do not change a version file after you publish it.
+1. Set `version_source` in `plugin.yaml`:
 
-| Field | Required | Description |
-|:------|:--------:|:------------|
-| `version` | yes | Semantic version. Must match the file name. |
-| `source` | yes | The same fields as a `plugins:` entry in `kevin.cue`: `oci`, `file`, or `http`, with `signing` and `checksum`. `cmd` is not allowed. |
+   ```yaml
+   version_source: https://github.com/acme/kevin-plugin-echo-releases
+   ```
 
-```yaml
-version: 1.1.0
-source:
-  oci: ghcr.io/acme/kevin-plugin-echo:v1.1.0
-  signing:
-    scheme: minisign
-```
+2. In that repository, add `kevin-index.yaml` with `layout: 1`, and add version files at `plugins/<name>/versions/<version>.yaml`.
 
-The latest version is the highest version with no pre-release suffix. If every version has a suffix (such as `1.0.0-rc1`), the latest is the highest of those.
+3. Sign each version file with a signer from `plugin.yaml`:
 
-### Version files in a separate repository
+   ```sh
+   minisign -Sm plugins/echo/versions/1.1.0.yaml
+   # or
+   cosign sign-blob --yes --bundle plugins/echo/versions/1.1.0.yaml.sigstore.json plugins/echo/versions/1.1.0.yaml
+   ```
 
-To let release CI publish versions without write access to the index, set `version_source` in `plugin.yaml`:
-
-```yaml
-version_source: https://github.com/acme/kevin-plugin-echo-releases
-```
-
-The `version_source` repository uses the same layout: `kevin-index.yaml` and `plugins/<name>/versions/`. Each version file needs a signature file next to it, from a signer in `plugin.yaml`:
-
-```sh
-minisign -Sm plugins/echo/versions/1.1.0.yaml
-# or
-cosign sign-blob --yes --bundle plugins/echo/versions/1.1.0.yaml.sigstore.json plugins/echo/versions/1.1.0.yaml
-```
-
-`kevin plugin index update` skips a version file with no valid signature, and reports it. `version_source` requires at least one entry in `signers`.
+   `kevin plugin index update` skips a version file with no valid signature.
 
 ## Related
 

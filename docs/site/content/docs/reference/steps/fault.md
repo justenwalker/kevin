@@ -43,7 +43,7 @@ For a step in `needs` that has one container, such as `backend` above, `containe
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `containers` | `[...string]` | - | Limits the fault to these containers. Unset, the fault applies to every container of every step in needs. A name is a key of a builtin:kind step's workers, or the name of a step in needs that has one container. |
+| `containers` | `[...string]` | - | Limits the fault to these containers. Unset, the fault applies to every container of every step in needs. A name is the container name that its step reports, a key of a builtin:kind step's workers, or the name of a step in needs that has one container. |
 | `interface` | `string` | - | The network interface in the container to impair. Unset means `"eth0"`. |
 | `delay_ms` | `int & >0` | - | The fixed one-way delay added to every packet, in milliseconds. |
 | `jitter_ms` | `int & >=0` | - | The random variation around delay_ms, in milliseconds. Has an effect only with delay_ms. |

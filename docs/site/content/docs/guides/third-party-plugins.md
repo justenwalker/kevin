@@ -100,7 +100,9 @@ Check the result with `kevin plugin trust list`.
    ```cue
    env: db: {
        uses: "postgres:server"
-       with: {...}
+       with: {
+           // fields from the plugin's documentation
+       }
    }
    ```
 

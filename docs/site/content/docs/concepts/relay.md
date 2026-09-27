@@ -77,7 +77,7 @@ A `builtin:container` `expose` entry with `relay: true` uses the project relay's
 
 ### UDP
 
-SOCKS5 UDP `ASSOCIATE` (RFC 1928 section 7) normally binds a random port, which is known only after the relay container or pod exists, too late to publish it. `kevin-relay` binds a port from a fixed pool instead. The pool is `KEVIN_RELAY_UDP_POOL_SIZE` ports (default 16), published by the relay container, or reserved as host ports on a kind node. When the pool is full, a new session fails immediately. Set the size to `0` to reserve no ports.
+SOCKS5 UDP `ASSOCIATE` (RFC 1928 section 7) normally binds a random port, which is known only after the relay container or pod exists, too late to publish it. `kevin-relay` binds a port from a fixed pool instead. The pool is `KEVIN_RELAY_UDP_POOL_SIZE` ports (default 16), published by the relay container, or reserved as host ports on a kind node. When the pool is full, a new session fails immediately. A size of `0` reserves no ports.
 
 Each UDP `ExposedPort` carries `RelayUdpAddrs`, which maps each pool port to its address on the host. The `ASSOCIATE` reply names a pool port, and kevin's local forward looks up the address there. RFC 1928 ties a session to its TCP control connection, so if that connection drops, kevin closes the local listener.
 
@@ -107,7 +107,7 @@ Faults apply to the interface, so they affect all traffic, whether or not it goe
 
 To change another container's network namespace, the relay container has `CAP_NET_ADMIN` (to add rules), `CAP_SYS_ADMIN` (to enter the namespace), and `CAP_SYS_PTRACE`, and shares the host PID namespace (`--pid host`). It opens a target's namespace at `/proc/<pid>/ns/net`, from the PID that `docker inspect` reports.
 
-A bind mount of `/var/run/docker/netns` did not work: on OrbStack, a namespace file created after the mount can be read, but entering it fails with `EINVAL`. `/proc/<pid>/ns/net` always shows the current host PID namespace, so start order does not matter. `CAP_SYS_PTRACE` is needed to open the namespace of a `--privileged` container, such as a kind node, because the kernel marks its processes non-dumpable.
+kevin does not use a bind mount of `/var/run/docker/netns`, because on OrbStack a namespace file created after the mount can be read, but entering it fails with `EINVAL`. `/proc/<pid>/ns/net` always shows the current host PID namespace, so start order does not matter. `CAP_SYS_PTRACE` is needed to open the namespace of a `--privileged` container, such as a kind node, because the kernel marks its processes non-dumpable.
 
 These capabilities let a compromised relay enter the namespace of any process on the host. The relay acts only on paths that kevin sends over the mTLS control channel, which limits this in practice. kevin accepts this risk for its threat model: one local developer, whose kevin CA can already read the project's TLS traffic.
 

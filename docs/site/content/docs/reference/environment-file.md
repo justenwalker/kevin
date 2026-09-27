@@ -65,7 +65,7 @@ kevin run -t airgap
 | `-t name` | Sets the tag to `true`. |
 | `-t name=value` | Sets a string, int, or number tag. |
 
-The flag is repeatable. Without the flag, the field keeps its value from the file. See [Set values per machine or per run]({{< relref "/docs/guides/local-and-per-run-settings" >}}).
+The flag is repeatable. Without the flag, the field keeps its value from the file. See [Per-machine and per-run settings]({{< relref "/docs/guides/local-and-per-run-settings" >}}).
 
 ## Top-level fields
 
@@ -249,7 +249,7 @@ plugins: echo: {
 }
 ```
 
-For `file` and `http`, kevin reads the signature file next to the package. For `oci`, kevin reads it from the tag `sha256-<digest>.sig` in the same repository. The `sigstore` scheme needs `cosign` installed. A package without a valid signature from a trusted signer fails, and kevin does not extract it. See [Install a third-party plugin]({{< relref "/docs/guides/third-party-plugins" >}}) and [Plugin trust]({{< relref "/docs/concepts/plugin-trust" >}}).
+For `file` and `http`, kevin reads the signature file next to the package. For `oci`, kevin reads it from the tag `sha256-<digest>.sig` in the same repository. The `sigstore` scheme needs `cosign` installed. A package without a valid signature from a trusted signer fails, and kevin does not extract it. See [Third-party plugins]({{< relref "/docs/guides/third-party-plugins" >}}) and [Plugin trust]({{< relref "/docs/concepts/plugin-trust" >}}).
 
 ## Proxy
 

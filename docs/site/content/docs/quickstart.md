@@ -9,7 +9,7 @@ In this tutorial you install kevin, start an example environment with an nginx c
 
 ## Prerequisites
 
-- Docker, running. Podman also works: add `--engine podman` to each `kevin` command.
+- Docker, running. Podman also works. If both are installed, add `--engine podman` to each `kevin` command.
 - `git` and `curl`.
 - A clone of the kevin repository, for the example environment:
 

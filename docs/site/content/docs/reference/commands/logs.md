@@ -9,6 +9,8 @@ weight: 13
 
 Prints the output of a step. With no step name, it prints the output of every step, in order. It works while `kevin run` is running and after it exits, including after a crash.
 
+kevin also writes every log line as JSON, including debug lines, to `kevin.log` in the project state directory (`.kevin/` by default).
+
 ```sh
 kevin logs
 kevin logs web

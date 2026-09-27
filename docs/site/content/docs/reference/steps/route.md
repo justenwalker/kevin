@@ -75,7 +75,7 @@ s3_intercept: {
 | `address` | `string` | - | **Required.** The target host:port. With relay, it is an address inside the cluster, such as `"myapp.default.svc.cluster.local:80"`. Without relay, it is an address the host can connect to, such as a container step's `"host_<port>"` output. |
 | `tls` | `bool` | - | True when address expects TLS. |
 | `intercept` | `bool` | - | Sends traffic for the real hostname in host to address, for example to replace a cloud service with a local fake. |
-| `ports` | `[...int]` | `[443]` | Lists the ports that clients use to connect to host. Has an effect only when intercept is true. |
+| `ports` | `[...int]` | `[443]` | Lists the ports that clients use to connect to host. Ports 80 and 443 are always intercepted. Has an effect only when intercept is true. |
 | `mode` | `"mitm"` \| `"passthrough"` \| `"raw"` | `"mitm"` | Selects how the proxy handles connections to this route. `"mitm"` terminates TLS with a certificate from the kevin CA and forwards each request. `"passthrough"` forwards the client's TLS connection unchanged, so the client checks the certificate of address; it requires tls: true. `"raw"` forwards the TCP connection unchanged, for a protocol that is not HTTP, such as a database protocol; it requires tls: false. |
 
 ## Behavior

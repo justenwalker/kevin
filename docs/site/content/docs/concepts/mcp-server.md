@@ -18,7 +18,7 @@ The MCP server gives a coding agent the same view and controls that the console 
 
 A plugin can add tools for its step types. See [Writing a plugin]({{< relref "/docs/extending/writing-a-plugin#add-mcp-tools" >}}).
 
-To add the server to Claude Code, open the **MCP** tab of the console. It shows the URL and the `claude mcp add` command.
+The **MCP** tab of the console shows the server URL and the `claude mcp add` command that registers it with Claude Code.
 
 ## One address with the console
 

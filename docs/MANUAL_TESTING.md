@@ -297,7 +297,7 @@ kevin -C examples/kind run
       separately, see section 4.)
 
 Node-level transparent capture (see [Transparent
-capture]({{< relref "/docs/concepts/relay#transparent-capture" >}})):
+capture]({{< relref "/docs/concepts/relay#traffic-capture" >}})):
 `capture_probe` is a Pod that dials the real `kubernetes.default` Service
 and `example.com`, neither of which has a route registered, so any
 interception can only come from capture at the node, not from the relay's
