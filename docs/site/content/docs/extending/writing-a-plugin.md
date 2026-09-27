@@ -156,9 +156,11 @@ kevin cannot protect a secret that your plugin prints to its own output.
 
 ## Add rows to the console
 
-`Result.Details` is the list of rows on the step's console card. Add a `plugin.Detail{Label, Value, Copyable, Href}` for each row. `Route` and `ExposedPort` each have a `Detail()` method that returns a row for them.
+`Result.Details` is the list of rows on the step's console card, shown in its detail dialog's Details tab. Add a `plugin.Detail{Label, Value, Copyable, Href}` for each row. `Route` and `ExposedPort` each have a `Detail()` method that returns a row for them.
 
 If a `Detail`'s `Value` is `plugin.Sensitive`, the console masks it and does not show it as a link or tooltip. If it is also `Copyable`, the copy button copies the real value.
+
+The same dialog's Inputs and Outputs tabs need nothing from the plugin: Inputs shows the step's resolved `with:` config, and Outputs shows `Result.Outputs`, both masked the same way a sensitive `Detail` is.
 
 ## Stream a command's output
 
