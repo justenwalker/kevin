@@ -1287,18 +1287,10 @@ func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[stri
 
 // inputRows builds one Detail row per top-level field of raw (name's
 // declared `with:` block, before rendering), pairing it with rendered's
-// corresponding value and marking it Sensitive when any
-// "${needs.../setup...}" marker inside it resolves to a sensitive value in
-// scopes. A `with` block with no fields (a step that declared none) reports
-// no rows.
-// inputRows builds one Detail row per top-level field of raw (name's
-// declared `with:` block, before rendering), pairing it with rendered's
-// corresponding value. A field is Sensitive when its schema declares it so
-// (schemaSensitive, from sensitiveWithFields - the only signal for a
-// literal secret with no marker at all) or when any of its
-// "${needs.../setup...}" markers resolve to a sensitive value in scopes
-// (expr.FieldSensitive) - either is sufficient reason to redact. A `with`
-// block with no fields (a step that declared none) reports no rows.
+// corresponding value. A field is Sensitive when schemaSensitive names it,
+// or when any of its "${needs.../setup...}" markers resolve to a sensitive
+// value in scopes. A `with` block with no fields (a step that declared
+// none) reports no rows.
 func inputRows(raw, rendered json.RawMessage, scopes expr.Scopes, schemaSensitive map[string]bool) ([]session.Detail, error) {
 	if len(raw) == 0 {
 		return nil, nil
@@ -1945,11 +1937,7 @@ func stepSchema(info pluginhost.Info, name string) []byte {
 }
 
 // sensitiveWithFields reports which of schema's #Config fields carry a
-// "@sensitive()" attribute - a with-block field whose resolved value must
-// always be redacted, independent of whether it arrived as a literal or
-// via a "${needs...}" reference to an already-sensitive output (the only
-// case expr.FieldSensitive can trace on its own). A schema.cue this
-// lightweight lets inputRows call it once per Up rather than caching it.
+// "@sensitive()" attribute, keyed by field name.
 func sensitiveWithFields(schema []byte) (map[string]bool, error) {
 	if len(schema) == 0 {
 		return nil, nil //nolint:nilnil // no schema means no sensitive fields, a valid empty result
