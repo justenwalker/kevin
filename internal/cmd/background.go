@@ -130,13 +130,15 @@ func checkNotRunning(stateDir string) error {
 // backgroundArgs is what runInBackground needs to reconstruct the child's
 // argv from already-parsed, typed values, not by re-slicing os.Args.
 type backgroundArgs struct {
-	dir    string
-	name   string
-	tags   []string
-	engine string
-	debug  bool
-	keep   bool
-	open   bool
+	dir     string
+	name    string
+	tags    []string
+	engine  string
+	debug   bool
+	keep    bool
+	open    bool
+	varFile string
+	vars    []string
 }
 
 // argv renders a into a "kevin run" argument list equivalent to the
@@ -158,6 +160,12 @@ func (a backgroundArgs) argv() []string {
 	}
 	if a.open {
 		args = append(args, "--open")
+	}
+	if a.varFile != "" {
+		args = append(args, "--var-file", a.varFile)
+	}
+	for _, v := range a.vars {
+		args = append(args, "--var", v)
 	}
 	return args
 }

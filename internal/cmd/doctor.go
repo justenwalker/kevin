@@ -78,6 +78,10 @@ func loadProjectConfig(w io.Writer, opts *options) (*config.Config, error) {
 		printCheck(w, "config", false, false, uerr.Display(err))
 		return nil, err
 	}
+	if err := cfg.ResolveVariables(config.VariableInputs{File: opts.varFile, Set: opts.vars}); err != nil {
+		printCheck(w, "config", false, false, uerr.Display(err))
+		return nil, err
+	}
 	return cfg, nil
 }
 

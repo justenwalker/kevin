@@ -42,7 +42,7 @@ func setupCrossScopeDeps(ctx context.Context, cfg *config.Config, plugins map[st
 		if !stepExports(caps[ref.Plugin], ref.Step) {
 			return nil, fmt.Errorf("setup step %q (%s) does not implement export", setupName, ref)
 		}
-		with, err := expr.Render(setupStep.With, setupName, expr.Scopes{Project: ca.ProjectVars(cfg.Dir, cfg.Name)})
+		with, err := expr.Render(setupStep.With, setupName, expr.Scopes{Project: ca.ProjectVars(cfg.Dir, cfg.Name), Vars: cfg.VariableValues})
 		if err != nil {
 			return nil, fmt.Errorf("setup step %q: %w", setupName, err)
 		}

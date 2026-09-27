@@ -39,7 +39,8 @@ func doCommand(opts *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runDo(cmd.Context(), opts.dir, opts.name, opts.tags, engineName, name, extra)
+			vars := config.VariableInputs{File: opts.varFile, Set: opts.vars}
+			return runDo(cmd.Context(), opts.dir, opts.name, opts.tags, vars, engineName, name, extra)
 		},
 	}
 	return cmd
@@ -60,8 +61,8 @@ func splitDoArgs(args []string, dash int) (string, []string, error) {
 	return args[0], args[dash:], nil
 }
 
-func runDo(ctx context.Context, dir, name string, tags []string, engineName, cmdName string, extra []string) error {
-	cfg, plugins, caps, err := engine.LoadAndLaunch(ctx, dir, name, tags)
+func runDo(ctx context.Context, dir, name string, tags []string, vars config.VariableInputs, engineName, cmdName string, extra []string) error {
+	cfg, plugins, caps, err := engine.LoadAndLaunch(ctx, dir, name, tags, vars)
 	defer engine.CloseAll(plugins)
 	if err != nil {
 		return err
@@ -93,7 +94,7 @@ func runDo(ctx context.Context, dir, name string, tags []string, engineName, cmd
 	}
 
 	rendered, err := expr.Render(cmdDef.Run, cmdName, expr.Scopes{
-		Needs: needsOut, Setup: setupOut, Project: ca.ProjectVars(cfg.Dir, cfg.Name),
+		Needs: needsOut, Setup: setupOut, Project: ca.ProjectVars(cfg.Dir, cfg.Name), Vars: cfg.VariableValues,
 	})
 	if err != nil {
 		return fmt.Errorf("do: %w", err)
@@ -159,7 +160,7 @@ func resolveCommandOutputs(ctx context.Context, cfg *config.Config, plugins map[
 		if depsErr != nil {
 			return nil, nil, fmt.Errorf("do: needs %q: %w", n, depsErr)
 		}
-		with, renderErr := expr.Render(step.With, stepName, expr.Scopes{Setup: setupDeps, Project: ca.ProjectVars(cfg.Dir, cfg.Name)})
+		with, renderErr := expr.Render(step.With, stepName, expr.Scopes{Setup: setupDeps, Project: ca.ProjectVars(cfg.Dir, cfg.Name), Vars: cfg.VariableValues})
 		if renderErr != nil {
 			return nil, nil, fmt.Errorf("do: needs %q: %w", n, renderErr)
 		}

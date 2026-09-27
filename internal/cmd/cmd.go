@@ -53,13 +53,18 @@ const envNameVar = "KEVIN_ENV"
 // project - kevin.cue has no equivalent field.
 const engineNameVar = "KEVIN_ENGINE"
 
+// varFileNameVar overrides the --var-file flag's default when set.
+const varFileNameVar = "KEVIN_VAR_FILE"
+
 // options holds the flags that every subcommand shares.
 type options struct {
-	dir    string
-	name   string
-	tags   []string
-	engine string
-	debug  bool
+	dir     string
+	name    string
+	tags    []string
+	engine  string
+	debug   bool
+	varFile string
+	vars    []string
 
 	// ran becomes true when a command body starts.
 	ran bool
@@ -131,6 +136,10 @@ func NewRootCommand() (*cobra.Command, *options) {
 	flags.StringVar(&opts.engine, "engine", os.Getenv(engineNameVar),
 		"container engine to use: docker or podman; defaults to "+engineNameVar+" if set, else auto-detected")
 	flags.BoolVar(&opts.debug, "debug", false, "log at debug level")
+	flags.StringVar(&opts.varFile, "var-file", os.Getenv(varFileNameVar),
+		"path to a \"KEY=VALUE\" file supplying variables: block values; defaults to "+varFileNameVar+" if set")
+	flags.StringArrayVar(&opts.vars, "var", nil,
+		"set a variables: block value as \"KEY=VALUE\" (repeatable); overrides --var-file and KEVIN_VAR_<NAME>")
 
 	root.AddCommand(
 		runCommand(opts),
@@ -208,13 +217,15 @@ func runCommand(opts *options) *cobra.Command {
 			}
 			if detach {
 				return runInBackground(cmd.Context(), stateDir, backgroundArgs{
-					dir:    opts.dir,
-					name:   opts.name,
-					tags:   opts.tags,
-					engine: engineName,
-					debug:  opts.debug,
-					keep:   keep,
-					open:   open,
+					dir:     opts.dir,
+					name:    opts.name,
+					tags:    opts.tags,
+					engine:  engineName,
+					debug:   opts.debug,
+					keep:    keep,
+					open:    open,
+					varFile: opts.varFile,
+					vars:    opts.vars,
 				})
 			}
 			return runForeground(cmd.Context(), opts, engineName, stateDir, keep, open)
@@ -235,14 +246,16 @@ func runForeground(ctx context.Context, opts *options, engineName, stateDir stri
 	}
 	defer removeRunState(stateDir)
 	return engine.Run(ctx, engine.Options{
-		Dir:    opts.dir,
-		Name:   opts.name,
-		Tags:   opts.tags,
-		Engine: engineName,
-		Scope:  config.ScopeEnv,
-		Keep:   keep,
-		Debug:  opts.debug,
-		Open:   open,
+		Dir:     opts.dir,
+		Name:    opts.name,
+		Tags:    opts.tags,
+		VarFile: opts.varFile,
+		Vars:    opts.vars,
+		Engine:  engineName,
+		Scope:   config.ScopeEnv,
+		Keep:    keep,
+		Debug:   opts.debug,
+		Open:    open,
 		OnEnvironment: func(env *pb.Environment) {
 			printEnvironmentInfo(os.Stderr, env)
 			_ = writeRunAddrs(stateDir, env)
@@ -266,15 +279,17 @@ func setupCommand(opts *options) *cobra.Command {
 				return err
 			}
 			return engine.Run(cmd.Context(), engine.Options{
-				Dir:    opts.dir,
-				Name:   opts.name,
-				Tags:   opts.tags,
-				Engine: engineName,
-				Scope:  config.ScopeSetup,
-				Keep:   true,
-				NoWait: true,
-				Debug:  opts.debug,
-				Open:   open,
+				Dir:     opts.dir,
+				Name:    opts.name,
+				Tags:    opts.tags,
+				VarFile: opts.varFile,
+				Vars:    opts.vars,
+				Engine:  engineName,
+				Scope:   config.ScopeSetup,
+				Keep:    true,
+				NoWait:  true,
+				Debug:   opts.debug,
+				Open:    open,
 			})
 		},
 	}
@@ -311,7 +326,8 @@ func teardownCommand(opts *options) *cobra.Command {
 				return err
 			}
 			return engine.Teardown(cmd.Context(), engine.Options{
-				Dir: opts.dir, Name: opts.name, Tags: opts.tags, Engine: engineName, Debug: opts.debug,
+				Dir: opts.dir, Name: opts.name, Tags: opts.tags, VarFile: opts.varFile, Vars: opts.vars,
+				Engine: engineName, Debug: opts.debug,
 			})
 		},
 	}
@@ -352,7 +368,8 @@ func validateCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			cfg, plugins, _, err := engine.LoadAndLaunch(cmd.Context(), opts.dir, opts.name, opts.tags)
+			cfg, plugins, _, err := engine.LoadAndLaunch(cmd.Context(), opts.dir, opts.name, opts.tags,
+				config.VariableInputs{File: opts.varFile, Set: opts.vars})
 			engine.CloseAll(plugins)
 			if err != nil {
 				return err

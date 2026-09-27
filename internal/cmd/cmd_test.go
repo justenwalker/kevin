@@ -262,6 +262,41 @@ env: { web: { uses: "unknown:container" } }`,
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "bogus")
 	})
+
+	t.Run("a required variable with no source fails validation", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(listenBlockDefault+
+			`project: "x"
+variables: greeting: {}`,
+		), 0o600))
+
+		err := cmd.Run(t.Context(), []string{"-C", dir, "validate"})
+		require.ErrorIs(t, err, config.ErrRequiredVariable)
+	})
+
+	t.Run("--var supplies a required variable's value", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(listenBlockDefault+
+			`project: "x"
+variables: greeting: {}`,
+		), 0o600))
+
+		err := cmd.Run(t.Context(), []string{"-C", dir, "--var", "greeting=hi", "validate"})
+		require.NoError(t, err)
+	})
+
+	t.Run("--var-file supplies a required variable's value", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(listenBlockDefault+
+			`project: "x"
+variables: greeting: {}`,
+		), 0o600))
+		varFile := dir + "/vars.env"
+		require.NoError(t, os.WriteFile(varFile, []byte("greeting=hi\n"), 0o600))
+
+		err := cmd.Run(t.Context(), []string{"-C", dir, "--var-file", varFile, "validate"})
+		require.NoError(t, err)
+	})
 }
 
 func TestStopCommand(t *testing.T) {
