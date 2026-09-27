@@ -1,30 +1,36 @@
 ---
 title: "Certificate authority"
-description: "The root and per-project intermediate CAs, and how kevin manages the trust store."
+description: "The root and project CAs, and how kevin manages the trust store."
 weight: 8
 ---
 
 # Certificate authority
 
-kevin creates the authorities and holds the private keys itself. The proxy needs a private key to sign a leaf, thus the authority does not live in a plugin. Every key is ECDSA P-256, at mode 0600 in a directory at mode 0700.
+The proxy terminates TLS, so it needs a private key to sign a certificate for each host. kevin creates and holds its CAs itself for this reason. Every key is ECDSA P-256, stored with mode 0600 in a directory with mode 0700.
 
-There are two levels.
+## Two levels
 
 | Level | Location | Subject | Signs |
-| --- | --- | --- | --- |
-| Root | `~/.kevin/` | `Kevin Local Root CA` | the authority of a project |
-| Project | `./.kevin/` (`./.kevin/<name>/` for a named environment) | `Kevin Local Intermediate CA - Project <name>` | a leaf for each MITM'd host, plus the relay's control-channel server/client leaves |
+|:------|:---------|:--------|:------|
+| Root | `~/.kevin/` | `Kevin Local Root CA` | Each project CA. |
+| Project | `.kevin/` in the project directory (`.kevin/<name>/` for a named environment) | `Kevin Local Intermediate CA - Project <name>` | A certificate for each host the proxy serves, and the certificates of the relay control channel. |
 
-Only the root reaches a trust store, and it reaches it one time for the machine. A trust store therefore holds one kevin anchor however many projects exist. Each project signs with its own key, which lives in the project directory and goes when the directory goes.
+Only the root goes into a trust store, once per machine. A trust store holds one kevin certificate however many projects exist. Each project signs with its own key, which is in the project directory and is deleted with it.
 
-The certificate file of a project holds the chain: the authority of the project, then the root. The proxy appends this same chain after every leaf it mints, thus a client that trusts the root alone can build the chain. The relay's control channel (see [Relay]({{< relref "/docs/concepts/relay#transparent-capture" >}})) reuses this same signing path for a different purpose: a short-lived `ServerAuth` leaf for the relay and a `ClientAuth` leaf for the engine itself, both off the project authority, so only a caller holding a certificate chained to this project's own root can drive the relay's control endpoint.
+The project certificate file holds the chain: the project CA, then the root. The proxy sends this chain after every certificate it signs, so a client that trusts only the root can verify it.
 
-kevin checks the signature of the authority of the project against the root on every use. A user who deletes the home directory gets a new root, and the stale authority of the project is replaced rather than served.
+The relay control channel uses the same project CA. kevin signs a short-lived server certificate for the relay and a client certificate for itself. Only a client with a certificate from this project's CA can send commands to the relay. See [Relay]({{< relref "/docs/concepts/relay#control-channel" >}}).
 
-`kevin ca install`/`uninstall` manage the trust store directly, outside the DAG entirely - the root names no project, so there's no per-project `setup`/`teardown` scope for it to live in. `kevin ca install` installs the root certificate into the keychain of macOS, the anchor directory of Linux, and the NSS database of each Firefox profile.
+## Checking the project CA
 
-A store that this machine does not have is a skip, not a failure. A machine without `certutil` reports that Firefox will not trust the authority, and the command continues.
+On each run, kevin checks that the project CA was signed by the current root. If you delete `~/.kevin/`, kevin creates a new root, and replaces the project CA instead of using one that the new root did not sign.
 
-The default is the trust store of the **user**, which needs no root. macOS still asks the user to confirm the change to the trust settings. `--system` writes the machine-wide store, which needs root. `kevin ca install` never asks for a password itself: it reports the exact command, and the user runs it.
+## The trust store
 
-There is no state file, thus `kevin ca uninstall` must be idempotent and must derive what it removes from the trust stores themselves. It matches on the root's fixed subject name, a constant - not a per-project subject the way a DAG step's `Down` would need to derive from the environment - so a second call is naturally a no-op rather than a duplicate-removal error.
+`kevin ca install` and `kevin ca uninstall` are not part of a project. The root is the same for every project, so it has no `setup` scope to belong to.
+
+`install` adds the root to the user trust store by default, which needs no root privileges. `--system` uses the machine-wide store, which does. kevin never asks for a password: it prints the command for you to run.
+
+A trust store that is not on the machine is skipped, not an error. Without `certutil`, kevin reports that Firefox will not trust the CA, and continues.
+
+kevin keeps no record of what it installed. `uninstall` finds kevin certificates by the root's subject name, which is the same on every machine, so running it twice is safe.

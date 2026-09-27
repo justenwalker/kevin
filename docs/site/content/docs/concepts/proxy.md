@@ -1,51 +1,59 @@
 ---
 title: "Proxy"
-description: "TLS termination, routing, and egress control, and why the proxy has to run on the host process."
+description: "TLS termination, routing, and egress control, and why the proxy runs on the host."
 weight: 5
 ---
 
 # Proxy
 
-kevin changes no file on the host. There is no entry in `/etc/hosts`, no file in `/etc/resolver`, and no DNS server for the host.
+kevin changes no file on your machine: no entry in `/etc/hosts`, no file in `/etc/resolver`, and no DNS server. Clients on the host reach the environment through the proxy instead, with `HTTP_PROXY` and `HTTPS_PROXY`, or with the auto-config file at `/proxy.pac`.
 
-A client reaches the environment through the proxy. The client sets `HTTP_PROXY` and `HTTPS_PROXY`, or loads `http://<proxy>/proxy.pac`. The `CONNECT` handler of the proxy resolves a hostname against the internal registry of the engine. A step fills the registry when `Up` returns a `Route`.
+## Names
 
-The environment has a base domain, `kevin.home` by default. A `route` step puts a name on it. See [Subdomain routing]({{< relref "/docs/concepts/relay#subdomain-routing" >}}) for the general mechanism, which works the same whether the address behind the name is a container's published port or something behind a relay. A bare step name is not a route, because a name without a dot could shadow a real host.
+The environment has a base domain, `kevin.home` by default. A [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step adds names under it. When a step's `Up` returns routes, kevin adds them to the proxy's routing table.
 
-The proxy serves a proxy auto-config file at `/proxy.pac`. The file matches the base domain on a suffix, thus a step added later needs no reload. It sends everything else direct, so normal browsing is untouched. The file names the proxy by the host that the browser asked for, which keeps a loopback address and a LAN address both working.
+A bare step name is never a route. A name with no dot could hide a real host.
 
-`NO_PROXY` lists the step names, so a workload that honors it reaches another workload straight over the docker network. Not every client honors it. Busybox `wget` ignores `NO_PROXY`, thus a step must also be reachable through the proxy under its full name.
+The auto-config file matches the base domain by suffix, so a route added later needs no reload. It sends all other traffic directly. It names the proxy by the host that the browser used to fetch it, so it works from a loopback address and from a LAN address.
 
-One listener serves three roles.
+## One listener, three jobs
 
-1. A forward proxy that terminates TLS. The proxy mints a leaf certificate for the requested host, and signs the certificate with the kevin CA.
-2. A reverse proxy. The proxy matches the Host header against the routing table and forwards to the workload.
-3. An egress control. The proxy denies a host that no route covers and that no allow list covers.
+1. **Forward proxy with TLS termination.** For a `CONNECT`, the proxy signs a certificate for the requested host with the project CA, and completes the TLS handshake itself.
+2. **Reverse proxy.** The proxy matches the `Host` header against the routing table and forwards the request.
+3. **Egress control.** The proxy blocks a host that no route and no allow list covers.
 
-A `builtin:container` step's egress reaches this proxy unconditionally now: the relay transparently redirects its traffic regardless of `HTTP_PROXY`/`NO_PROXY` or DNS cooperation (see [Transparent capture]({{< relref "/docs/concepts/relay#transparent-capture" >}})), so the egress-deny check above gates every container's traffic, not just a workload that happened to honor a proxy variable. `NO_PROXY` and the `HTTP_PROXY`/`HTTPS_PROXY` variables described below still matter for a `builtin:kind` Pod and a `builtin:exec` step, neither of which has a container network namespace of its own to capture.
+The proxy implements `CONNECT` and TLS termination itself, with no third-party proxy library. After a `CONNECT`, it takes over the connection, replies `200 Connection Established`, and completes a TLS handshake that offers `h2` and `http/1.1`. An `h2` connection goes to an HTTP/2 server. Any other connection goes to a standard HTTP/1.1 server over a one-connection listener. Both paths then use the same routing and egress checks as a plain proxy request.
 
-`proxy: egress: deny` has no schema default - `kevin.cue` must set it to `true` or `false` itself. Set it `false` to disable the control; every request then reaches the internet, as before milestone 7. Requiring an explicit value, rather than defaulting one, is what lets a tag-driven value (`deny: someTag`) unify cleanly instead of silently losing to a schema default - see the [Egress control guide]({{< relref "/docs/guides/proxy-and-egress#block-outbound-traffic" >}}) for why a defaulted field can't be re-defaulted from outside.
+A WebSocket upgrade is an HTTP request, so routing and egress checks apply to it, and the console logs it. After the `101` response, the proxy copies bytes in both directions and does not log the frames.
 
-An allow entry is an exact host, such as `api.github.com`, or a leading-dot wildcard, such as `*.github.com`. A wildcard matches a subdomain. It does not match the bare domain: `*.github.com` matches `api.github.com`, not `github.com`. List the bare domain too when both must reach the internet. Matching ignores case and ignores any port. `proxy: egress: allow` in `kevin.cue` names hosts for the whole environment. A step names hosts for itself alone, through the `egress_allow` field of its `Up` result. A route that a step registers always reaches the proxy. A workload of the environment is not egress.
+## Routes that skip TLS termination
 
-A denied request still completes TLS by default. The CONNECT handler MITMs every unrouted host, denied or not, unless `proxy: egress: passthrough` is on (below), in which case a denied unrouted host never reaches TLS at all: the `403` goes back as the CONNECT response itself. Either way, the proxy answers a denied request with `403 Forbidden` instead of closing the connection. The page names the denied host. It shows the exact CUE to add, for the whole environment and for one step. The response carries `Cache-Control: no-store`, `Pragma: no-cache`, and `Expires: 0`. A browser must not serve a cached denial after the user fixes the allow list.
+A route with `mode: "passthrough"` forwards the client's TLS connection to the upstream unchanged. The client checks the upstream's own certificate, such as one from cert-manager in a kind cluster. The console logs one entry for the connection. This mode requires `tls: true`: an upstream without TLS has no certificate to pass through.
 
-Containers on the docker network reach each other by container name through the embedded DNS of Docker. That path needs no change on the host.
+A route with `mode: "raw"` does the same for a protocol that is neither TLS nor HTTP, such as a database protocol. It requires `tls: false`.
 
-The proxy owns `CONNECT`, the MITM, and the leaf signing itself - no third-party proxy library. A `CONNECT` hijacks the underlying connection, writes `200 Connection Established`, then hand-shakes TLS with a leaf the proxy mints on the fly (signed by the project's intermediate authority) and offers both `h2` and `http/1.1` over ALPN. The negotiated protocol decides how the decrypted traffic is served: `h2` gets a real HTTP/2 server; `http/1.1` (or no ALPN at all) is handed to a plain HTTP/1.1 server over a one-connection listener, so keep-alive and chunked encoding stay standard rather than hand-rolled. Either way the decrypted request reaches the same routing/egress-deny logic a plain forward-proxy request already goes through. A minted leaf carries whatever Subject kevin chooses, no fixed organization string imposed by a library.
+## Egress control
 
-A route whose upstream already speaks TLS can opt out of this with `mode: "passthrough"` (see [`builtin:route`]({{< relref "/docs/reference/steps/route" >}})): the CONNECT still resolves the route and still gets one entry in the traffic log, but instead of hijacking and hand-shaking, the proxy dials the upstream directly and splices bytes both ways, undecrypted. The client then validates the upstream's own certificate - a cert-manager-issued one inside a `builtin:kind` cluster, say - instead of a kevin-signed leaf. This mode requires `tls: true`; a plain-HTTP upstream has no certificate to preserve and always needs the MITM described above to serve HTTPS to the client at all.
+`proxy.egress.deny` has no default: the environment file must set it. A field with a default cannot take a value from a `@tag` without an extra `if` block, so leaving out the default lets `deny: bool @tag(...)` work directly. See [Per-machine and per-run settings]({{< relref "/docs/guides/local-and-per-run-settings" >}}).
 
-A route whose upstream speaks neither TLS nor HTTP - a database's wire protocol, say - uses `mode: "raw"` instead: the same splice-bytes-both-ways tunnel, but with no TLS handshake or HTTP framing assumed on either side at all. Requires `tls: false`.
+An allow entry is an exact host, such as `api.github.com`, or a wildcard, such as `*.github.com`. A wildcard matches subdomains, not the bare domain. Matching ignores case and port. `proxy.egress.allow` applies to every step. A step can add hosts for itself through the `egress_allow` field of its `Up` result. A routed name is part of the environment, so egress control never blocks it.
 
-`proxy: egress: passthrough: true` (see the [Egress control guide]({{< relref "/docs/guides/proxy-and-egress#reach-an-allowed-host-without-trusting-the-kevin-ca" >}})) extends the same idea to a host with no route at all: the CONNECT's own `Host` already names the target, so `handleConnect` checks allow/deny before ever hijacking the connection, tunnels an allowed host raw exactly like a passthrough route, and answers a denied one with `403` on the CONNECT response itself, no MITM either way. This only changes the unrouted path; a route's own `mode` is unaffected.
+By default, the proxy terminates TLS for every host with no route, allowed or not. It then answers a blocked request with a `403 Forbidden` page, not a closed connection. The page names the host and shows the CUE that allows it. The response has `Cache-Control: no-store`, `Pragma: no-cache`, and `Expires: 0`, so a browser does not show a cached denial after you change the allow list.
 
-A WebSocket upgrade gets its own explicit path, not a free ride from a generic reverse-proxy helper: the handshake is an ordinary HTTP request, so Host routing and the egress-deny check both apply to it exactly as they would to any other request, and it gets one entry in the traffic log for the handshake itself. Only the frame stream after a successful upgrade is an unrouted, unlogged raw pipe (kevin hijacks the connection and copies bytes bidirectionally once it sees a `101` with `Upgrade` in the response). This is the same shape of gap `expose` already exists to name honestly for non-HTTP traffic in general, rather than something WebSocket-specific.
+With `proxy.egress.passthrough: true`, the proxy checks the host in the `CONNECT` request before any TLS. It forwards an allowed host's connection unchanged, and answers a blocked host with `403` in the `CONNECT` response. A client that does not trust the kevin CA can then reach allowed hosts. Routes are not affected.
 
-## Host-bound
+## Which traffic reaches the proxy
 
-The proxy runs in the engine process, not in a container. It therefore cannot resolve a network alias, and on macOS it cannot reach a container address either. A route must name an address that the host can reach.
+The relay sends all TCP traffic of a `builtin:container` step on ports 80 and 443 to the proxy, whatever the container resolved and whatever proxy variables it has. See [Relay]({{< relref "/docs/concepts/relay#traffic-capture" >}}). Egress control therefore applies to every container.
 
-The container plugin publishes the port of a step on the loopback when the step declares a `host`, and returns that published address as the upstream. A step reaches another step by step name, and the proxy reaches a step by its published port.
+A `builtin:exec` step runs on the host, and relies on the proxy variables. For a `builtin:kind` pod, the relay captures traffic at the node.
 
-A step that serves a name is ready when its published port accepts a connection, not when the container starts. A started container reports `Running` before the process inside binds its port.
+`NO_PROXY` lists the step names, so a client that honors it reaches another step directly over the project network. Some clients ignore `NO_PROXY`, such as busybox `wget`, so each step is also reachable through the proxy by its full name.
+
+## Why the proxy runs on the host
+
+The proxy runs in the `kevin` process, not in a container. It cannot resolve a network alias, and on macOS it cannot reach a container address. So a route must name an address that the host can reach.
+
+`builtin:container` publishes an `expose` port on the host loopback address, and reports that address as an output. Steps reach each other by step name. The proxy reaches a step by its published port.
+
+A container reports `Running` before the process inside it listens on its port. A container step is ready when its published port accepts a connection, not when the container starts.

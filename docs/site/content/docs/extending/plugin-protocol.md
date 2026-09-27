@@ -5,32 +5,39 @@ weight: 2
 
 # The plugin protocol
 
-Every step type speaks the same protocol over gRPC. The engine has no privileged path for a step type that ships in this repository: every builtin step type compiles into the kevin binary the same way, and the engine starts it as `kevin plugin run <name>`. A third party writes a separate binary and gets the same protocol. One process serves every step type that its provider offers.
+kevin and a plugin talk over gRPC. The Go `plugin` package implements this protocol. A plugin in another language implements the service directly. The builtin step types use the same protocol: kevin starts them as `kevin plugin run <name>`.
 
-The service has six methods:
+One plugin process serves every step type of its provider.
 
-1. **`Info`** reports the provider name and version, the CUE schema for the provider's own config block, an optional small PNG icon (48x48 or less) shown next to the provider's step types on the console, and, for each step type it offers: a CUE schema for its `with` block, its `StepKind` (resource, action, or probe, used by the console and by docs), whether it implements `Down` and `Export`, and the MCP tools it offers, if any.
-2. **`Configure`** delivers the provider's own `config` block, once, before any step of that provider runs.
-3. **`Up`** creates one step and returns the outputs of that step. The request carries the step type beside the node name, so one process can dispatch to the right step type.
-4. **`Down`** removes one step. The request also carries the step type. A step type implements `Down` only when its `Up` creates something that needs removing. `Info` reports, per step type, whether it does, so the engine's teardown walk skips the call entirely for a step type that doesn't, instead of calling it and getting a no-op.
-5. **`Export`** reports what a step created, as `out`: structured, `Value`-typed data (the same shape `Up`'s outputs use, so a value can be marked sensitive), such as `kubeconfig`/`context` for a Kubernetes cluster. An env step's cross-scope `needs: ["setup.<name>"]` reference reads this, and so does a `commands:` entry's `run` (`"${needs.<step>.out.<key>}"`), through `kevin do`. A step type implements `Export` only when there's something to export. `Info` reports, per step type, whether it does, so a caller never needs to find out by calling `Export` and seeing what happens.
-6. **`CallTool`** runs one of a step type's declared tools against a running step instance, named by a `step` property the engine injects into the tool's schema. A step type implements `CallTool` only when it declares at least one tool via `Info`. See [Writing a plugin]({{< relref "writing-a-plugin" >}}) for `ToolProvider`.
+## Methods
 
-`Up` and `Down` stream from the server. One call carries the log lines, the progress reports, and the final result. Thus the protocol needs no separate progress service.
+| Method | Called | Does |
+|:-------|:-------|:-----|
+| `Info` | Once, at start. | Returns the provider name and version, the CUE schema of the provider `config` block, an optional PNG icon (48x48 or smaller), and for each step type: the CUE schema of its `with` block, its kind (resource, action, or probe), whether it implements `Down` and `Export`, and its MCP tools. |
+| `Configure` | Once, before the first step of the provider, if the environment file has a `config` block for it. | Receives the provider `config` block. |
+| `Up` | For each step. | Creates the step and returns its outputs. The request names the step type. |
+| `Down` | For each step, on teardown, if the step type implements it. | Removes the step. The request names the step type. |
+| `Export` | For a `setup.<step>` need, `kevin do`, and the MCP `export_step` tool, if the step type implements it. | Returns values that describe how to reach what the step created, such as `kubeconfig` and `context`. Values can be marked sensitive. |
+| `CallTool` | For an MCP tool call, if the step type declares tools. | Runs a tool against a running step. The request has a `step` property that kevin adds to the tool's schema. |
 
-The protocol has no callback service and no `GRPCBroker`. Everything a plugin needs is in the request message: the docker network name, the CA certificate, the proxy address, the workspace path, and the outputs of the upstream steps.
+`Up` and `Down` stream their responses. One call carries log lines, progress, and the final result.
 
-## Session startup
+Each request has everything the plugin needs: the network name, the CA certificate, the proxy address, the workspace path, and the outputs of upstream steps. kevin has no callback service.
 
-1. Read `kevin.cue` and check the file against the core schema.
-2. Start every declared plugin.
-3. Call `Info` on each plugin and collect the CUE schemas.
-4. Check the `with` block of each step against the plugin's schema for that step.
-5. Call `Configure` on each plugin that declares a `config` block, once, before any step of that plugin runs.
-6. Walk the DAG and call `Up` for each step. A step whose `needs` names a setup step (`setup.<name>`) calls that setup step's `Export` instead - it is never walked or `Up`'d as part of this DAG.
+## Start sequence
 
-A step runs only after step 4 succeeds. A bad environment file fails before the plugin creates a resource.
+1. Read the environment file and check it against the core schema.
+2. Start each plugin that a step uses.
+3. Call `Info` on each plugin, and collect the schemas.
+4. Check each step's `with` block against the schema of its step type.
+5. Call `Configure` on each plugin that has a `config` block.
+6. Walk the DAG and call `Up` for each step. For a `setup.<step>` need, call that step's `Export` instead.
 
-The plugin processes stay alive for the whole session. The engine stops them when the session ends.
+kevin calls `Up` only after step 4 succeeds, so an invalid environment file fails before a plugin creates anything.
 
-See [Environment file: cross-step values]({{< relref "/docs/reference/environment-file#reading-another-steps-outputs" >}}) for how a step's outputs reach a downstream step, both in the plugin's own wire request and in `${...}` expressions inside `with`.
+The plugin processes run until the run ends.
+
+## Related
+
+- [Writing a plugin]({{< relref "writing-a-plugin" >}})
+- [Cross-step values]({{< relref "/docs/concepts/cross-step-values" >}}): how outputs reach other steps.

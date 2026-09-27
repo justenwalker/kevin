@@ -1,17 +1,33 @@
 ---
 title: "MCP server"
-description: "The MCP tools kevin exposes to a coding agent, and how they ride the console's own listener."
+description: "The MCP tools kevin gives a coding agent, and why they use the console's address."
 weight: 7
 ---
 
 # MCP server
 
-The MCP server gives a coding agent the same read/control surface the console gives a human, over [MCP](https://modelcontextprotocol.io)'s Streamable HTTP transport instead of SSE/htmx: `list_steps`, `get_step`, `rerun_step`, `export_step`, and `get_proxy_info`.
+The MCP server gives a coding agent the same view and controls that the console gives a person. It uses [MCP](https://modelcontextprotocol.io)'s Streamable HTTP transport.
 
-It mounts at `/_mcp` on the console's own HTTP router, rather than binding a listener of its own. A fourth loopback port for one more agent-facing surface would be one more thing to print, route through a firewall exception, and explain - the console already owns exactly the state an MCP tool call needs and already binds one HTTP server for exactly this session's lifetime, so the MCP server rides on it instead of duplicating that bind/listen/shutdown dance.
+| Tool | Does |
+|:-----|:-----|
+| `list_steps` | Lists steps and their states. |
+| `get_step` | Returns a step's state and logs. |
+| `rerun_step` | Runs a step again. |
+| `export_step` | Returns a step's exported values. |
+| `get_proxy_info` | Returns the proxy address, its routes, and the egress allow list. |
 
-`get_proxy_info` reads the proxy's routing table and egress allow list directly, and `export_step` calls a step's plugin `Export` RPC through the session's already-running plugin connection - the same RPC a `commands:` entry's `needs` makes through `kevin do`, but against the live session instead of a freshly relaunched one, since an MCP client is asking about an environment that's already up. The console's own **MCP** tab shows the URL and the `claude mcp add` command to register it, the same page that shows the proxy's PAC URL and export line.
+A plugin can add tools for its step types. See [Writing a plugin]({{< relref "/docs/extending/writing-a-plugin#add-mcp-tools" >}}).
 
-`get_step`'s logs come from the session's durable log file, not the console's own bounded in-memory tail, so they cover a step's full history rather than its last couple thousand lines. Each call returns a `cursor`; passing it back as the next call's `since` fetches only what was logged after that point, so an agent watching a long-running step polls cheaply instead of re-fetching everything each time.
+To add the server to Claude Code, open the **MCP** tab of the console. It shows the URL and the `claude mcp add` command.
 
-A plugin can contribute its own tools alongside these five, through the `CallTool` RPC. See [The plugin protocol]({{< relref "/docs/extending/plugin-protocol" >}}) for the wire method and [Writing a plugin]({{< relref "/docs/extending/writing-a-plugin" >}}) for `ToolProvider`.
+## One address with the console
+
+The server is at `/_mcp` on the console's address, not on a port of its own. The console already has the state that the tools need, and already runs an HTTP server for the life of the environment. A separate port would be one more address to configure and print.
+
+## Logs
+
+`get_step` reads logs from the log file, not from the console's in-memory buffer, so it returns the full history of a step. Each call returns a `cursor`. Pass it as `since` on the next call to get only newer lines.
+
+## Export
+
+`export_step` calls the step's `Export` through the running plugin. `kevin do` makes the same call, but starts the plugins itself, because it runs outside the environment.

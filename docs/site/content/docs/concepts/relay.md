@@ -1,112 +1,124 @@
 ---
 title: "Relay"
-description: "The in-network DNS/TLS forwarder: lifecycle, pod routing, the cluster tunnel, transparent capture, and its limits."
+description: "The relay container: name resolution, traffic capture, tunnels into the network, fault injection, and its limits."
 weight: 10
 ---
 
 # Relay
 
-The relay is a container on the shared docker network. It answers DNS queries for the environment domain with its own address. It forwards HTTP and TLS traffic to the proxy on the host.
+The relay is a container on the project network. It has four jobs:
 
-The relay carries no routing table. The proxy remains the single place that holds one, and a workload that resolves a step through the relay still reaches the proxy, routed by the Host header the same as every other request. The relay does carry an egress mechanism: it transparently redirects a container's own outbound traffic to itself, on both IPv4 and IPv6, regardless of the address the container actually resolved (see Transparent capture, below) - the relay decides nothing about where a request ultimately goes, it only makes sure the request reaches the proxy at all, unconditionally, for every container.
+1. Answer DNS for the environment domain, so workloads can resolve route names.
+2. Send the traffic of containers to the proxy on the host.
+3. Let the host reach ports inside the project network or a kind cluster.
+4. Apply network faults for [`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}}).
+
+The relay has no routing table. The proxy is the only place that routes. The relay makes sure traffic reaches the proxy.
 
 ## Lifecycle
 
-The relay container's name is deterministic (`kevin-<project>-relay`), and `Start` reuses one already running rather than recreating it - a persisted `setup`-scope resource (a `kind` cluster's CoreDNS patch, say) that baked in the relay's address at `Up` time needs that address to survive the process that created it exiting. `kevin setup` leaves its relay running; `kevin run` afterward reuses it; `kevin teardown` is what finally removes it, once neither scope still needs it.
+The relay container has a fixed name, `kevin-<project>-relay`. If it is already running, kevin uses it. A `setup` step can depend on the relay's address, such as the DNS forward that a kind cluster keeps. That address must stay the same after the `kevin setup` process exits. `kevin setup` leaves the relay running, `kevin run` uses it, and `kevin teardown` removes it when neither scope needs it.
 
-A reused container must still forward to a live proxy, and `proxy.gateway_port` in `kevin.cue` names that address explicitly - so `Start` compares the running container's recorded domain/proxy address against what this process would use, and replaces it on a mismatch rather than reusing a relay that would silently forward nowhere. That mismatch only fires when `gateway_port` or `domain` actually changed between processes, since the address is otherwise the same fixed value every time.
+kevin compares the domain and proxy address of a running relay with its own. If they differ, it replaces the relay, which would otherwise forward to an address where no proxy listens. This happens only when `domain` or `proxy.gateway_port` changes.
 
-## Pod routing
+## Reaching the proxy
 
-The kind plugin patches the CoreDNS Corefile of the cluster after the nodes join the shared network. The patch adds a forward zone for the environment domain that points at the relay. The plugin restarts CoreDNS to load the change.
+The proxy has a second listener on the gateway address of the project network, at `proxy.gateway_port`. Containers reach the proxy there.
 
-A pod then resolves `<step>.<domain>` through the cluster DNS. The pod needs no proxy environment variable of its own.
+Docker Desktop on macOS and Windows runs the daemon in a virtual machine, and the gateway address exists only there. Binding it from the host fails with `EADDRNOTAVAIL`. The relay then reaches the proxy through `host.docker.internal`. On Linux, the daemon runs on the host, the bind succeeds, and the relay uses it.
 
-A pod reaches a step across two hops on the host. The pod resolves the name through CoreDNS and connects to the relay over the docker network. The relay forwards the connection to the proxy on the host. The proxy then connects to the published port of the step, on the host again.
+## Name resolution in kind clusters
 
-## Gateway bind
+The kind plugin changes the cluster's CoreDNS configuration to forward the environment domain to the relay, then restarts CoreDNS. A pod resolves `<name>.<domain>` through the cluster DNS, with no proxy settings of its own.
 
-The proxy binds a second listener on the gateway address of the shared network. A container reaches the proxy there directly. `proxy.gateway_port` in `kevin.cue` sets that listener's port - kevin picks no port for you, for the same reason `proxy.listen` is required (see the [Proxy and egress guide]({{< relref "/docs/guides/proxy-and-egress" >}})).
+A pod's request to a route then crosses two hops on the host: the pod connects to the relay over the project network, the relay forwards to the proxy on the host, and the proxy connects to the step's published port.
 
-Docker Desktop on macOS and on Windows runs the daemon inside a virtual machine. The gateway address exists only inside that machine. A bind from the host fails with `EADDRNOTAVAIL`. The relay then reaches the proxy through `host.docker.internal` instead.
+The nodes also use the relay for DNS outside `cluster.local`, through their own `/etc/resolv.conf`. This lets pods resolve [intercepted hostnames](#intercepted-hostnames).
 
-Plain Linux Docker runs the daemon on the host. The gateway bind succeeds there, and the relay uses that listener.
+## Traffic capture
 
-## Cluster tunnel
+kevin sends the traffic of every `builtin:container` step to the proxy, with no cooperation from the workload: no proxy variables and no DNS settings.
 
-The relay's other job runs the opposite direction: `kevin-relay forward` also runs a SOCKS5 server (`-socks5-listen`) alongside its DNS/HTTP/HTTPS listeners, and `kevin-relay` separately has a standalone `socks5-gateway` subcommand that runs just that SOCKS5 server on its own, with no DNS/HTTP/HTTPS at all. A `builtin:kind` step's `with.expose` list stands up one `socks5-gateway` instance as a Pod inside the cluster, so a client outside the cluster can dial an arbitrary in-cluster address (a Service DNS name or a Pod IP, with its port) by asking the relay to `CONNECT` to it.
+After a container starts, kevin calls the relay's `RegisterCapture` RPC with the path of the container's network namespace. The relay enters that namespace and adds an nftables table with an `output` NAT chain. Each rule redirects one port to the relay, for each address family the relay has an address in. The destination address no longer matters: a container that resolved the real IP of a third-party API reaches the relay the same way as one that resolved a route name.
 
-This exists because a kind cluster's `extraPortMappings` are fixed at cluster creation, before `Up` has created anything, unlike a container step's port publish. One relay avoids needing a static port mapping per exposed service: `Up` picks one host port, bakes one `extraPortMappings` entry for it into the generated cluster config (pointed at the control-plane node), loads the `kevin-relay` image into that same node, and applies the relay Pod with `kubectl apply` run inside the node, the same `docker exec`-wrapped `kubectl` mechanism the CoreDNS patch already uses, pinned to that same control-plane node.
+The relay captures ports 80 and 443. An `intercept: true` route that lists other `ports` calls the relay's `EnsureListener` RPC. The relay opens a listener for each port and updates the capture rules of every registered container, so a route added after a container started still applies to it.
 
-A `builtin:kind` step's `Up` does not wait for an `expose` entry's address to become dialable, unlike a container step's `expose` waiting on its own port. kind doesn't own what an entry names. The target is usually deployed separately, by a manifest applied after the cluster is up, so `Up` only wires the relay and reports the address. `Result.ExposedPorts` itself never reaches a dependent step's wire request, so the engine mirrors each entry's relay address into the `needs` variable's `system` sub-namespace, as `needs.<step>.system.expose_<name>`, kept separate from `out` (a step's own `Outputs`) specifically so a kevin-computed key can never collide with one a plugin chose for its own output (see [Cross-step values]({{< relref "/docs/reference/environment-file#reading-another-steps-outputs" >}})). This mirroring is generic engine behavior, not kind-specific; it runs for any plugin's `ExposedPorts`. A `builtin:wait` step's `tcp` check reads `needs.<step>.system.expose_<name>` to close the readiness gap generically, dialing through the relay the same way a [`kubectl` or `helm`]({{< relref "/docs/guides/deploying-workloads" >}}) step applies a manifest into the same cluster.
+The relay reads the TLS server name or the HTTP `Host` header of a captured connection to find where it goes, then forwards it to the proxy.
 
-An `expose` entry reports through the same `Result.ExposedPorts` a container step's `expose` already populates. A plain `host:port` isn't enough information here, since a client must dial the relay and then ask it to reach the real target, so `Upstream` carries both as one string: `socks5://127.0.0.1:<relayPort>/<address>`, and `Relay` reads `true` (with `Protocol` staying the entry's real wire protocol, `"tcp"` or `"udp"`), marking that it needs a SOCKS5-aware dial rather than a direct one.
+### kind nodes
 
-The engine doesn't make a client do that dial itself. For any step's `ExposedPort` with `Relay` true (not kind-specific, any plugin's), it opens one more loopback listener of its own: for `"tcp"`, it forwards every accepted connection through a SOCKS5 `CONNECT` dial to the target; for `"udp"`, it holds a single SOCKS5 UDP `ASSOCIATE` session open for the listener's whole life instead (see UDP tunnel, below). A plain client like `psql` or `dig` just talks to that local port with no SOCKS5 awareness at all. The address is mirrored into `system` too, as `needs.<step>.system.forward_<name>`, alongside the raw `expose_<name>` entry, and shown in the console as its own row next to the `socks5://...` one, with `(relay)` appended to the label so a relay hop stays visible now that `Protocol` no longer doubles as that signal.
+Pods run in the cluster's own network, which the relay cannot enter. A kind node, though, is an ordinary container. kevin registers each node once when the cluster starts. Every pod's traffic leaves through its node.
 
-## Container tunnel
+A node's rules differ from a container's. They use the `prerouting` hook, to capture traffic that passes through the node, not traffic the node sends itself. They skip the cluster's pod and service CIDRs, which kevin reads from kubeadm's `ClusterConfiguration`, so traffic between pods and to Services is not redirected. If kevin cannot read the CIDRs, it logs the error and does not add capture for that cluster. Wrong exclusions would break pod-to-pod traffic, which is worse than no capture.
 
-A `builtin:container` step's `with.expose` list reuses the same mechanism, but through the domain relay every project already runs (Lifecycle, above), not a dedicated Pod: `kevin-relay forward`'s SOCKS5 listener is that one relay's second job, always on, one loopback port per project - not one per exposed container port the way a direct `docker --publish` is. An expose entry sets `relay: true` to route through it instead of getting its own published port; `Up` skips that entry's `--publish` flag and reports it as a `socks5://<relay>/<step>:<port>` `ExposedPort` instead, the exact shape the previous section describes, dialable because the relay already sits on the same shared docker network as every container step and resolves a step's name through docker's own embedded DNS, the same alias a step already uses to reach another step directly.
+## Intercepted hostnames
 
-kind needs a Pod-per-cluster because a kind cluster is its own network namespace the relay container isn't part of. A container step has no such boundary - it's already on the shared network the relay is already on - so there's nothing to stand up beyond the one listener the relay gains at process start. Trading a dedicated host port for a hop through the relay only pays off past a handful of exposed ports, or when host ports themselves are scarce; a single `expose` entry with no `relay` set is still the plainer, zero-hop default.
+An `intercept: true` route also registers its hostname with the relay's DNS server. The relay answers with a synthetic address from `relay.intercept.ipv4_range` (default `198.18.0.0/15`, reserved for benchmark testing) or `relay.intercept.ipv6_range` (default a fixed ULA prefix). Each hostname gets a stable address.
 
-## UDP tunnel
+A connection to a synthetic address is captured like any other. The relay reads the original destination of the connection (`SO_ORIGINAL_DST` on IPv4, and the IPv6 equivalent) and looks it up to find the route. It does not read the connection's bytes, so an intercept route can carry a TCP protocol that is not HTTP or TLS. Clash and sing-box use the same technique.
 
-Both tunnels above carry `protocol: "udp"` too, through SOCKS5 UDP `ASSOCIATE` (RFC 1928 §7) instead of `CONNECT`. The vendored SOCKS5 library's own `ASSOCIATE` handler binds an OS-assigned ephemeral port, discovered only after the relay container or Pod already exists - too late for Docker or kind to have published it. `kevin-relay` replaces that handler with one that binds a port from a fixed pool instead: `KEVIN_RELAY_UDP_POOL_SIZE` (default 16) pre-published container-side UDP ports for the container relay, or reserved node-internal/host port pairs baked into a kind cluster's `extraPortMappings` and the relay Pod's own `hostPort`s, the same way the single TCP relay port already is. Exhausting the pool is an immediate `RepServerFailure`, never a wait for a session to free one up; a project or cluster that never uses UDP relaying can set the pool size to `0` to skip reserving it at all.
+For a container, the DNS registration is not needed: capture by port already sends the traffic to the relay. For a pod, capture by port also works, but DNS through the relay is still needed to resolve names on the environment domain, which have no public DNS record.
 
-Each relay-routed UDP `ExposedPort` carries `RelayUdpAddrs`, mapping a pool port to its host-reachable address - the `ASSOCIATE` reply names one of these pool ports, and the engine's local UDP forward looks the actual dial address up there, the same reason `SOCKS5Addr` itself is a published port rather than the relay's own docker-network address. The forwarder holds one `ASSOCIATE` session (and its TCP control connection) open for its whole life: RFC 1928 ties the session's lifetime to that connection, so a dropped connection tears the local listener down immediately, with no reconnect.
+## Tunnels from the host
 
-A relay-routed local UDP port serves every local sender it has seen recently, not just the newest one, fanning out each reply from the relay to all of them: SOCKS5 UDP `ASSOCIATE` only tracks one peer identity per session on the wire, so true per-flow demultiplexing isn't available from the protocol either way. This is a documented approximation, not silent behavior - it correctly handles two or three concurrent local tools (`dig`, a client library's own retry, ...) sharing one forwarded port, just not perfect NAT-style flow isolation.
+The relay runs a SOCKS5 server. A client on the host can ask it to connect to an address inside the network. An `ExposedPort` that goes through the relay has an upstream of the form `socks5://127.0.0.1:<relayPort>/<address>` and `Relay: true`.
 
-## Subdomain routing
+Most clients do not speak SOCKS5. For each relay `ExposedPort`, from any plugin, kevin opens a local listener and forwards each connection through the relay. For TCP it uses SOCKS5 `CONNECT`. For UDP it holds one SOCKS5 `ASSOCIATE` session open for the life of the listener. kevin adds the listener's address as `needs.<step>.system.forward_<name>`, next to `expose_<name>`, and the console shows both.
 
-`builtin:route` is the one mechanism for putting a step on the environment domain: `container`, `kind`, or a third-party plugin, any of them, through the exact same `with.routes` list. An entry either names an address the proxy process can dial directly (a `container` step's published loopback address, read from its `Outputs`), or, when the step sets `relay`, a target reached by tunneling through a relay, typically a Kubernetes Service inside a `kind` cluster.
+### kind clusters
 
-The relay-tunneled half reuses `expose`'s existing mechanism. `expose` reaches into a cluster for a raw TCP client. It never goes through the proxy, and it has no concept of a hostname. `builtin:route` reuses the exact same relay Pod and the same `Upstream` convention `expose` already established, a `socks5://` URL whose path carries the real target, but for `Route` instead of `ExposedPort`: it needs nothing new from the wire protocol or the plugin SDK, only a small addition to the proxy itself, since a route's `Upstream` must be something *the proxy process* can dial, and a relay-tunneled target plainly isn't.
+A `builtin:kind` step's `expose` entries run a SOCKS5 relay as a pod in the cluster, from the `kevin-relay socks5-gateway` command. kind's `extraPortMappings` are fixed when the cluster is created, before `Up` knows which services exist. One relay pod needs one host port, whatever the number of services. `Up` chooses the port, adds one `extraPortMappings` entry for it on the control-plane node, loads the relay image into the node, and applies the pod with `kubectl` inside the node.
 
-The proxy's own outbound dial logic reads one piece of request-scoped context: when a request matches a `Route` whose `Upstream` parses as that `socks5://` shape, it rewrites the dial target to the relay's own address (a real, loopback-published address, dialable exactly like any other route's upstream) and stashes the real target alongside it. The dial itself then connects to the relay and issues a SOCKS5 `CONNECT` for that target, instead of treating the relay's own address as the destination. This is the same handshake the engine already performs for a `socks5`-protocol `ExposedPort`, just one layer further down, inside the proxy's own outbound dial rather than an engine-managed local listener. A WebSocket upgrade goes through the identical dial path, so it inherits the same relay-awareness for free.
+`Up` does not wait for an `expose` address to accept connections. The target usually comes from a manifest applied after the cluster starts. A [`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}) `tcp` check can dial the `expose_<name>` value to wait for it.
 
-`builtin:route` itself does no Kubernetes work at all. It isn't `kind`-specific, only convention-compatible with it. It takes a relay address and a list of host/address pairs, and returns one `Route` per pair with `Upstream` built in that same `socks5://` shape. Because `kind`'s relay Pod deploys only when `expose` is non-empty, `kind` gained a `relay: bool` field to opt in to the Pod with no `expose` entries, and publishes the relay's address as a `relay_addr` output for a downstream `route` step to read, keeping `kind` itself decoupled from whatever `kubectl`/`helm` step actually deploys the routed service. DAG ordering (`route`'s `needs` naming both the cluster and the deploying step) is what makes the target address meaningful by the time `route`'s `Up` runs.
+### Containers
 
-## Transparent capture
+A `builtin:container` `expose` entry with `relay: true` uses the project relay's own SOCKS5 server. No extra pod is needed, because the relay is already on the project network and resolves step names through the engine's DNS. This saves a host port for each entry. With few entries, a direct published port is simpler and has one hop fewer.
 
-Every `builtin:container` step's egress is captured unconditionally, with no cooperation needed from the workload: no `HTTP_PROXY`, no `hostAliases` entry, no DNS resolution through the relay at all. Right after a container comes up, the engine calls the relay's `RegisterCapture` RPC with the container's network namespace path (its `Up` already inspects the container to publish outputs; the path is one more field off that same inspect). The relay opens that namespace - `setns()`, by way of an `nftables.Conn` scoped to it - and installs one `inet`-family nftables table with an output-hook NAT chain: a DNAT rule per captured port, per address family the relay itself has an address in, redirecting the container's own outbound connections to the relay regardless of which address they were dialing. A container that resolves the real IP of some third-party API lands on the relay's listener exactly like one that resolved a `builtin:route` name would - the destination address stops mattering once the redirect happens by port, not by name.
+### UDP
 
-The relay always captures 80 and 443. An `intercept: true` route entry (see the [route reference]({{< relref "/docs/reference/steps/route" >}})) that names additional `ports` calls the relay's `EnsureListener` RPC to open a listener for each one and re-apply capture to every container already registered, so a route declared after some containers already exist still reaches them. `EnsureListener` also still registers the route's hostname with the relay's own DNS matcher, exactly as it always did - for a `builtin:container` step this is now redundant (a captured container reaches the interception by port regardless of what it resolved), but it's not dead code: it's the only thing that makes the interception reachable at all for a workload the relay can't capture, covered next.
+SOCKS5 UDP `ASSOCIATE` (RFC 1928 section 7) normally binds a random port, which is known only after the relay container or pod exists, too late to publish it. `kevin-relay` binds a port from a fixed pool instead. The pool is `KEVIN_RELAY_UDP_POOL_SIZE` ports (default 16), published by the relay container, or reserved as host ports on a kind node. When the pool is full, a new session fails immediately. Set the size to `0` to reserve no ports.
 
-A registered hostname's DNS answer is a synthetic address, not the relay's own: on a match, the relay allocates a stable address per hostname out of a configurable IPv4 and IPv6 range (`relay.intercept.ipv4_range`/`ipv6_range` in `kevin.cue`, defaulting to `198.18.0.0/15` - IANA-reserved for benchmark testing, never a real internet address - and a fixed ULA prefix for IPv6, unlikely to collide with a project network's own randomly-generated one) and answers with that instead. This is the same fake-IP technique Clash and sing-box use: a synthetic address that means nothing on its own, standing in for a hostname until the relay reads it back off a captured connection. The unconditional by-port DNAT above captures the connection exactly as it would any other, and the relay recovers the registration by reading the connection's original, pre-NAT destination (`SO_ORIGINAL_DST` on IPv4, its IPv6 counterpart) and looking that address up in the allocation table - no parsing of the connection's own bytes at all. This is what lets a registered route carry a raw, non-HTTP(S) TCP protocol: the relay's ordinary path for an unregistered capture still has to sniff a TLS ClientHello's SNI or an HTTP request's Host header to find out where a connection is going, which only works for HTTP and HTTPS. A registration doesn't need either, because the destination address alone already carries the routing decision.
+Each UDP `ExposedPort` carries `RelayUdpAddrs`, which maps each pool port to its address on the host. The `ASSOCIATE` reply names a pool port, and kevin's local forward looks up the address there. RFC 1928 ties a session to its TCP control connection, so if that connection drops, kevin closes the local listener.
 
-A `builtin:kind` cluster reaches this too, but at the node, not the Pod: a Pod runs inside the cluster's own network namespace, which the relay has no path to from outside it, but a kind node is a plain, host-inspectable docker container exactly like any other - `Up` registers each one, once per node at cluster bring-up rather than once per Pod, since every Pod on a node already routes its egress through that node's own network stack on the way out. A node's registration carries the cluster's pod and service CIDRs (read from kubeadm's own `ClusterConfiguration` configmap) as an exclusion list, and the relay installs a different ruleset for it: a `prerouting`-hook DNAT instead of `output`-hook, capturing what transits the node as a router rather than what the node itself originates, with an early-return rule per excluded CIDR ahead of the per-port DNAT so a Pod's own traffic to another Pod or to a Service never gets redirected. If CIDR discovery fails or reports something that doesn't parse as a CIDR, `Up` logs it and skips capture registration for that cluster entirely rather than installing a redirect with an unverified exclusion list - a wrong or missing exclusion would silently break pod-to-pod and pod-to-service traffic, which is worse than no capture at all. A Pod's registered-hostname interception, on the other hand, still needs CoreDNS forwarding the environment domain to the relay and every node's `/etc/resolv.conf` pointed at it directly (see [Name resolution]({{< relref "/docs/guides/intercept-hostnames" >}})) - that's a Pod resolving a name, which node-level capture can't substitute for; only once a Pod has dialed *something* does capture-by-port take over, the same relationship containers already have with the environment domain's own DNS answer.
+A local UDP forward sends each reply to every client that used it recently. SOCKS5 tracks one peer for each session, so it cannot separate flows. This works for a few tools that share one port, not for full per-flow isolation.
 
-The control channel this rides on - `RegisterCapture`, `EnsureListener` - is gRPC over mutual TLS, not the plain HTTP the relay's control endpoint originally spoke. The engine mints a short-lived server leaf for the relay and a client leaf for itself, both off the project's own intermediate authority (the same one that signs MITM leaves, see [CA]({{< relref "/docs/concepts/ca" >}})), and embeds the server leaf and the project root in the relay container's environment. Only a caller holding a client certificate chained to that root - whose private key lives solely under kevin's own state directories - can drive the relay's DNS/listener/capture state at all; the loopback publish from the Gateway bind section is still what makes the endpoint reachable from the host in the first place, mTLS is what gates it once reached.
+## Routes through the relay
+
+A `builtin:route` entry names either an address the proxy can dial, such as a container's published port, or, with `relay` set, an address inside a kind cluster.
+
+For a relay route, the step returns a `Route` whose upstream uses the `socks5://` form above. When the proxy dials an upstream of that form, it connects to the relay and sends a SOCKS5 `CONNECT` for the real address. WebSocket upgrades use the same dial path.
+
+`builtin:route` does no Kubernetes work. It takes a relay address and a list of host and address pairs. A kind step starts the relay pod when it has `expose` entries or `relay: true`, and reports its address as `relay_addr`. The route's `needs` must include the step that deploys the target, so the target exists when the route starts.
+
+## Control channel
+
+kevin controls the relay over gRPC with mutual TLS. kevin signs a short-lived server certificate for the relay and a client certificate for itself, both from the project CA (see [Certificate authority]({{< relref "/docs/concepts/ca" >}})), and passes the server certificate and root to the relay container. Only a client with a certificate from this project's CA can change the relay's DNS, listeners, capture, or faults. The private key of that CA is in kevin's state directories.
 
 ## Fault injection
 
-[`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}}) reuses the
-exact same privileged mechanism transparent capture does - the relay opens
-a target's `/proc/<pid>/ns/net` and binds a netns-scoped netlink handle to
-it - to install a Linux `netem` qdisc instead of an nftables ruleset,
-delaying, dropping, corrupting, duplicating, or reordering packets on one
-of the namespace's interfaces. `ApplyFault`/`ClearFault` are two more RPCs
-on the same mTLS control channel `RegisterCapture`/`EnsureListener` already
-use, served by `github.com/vishvananda/netlink` rather than
-`github.com/google/nftables`, the same relay binary, no shelled `tc`.
+`builtin:fault` uses the same access as capture. The relay opens a target's `/proc/<pid>/ns/net` and adds a Linux `netem` qdisc to an interface in that namespace, with `github.com/vishvananda/netlink`. The RPCs are `ApplyFault` and `ClearFault`, on the same control channel.
 
-Fault injection acts directly on the target namespace's interface,
-independent of transparent capture, `builtin:route`, and the proxy. Unlike
-capture, which the engine registers automatically for every container a
-step creates, a fault is only ever applied because a `builtin:fault` step
-asked for it, and only for as long as that step (or its target) stays up -
-the engine clears it explicitly on the way down, since nothing about a
-removed netem qdisc is implied by the target container's own state the
-way a stale capture registration is.
+Faults apply to the interface, so they affect all traffic, whether or not it goes through capture, a route, or the proxy. kevin applies a fault only for a `builtin:fault` step, and removes it on teardown.
 
 ## Limits
 
-Installing nftables rules inside another container's network namespace needs real privilege: the relay's own container carries `CAP_NET_ADMIN` (install the rules), `CAP_SYS_ADMIN` (enter the namespace at all), `CAP_SYS_PTRACE`, and shares the host's PID namespace (`--pid host`) so it can open a target's `/proc/<pid>/ns/net` by the PID `docker inspect` reports for it. A read-only bind mount of `/var/run/docker/netns` looks like the more obvious mechanism, but on at least one Docker runtime (OrbStack) a namespace file that appears in that directory after the relay's mount was already attached can be opened and read, yet `setns()` into it fails with `EINVAL` regardless of how long it's had to settle - the mount sees the file, not a joinable namespace. `/proc/<pid>/ns/net` has no such staleness: procfs reflects whatever the host PID namespace holds right now, so it works regardless of which of the relay or the target started first. `CAP_SYS_PTRACE` is what makes that open actually succeed against a `--privileged` target such as a `builtin:kind` node: the kernel treats a privileged container's process as non-dumpable, which blocks a cross-process `/proc/<pid>/ns/*` open without that capability even though `CAP_SYS_ADMIN` plus `--pid host` alone are enough for an ordinary container. Nothing stops a compromised relay from `setns()`-ing into an unrelated, non-kevin process's namespace on the same host either way; none of these capabilities carry a finer-grained ACL. In practice the relay only ever acts on a path the engine itself handed it over the mTLS-gated control channel above, which is what actually bounds this - accepted, not solved, consistent with kevin's existing threat model of a single local dev user (the same user whose MITM CA can already read the project's TLS traffic).
+### Privileges
 
-UDP and QUIC aren't captured - the nftables rule matches TCP only, and the interception path (its HTTP/HTTPS/SNI handling) is TCP-only throughout. A client that falls back to HTTP/3 goes direct. This is separate from the SOCKS5 gateway (Cluster/Container/UDP tunnel, above), which does carry UDP, through `ASSOCIATE` rather than `CONNECT` - transparent capture and the SOCKS5 tunnel are unrelated mechanisms that happen to share one relay process.
+To change another container's network namespace, the relay container has `CAP_NET_ADMIN` (to add rules), `CAP_SYS_ADMIN` (to enter the namespace), and `CAP_SYS_PTRACE`, and shares the host PID namespace (`--pid host`). It opens a target's namespace at `/proc/<pid>/ns/net`, from the PID that `docker inspect` reports.
 
-A step still needs the allow list to reach an external host outright (an image pull, say) - capture gets a request to the proxy, it doesn't itself decide whether the proxy lets it through. A Pod's own DNS resolution of the environment domain, or of a registered `intercept: true` hostname, still depends on the cooperative CoreDNS/`resolv.conf` model (previous section) - capture only takes over once a Pod has actually dialed something.
+A bind mount of `/var/run/docker/netns` did not work: on OrbStack, a namespace file created after the mount can be read, but entering it fails with `EINVAL`. `/proc/<pid>/ns/net` always shows the current host PID namespace, so start order does not matter. `CAP_SYS_PTRACE` is needed to open the namespace of a `--privileged` container, such as a kind node, because the kernel marks its processes non-dumpable.
 
-Published ports remain necessary for the other direction. The host proxy reaches a workload through the loopback address that the container plugin publishes. The proxy runs on the host and cannot resolve a network alias.
+These capabilities let a compromised relay enter the namespace of any process on the host. The relay acts only on paths that kevin sends over the mTLS control channel, which limits this in practice. kevin accepts this risk for its threat model: one local developer, whose kevin CA can already read the project's TLS traffic.
+
+### Protocols
+
+Capture matches TCP only. UDP and QUIC are not captured, and a client that uses HTTP/3 connects directly. The SOCKS5 tunnels do carry UDP. Capture and the tunnels are separate features in the same process.
+
+### Egress
+
+Capture sends traffic to the proxy. The allow list decides whether the proxy lets it through. Traffic on ports that are not captured goes directly to its destination.
+
+### Published ports
+
+The proxy on the host still reaches a workload through the port that the container plugin publishes on the loopback address, because the proxy cannot resolve a network alias.

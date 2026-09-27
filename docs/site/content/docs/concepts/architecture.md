@@ -7,7 +7,7 @@ mermaid: true
 
 # Architecture
 
-A map of kevin's parts and how they connect. Each part has its own page below with the reasoning behind its shape.
+The parts of kevin and how they connect. The other pages in this section explain each part.
 
 ```mermaid
 graph TD
@@ -65,12 +65,12 @@ graph TD
 | Engine        | Loads the environment, starts the plugins, walks the DAG.     |
 | Configuration | Reads `kevin.cue`. Validates every step before anything runs. |
 | DAG engine    | Orders the steps. Runs independent steps concurrently, capped by `engine.max_parallel`. |
-| cri           | The container engine contract - shells out to docker, or podman when `--engine`/`KEVIN_ENGINE` names it. |
-| Plugin host   | Starts a plugin process and keeps the process alive.          |
+| cri           | Runs the `docker` or `podman` command.                         |
+| Plugin host   | Starts the plugin processes and keeps them running.            |
 | Plugin SDK    | The public API that a plugin author implements.               |
 | Wire contract | The gRPC service between the engine and a plugin.             |
 | Proxy         | Terminates TLS, routes to a workload, controls egress.        |
 | Console       | Shows the DAG state, the logs, and the proxy traffic.         |
-| MCP server    | Exposes the running session to an MCP client over Streamable HTTP, mounted at `/_mcp` on the console's own listener. |
-| CA            | Creates the CA and mints a leaf certificate for the proxy.    |
-| Relay         | In-network DNS + TLS/HTTP forwarder for name resolution with no host changes; transparently captures a container's egress to the proxy by installing nftables rules in its network namespace, regardless of DNS or proxy-variable cooperation; plus a SOCKS5 gateway a host process can dial to reach a step directly. |
+| MCP server    | Gives an MCP client, such as a coding agent, access to the running environment, at `/_mcp` on the console address. |
+| CA            | Creates the CA and signs certificates for the proxy and relay. |
+| Relay         | A container on the project network. Answers DNS for the environment domain, sends container traffic to the proxy, and lets the host reach ports inside the network. |

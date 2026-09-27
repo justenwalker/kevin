@@ -1,19 +1,25 @@
 ---
 title: "DAG engine"
-description: "How kevin schedules, validates, and tears down a graph of steps."
+description: "How kevin orders, runs, and removes a graph of steps."
 weight: 4
 ---
 
 # DAG engine
 
-The DAG engine holds a map of step names to dependency names, and validates it up front: an unknown dependency or a cycle fails before anything runs.
+The DAG engine holds a map from each step name to the names it needs. It checks the map before anything runs: an unknown name or a cycle is an error.
 
-Bringing an environment up runs one goroutine per step. A goroutine waits for each of its dependencies to finish, then runs the step. The first step that fails cancels every other step still in flight.
+## Starting
 
-A step whose dependency already failed is skipped, not failed in its own right, so the error a run reports is the root cause, not a cascade of secondary failures downstream of it.
+The engine runs each step in its own goroutine. A goroutine waits for the steps it needs, then runs its step. `engine.max_parallel` limits how many steps run at once.
 
-Bringing an environment up returns the outputs of every step that completed; the engine uses that to remove exactly the steps that came up.
+When a step fails, the engine cancels the steps still running. A step whose dependency failed is skipped, not failed, so the error kevin reports is the cause, not a list of failures that follow from it.
 
-Tearing an environment down reverses every dependency edge and removes steps with the same scheduler, so removal is parallel wherever the graph allows it, the same as bringing it up.
+The engine returns the outputs of every step that finished. kevin uses this list to remove exactly the steps that came up.
 
-A [step group]({{< relref "/docs/reference/environment-file#step-groups" >}}) flattens to one ordinary extra node in the same map: its own name needs every one of its members, and its "step" is a pure computation with no plugin RPC, evaluating the group's `outputs` block against its members' own outputs once they're all done. A member's internal name is never exposed as a dependency target outside its own group.
+## Removing
+
+Teardown reverses every edge and uses the same scheduler. Steps are removed in parallel wherever the graph allows.
+
+## Step groups
+
+A [step group]({{< relref "/docs/reference/environment-file#step-groups" >}}) adds one node to the map. The group's node needs every member. Its work is to compute the group's `outputs` from its members' outputs, with no plugin call. A member's name is not visible outside its group.

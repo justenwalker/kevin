@@ -5,42 +5,50 @@ weight: 100
 
 # kevin vs. other tools
 
-kevin overlaps with a handful of tools people already reach for. None of them do the same things at once: an ephemeral local environment, a real parallel DAG, a TLS-terminating egress-controlled proxy that can intercept a real-world hostname and redirect it to a local container, and a language-agnostic plugin protocol. This page goes through each tool in turn, from the closest in spirit to the furthest, with what's actually alike and what's actually different, not just the one-line table version.
+kevin combines four things: an environment that exists only while you use it, a DAG that runs independent steps in parallel, a proxy that terminates TLS, controls egress, and can intercept real hostnames, and a plugin protocol that any language can implement. This page compares kevin with other tools, from the most similar to the least.
 
 ## Garden
 
-[Garden](https://garden.io) is the closest architectural relative. A Garden project is a [DAG of actions](https://docs.garden.io/reference/glossary#action-graph) with dependencies between them, executed by a [provider/plugin model](https://docs.garden.io/reference/providers), conceptually the same shape as kevin's step DAG and provider-per-plugin-process model, and it's meant for the same job: spinning up dev/test environments, locally or in CI.
+[Garden](https://garden.io) is the most similar. A Garden project is a [graph of actions](https://docs.garden.io/reference/glossary#action-graph) run by [providers](https://docs.garden.io/reference/providers), the same model as kevin's steps and plugins, and it is for the same job: development and test environments, locally or in CI.
 
-Where it diverges is scope and weight. Garden's [project configuration](https://docs.garden.io/using-garden/configuration-overview) spans a project config, one or more action types (`Build`, `Deploy`, `Run`, `Test`), providers, and workflows: a bigger surface to learn than kevin's single `kevin.cue` with a flat `env:` map. Garden also has no equivalent to kevin's proxy: no TLS termination on traffic between services under test, no egress allow-list, no per-request log of what crossed the wire, and no way to intercept a real third-party hostname and redirect it to a local fake. If you're already deep in Garden's action-graph model and don't need traffic visibility or egress control, there's little reason to switch. If what you want is "bring up a small mixed Docker+Kubernetes environment and watch/control what it talks to," kevin is the narrower, purpose-built tool.
+The differences are size and traffic control. Garden's [configuration](https://docs.garden.io/using-garden/configuration-overview) has a project config, several action types (`Build`, `Deploy`, `Run`, `Test`), providers, and workflows. kevin has one file with a map of steps. Garden has no proxy: no TLS termination between services, no egress allow list, no log of requests, and no hostname interception.
 
-## Terraform (or OpenTofu)
+If you already use Garden and do not need traffic control, there is little reason to change. kevin fits a small environment of containers and Kubernetes where you want to see and control the traffic.
 
-Terraform's [dependency graph](https://developer.hashicorp.com/terraform/internals/graph) is a real DAG. Like kevin, its providers are separate processes speaking a [gRPC plugin protocol](https://developer.hashicorp.com/terraform/plugin/terraform-plugin-protocol) over `go-plugin`. Kevin's provider model is the same idea, but applied to local dev instead of cloud infrastructure.
+## Terraform or OpenTofu
 
-The difference is what the graph is *for*. Terraform's [state file](https://developer.hashicorp.com/terraform/language/state/purpose) exists to map configuration to durable, long-lived real-world resources (an EC2 instance, a DNS record), tracked across runs indefinitely. kevin has no state file at all: every `Up`/`Down` derives from live Docker state (containers carry `kevin.project`/`kevin.step` labels), so a crashed run leaves nothing to reconcile and a fresh `kevin run` just works. Terraform also has no console, no proxy, and no egress control: it provisions infrastructure, it doesn't sit in front of the traffic between running services. Use Terraform for the cloud resources an environment depends on. Use kevin to provision local, ephemeral dev environments.
+Terraform's [dependency graph](https://developer.hashicorp.com/terraform/internals/graph) is a DAG, and its providers are separate processes that use a [gRPC plugin protocol](https://developer.hashicorp.com/terraform/plugin/terraform-plugin-protocol). kevin's plugin model uses the same idea.
+
+The graphs have different purposes. Terraform's [state file](https://developer.hashicorp.com/terraform/language/state/purpose) maps configuration to long-lived resources, such as a virtual machine or a DNS record, across runs. kevin has no state file: it finds its resources by container labels, so a crashed run leaves nothing to reconcile. Terraform has no console, proxy, or egress control.
+
+Use Terraform for the cloud resources an environment depends on. Use kevin for the local environment itself.
 
 ## Docker Compose
 
-Compose is the most common thing people reach for first, and the most directly comparable at the surface: both bring up a set of Docker containers from a declarative file and tear them down on command. But Compose's ordering is only [`depends_on`](https://docs.docker.com/compose/how-tos/startup-order/): "start this after that's running," not a scheduler that fans out everything with no dependency between them in parallel the way kevin's DAG does. And per Compose's own docs, `depends_on` waits for a container to be *running*, not *ready*: a `container` step in kevin is ready once its published port accepts a connection, and a `wait` step can chain a richer check (HTTP status, `kubectl rollout status`, an exec probe) onto any step that needs one.
+Compose is the most common choice, and the closest in use: both start a set of containers from a file and remove them on command.
 
-Compose is also explicitly [scoped to single-host deployments](https://docs.docker.com/compose/intro/features-uses/): no Kubernetes step, no built-in TLS-terminating proxy, no egress control, and no way to point a real hostname like `s3.amazonaws.com` at a local container without editing `/etc/hosts` yourself. If your environment is "a few containers on my machine" and you don't need traffic visibility, egress control, or a Kubernetes cluster in the mix, Compose's simplicity is hard to beat. kevin exists for the point where the environment grows past that: mixed Docker+Kubernetes, or you need to see and control what's crossing between services.
+Compose orders containers with [`depends_on`](https://docs.docker.com/compose/how-tos/startup-order/). kevin runs every step with no dependency in parallel. By default, `depends_on` waits until a container is running, and Compose needs a health check to wait for readiness. A kevin container step is ready when its published port accepts a connection, and a `wait` step can add an HTTP, `kubectl`, or command check.
+
+Compose is for [a single host](https://docs.docker.com/compose/intro/features-uses/). It has no Kubernetes step, no TLS-terminating proxy, no egress control, and no way to send a real hostname to a local container without editing `/etc/hosts`.
+
+For a few containers with no need for traffic control or Kubernetes, Compose is simpler. kevin fits when the environment includes Kubernetes, or when you need to see and control traffic between services.
 
 ## Tilt
 
-[Tilt](https://tilt.dev) is [built for Kubernetes](https://tilt.dev) specifically. Its core loop is [live-updating](https://docs.tilt.dev/tutorial/5-live-update.html) a container already running in a cluster in place, skipping a full rebuild-and-redeploy, surfaced through a real-time [web UI](https://docs.tilt.dev/tutorial/3-tilt-ui.html). A Tiltfile is [Starlark](https://docs.tilt.dev/tiltfile_concepts.html) (a Python dialect), which makes it a real program rather than a declared graph: useful for conditionals and loops, but Tilt doesn't model bring-up as a dependency DAG the way kevin or Terraform do; it's closer to "run this script, then watch, and re-sync."
+[Tilt](https://tilt.dev) is for Kubernetes. Its main feature is [live update](https://docs.tilt.dev/tutorial/5-live-update.html): it syncs code into a running container without a rebuild, and shows the result in a [web UI](https://docs.tilt.dev/tutorial/3-tilt-ui.html). A Tiltfile is a [Starlark](https://docs.tilt.dev/tiltfile_concepts.html) program, not a declared graph of steps.
 
-That live-update loop is Tilt's core to its value proposition, and kevin doesn't try to compete with it: kevin doesn't watch your source tree or push code into a running container. What kevin has that Tilt doesn't: DAG-based bring-up/teardown of a *mixed* Docker+Kubernetes environment (not just Kubernetes), and a TLS-terminating, egress-controlled proxy in front of it. If you're already iterating on workloads deployed to a cluster, Tilt is the better fit for that inner loop. If you need to stand the whole mixed environment up and down repeatably with controlled egress, that's kevin's job, not Tilt's.
+kevin does not watch your source code or sync it into containers. kevin starts and removes an environment of containers and Kubernetes clusters in dependency order, with a TLS-terminating, egress-controlled proxy in front.
+
+For fast changes to code in a cluster, use Tilt. To start and remove a mixed environment the same way each time, with egress control, use kevin.
 
 ## Shell scripts
 
-This is where we often start, and honestly, it may be all you need: full control, zero setup, nothing new to install or learn. For a couple of containers that rarely fail partway through, a script is still the right call.
+A script needs nothing new to install or learn. For a few containers that rarely fail partway, a script is enough.
 
-Where it stops scaling is what a DAG engine and a plugin protocol exist to fix: 
+As the script grows, you write by hand what kevin provides:
 
-- Bash parallelism means hand-rolling [`&`/`wait`](https://www.gnu.org/software/bash/manual/html_node/Job-Control-Builtins.html) job control yourself, in every script, correctly, every time. 
-- Cleanup means a [`trap`](https://www.gnu.org/software/bash/manual/html_node/Signals.html) you write and maintain by hand, miss one exit path and a container survives the script that made it. 
-- There's no visibility into the traffic between services beyond whatever you remember to pipe into `docker logs`
-- No egress control at all: nothing stops a step from reaching the internet unless you build a firewall rule for it yourself. 
-- Adding a new kind of service is just more bash: no plugin boundary, no schema, no enforced contract between what one step promises and what the next one expects. 
-
-kevin is what you reach for once the script has grown enough steps, enough failure modes, or enough services talking to each other that hand-rolling all of that yourself stops being the fast option.
+- Parallel steps need [`&` and `wait`](https://www.gnu.org/software/bash/manual/html_node/Job-Control-Builtins.html) job control in every script.
+- Cleanup needs a [`trap`](https://www.gnu.org/software/bash/manual/html_node/Signals.html). If one exit path skips it, a container stays running.
+- There is no view of the traffic between services, other than `docker logs`.
+- There is no egress control without your own firewall rules.
+- A new kind of service is more script, with no schema and no check of what one step gives the next.

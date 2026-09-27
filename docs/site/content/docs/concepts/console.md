@@ -6,12 +6,20 @@ weight: 6
 
 # Console
 
-The console renders with templ and updates with htmx over SSE. Both scripts ship embedded in the binary, thus the console needs no network.
+The console renders HTML on the server with templ, and updates the page with htmx over server-sent events (SSE). The scripts are embedded in the `kevin` binary, so the console works with no network access.
 
-The page renders the state that the server holds, then opens **one** stream. Every later change arrives on that stream as a fragment that names its own target: a step row replaces itself with `hx-swap-oob`, and a log line or a request row arrives inside an `hx-partial` that names the region and the swap. A [step group]({{< relref "/docs/reference/environment-file#step-groups" >}})'s own row is the one exception: only its header fragment swaps out of band, never the whole row, since the row also holds the checkbox that tracks whether the group reads expanded or collapsed - replacing the whole thing on every state change would silently re-collapse an already-expanded group.
+## One stream per page
 
-htmx 4 removed `sse-swap`. An unnamed message swaps into the element that opened the connection, and a named event dispatches a DOM event instead. One connection carrying out of band fragments therefore replaces the per-element subscriptions of htmx 2.
+The page renders the current state, then opens one event stream. Each change arrives on that stream as an HTML fragment that names the element it replaces. A step row replaces itself with `hx-swap-oob`. A log line or a request row arrives in an `hx-partial` that names its region and how to insert it.
 
-A client receives a full repaint as soon as it connects. htmx reconnects on its own after a drop, and without the repaint a browser would hold stale rows until the next change, which may never come.
+A [step group]({{< relref "/docs/reference/environment-file#step-groups" >}}) row is the exception. Only its header is replaced, because the row also holds the control that expands or collapses the group. Replacing the whole row would collapse an expanded group on every update.
 
-The server never blocks on a browser. Each client has a bounded buffer, and a client that falls behind is dropped and reconnects.
+htmx 4 removed `sse-swap`, which htmx 2 used to subscribe each element to its own event. One stream with fragments that name their targets replaces those subscriptions.
+
+## Reconnects
+
+When a client connects, the server sends a full repaint. htmx reconnects on its own after a dropped connection. Without the repaint, the page would show old state until the next change. The page shows a banner while the connection is down.
+
+## Slow clients
+
+The server never waits for a browser. Each client has a bounded buffer. A client that falls behind is disconnected, and reconnects with a full repaint.
