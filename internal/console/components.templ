@@ -899,6 +899,7 @@ templ scripts() {
 			steps.style.marginLeft = gutter + 'px';
 
 			var svgNS = 'http://www.w3.org/2000/svg';
+			var cornerRadius = 4;
 			edges.forEach(function (e) {
 				// depth is constant per lane - every edge in lane N sits at
 				// the same x, whatever its own span, so a lane reads as one
@@ -910,9 +911,16 @@ templ scripts() {
 				path.setAttribute('class', e.running ? 'dep-edge dep-edge-running' : 'dep-edge');
 				path.setAttribute('marker-end', 'url(#dep-arrow)');
 				path.style.stroke = color;
+				// Rounded elbow, not the old diagonal in/straight/diagonal-out
+				// shape - that one kinked backward whenever sy and ty landed
+				// close together; r just shrinks to fit instead.
+				var dir = e.ty >= e.sy ? 1 : -1;
+				var r = Math.min(cornerRadius, depth, Math.abs(e.ty - e.sy) / 2);
 				path.setAttribute('d', 'M' + gutter + ',' + e.sy +
-					' L' + x + ',' + (e.sy + depth) +
-					' L' + x + ',' + (e.ty - depth) +
+					' L' + (x + r) + ',' + e.sy +
+					' Q' + x + ',' + e.sy + ' ' + x + ',' + (e.sy + dir * r) +
+					' L' + x + ',' + (e.ty - dir * r) +
+					' Q' + x + ',' + e.ty + ' ' + (x + r) + ',' + e.ty +
 					' L' + gutter + ',' + e.ty);
 				g.appendChild(path);
 				if (e.running) {
