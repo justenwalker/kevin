@@ -32,6 +32,12 @@ templ Page(v View) {
 					<span class="chip"><b>net</b><code>{ v.Network }</code></span>
 				</div>
 			</header>
+			<!-- Hidden until the SSE connection below reports htmx:sse:error - see
+			     scripts() - since a dropped connection means this page stops
+			     updating without another sign that it's happened. -->
+			<div id="conn-banner" class="conn-banner" hidden role="status">
+				⚠ Disconnected from kevin - this page is showing the last known state until it reconnects.
+			</div>
 			<!-- One connection feeds every region. Each message is an out of
 			     band fragment that names its own target. -->
 			<div hx-sse:connect="/events" hx-swap="none" hidden></div>
@@ -579,6 +585,10 @@ templ styles() {
 			font-size: var(--text-2xs); color: var(--muted);
 		}
 		.header-chips .chip b { color: var(--fg); font-weight: 600; }
+		.conn-banner {
+			background: var(--err); color: #fff; font-weight: 600;
+			padding: var(--sp-5) var(--sp-8); border-radius: 6px; margin-bottom: var(--sp-9);
+		}
 		table { width: 100%; border-collapse: collapse; }
 		th { text-align: left; font-weight: 600; color: var(--muted);
 		     font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .06em; }
@@ -965,6 +975,17 @@ templ scripts() {
 			if (e.target.matches('input[type=radio]')) syncActiveLabels();
 		});
 		document.addEventListener('DOMContentLoaded', syncActiveLabels);
+
+		// Surfaces the SSE extension's own retry state - it also fires
+		// htmx:after:sse:connection on the first connect, so this starts hidden correctly.
+		document.addEventListener('htmx:sse:error', function () {
+			var banner = document.getElementById('conn-banner');
+			if (banner) banner.hidden = false;
+		});
+		document.addEventListener('htmx:after:sse:connection', function () {
+			var banner = document.getElementById('conn-banner');
+			if (banner) banner.hidden = true;
+		});
 	</script>
 }
 
