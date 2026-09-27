@@ -24,14 +24,14 @@ env: web: {
 }
 ```
 
-## File name and format
+## File name
 
 | File | Environment |
 |:-----|:------------|
-| `kevin.cue`, `kevin.yaml`, `kevin.yml`, `kevin.json` | The default environment. |
-| `<name>.kevin.cue`, `<name>.kevin.yaml`, ... | A named environment, selected with `--env <name>` or `KEVIN_ENV`. |
+| `kevin.cue` | The default environment. |
+| `<name>.kevin.cue` | A named environment, selected with `--env <name>` or `KEVIN_ENV`. |
 
-Each name can also start with a `.` (for example `.kevin.cue`). Exactly one file may exist for each environment name. kevin selects the format from the file extension. YAML and JSON decode to the same structure as CUE.
+Each name can also start with a `.` (for example `.kevin.cue`). Exactly one file may exist for each environment name.
 
 Two environments in one directory are independent. Each has its own project name, container network, CA, and state directory, and both can run at the same time.
 
@@ -42,7 +42,6 @@ A CUE file can start with a `package` clause. kevin then also loads every other 
 - kevin ignores `.cue` files with no clause or a different clause.
 - kevin never loads the file of another environment, such as `staging.kevin.cue`, into this one.
 - If the environment file has no clause, but another `.cue` file in the directory has one, kevin reports an error.
-- YAML and JSON files cannot use package mode.
 
 `--tag`/`-t` works only in package mode.
 

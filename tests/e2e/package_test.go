@@ -85,13 +85,15 @@ env: a: {uses: "echo:echo", with: message: "note is \(note)"}
 }
 
 // TestPackageConflictFailsClearly covers the legacy-format-plus-package-mode
-// conflict: a kevin.yaml alongside a .cue sibling that declares a package
-// fails clearly, naming the conflicting file.
+// conflict: a package-less kevin.cue alongside a .cue sibling that declares
+// a package fails clearly, naming the conflicting file.
 func (s *PackageSuite) TestPackageConflictFailsClearly() {
 	dir := s.T().TempDir()
 	echoBin := strconv.Quote(s.echoPluginBin())
 
-	s.writeCUEFile(dir, "kevin.yaml", fmt.Sprintf(yamlEnvFile, "package-conflict", echoBin, "package-conflict"))
+	s.writeCUE(dir, fmt.Sprintf(`project: %s
+plugins: echo: cmd: %s
+`, strconv.Quote("package-conflict"), echoBin))
 	s.writeCUEFile(dir, "mirrors.cue", `package kevin
 
 domain: "should-not-load"

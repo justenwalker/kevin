@@ -71,7 +71,7 @@ installed	postgres	1.4.0
 
 To install an older release, add `--version 1.3.0`. The version must match exactly. To review the signer before you trust it, add `--no-trust`, then trust it yourself (see below).
 
-`install` fails if the environment file already declares a plugin with that name, or if the file is YAML, JSON, or a package-mode CUE file. In those cases, copy the entry from `kevin plugin index show` into the file yourself.
+`install` fails if the environment file already declares a plugin with that name, or if the file is package-mode CUE. In those cases, copy the entry from `kevin plugin index show` into the file yourself.
 
 ## Trust a signer yourself
 

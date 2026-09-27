@@ -711,23 +711,19 @@ plugins: kevin: {cmd: "./anything"}
       `file`, `helm`, `http`, `k8s`, `kubectl`, `kubernetes`, `oci`,
       `official`, `std`) can't be used as a `plugins:` key.
 
-## 15. Environment file formats
+## 15. Environment file name resolution
 
 _Automated by `gnob e2e` (`tests/e2e/cli_test.go`)._
 
-Convert `examples/echo/kevin.cue` to YAML and JSON by hand (or via `cue
-export`) and confirm each runs identically:
-
-- [ ] `kevin.yaml` - same DAG behavior as the `.cue` original.
-- [ ] `kevin.json` - same.
 - [ ] A dotfile variant (`.kevin.cue`) is picked up the same as the
-      non-dotted name.
-- [ ] Two environment files of different formats in the same directory
-      (e.g. `kevin.cue` and `kevin.yaml` both present) - fails clearly
-      ("exactly one" environment file allowed), not a silent pick of one.
-- [ ] A legacy-format file (`kevin.yaml`) alongside a `.cue` sibling that
-      declares a `package` clause fails clearly, naming the conflicting
-      file - not a silent exclusion of the package-mode sibling.
+      non-dotted name, and runs the same DAG.
+- [ ] Two candidate environment files in the same directory (e.g.
+      `kevin.cue` and `.kevin.cue` both present) fail clearly. It reports
+      that exactly one environment file is allowed, not a silent pick of
+      one.
+- [ ] A package-less `kevin.cue` alongside a `.cue` sibling that declares
+      a `package` clause fails clearly, naming the conflicting file. It
+      does not silently exclude the package-mode sibling.
 
 ## 16. Crash resilience / idempotent teardown
 
@@ -955,9 +951,8 @@ domain: *"kevin.home" | string
 - [ ] Adding a package-less `stray.cue` (no `package` clause) alongside
       the two files above changes nothing - its fields are silently
       excluded, not merged, not an error.
-- [ ] Renaming `kevin.cue` to `kevin.yaml` (dropping its `package` clause)
-      while `mirrors.cue` keeps `package kevin` fails clearly, naming
-      `mirrors.cue`.
+- [ ] Dropping `kevin.cue`'s `package` clause while `mirrors.cue` keeps
+      `package kevin` fails clearly, naming `mirrors.cue`.
 
 ## 22. Step groups (`examples/groups`)
 

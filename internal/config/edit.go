@@ -20,12 +20,12 @@ import (
 // environment file (see [Load]) and writes it back, preserving the rest
 // of the file including comments.
 //
-// Returns [ErrUnsupportedEdit] for a YAML/JSON or package-mode CUE
-// environment (plugins: could live in any of several files in package
-// mode - InsertPlugin does not guess which), naming the file to edit by
-// hand instead. Returns [ErrPluginAlreadyDeclared] if the file already
-// has a plugins.<name> entry for snippet's own plugin name -
-// InsertPlugin never overwrites an existing entry.
+// Returns [ErrUnsupportedEdit] for a package-mode CUE environment
+// (plugins: could live in any of several files in package mode -
+// InsertPlugin does not guess which), naming the file to edit by hand
+// instead. Returns [ErrPluginAlreadyDeclared] if the file already has a
+// plugins.<name> entry for snippet's own plugin name - InsertPlugin never
+// overwrites an existing entry.
 func InsertPlugin(dir, name string, snippet []byte) error {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -36,10 +36,6 @@ func InsertPlugin(dir, name string, snippet []byte) error {
 		return err
 	}
 
-	if filepath.Ext(path) != cueExt {
-		return uerr.Wrap(fmt.Errorf("config: %q: %w", path, ErrUnsupportedEdit),
-			"%s is not a CUE file - paste this snippet into it by hand:\n\n%s", path, snippet)
-	}
 	pkg, err := cuePackageName(path)
 	if err != nil {
 		return err

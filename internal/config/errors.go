@@ -75,8 +75,8 @@ const (
 	ErrTagWithoutPackage = Error("config: --tag/-t requires the environment file to declare a CUE package")
 
 	// ErrUnsupportedEdit reports an [InsertPlugin] target that isn't a
-	// single-file CUE environment - a YAML/JSON file, a package-mode CUE
-	// file, or a "plugins:" field that isn't a plain struct literal.
+	// single-file CUE environment - a package-mode CUE file, or a
+	// "plugins:" field that isn't a plain struct literal.
 	ErrUnsupportedEdit = Error("config: environment file does not support automatic editing")
 
 	// ErrPluginAlreadyDeclared reports an [InsertPlugin] target whose

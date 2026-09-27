@@ -100,68 +100,24 @@ env: a: {
 	s.Contains(out, "builtin")
 }
 
-// yamlEnvFile and jsonEnvFile carry the same single-step DAG as oneStepCUE,
-// expressed in YAML and JSON, for the format-parity test.
-const yamlEnvFile = `project: kevin-e2e-format-%s
-plugins:
-  echo:
-    cmd: %s
-proxy:
-  listen: "127.0.0.1:18080"
-  gateway_port: 18081
-  egress:
-    deny: true
-console:
-  listen: "127.0.0.1:18082"
-env:
-  a:
-    uses: echo:echo
-    label: A
-    with:
-      message: hello from %s
-`
-
-const jsonEnvFile = `{
-  "project": "kevin-e2e-format-%s",
-  "plugins": {"echo": {"cmd": %s}},
-  "proxy": {"listen": "127.0.0.1:18080", "gateway_port": 18081, "egress": {"deny": true}},
-  "console": {"listen": "127.0.0.1:18082"},
-  "env": {"a": {"uses": "echo:echo", "label": "A", "with": {"message": "hello from %s"}}}
-}
-`
-
-// TestFileFormatsRunIdentically covers section 15: kevin.yaml, kevin.json,
-// and a dotfile CUE variant all run the same env identically.
-func (s *CLISuite) TestFileFormatsRunIdentically() {
+// TestDotfileEnvRuns covers the dotfile CUE variant (.kevin.cue) running the
+// same env as a plain kevin.cue.
+func (s *CLISuite) TestDotfileEnvRuns() {
+	dir := s.T().TempDir()
 	echoBin := strconv.Quote(s.echoPluginBin())
+	s.writeCUEFile(dir, ".kevin.cue", proxyBlock(s.T())+fmt.Sprintf(oneStepCUE, "kevin-e2e-format-dotfile", echoBin, strconv.Quote("hello from dotfile")))
 
-	cases := []struct {
-		name string
-		file string
-		src  string
-	}{
-		{"yaml", "kevin.yaml", fmt.Sprintf(yamlEnvFile, "yaml", echoBin, "yaml")},
-		{"json", "kevin.json", fmt.Sprintf(jsonEnvFile, "json", echoBin, "json")},
-		{"dotfile-cue", ".kevin.cue", proxyBlock(s.T()) + fmt.Sprintf(oneStepCUE, "kevin-e2e-format-dotfile", echoBin, strconv.Quote("hello from dotfile"))},
-	}
-	for _, tc := range cases {
-		s.Run(tc.name, func() {
-			dir := s.T().TempDir()
-			s.writeCUEFile(dir, tc.file, tc.src)
-
-			out, code := s.runUntil(dir, stepLine("a", "ready"), "-C", dir, "run")
-			s.Equal(0, code, "output:\n%s", out)
-		})
-	}
+	out, code := s.runUntil(dir, stepLine("a", "ready"), "-C", dir, "run")
+	s.Equal(0, code, "output:\n%s", out)
 }
 
-// TestTwoFormatsInOneDirFailClearly covers the ambiguous case: kevin.cue and
-// kevin.yaml both present in the same directory.
-func (s *CLISuite) TestTwoFormatsInOneDirFailClearly() {
+// TestTwoCandidatesInOneDirFailClearly covers the ambiguous case: kevin.cue
+// and its dotfile variant both present in the same directory.
+func (s *CLISuite) TestTwoCandidatesInOneDirFailClearly() {
 	dir := s.T().TempDir()
 	echoBin := strconv.Quote(s.echoPluginBin())
 	s.writeCUE(dir, fmt.Sprintf(oneStepCUE, "kevin-e2e-ambiguous", echoBin, strconv.Quote("hi")))
-	s.writeCUEFile(dir, "kevin.yaml", fmt.Sprintf(yamlEnvFile, "ambiguous", echoBin, "ambiguous"))
+	s.writeCUEFile(dir, ".kevin.cue", fmt.Sprintf(oneStepCUE, "kevin-e2e-ambiguous", echoBin, strconv.Quote("hi")))
 
 	out, code := s.runToCompletion(dir, "-C", dir, "validate")
 	s.NotEqual(0, code, "output:\n%s", out)

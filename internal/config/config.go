@@ -23,8 +23,6 @@ import (
 	cueerrors "cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/load"
 	"cuelang.org/go/cue/parser"
-	jsonpkg "cuelang.org/go/encoding/json"
-	yamlpkg "cuelang.org/go/encoding/yaml"
 
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/uerr"
@@ -41,26 +39,18 @@ var CoreSchema []byte
 // (see [Load]) looks for the same set with "<name>." prefixed to "kevin".
 var FileNames = candidateFiles("")
 
-// envFileExts are the file extensions [candidateFiles] and
-// [looksLikeCandidateName] recognize as an environment file format.
-var envFileExts = [...]string{"cue", "yaml", "yml", "json"}
-
 // cueExt is the file extension of a CUE source file.
 const cueExt = ".cue"
 
 // candidateFiles builds the ordered list of filenames [Load] accepts for a
 // given environment name ("" for the unnamed environment): a visible and a
-// dotfile variant of each supported format.
+// dotfile variant.
 func candidateFiles(name string) []string {
 	prefix := ""
 	if name != "" {
 		prefix = name + "."
 	}
-	out := make([]string, 0, len(envFileExts)*2)
-	for _, ext := range envFileExts {
-		out = append(out, prefix+"kevin."+ext, "."+prefix+"kevin."+ext)
-	}
-	return out
+	return []string{prefix + "kevin.cue", "." + prefix + "kevin.cue"}
 }
 
 // Builtin is the plugin name that resolves to kevin's builtin step types.
@@ -290,16 +280,14 @@ func mustCompileCoreSchema(ctx *cue.Context) cue.Value {
 
 // Load reads the environment file from dir and unifies it with the core
 // schema. With name == "", Load looks for the unnamed environment
-// (kevin.<ext> or .kevin.<ext>); otherwise it looks for the named one
-// (<name>.kevin.<ext> or .<name>.kevin.<ext>) for each of CUE, YAML, and
-// JSON. Exactly one candidate may exist.
+// (kevin.cue or .kevin.cue); otherwise it looks for the named one
+// (<name>.kevin.cue or .<name>.kevin.cue). Exactly one candidate may exist.
 //
-// A CUE candidate may declare a package clause. When it does, Load unifies
+// The candidate may declare a package clause. When it does, Load unifies
 // every other .cue file in dir that shares the same package clause
 // alongside it (CUE's own multi-file-per-package model, via
 // [cuelang.org/go/cue/load]) - a .cue file in dir with a *different*
-// package clause returns [ErrPackageConflict]. YAML and JSON candidates
-// never declare a package and always load alone.
+// package clause returns [ErrPackageConflict].
 //
 // tags injects "@tag" values (see [cuelang.org/go/cue/load.Config.Tags])
 // into a package-mode load; a bare "name" entry (no "=value") is shorthand
@@ -334,11 +322,10 @@ func Load(dir, name string, tags []string) (*File, error) {
 	return &File{ctx: ctx, value: value, dir: abs, name: name}, nil
 }
 
-// loadUser parses path into a [cue.Value]. If path is a .cue file that
-// declares a package clause, loadUser unifies every other .cue file in dir
-// sharing that same clause alongside it, injecting tags as "@tag" values. A
-// package-less path (including every YAML/JSON candidate, which cannot
-// declare a package) parses alone, as [parseFile].
+// loadUser parses path into a [cue.Value]. If path declares a package
+// clause, loadUser unifies every other .cue file in dir sharing that same
+// clause alongside it, injecting tags as "@tag" values. A package-less path
+// parses alone, as [parseFile].
 func loadUser(ctx *cue.Context, dir, path string, tags []string) (cue.Value, error) {
 	pkg, err := cuePackageName(path)
 	if err != nil {
@@ -362,8 +349,8 @@ func loadUser(ctx *cue.Context, dir, path string, tags []string) (cue.Value, err
 }
 
 // loadLegacyFile parses path alone, as [parseFile] - the pre-package-mode
-// behavior for a candidate (of any supported format) that declares no CUE
-// package. It rejects a non-empty tags ([ErrTagWithoutPackage], "@tag"
+// behavior for a candidate that declares no CUE package. It rejects a
+// non-empty tags ([ErrTagWithoutPackage], "@tag"
 // injection only applies to a package-mode load) and a directory that mixes
 // this package-less candidate with a package-mode sibling
 // ([ErrPackageConflict], see [packageModeSiblings]).
@@ -481,13 +468,7 @@ func packageModeFiles(dir, path, pkg string) ([]string, error) {
 // environment's own file alone, whatever package clause it declares.
 func looksLikeCandidateName(base string) bool {
 	trimmed := strings.TrimPrefix(base, ".")
-	for _, ext := range envFileExts {
-		suffix := "kevin." + ext
-		if trimmed == suffix || strings.HasSuffix(trimmed, "."+suffix) {
-			return true
-		}
-	}
-	return false
+	return trimmed == "kevin.cue" || strings.HasSuffix(trimmed, ".kevin.cue")
 }
 
 // normalizeTags translates a bare "name" entry (no "=value") into
@@ -529,26 +510,9 @@ func findFile(abs, name string) (string, error) {
 	}
 }
 
-// parseFile parses src as CUE, YAML, or JSON, chosen by path's extension,
-// into a [cue.Value].
+// parseFile parses src as CUE into a [cue.Value].
 func parseFile(ctx *cue.Context, path string, src []byte) (cue.Value, error) {
-	var v cue.Value
-	switch filepath.Ext(path) {
-	case ".yaml", ".yml":
-		astFile, err := yamlpkg.Extract(path, src)
-		if err != nil {
-			return cue.Value{}, fmt.Errorf("config: parse %q: %w", path, err)
-		}
-		v = ctx.BuildFile(astFile)
-	case ".json":
-		expr, err := jsonpkg.Extract(path, src)
-		if err != nil {
-			return cue.Value{}, fmt.Errorf("config: parse %q: %w", path, err)
-		}
-		v = ctx.BuildExpr(expr)
-	default:
-		v = ctx.CompileBytes(src, cue.Filename(path))
-	}
+	v := ctx.CompileBytes(src, cue.Filename(path))
 	if err := v.Err(); err != nil {
 		return cue.Value{}, fmt.Errorf("config: parse %q: %w", path, err)
 	}

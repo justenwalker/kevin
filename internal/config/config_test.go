@@ -65,41 +65,14 @@ func TestLoad(t *testing.T) {
 
 	t.Run("resolves a dotfile-named environment", func(t *testing.T) {
 		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, ".staging.kevin.yaml"),
-			[]byte("project: staging-hidden\nproxy:\n  listen: \"127.0.0.1:18080\"\n  gateway_port: 18081\n  egress:\n    deny: true\nconsole:\n  listen: \"127.0.0.1:18082\"\n"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".staging.kevin.cue"),
+			[]byte(listenBlockDefault+`project: "staging-hidden"`), 0o600))
 
 		f, err := config.Load(dir, "staging", nil)
 		require.NoError(t, err)
 		cfg, err := f.Config()
 		require.NoError(t, err)
 		assert.Equal(t, "staging-hidden", cfg.Project)
-	})
-
-	t.Run("resolves yaml and json the same as an equivalent cue file", func(t *testing.T) {
-		cueDir := write(t, `project: "from-yaml"
-plugins: echo: cmd: "echo"`)
-		cf, err := config.Load(cueDir, "", nil)
-		require.NoError(t, err)
-		cueSpecs, err := cf.Plugins()
-		require.NoError(t, err)
-
-		yamlDir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(yamlDir, "kevin.yaml"),
-			[]byte("project: from-yaml\nplugins:\n  echo:\n    cmd: echo\nproxy:\n  listen: \"127.0.0.1:18080\"\n  gateway_port: 18081\n  egress:\n    deny: true\nconsole:\n  listen: \"127.0.0.1:18082\"\n"), 0o600))
-		yf, err := config.Load(yamlDir, "", nil)
-		require.NoError(t, err)
-		yamlSpecs, err := yf.Plugins()
-		require.NoError(t, err)
-		assert.Equal(t, cueSpecs, yamlSpecs)
-
-		jsonDir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(jsonDir, "kevin.json"),
-			[]byte(`{"project":"from-yaml","plugins":{"echo":{"cmd":"echo"}},"proxy":{"listen":"127.0.0.1:18080","gateway_port":18081,"egress":{"deny":true}},"console":{"listen":"127.0.0.1:18082"}}`), 0o600))
-		jf, err := config.Load(jsonDir, "", nil)
-		require.NoError(t, err)
-		jsonSpecs, err := jf.Plugins()
-		require.NoError(t, err)
-		assert.Equal(t, cueSpecs, jsonSpecs)
 	})
 
 	t.Run("reports ambiguous candidates", func(t *testing.T) {
@@ -208,17 +181,6 @@ project: "base"`)
 
 	t.Run("rejects a package-mode sibling when the required file has no package clause", func(t *testing.T) {
 		dir := write(t, `project: "base"`)
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "extra.cue"), []byte(`package kevin
-
-domain: "extra.test"`), 0o600))
-
-		_, err := config.Load(dir, "", nil)
-		require.ErrorIs(t, err, config.ErrPackageConflict)
-	})
-
-	t.Run("rejects a package-mode sibling when the required file is yaml", func(t *testing.T) {
-		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.yaml"), []byte("project: base\n"), 0o600))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "extra.cue"), []byte(`package kevin
 
 domain: "extra.test"`), 0o600))

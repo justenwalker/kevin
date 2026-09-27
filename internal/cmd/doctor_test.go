@@ -49,7 +49,7 @@ func TestLoadProjectConfig(t *testing.T) {
 		// Two candidate environment files in the same directory: config.Load
 		// fails with ErrAmbiguous, not ErrNotFound.
 		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(`project: "x"`), 0o600))
-		require.NoError(t, os.WriteFile(dir+"/kevin.yaml", []byte("project: x\n"), 0o600))
+		require.NoError(t, os.WriteFile(dir+"/.kevin.cue", []byte(`project: "x"`), 0o600))
 
 		var buf bytes.Buffer
 		opts := &options{dir: dir}

@@ -47,13 +47,6 @@ func TestInsertPlugin(t *testing.T) {
 		require.ErrorIs(t, err, config.ErrPluginAlreadyDeclared)
 	})
 
-	t.Run("refuses a YAML environment", func(t *testing.T) {
-		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.yaml"), []byte("project: demo\n"), 0o600))
-		err := config.InsertPlugin(dir, "", demoSnippet)
-		require.ErrorIs(t, err, config.ErrUnsupportedEdit)
-	})
-
 	t.Run("refuses a package-mode CUE environment", func(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte("package kevin\nproject: \"demo\"\n"), 0o600))

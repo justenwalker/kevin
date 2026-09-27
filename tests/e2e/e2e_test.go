@@ -259,7 +259,7 @@ func (s *e2eSuite) writeCUE(dir, src string) {
 }
 
 // writeCUEFile writes src to dir/name - for a named environment file
-// (staging.kevin.cue) or a second format alongside the default kevin.cue.
+// (staging.kevin.cue) or a dotfile variant alongside the default kevin.cue.
 func (s *e2eSuite) writeCUEFile(dir, name, src string) {
 	t := s.T()
 	t.Helper()
