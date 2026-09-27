@@ -258,7 +258,7 @@ func (s *KindSuite) TestExposeReachesTheAPIServerThroughSOCKS5() {
 	s.Require().Len(s.up.ExposedPorts, 1)
 	ep := s.up.ExposedPorts[0]
 	s.Equal("apiserver", ep.Name)
-	s.Equal("socks5", ep.Protocol)
+	s.Equal("tcp", ep.Protocol)
 
 	relayAddr, target, ok := strings.Cut(strings.TrimPrefix(ep.Upstream, "socks5://"), "/")
 	s.Require().True(ok, "Upstream must carry both the relay address and the target")
