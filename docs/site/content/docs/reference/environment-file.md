@@ -77,6 +77,7 @@ The flag is repeatable. Without the flag, the field keeps its value from the fil
 | `setup` | `{[name]: #Step \| #StepGroup}` | - | Steps that persist across runs. `kevin setup` starts them and `kevin teardown` removes them. |
 | `env` | `{[name]: #Step \| #StepGroup}` | - | Steps that `kevin run` starts and removes on exit. |
 | `commands` | `{[name]: #Command}` | - | Commands that `kevin do` runs. See [Commands](#commands). |
+| `variables` | `{[name]: #Variable}` | - | External inputs, read as `${vars.<name>}`. See [Variables](#variables). |
 | `proxy` | `#Proxy` | - | **Required.** See [Proxy](#proxy). |
 | `console` | `#Console` | - | **Required.** See [Console](#console). |
 | `engine` | `#Engine` | - | See [Engine](#engine). |
@@ -127,6 +128,7 @@ env: {
 | `${setup.<step>.out.<key>}` | An output of a `setup.<step>` entry in `needs`. |
 | `${env.<VAR>}` | An environment variable of the `kevin` process. |
 | `${project.<key>}` | A project value, such as the CA certificate path. |
+| `${vars.<name>}` | A `variables` entry's resolved value. See [Variables](#variables). |
 
 `kevin validate` fails when an expression names a step that is not in `needs`. See [CEL expressions]({{< relref "/docs/reference/cel-expressions" >}}) for every variable and error. Each step type's reference page lists its outputs.
 
@@ -192,6 +194,39 @@ kevin do psql -- -c "select 1"
 ```
 
 Arguments after `--` are appended to `run`. `kevin validate` checks every command's `needs` and expressions.
+
+## Variables
+
+`variables` declares external inputs: values the person running `kevin run`, `setup`, or `do` supplies, rather than something computed from another step. Each key is a variable name (letters, digits, underscore, not starting with a digit - it's also a CEL identifier) mapped to:
+
+| Field | Type | Default | Description |
+|:------|:----:|:-------:|:------------|
+| `default` | `string` | - | Value when nothing external supplies one. Omit it to make the variable required. |
+| `sensitive` | `bool` | `false` | Marks the value as secret. A field reading it via `${vars.<name>}` is always redacted in the console and MCP server, the same as a field reading an already-sensitive output. |
+
+```cue
+variables: {
+    region: default: "us-east-1"
+    api_key: sensitive: true
+}
+env: app: {
+    uses: "builtin:container"
+    with: env: {
+        REGION:  "${vars.region}"
+        API_KEY: "${vars.api_key}"
+    }
+}
+```
+
+A value comes from one of three sources, highest precedence first:
+
+| Source | Example |
+|:-------|:--------|
+| `--var KEY=VALUE` (repeatable) | `kevin run --var api_key=sk-123` |
+| `KEVIN_VAR_<NAME>` (name upper-cased) | `KEVIN_VAR_API_KEY=sk-123 kevin run` |
+| `--var-file <path>` | `kevin run --var-file secrets.env`, one `KEY=VALUE` per line, blank lines and `#` comments skipped |
+
+A key in a var-file or the environment that names no declared variable is ignored - the file can be shared across more than one `kevin.cue`. `kevin validate` fails when a required variable has no value from any source, or when a `${vars.<name>}` expression names a variable `variables` does not declare.
 
 ## Plugins
 
@@ -293,6 +328,8 @@ Change an `intercept` range only when it overlaps a network your workloads use.
 |:---------|:------------|
 | `KEVIN_ENV` | Default for `--env`. |
 | `KEVIN_ENGINE` | Default for `--engine`: `docker` or `podman`. |
+| `KEVIN_VAR_FILE` | Default for `--var-file`. |
+| `KEVIN_VAR_<NAME>` | Supplies a declared variable's value, name upper-cased. See [Variables](#variables). |
 | `KEVIN_PROJECT_STATE_DIR` | Project state directory. Default: `.kevin/` in the project directory, or `.kevin/<name>/` for a named environment. |
 | `KEVIN_USER_STATE_DIR` | User state directory, for the root CA, trust stores, and package cache. Default: `~/.kevin/`. |
 | `KEVIN_RELAY_IMAGE` | Relay image. Overrides `relay.image`. |

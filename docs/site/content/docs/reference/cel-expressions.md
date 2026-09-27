@@ -1,7 +1,7 @@
 ---
 title: "CEL expressions"
 weight: 1
-description: "The ${...} syntax and variables (needs, setup, env, project) available inside a step's with block."
+description: "The ${...} syntax and variables (needs, setup, env, project, vars) available inside a step's with block."
 ---
 
 # CEL expressions
@@ -81,15 +81,27 @@ up: command: [
 ]
 ```
 
+## `vars`
+
+`vars.<name>`. A [`variables`]({{< relref "/docs/reference/environment-file#variables" >}}) entry's resolved value - a var-file, a `KEVIN_VAR_<NAME>` environment variable, a `--var` argument, or the entry's own `default`.
+
+```cue
+variables: region: default: "us-east-1"
+env: app: with: env: REGION: "${vars.region}"
+```
+
+A `variables` entry with `sensitive: true` is always redacted wherever the console or MCP server shows a field that reads it, the same as a field reading an already-sensitive output.
+
 ## Errors
 
-Each error fails the step before the step starts. `kevin validate` also reports a `needs` or `setup` reference to a step that is not in `needs`.
+Each error fails the step before the step starts. `kevin validate` also reports a `needs` or `setup` reference to a step that is not in `needs`, and a `vars` reference to a name `variables` does not declare.
 
 | Cause | Example | Message mentions |
 |:------|:--------|:------------------|
 | `<step>` isn't listed in this step's `needs`, or has no such `out`/`system` key | `${needs.other.out.x}` | the step name |
 | `<VAR>` isn't set in kevin's environment | `${env.MISSING}` | the step name |
 | `<key>` isn't one of `project`'s known keys | `${project.no_such_key}` | the step name |
+| `<name>` isn't declared in `variables`, or has no value from any source and no `default` | `${vars.no_such_key}` | the variable name |
 | The result is not a string | `${1 + 1}` | `must evaluate to a string` |
 | `${` with no matching `}` | `${needs.cluster.out.x` | the unbalanced marker |
 | The text inside `${...}` isn't valid CEL | `${needs.}` | the CEL compile error |

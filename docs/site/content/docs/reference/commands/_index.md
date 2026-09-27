@@ -16,3 +16,5 @@ Every `kevin` command accepts these flags:
 | `--tag`, `-t` | `[]string` | none | inject a CUE `@tag` value (repeatable); requires the environment file to declare a CUE package |
 | `--engine` | `string` | `$KEVIN_ENGINE`, else auto-detected | container engine to use: `docker` or `podman` |
 | `--debug` | `bool` | `false` | log at debug level |
+| `--var-file` | `string` | `$KEVIN_VAR_FILE` | path to a `KEY=VALUE` file supplying `variables:` block values |
+| `--var` | `[]string` | none | set a `variables:` block value as `KEY=VALUE` (repeatable); overrides `--var-file` and `KEVIN_VAR_<NAME>` |

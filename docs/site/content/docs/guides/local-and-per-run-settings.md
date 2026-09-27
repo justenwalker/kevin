@@ -77,3 +77,4 @@ Use an `if` block to change a field that already has a default, such as `domain`
 
 - [Environment file: tags]({{< relref "/docs/reference/environment-file#tags" >}})
 - [Environment file: package mode]({{< relref "/docs/reference/environment-file#package-mode" >}})
+- [Variables]({{< relref "/docs/guides/variables" >}}) - a `--var`/var-file/environment-variable alternative that needs no CUE package mode
