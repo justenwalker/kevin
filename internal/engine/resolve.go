@@ -193,6 +193,9 @@ func LoadAndLaunch(ctx context.Context, dir, name string, tags []string, vars co
 	if err = cfg.ResolveVariables(vars); err != nil {
 		return nil, plugins, nil, err
 	}
+	if err = cfg.ResolvePluginConfigs(schemas); err != nil {
+		return nil, plugins, nil, err
+	}
 	if err = validateNeeds(cfg); err != nil {
 		return nil, plugins, nil, err
 	}

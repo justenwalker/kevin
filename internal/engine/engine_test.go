@@ -1604,6 +1604,49 @@ func TestInputRows(t *testing.T) {
 	})
 }
 
+// TestValidateRenderedWith proves renderWith's post-render schema check
+// (validateRenderedWith) catches a rendered with block that doesn't
+// actually satisfy its step type's schema - the case config-validate time
+// couldn't yet, since a bare "${...}" marker's real value (a declared
+// variable's, or a needs/setup-sourced one) is only known once it's
+// rendered. A with block with no marker at all never reaches this check
+// with anything new to verify, since config-validate time already fully
+// checked it.
+func TestValidateRenderedWith(t *testing.T) {
+	caps := map[string]pluginhost.Info{
+		"myplugin": {Steps: []pluginhost.StepInfo{
+			{Name: "mystep", Schema: []byte(`#Config: {port: int}`)},
+		}},
+	}
+	step := config.Step{Uses: "myplugin:mystep", With: json.RawMessage(`{"port":"${vars.port}"}`)}
+
+	t.Run("a rendered value matching the schema passes", func(t *testing.T) {
+		r := &run{caps: caps}
+		err := r.validateRenderedWith("app", step, json.RawMessage(`{"port":3}`))
+		require.NoError(t, err)
+	})
+
+	t.Run("a rendered value of the wrong type fails", func(t *testing.T) {
+		r := &run{caps: caps}
+		err := r.validateRenderedWith("app", step, json.RawMessage(`{"port":"not-an-int"}`))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "app.with")
+	})
+
+	t.Run("a with block with no marker at all skips the check", func(t *testing.T) {
+		r := &run{caps: caps}
+		noMarker := config.Step{Uses: "myplugin:mystep", With: json.RawMessage(`{"port":3}`)}
+		err := r.validateRenderedWith("app", noMarker, json.RawMessage(`{"port":"not-an-int"}`))
+		require.NoError(t, err, "no marker means config-validate time already fully checked this field")
+	})
+
+	t.Run("an unknown plugin skips the check", func(t *testing.T) {
+		r := &run{caps: map[string]pluginhost.Info{}}
+		err := r.validateRenderedWith("app", step, json.RawMessage(`{"port":"not-an-int"}`))
+		require.NoError(t, err)
+	})
+}
+
 func TestSensitiveWithFields(t *testing.T) {
 	t.Run("no schema reports no fields", func(t *testing.T) {
 		fields, err := sensitiveWithFields(nil)

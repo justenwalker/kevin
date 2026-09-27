@@ -2,6 +2,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1289,7 +1290,35 @@ func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[stri
 	if err != nil {
 		return nil, fmt.Errorf("%s: with: %w", name, err)
 	}
+	if err := r.validateRenderedWith(name, step, with); err != nil {
+		return nil, err
+	}
 	return with, nil
+}
+
+// validateRenderedWith re-checks with - name's fully rendered with block -
+// against its own step type's schema. config-validate time (see
+// internal/config's validateStep) already checked every field whose value
+// wasn't a bare "${...}" marker, and deferred one that was, since a
+// needs/setup-sourced marker's real value doesn't exist until now - this
+// catches a deferred field whose rendered value doesn't actually satisfy
+// the schema (e.g. a variable declared "type: string" filling a field the
+// plugin types "int"). A with block with no marker at all never reaches
+// here with anything new to check.
+func (r *run) validateRenderedWith(name string, step config.Step, with json.RawMessage) error {
+	if !bytes.Contains(step.With, []byte("${")) {
+		return nil
+	}
+	ref, err := config.ParseStepRef(step.Uses)
+	if err != nil {
+		return fmt.Errorf("%s: with: %w", name, err)
+	}
+	for _, st := range r.caps[ref.Plugin].Steps {
+		if st.Name == ref.Step {
+			return config.ValidateAgainstSchema(name+".with", with, st.Schema)
+		}
+	}
+	return nil
 }
 
 // inputRows builds one Detail row per top-level field of raw (name's
@@ -2008,6 +2037,9 @@ func (r *run) doExportCrossScopeStep(ctx context.Context, setupName string) (exp
 	with, err := expr.Render(step.With, setupName, expr.Scopes{Project: r.project, Vars: r.cfg.VariableValues})
 	if err != nil {
 		return exportedStep{}, fmt.Errorf("setup step %q: %w", setupName, err)
+	}
+	if validateErr := r.validateRenderedWith(setupName, step, with); validateErr != nil {
+		return exportedStep{}, validateErr
 	}
 	resp, err := client.Export(ctx, &pb.ExportRequest{
 		Step: setupName, Type: ref.Step, Env: r.env, Config: with,
