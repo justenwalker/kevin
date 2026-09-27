@@ -34,6 +34,7 @@ import (
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/docker"
+	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pluginhost"
@@ -1298,6 +1299,42 @@ env: {
 	require.NoError(t, <-done)
 }
 
+// TestRunPopulatesStepInputsAndOutputs proves a step's resolved with block
+// and published outputs reach the console's detail dialog: b's rendered
+// with value (not the raw "${needs...}" template) and a's published output
+// both show up on the page.
+func TestRunPopulatesStepInputsAndOutputs(t *testing.T) {
+	requireRelay(t)
+
+	consoleAddr := freeAddr(t)
+	dir := project(t, `
+console: listen: "`+consoleAddr+`"
+env: {
+	a: {uses: "echo:echo", with: {message: "A", outputs: greeting: "hi"}}
+	b: {uses: "echo:echo", needs: ["a"], with: message: "hello ${needs.a.out.greeting}"}
+}
+`)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	w := &watcher{}
+	done := runAsync(t, ctx, dir, w)
+
+	waitForCount(t, w, "b                ready", 1, 30*time.Second)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	page := getPage(t, client, "http://"+consoleAddr)
+
+	assert.Contains(t, page, ">greeting<", "a's outputs panel must show its published output's key")
+	assert.Contains(t, page, `title="hi"`, "a's outputs panel must show its published output's value")
+	assert.Contains(t, page, ">message<", "b's inputs panel must show its with block's field name")
+	assert.Contains(t, page, `title="hello hi"`,
+		"b's inputs panel must show the rendered with value, not the raw needs.* template")
+
+	cancel()
+	require.NoError(t, <-done)
+}
+
 // TestRunRemovesAnOrphanContainerAndTheNetwork proves reap finds a container
 // a crashed plugin left behind by its labels alone, and removes it along
 // with the project's network.
@@ -1461,6 +1498,61 @@ func TestOutputsToProto(t *testing.T) {
 		}},
 		outputsToProto(dag.Outputs{"k": output.Value{String: "v"}, "secret": output.Value{String: "s", Sensitive: true}}),
 	)
+}
+
+func TestInputRows(t *testing.T) {
+	t.Run("no with block reports no rows", func(t *testing.T) {
+		rows, err := inputRows(nil, nil, expr.Scopes{})
+		require.NoError(t, err)
+		assert.Nil(t, rows)
+	})
+
+	t.Run("one row per top-level field, sorted, with the rendered value", func(t *testing.T) {
+		raw := json.RawMessage(`{"image":"postgres:16","port":"${needs.db.out.port}"}`)
+		rendered := json.RawMessage(`{"image":"postgres:16","port":"5432"}`)
+		rows, err := inputRows(raw, rendered, expr.Scopes{Needs: map[string]dag.Outputs{
+			"db": {"port": output.Value{String: "5432"}},
+		}})
+		require.NoError(t, err)
+		assert.Equal(t, []session.Detail{
+			{Label: "image", Value: "postgres:16"},
+			{Label: "port", Value: "5432"},
+		}, rows)
+	})
+
+	t.Run("a field referencing a sensitive value is marked Sensitive", func(t *testing.T) {
+		raw := json.RawMessage(`{"password":"${needs.db.out.password}"}`)
+		rendered := json.RawMessage(`{"password":"hunter2"}`)
+		rows, err := inputRows(raw, rendered, expr.Scopes{Needs: map[string]dag.Outputs{
+			"db": {"password": output.Value{String: "hunter2", Sensitive: true}},
+		}})
+		require.NoError(t, err)
+		assert.Equal(t, []session.Detail{{Label: "password", Value: "hunter2", Sensitive: true}}, rows)
+	})
+
+	t.Run("a non-string field keeps its compact JSON form", func(t *testing.T) {
+		raw := json.RawMessage(`{"ports":[5432,5433]}`)
+		rows, err := inputRows(raw, raw, expr.Scopes{})
+		require.NoError(t, err)
+		assert.Equal(t, []session.Detail{{Label: "ports", Value: "[5432,5433]"}}, rows)
+	})
+}
+
+func TestOutputRows(t *testing.T) {
+	t.Run("no outputs reports no rows", func(t *testing.T) {
+		assert.Nil(t, outputRows(nil))
+	})
+
+	t.Run("one row per output, sorted, sensitive rows not copyable", func(t *testing.T) {
+		rows := outputRows(map[string]output.Value{
+			"endpoint": {String: "localhost:55432"},
+			"password": {String: "hunter2", Sensitive: true},
+		})
+		assert.Equal(t, []session.Detail{
+			{Label: "endpoint", Value: "localhost:55432", Copyable: true},
+			{Label: "password", Value: "hunter2", Sensitive: true, Copyable: false},
+		}, rows)
+	})
 }
 
 func TestProxyEnvKeepsInternalTrafficOffTheProxy(t *testing.T) {

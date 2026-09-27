@@ -1249,10 +1249,10 @@ func (r *run) trackProgress(ctx context.Context, name string, estimate time.Dura
 	return cancel
 }
 
-// renderWith resolves name's `with` block against deps and the recorded
-// system outputs of those deps, plus setupDeps for any cross-scope
-// "setup.<name>" needs entry, for either an Up or a Down request.
-func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[string]dag.Outputs) (json.RawMessage, error) {
+// scopesFor builds the expr.Scopes name's `with` block renders against:
+// deps' own outputs plus the recorded system outputs of those deps, and
+// setupDeps for any cross-scope "setup.<name>" needs entry.
+func (r *run) scopesFor(name string, deps, setupDeps map[string]dag.Outputs) expr.Scopes {
 	r.systemMu.Lock()
 	system := make(map[string]dag.Outputs, len(deps))
 	for dep := range deps {
@@ -1270,11 +1270,89 @@ func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[stri
 	deps = localizeDeps(name, deps)
 	system = localizeDeps(name, system)
 
-	with, err := expr.Render(step.With, name, expr.Scopes{Needs: deps, System: system, Setup: setupDeps, Project: r.project})
+	return expr.Scopes{Needs: deps, System: system, Setup: setupDeps, Project: r.project}
+}
+
+// renderWith resolves name's `with` block against deps and the recorded
+// system outputs of those deps, plus setupDeps for any cross-scope
+// "setup.<name>" needs entry, for either an Up or a Down request.
+func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[string]dag.Outputs) (json.RawMessage, error) {
+	with, err := expr.Render(step.With, name, r.scopesFor(name, deps, setupDeps))
 	if err != nil {
 		return nil, fmt.Errorf("%s: with: %w", name, err)
 	}
 	return with, nil
+}
+
+// inputRows builds one Detail row per top-level field of raw (name's
+// declared `with:` block, before rendering), pairing it with rendered's
+// corresponding value and marking it Sensitive when any
+// "${needs.../setup...}" marker inside it resolves to a sensitive value in
+// scopes. A `with` block with no fields (a step that declared none) reports
+// no rows.
+func inputRows(raw, rendered json.RawMessage, scopes expr.Scopes) ([]session.Detail, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &rawFields); err != nil {
+		return nil, fmt.Errorf("with: decode: %w", err)
+	}
+	var renderedFields map[string]json.RawMessage
+	if err := json.Unmarshal(rendered, &renderedFields); err != nil {
+		return nil, fmt.Errorf("with: decode rendered: %w", err)
+	}
+
+	names := make([]string, 0, len(rawFields))
+	for field := range rawFields {
+		names = append(names, field)
+	}
+	sort.Strings(names)
+
+	rows := make([]session.Detail, 0, len(names))
+	for _, field := range names {
+		sensitive, err := expr.FieldSensitive(rawFields[field], scopes)
+		if err != nil {
+			return nil, fmt.Errorf("with.%s: %w", field, err)
+		}
+		rows = append(rows, session.Detail{
+			Label:     field,
+			Value:     scalarString(renderedFields[field]),
+			Sensitive: sensitive,
+		})
+	}
+	return rows, nil
+}
+
+// scalarString renders one with-field's rendered value for display: a JSON
+// string unquotes to its bare text, anything else (a number, bool, object,
+// array) keeps its compact JSON form.
+func scalarString(raw json.RawMessage) string {
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+// outputRows converts a step's outputs into the rows its detail dialog
+// shows, sorted by key for a stable order across renders.
+func outputRows(values map[string]output.Value) []session.Detail {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	rows := make([]session.Detail, 0, len(keys))
+	for _, k := range keys {
+		v := values[k]
+		rows = append(rows, session.Detail{Label: k, Value: v.String, Sensitive: v.Sensitive, Copyable: !v.Sensitive})
+	}
+	return rows
 }
 
 // reportUpFailure marks name Failed and logs err, unless ctx is already
@@ -1338,6 +1416,11 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 		r.reportUpFailure(ctx, name, err)
 		return nil, err
 	}
+	if rows, rowsErr := inputRows(step.With, with, r.scopesFor(name, deps, setupDeps)); rowsErr != nil {
+		r.emit(name, "warning: inputs: "+uerr.Display(rowsErr))
+	} else {
+		r.store.SetStepInputs(name, rows)
+	}
 
 	req := &pb.UpRequest{
 		Step:       name,
@@ -1400,6 +1483,7 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 
 	out := outputsFromProto(result.GetOutputs())
 	r.mergeCompleted(map[string]dag.Outputs{name: out})
+	r.store.SetStepOutputs(name, outputRows(valuesFromProto(result.GetOutputs())))
 	return out, nil
 }
 
