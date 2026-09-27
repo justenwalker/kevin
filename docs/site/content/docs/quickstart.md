@@ -5,18 +5,25 @@ weight: 1
 
 # Quickstart
 
+In this tutorial you install kevin, start an example environment with an nginx container, and reach it over HTTPS through the kevin proxy.
+
 ## Prerequisites
 
-- `kevin` on your `PATH` (see below), or build it yourself (see [Contributing]({{< relref "/docs/contributing" >}}))
-- a running Docker daemon (or Podman, selected with `--engine podman` or `KEVIN_ENGINE=podman` - see [Container Engine]({{< relref "/docs/concepts/container-engine" >}}))
-- a clone of this repository, for the example environments below
+- Docker, running. Podman also works: add `--engine podman` to each `kevin` command.
+- `git` and `curl`.
+- A clone of the kevin repository, for the example environment:
 
-## Install
+  ```sh
+  git clone https://github.com/justenwalker/kevin.git
+  cd kevin
+  ```
 
-Download the archive for your OS/arch from the [GitHub releases page](https://github.com/justenwalker/kevin/releases), or with `curl`:
+## Install kevin
+
+Download the archive for your OS and architecture from the [GitHub releases page](https://github.com/justenwalker/kevin/releases), or use `curl`:
 
 ```sh
-VERSION={{% version %}}  # see the releases page for the latest
+VERSION={{% version %}}
 OS=darwin      # or: linux
 ARCH=arm64     # or: amd64
 
@@ -27,7 +34,7 @@ sudo mv kevin /usr/local/bin/kevin
 kevin --version
 ```
 
-Each release also publishes a `checksums.txt` you can check the archive against:
+To verify the archive, download the release's `checksums.txt` and check it:
 
 ```sh
 curl -fsSL -o checksums.txt \
@@ -35,53 +42,53 @@ curl -fsSL -o checksums.txt \
 grep "kevin_${VERSION}_${OS}_${ARCH}.tar.gz" checksums.txt | shasum -a 256 -c -
 ```
 
-## First run
-
-If something looks wrong before or during a run, `kevin -C examples/web doctor` checks the container engine (docker, or a project's configured podman), the CA, and the project's ports in one pass.
+## Check your machine
 
 ```sh
-kevin -C examples/web run      # Ctrl-C to remove
+kevin -C examples/web doctor
 ```
 
-`examples/web` starts an nginx container, then a second container that fetches the page from it by step name over the shared docker network. The proxy serves the container over TLS with a certificate that the kevin CA signs:
+Each check prints `ok`, `fail`, or `skip`. A `fail` on the container engine means Docker is not running. The CA checks report `not trusted` until you trust the kevin CA at the end of this tutorial. That is expected.
+
+## Start the environment
+
+```sh
+kevin -C examples/web run
+```
+
+kevin prints the proxy and console addresses, then starts four steps from `examples/web/kevin.cue`: an nginx container named `web`, a route that serves it as `web.kevin.home`, and two containers that fetch the page from `web`. Wait until every step shows as ready. Leave it running.
+
+## Reach the container through the proxy
+
+In a second terminal, from the repository root:
 
 ```sh
 curl --proxy http://127.0.0.1:18080 \
-     --cacert examples/web/.kevin/root.crt \
+     --cacert ~/.kevin/root.crt \
      https://web.kevin.home/
 ```
 
-A [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step puts a name on the environment domain. The domain defaults to `kevin.home`. It works the same way whether the address behind the name is a container's published port (as in `examples/web`) or something reached through a relay, such as a Service inside a `builtin:kind` cluster.
+The output is the nginx welcome page. The proxy terminated TLS with a certificate signed by the kevin CA, which `--cacert` tells `curl` to trust.
 
-A browser needs no configuration beyond pointing at the proxy's auto-config file, `http://127.0.0.1:18080/proxy.pac`: it sends the environment domain through the proxy and everything else direct. Behind the scenes, an in-network relay container resolves `<step>.<domain>` and egress denies by default: see [Name resolution]({{< relref "guides/relay-and-name-resolution" >}}) and [Proxy and egress]({{< relref "guides/proxy-and-egress" >}}) for the full model.
+## Open the console
 
-## Console
+Open the console address that `kevin run` printed (`http://127.0.0.1:18081` for this example). The console shows the four steps, their logs, and the `curl` request you just sent.
 
-The console shows the step DAG, the logs of every step, and the traffic through the proxy, at the address that `kevin run` prints. Add `--open` to launch it in the default browser once it's listening.
+## Stop the environment
 
-## MCP server
-
-`kevin run` also prints an `mcp` address - an MCP server at `/_mcp` on the console's own address, giving a coding agent the same step list/status, rerun, and proxy-info surface the console gives a human. Its own **MCP** tab on the console page has the exact command to register it with Claude Code (`claude mcp add --transport http kevin <url>`).
-
-## Terminal output
-
-Running in an actual terminal, `kevin run`/`teardown` draw a live, redrawing list instead of scrolling a line per event: one row per step, its state, and a progress bar once an estimate exists for it. Piped output, a log file, or `--debug` fall back to the plain line-per-event stream instead.
-
-`kevin` also writes a full JSON copy of every log line, including debug-level lines, to `.kevin/kevin.log` in the project directory.
+Press Ctrl-C in the terminal that runs `kevin run`. kevin removes every container it started.
 
 ## Trust the CA
 
-To drop the `--cacert` flag, install the kevin root into the trust stores of the machine. This needs no project - do it once for the machine, any time, even before `kevin.cue` exists:
+To use HTTPS without `--cacert`, add the kevin root CA to the trust stores of your machine. Do this once per machine:
 
 ```sh
-kevin ca install       # install
-kevin ca uninstall     # remove
+kevin ca install
 ```
-
-See [CA and trust store]({{< relref "guides/ca-and-trust" >}}) for what this installs and why it's safe to run once for the machine rather than once per project.
 
 ## Next steps
 
-- [Guides]({{< relref "guides" >}}): how to use each part of kevin, including the other three example environments in the repository.
-- [Concepts]({{< relref "/docs/concepts" >}}): why the DAG engine, the proxy, and the CA are shaped the way they are.
-- [Environment file]({{< relref "/docs/reference/environment-file" >}}): the full `kevin.cue` shape.
+- [Environment file]({{< relref "/docs/reference/environment-file" >}}): write a `kevin.cue` for your own project.
+- [Proxy and egress]({{< relref "/docs/guides/proxy-and-egress" >}}): route names to your services and control outbound traffic.
+- [Kubernetes clusters]({{< relref "/docs/guides/kubernetes" >}}): add a local cluster to an environment.
+- [Architecture]({{< relref "/docs/concepts/architecture" >}}): how the parts of kevin fit together.

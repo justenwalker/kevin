@@ -6,4 +6,9 @@ bookCollapseSection: false
 
 # Docs
 
-Start with the [Quickstart]({{< relref "quickstart" >}}) if you're new to kevin. [Guides]({{< relref "guides" >}}) covers how to use each part. [Concepts]({{< relref "concepts" >}}) explains why the DAG engine, proxy, and CA are shaped the way they are. [Reference]({{< relref "reference" >}}) is the config lookup for every builtin step type. [Extending kevin]({{< relref "extending" >}}) is for writing a plugin. [Contributing]({{< relref "contributing" >}}) is for building, testing, and releasing kevin itself.
+- [Quickstart]({{< relref "quickstart" >}}): a tutorial for new users.
+- [Guides]({{< relref "guides" >}}): steps for specific tasks.
+- [Reference]({{< relref "reference" >}}): the environment file, commands, CEL expressions, and builtin step types.
+- [Concepts]({{< relref "concepts" >}}): how kevin works and why.
+- [Extending kevin]({{< relref "extending" >}}): write and publish a plugin.
+- [Contributing]({{< relref "contributing" >}}): build, test, and release kevin itself.
