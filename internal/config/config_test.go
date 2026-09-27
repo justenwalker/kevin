@@ -852,6 +852,54 @@ env: a: {uses: "echo:echo", with: msg: "${needs..a}"}
 	})
 }
 
+func TestValidateVarReferences(t *testing.T) {
+	t.Run("a var reference to a declared variable", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+variables: region: default: "us-east-1"
+env: a: {uses: "echo:echo", with: msg: "${vars.region}"}
+`)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+	})
+
+	t.Run("a var reference to an undeclared variable", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: a: {uses: "echo:echo", with: msg: "${vars.region}"}
+`)
+		err := f.Validate(offers("echo", "echo"))
+		require.ErrorIs(t, err, config.ErrUndeclaredVariable)
+		assert.Contains(t, err.Error(), "env.a")
+		assert.Contains(t, err.Error(), "vars.region")
+	})
+
+	t.Run("a var reference in a command's run", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+variables: greeting: default: "hi"
+commands: hello: run: ["echo", "${vars.greeting}"]
+`)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+	})
+
+	t.Run("a var reference in a command's run to an undeclared variable", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+commands: hello: run: ["echo", "${vars.greeting}"]
+`)
+		err := f.Validate(offers("echo", "echo"))
+		require.ErrorIs(t, err, config.ErrUndeclaredVariable)
+	})
+
+	t.Run("no with block at all is fine", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: a: uses: "echo:echo"
+`)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+	})
+}
+
 func TestValidateCommands(t *testing.T) {
 	t.Run("a needs entry naming an exportable env step", func(t *testing.T) {
 		f := load(t, `

@@ -146,7 +146,7 @@ func FetchPlugins(ctx context.Context, dir, name string, tags []string) ([]strin
 //
 // LoadAndLaunch returns the plugins that did start even on failure. The
 // caller must close them.
-func LoadAndLaunch(ctx context.Context, dir, name string, tags []string) (*config.Config, map[string]*pluginhost.Client, map[string]pluginhost.Info, error) {
+func LoadAndLaunch(ctx context.Context, dir, name string, tags []string, vars config.VariableInputs) (*config.Config, map[string]*pluginhost.Client, map[string]pluginhost.Info, error) {
 	file, err := config.Load(dir, name, tags)
 	if err != nil {
 		return nil, nil, nil, err
@@ -188,6 +188,9 @@ func LoadAndLaunch(ctx context.Context, dir, name string, tags []string) (*confi
 
 	cfg, err := file.Config()
 	if err != nil {
+		return nil, plugins, nil, err
+	}
+	if err = cfg.ResolveVariables(vars); err != nil {
 		return nil, plugins, nil, err
 	}
 	if err = validateNeeds(cfg); err != nil {

@@ -208,6 +208,22 @@ func TestRender(t *testing.T) {
 		_, err := expr.Render(raw, "app", expr.Scopes{Needs: deps(), System: sysDeps(), Project: map[string]string{"root_cert": "/x"}})
 		require.Error(t, err, "expected an error for a project key that was never set")
 	})
+
+	t.Run("a vars expression", func(t *testing.T) {
+		raw := json.RawMessage(`{"a":"${vars.region}"}`)
+		out, err := expr.Render(raw, "step", expr.Scopes{Vars: map[string]string{"region": "us-east-1"}})
+		require.NoError(t, err)
+
+		var v map[string]string
+		require.NoError(t, json.Unmarshal(out, &v))
+		assert.Equal(t, "us-east-1", v["a"])
+	})
+
+	t.Run("a missing var key errors", func(t *testing.T) {
+		raw := json.RawMessage(`{"a":"${vars.no_such_key}"}`)
+		_, err := expr.Render(raw, "app", expr.Scopes{Vars: map[string]string{"region": "us-east-1"}})
+		require.Error(t, err, "expected an error for a variable that was never set")
+	})
 }
 
 func TestReferencedSteps(t *testing.T) {
@@ -268,6 +284,57 @@ func TestReferencedSteps(t *testing.T) {
 	})
 }
 
+func TestReferencedVars(t *testing.T) {
+	t.Run("no marker at all", func(t *testing.T) {
+		refs, err := expr.ReferencedVars(json.RawMessage(`{"a":"b"}`))
+		require.NoError(t, err)
+		assert.Empty(t, refs)
+	})
+
+	t.Run("a var reference", func(t *testing.T) {
+		refs, err := expr.ReferencedVars(json.RawMessage(`{"a":"${vars.region}"}`))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"region"}, refs)
+	})
+
+	t.Run("finds references nested in objects, arrays, and multiple markers in one string", func(t *testing.T) {
+		raw := json.RawMessage(`{
+			"list": ["${vars.a}", "${vars.b}"],
+			"obj": {"k": "${vars.c}"},
+			"combined": "${vars.d}-${vars.e}"
+		}`)
+		refs, err := expr.ReferencedVars(raw)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"a", "b", "c", "d", "e"}, refs)
+	})
+
+	t.Run("a reference inside has() is still found", func(t *testing.T) {
+		refs, err := expr.ReferencedVars(json.RawMessage(`{"a":"${has(vars.region) ? vars.region : \"default\"}"}`))
+		require.NoError(t, err)
+		assert.Contains(t, refs, "region")
+	})
+
+	t.Run("needs, setup, env, and project references are not vars", func(t *testing.T) {
+		raw := json.RawMessage(`{
+			"a":"${needs.cluster.out.x}", "b":"${setup.db.out.x}",
+			"c":"${env.HOME}", "d":"${project.root_cert}"
+		}`)
+		refs, err := expr.ReferencedVars(raw)
+		require.NoError(t, err)
+		assert.Empty(t, refs)
+	})
+
+	t.Run("an unbalanced marker errors", func(t *testing.T) {
+		_, err := expr.ReferencedVars(json.RawMessage(`{"a":"${vars.region"}`))
+		require.Error(t, err)
+	})
+
+	t.Run("a syntax error in the expression errors", func(t *testing.T) {
+		_, err := expr.ReferencedVars(json.RawMessage(`{"a":"${vars..region}"}`))
+		require.Error(t, err)
+	})
+}
+
 func TestFieldSensitive(t *testing.T) {
 	sensitiveDeps := map[string]dag.Outputs{
 		"db": {
@@ -283,57 +350,75 @@ func TestFieldSensitive(t *testing.T) {
 	}
 
 	t.Run("no marker at all", func(t *testing.T) {
-		sensitive, err := expr.FieldSensitive(json.RawMessage(`"plain-value"`), expr.Scopes{Needs: sensitiveDeps})
+		sensitive, err := expr.FieldSensitive(json.RawMessage(`"plain-value"`), expr.Scopes{Needs: sensitiveDeps}, nil)
 		require.NoError(t, err)
 		assert.False(t, sensitive)
 	})
 
 	t.Run("a marker referencing a non-sensitive value", func(t *testing.T) {
-		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${needs.db.out.host}"`), expr.Scopes{Needs: sensitiveDeps})
+		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${needs.db.out.host}"`), expr.Scopes{Needs: sensitiveDeps}, nil)
 		require.NoError(t, err)
 		assert.False(t, sensitive)
 	})
 
 	t.Run("a needs.out marker referencing a sensitive value", func(t *testing.T) {
-		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${needs.db.out.password}"`), expr.Scopes{Needs: sensitiveDeps})
+		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${needs.db.out.password}"`), expr.Scopes{Needs: sensitiveDeps}, nil)
 		require.NoError(t, err)
 		assert.True(t, sensitive)
 	})
 
 	t.Run("a needs.system marker referencing a sensitive value", func(t *testing.T) {
-		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${needs.db.system.internal_addr}"`), expr.Scopes{System: sensitiveSystem})
+		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${needs.db.system.internal_addr}"`), expr.Scopes{System: sensitiveSystem}, nil)
 		require.NoError(t, err)
 		assert.True(t, sensitive)
 	})
 
 	t.Run("a setup.out marker referencing a sensitive value", func(t *testing.T) {
-		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${setup.cluster.out.token}"`), expr.Scopes{Setup: sensitiveSetup})
+		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${setup.cluster.out.token}"`), expr.Scopes{Setup: sensitiveSetup}, nil)
 		require.NoError(t, err)
 		assert.True(t, sensitive)
 	})
 
 	t.Run("one sensitive reference among several marks the whole field", func(t *testing.T) {
 		raw := json.RawMessage(`"${needs.db.out.host}-${needs.db.out.password}"`)
-		sensitive, err := expr.FieldSensitive(raw, expr.Scopes{Needs: sensitiveDeps})
+		sensitive, err := expr.FieldSensitive(raw, expr.Scopes{Needs: sensitiveDeps}, nil)
 		require.NoError(t, err)
 		assert.True(t, sensitive, "a field combining a plain and a sensitive reference must still be treated as sensitive")
 	})
 
 	t.Run("a sensitive reference nested in an object or array is still found", func(t *testing.T) {
 		raw := json.RawMessage(`{"a":["${needs.db.out.password}"]}`)
-		sensitive, err := expr.FieldSensitive(raw, expr.Scopes{Needs: sensitiveDeps})
+		sensitive, err := expr.FieldSensitive(raw, expr.Scopes{Needs: sensitiveDeps}, nil)
 		require.NoError(t, err)
 		assert.True(t, sensitive)
 	})
 
 	t.Run("a reference to an unknown step or key is not sensitive", func(t *testing.T) {
-		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${needs.other.out.x}"`), expr.Scopes{Needs: sensitiveDeps})
+		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${needs.other.out.x}"`), expr.Scopes{Needs: sensitiveDeps}, nil)
 		require.NoError(t, err)
 		assert.False(t, sensitive, "an unresolved reference reports false rather than erroring - this is a display aid, not a validator")
 	})
 
 	t.Run("an unbalanced marker errors", func(t *testing.T) {
-		_, err := expr.FieldSensitive(json.RawMessage(`"${needs.db.out.password"`), expr.Scopes{Needs: sensitiveDeps})
+		_, err := expr.FieldSensitive(json.RawMessage(`"${needs.db.out.password"`), expr.Scopes{Needs: sensitiveDeps}, nil)
 		require.Error(t, err)
+	})
+
+	t.Run("a var reference to a name sensitiveVars marks is sensitive", func(t *testing.T) {
+		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${vars.api_key}"`), expr.Scopes{}, map[string]bool{"api_key": true})
+		require.NoError(t, err)
+		assert.True(t, sensitive)
+	})
+
+	t.Run("a var reference to a name sensitiveVars does not mark is not sensitive", func(t *testing.T) {
+		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${vars.region}"`), expr.Scopes{}, map[string]bool{"api_key": true})
+		require.NoError(t, err)
+		assert.False(t, sensitive)
+	})
+
+	t.Run("a var reference with a nil sensitiveVars is not sensitive", func(t *testing.T) {
+		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${vars.api_key}"`), expr.Scopes{}, nil)
+		require.NoError(t, err)
+		assert.False(t, sensitive)
 	})
 }

@@ -157,6 +157,25 @@ setup: [string]: #Step | #StepGroup
 // exit.
 env: [string]: #Step | #StepGroup
 
+// variables declares this environment's external inputs, read in a with
+// block via "${vars.<name>}". The key is the variable's name: a valid CEL
+// identifier (letters, digits, underscore, not starting with a digit),
+// since it's also a CEL selector.
+variables: close({[=~"^[A-Za-z_][A-Za-z0-9_]*$"]: #Variable})
+
+#Variable: {
+	// default is this variable's value when nothing external supplies one.
+	// Omit it to make the variable required: `kevin validate` fails when
+	// no var-file, KEVIN_VAR_<NAME>, or --var supplies a value for it.
+	default?: string
+
+	// sensitive marks this variable's value as secret. A with block field
+	// that reads it via "${vars.<name>}" is always redacted wherever the
+	// console or MCP server shows it, the same as a field reading an
+	// already-sensitive output.
+	sensitive?: bool | *false
+}
+
 #Command: {
 	// needs lists the steps whose exported environment this command's run
 	// merges in, the same "<step>" (env scope) / "setup.<step>" (setup

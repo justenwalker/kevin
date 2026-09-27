@@ -82,6 +82,17 @@ const (
 	// ErrPluginAlreadyDeclared reports an [InsertPlugin] target whose
 	// plugins: block already declares the plugin name being inserted.
 	ErrPluginAlreadyDeclared = Error("config: plugins entry already declared")
+
+	// ErrUndeclaredVariable reports a "${vars...}" expression naming a
+	// variable that the environment's variables: block does not declare.
+	ErrUndeclaredVariable = Error("config: references a variable that variables: does not declare")
+
+	// ErrRequiredVariable reports a declared variable with no default whose
+	// value nothing external supplied.
+	ErrRequiredVariable = Error("config: variable has no default and no value was supplied")
+
+	// ErrMalformedVariable reports a "--var" argument with no "=".
+	ErrMalformedVariable = Error(`config: --var argument must be "KEY=VALUE"`)
 )
 
 // ValidationError indicates a problem validating a kevin configuration file.

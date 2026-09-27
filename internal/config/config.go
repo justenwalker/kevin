@@ -223,6 +223,13 @@ type Config struct {
 	// Commands run on demand with "kevin do <name>".
 	Commands map[string]Command `json:"commands"`
 
+	// Variables declares this environment's external inputs, by name.
+	Variables map[string]Variable `json:"variables"`
+
+	// VariableValues holds each declared variable's resolved value, once
+	// [Config.ResolveVariables] has run - nil until then.
+	VariableValues map[string]string `json:"-"`
+
 	Proxy   Proxy   `json:"proxy"`
 	Console Console `json:"console"`
 	Relay   Relay   `json:"relay"`
@@ -640,7 +647,8 @@ func (f *File) Validate(schemas map[string]PluginSchemas) error {
 	}
 
 	var out struct {
-		Commands map[string]Command `json:"commands"`
+		Commands  map[string]Command  `json:"commands"`
+		Variables map[string]Variable `json:"variables"`
 	}
 	// f.Plugins above already decoded f.value once and succeeded, so this
 	// decode of the same value cannot fail.
@@ -651,14 +659,14 @@ func (f *File) Validate(schemas map[string]PluginSchemas) error {
 		entries scopeEntries
 	}{{ScopeSetup, setupEntries}, {ScopeEnv, envEntries}} {
 		for step, spec := range scope.entries.Steps {
-			if err := f.validateStep(scope.name, step, scope.entries.Paths[step], spec, plugins, schemas); err != nil {
+			if err := f.validateStep(scope.name, step, scope.entries.Paths[step], spec, plugins, schemas, out.Variables); err != nil {
 				return err
 			}
 		}
 	}
 
 	for name, cmd := range out.Commands {
-		if err := f.validateCommand(name, cmd, envEntries.Steps, setupEntries.Steps, schemas); err != nil {
+		if err := f.validateCommand(name, cmd, envEntries.Steps, setupEntries.Steps, schemas, out.Variables); err != nil {
 			return err
 		}
 	}
@@ -703,7 +711,7 @@ func (f *File) compileSchema(label string, src []byte) (cue.Value, bool, error) 
 // unifies the step's with block against the schema of that step type. path
 // is the step's own CUE source path - a plain step's own key, or a
 // flattened group member's "<scope>.<group>.steps.<member>" path.
-func (f *File) validateStep(scopeName, step string, path cue.Path, spec Step, plugins map[string]PluginSpec, schemas map[string]PluginSchemas) error {
+func (f *File) validateStep(scopeName, step string, path cue.Path, spec Step, plugins map[string]PluginSpec, schemas map[string]PluginSchemas, variables map[string]Variable) error {
 	pos := f.value.LookupPath(path.Append(cue.Str("uses"))).Pos()
 
 	ref, err := ParseStepRef(spec.Uses)
@@ -736,6 +744,9 @@ func (f *File) validateStep(scopeName, step string, path cue.Path, spec Step, pl
 		// pos (the step's "uses" field), not with.Pos(): a "with" value that
 		// exists only via the core schema's own optional "with?: {...}"
 		// declaration reports schema.cue's position, not the actual file's.
+		return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
+	}
+	if refErr := validateVarReferences(scopeName, step, "with", variables, spec.With); refErr != nil {
 		return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
 	}
 
@@ -804,7 +815,7 @@ func validateNeedsReferences(scopeName, step, field string, needs []string, raw 
 // "${needs.<step>...}"/"${setup.<step>...}" reference inside cmd.Run names
 // a step cmd.Needs actually declares, the same static check a step's with
 // block gets.
-func (f *File) validateCommand(name string, cmd Command, env, setup map[string]Step, schemas map[string]PluginSchemas) error {
+func (f *File) validateCommand(name string, cmd Command, env, setup map[string]Step, schemas map[string]PluginSchemas, variables map[string]Variable) error {
 	pos := f.value.LookupPath(cue.MakePath(cue.Str("commands"), cue.Str(name), cue.Str("needs"))).Pos()
 
 	if err := validateNeedsSyntax(cmd.Needs); err != nil {
@@ -834,6 +845,9 @@ func (f *File) validateCommand(name string, cmd Command, env, setup map[string]S
 	}
 
 	if refErr := validateNeedsReferences("commands", name, "run", cmd.Needs, cmd.Run); refErr != nil {
+		return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
+	}
+	if refErr := validateVarReferences("commands", name, "run", variables, cmd.Run); refErr != nil {
 		return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
 	}
 	return nil

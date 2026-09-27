@@ -24,6 +24,7 @@ const marker = "${"
 const (
 	rootNeeds = "needs"
 	rootSetup = "setup"
+	rootVars  = "vars"
 	nsOut     = "out"
 	nsSystem  = "system"
 )
@@ -37,6 +38,7 @@ func buildEnv() (*cel.Env, error) {
 		cel.Variable(rootSetup, needsType),
 		cel.Variable("env", cel.MapType(cel.StringType, cel.StringType)),
 		cel.Variable("project", cel.MapType(cel.StringType, cel.StringType)),
+		cel.Variable(rootVars, cel.MapType(cel.StringType, cel.StringType)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("expr: build the CEL environment: %w", err)
@@ -58,10 +60,16 @@ type Scopes struct {
 
 	// Project supplies `project.<key>`: project-level constants kevin computes once per session.
 	Project map[string]string
+
+	// Vars supplies `vars.<name>`: an environment's declared variables:
+	// block, resolved from a var-file, a KEVIN_VAR_<NAME> environment
+	// variable, a "--var" argument, or the variable's own declared
+	// default.
+	Vars map[string]string
 }
 
 // Render walks a JSON value and replaces all the "${cel-expression}" markers found inside strings with the result it computes.
-// The value's strings are evaluated against four variables:
+// The value's strings are evaluated against five variables:
 //  1. `needs`: keyed by the upstream step's name, each with two sub-namespaces:
 //     `out` (the step's own outputs: `needs.<step>.out.<key>`) and `system`
 //     (kevin-computed values for that step: `needs.<step>.system.<key>`).
@@ -73,6 +81,8 @@ type Scopes struct {
 //  4. `project`: project-level constants kevin computes once per session,
 //     such as `project.dir` or `project.root_cert`, keyed by name, same map
 //     shape as `env`.
+//  5. `vars`: an environment's declared variables: block, keyed by name,
+//     same map shape as `env`/`project`.
 func Render(raw json.RawMessage, step string, scopes Scopes) (json.RawMessage, error) {
 	// inexpensive early exit.
 	// If we have no '${' cel marker, then there is nothing to evaluate.
@@ -88,7 +98,7 @@ func Render(raw json.RawMessage, step string, scopes Scopes) (json.RawMessage, e
 	needs := activation(scopes.Needs, scopes.System)
 	setup := activation(scopes.Setup, nil)
 	env := hostEnv()
-	rendered, err := renderValue(v, step, needs, setup, env, scopes.Project)
+	rendered, err := renderValue(v, step, needs, setup, env, scopes.Project, scopes.Vars)
 	if err != nil {
 		return nil, err
 	}
@@ -139,6 +149,66 @@ func ReferencedSteps(raw json.RawMessage) ([]string, []string, error) {
 		setupRefs = append(setupRefs, s...)
 	}
 	return needsRefs, setupRefs, nil
+}
+
+// ReferencedVars reports every variable name that raw's "${...}" markers
+// reference via "vars.<name>", with no evaluation - for a caller that wants
+// to check those names against a declared variables: block statically,
+// before Render's "vars" variable exists to evaluate against.
+func ReferencedVars(raw json.RawMessage) ([]string, error) {
+	if !bytes.Contains(raw, []byte(marker)) {
+		return nil, nil
+	}
+
+	var v any
+	if unmarshalErr := json.Unmarshal(raw, &v); unmarshalErr != nil {
+		return nil, fmt.Errorf("expr: decode: %w", unmarshalErr)
+	}
+
+	var exprs []string
+	if collectErr := collectExprs(v, &exprs); collectErr != nil {
+		return nil, collectErr
+	}
+
+	env, err := parseOnlyEnv()
+	if err != nil {
+		return nil, fmt.Errorf("expr: build the cel environment: %w", err)
+	}
+	var varRefs []string
+	for _, exprStr := range exprs {
+		refs, err := varsRoots(env, exprStr)
+		if err != nil {
+			return nil, fmt.Errorf("expr: %q: %w", exprStr, err)
+		}
+		varRefs = append(varRefs, refs...)
+	}
+	return varRefs, nil
+}
+
+// varsRoots reports the field name of every "vars.<field>" select chain in
+// exprStr - a chain rooted at an identifier named "vars" - the same
+// single-level shape selectRoots recognizes for "needs"/"setup", but "vars"
+// itself is a leaf value, not a further-nested namespace.
+func varsRoots(env *cel.Env, exprStr string) ([]string, error) {
+	parsed, iss := env.Parse(exprStr)
+	if iss != nil && iss.Err() != nil {
+		return nil, fmt.Errorf("expr: parse: %w", iss.Err())
+	}
+
+	var refs []string
+	root := parsed.NativeRep().Expr()
+	celast.PreOrderVisit(root, celast.NewExprVisitor(func(e celast.Expr) {
+		if e.Kind() != celast.SelectKind {
+			return
+		}
+		sel := e.AsSelect()
+		operand := sel.Operand()
+		if operand.Kind() != celast.IdentKind || operand.AsIdent() != rootVars {
+			return
+		}
+		refs = append(refs, sel.FieldName())
+	}))
+	return refs, nil
 }
 
 // collectExprs walks v the same way renderValue does, appending every
@@ -205,7 +275,12 @@ func selectRoots(env *cel.Env, exprStr string) ([]string, []string, error) {
 // same way an Outputs row already is, without inventing a second
 // sensitivity convention. raw with no marker, or none referencing a
 // sensitive value, reports false.
-func FieldSensitive(raw json.RawMessage, scopes Scopes) (bool, error) {
+// FieldSensitive additionally reports true when raw references, via
+// "vars.<name>", a name sensitiveVars marks true - the declared
+// counterpart to scopes' own Sensitive-tagged values, for a variable whose
+// sensitivity is a fact about its declared name rather than something
+// carried by a particular value.
+func FieldSensitive(raw json.RawMessage, scopes Scopes, sensitiveVars map[string]bool) (bool, error) {
 	if !bytes.Contains(raw, []byte(marker)) {
 		return false, nil
 	}
@@ -230,6 +305,16 @@ func FieldSensitive(raw json.RawMessage, scopes Scopes) (bool, error) {
 		}
 		for _, ref := range refs {
 			if val, ok := ref.lookup(scopes); ok && val.Sensitive {
+				return true, nil
+			}
+		}
+
+		varRefs, err := varsRoots(env, exprStr)
+		if err != nil {
+			return false, fmt.Errorf("expr: %q: %w", exprStr, err)
+		}
+		for _, name := range varRefs {
+			if sensitiveVars[name] {
 				return true, nil
 			}
 		}
@@ -305,13 +390,13 @@ func keyRefs(env *cel.Env, exprStr string) ([]keyRef, error) {
 // If the value `v` is a string, it tries to render any cel expression in the string.
 // If the value is a collection type, it will recursively try to evaluate each collection element.
 // Otherwise, it returns the value unchanged.
-func renderValue(v any, step string, needs, setup map[string]any, env, project map[string]string) (any, error) {
+func renderValue(v any, step string, needs, setup map[string]any, env, project, variables map[string]string) (any, error) {
 	switch t := v.(type) {
 	case string:
-		return renderString(t, step, needs, setup, env, project)
+		return renderString(t, step, needs, setup, env, project, variables)
 	case map[string]any:
 		for k, elem := range t {
-			rendered, err := renderValue(elem, step, needs, setup, env, project)
+			rendered, err := renderValue(elem, step, needs, setup, env, project, variables)
 			if err != nil {
 				return nil, err
 			}
@@ -320,7 +405,7 @@ func renderValue(v any, step string, needs, setup map[string]any, env, project m
 		return t, nil
 	case []any:
 		for i, elem := range t {
-			rendered, err := renderValue(elem, step, needs, setup, env, project)
+			rendered, err := renderValue(elem, step, needs, setup, env, project, variables)
 			if err != nil {
 				return nil, err
 			}
@@ -334,7 +419,7 @@ func renderValue(v any, step string, needs, setup map[string]any, env, project m
 
 // renderString splices the result of every "${...}" expression in s back
 // into the surrounding literal text. s with no marker returns unchanged.
-func renderString(s string, step string, needs, setup map[string]any, env, project map[string]string) (string, error) {
+func renderString(s string, step string, needs, setup map[string]any, env, project, variables map[string]string) (string, error) {
 	if !strings.Contains(s, marker) {
 		return s, nil
 	}
@@ -352,7 +437,7 @@ func renderString(s string, step string, needs, setup map[string]any, env, proje
 		}
 		b.WriteString(before)
 
-		result, err := eval(exprStr, step, needs, setup, env, project)
+		result, err := eval(exprStr, step, needs, setup, env, project, variables)
 		if err != nil {
 			return "", err
 		}
@@ -398,9 +483,9 @@ func markersIn(s string) ([]string, error) {
 	}
 }
 
-// eval compiles and evaluates one CEL expression against needs, setup, env
-// and project, and requires the result is a string.
-func eval(exprStr, step string, needs, setup map[string]any, env, project map[string]string) (string, error) {
+// eval compiles and evaluates one CEL expression against needs, setup, env,
+// project, and variables, and requires the result is a string.
+func eval(exprStr, step string, needs, setup map[string]any, env, project, variables map[string]string) (string, error) {
 	cEnv, err := celEnv()
 	if err != nil {
 		return "", fmt.Errorf("expr: build the cel environment: %w", err)
@@ -415,7 +500,7 @@ func eval(exprStr, step string, needs, setup map[string]any, env, project map[st
 		return "", fmt.Errorf("expr: %q: %w", exprStr, err)
 	}
 
-	out, _, err := prg.Eval(map[string]any{rootNeeds: needs, rootSetup: setup, "env": env, "project": project})
+	out, _, err := prg.Eval(map[string]any{rootNeeds: needs, rootSetup: setup, "env": env, "project": project, rootVars: variables})
 	if err != nil {
 		return "", fmt.Errorf("expr: %q: %w (is the step it names listed in %q's needs, or the variable set in the environment?)", exprStr, err, step)
 	}

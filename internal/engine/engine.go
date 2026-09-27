@@ -96,6 +96,13 @@ type Options struct {
 	// when the resolved environment file declares no CUE package.
 	Tags []string
 
+	// VarFile is a var-file path ("KEY=VALUE" per line) supplying
+	// variables: block values, or "" for none.
+	VarFile string
+
+	// Vars holds each "--var KEY=VALUE" argument, unparsed.
+	Vars []string
+
 	// Engine is the resolved container engine name ("docker" or "podman").
 	// It is never empty: the caller resolves it (--engine/KEVIN_ENGINE, or
 	// auto-detection) before calling Run or Teardown - the engine is a
@@ -142,7 +149,7 @@ func Run(ctx context.Context, opts Options) error {
 	live := wantsLiveUI(ctx, opts)
 	opts.Events = eventsWriter(opts, live)
 
-	cfg, plugins, caps, err := LoadAndLaunch(ctx, opts.Dir, opts.Name, opts.Tags)
+	cfg, plugins, caps, err := LoadAndLaunch(ctx, opts.Dir, opts.Name, opts.Tags, config.VariableInputs{File: opts.VarFile, Set: opts.Vars})
 	defer CloseAll(plugins)
 	if err != nil {
 		return err
@@ -685,7 +692,7 @@ func Teardown(ctx context.Context, opts Options) error {
 	live := wantsLiveUI(ctx, opts)
 	opts.Events = eventsWriter(opts, live)
 
-	cfg, plugins, caps, err := LoadAndLaunch(ctx, opts.Dir, opts.Name, opts.Tags)
+	cfg, plugins, caps, err := LoadAndLaunch(ctx, opts.Dir, opts.Name, opts.Tags, config.VariableInputs{File: opts.VarFile, Set: opts.Vars})
 	defer CloseAll(plugins)
 	if err != nil {
 		return err
@@ -1271,7 +1278,7 @@ func (r *run) scopesFor(name string, deps, setupDeps map[string]dag.Outputs) exp
 	deps = localizeDeps(name, deps)
 	system = localizeDeps(name, system)
 
-	return expr.Scopes{Needs: deps, System: system, Setup: setupDeps, Project: r.project}
+	return expr.Scopes{Needs: deps, System: system, Setup: setupDeps, Project: r.project, Vars: r.cfg.VariableValues}
 }
 
 // renderWith resolves name's `with` block against deps and the recorded
@@ -1288,10 +1295,10 @@ func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[stri
 // inputRows builds one Detail row per top-level field of raw (name's
 // declared `with:` block, before rendering), pairing it with rendered's
 // corresponding value. A field is Sensitive when schemaSensitive names it,
-// or when any of its "${needs.../setup...}" markers resolve to a sensitive
-// value in scopes. A `with` block with no fields (a step that declared
-// none) reports no rows.
-func inputRows(raw, rendered json.RawMessage, scopes expr.Scopes, schemaSensitive map[string]bool) ([]session.Detail, error) {
+// or when any of its "${needs.../setup.../vars...}" markers resolve to a
+// sensitive value in scopes or name a variable sensitiveVars marks. A
+// `with` block with no fields (a step that declared none) reports no rows.
+func inputRows(raw, rendered json.RawMessage, scopes expr.Scopes, schemaSensitive, sensitiveVars map[string]bool) ([]session.Detail, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
@@ -1312,7 +1319,7 @@ func inputRows(raw, rendered json.RawMessage, scopes expr.Scopes, schemaSensitiv
 
 	rows := make([]session.Detail, 0, len(names))
 	for _, field := range names {
-		markerSensitive, err := expr.FieldSensitive(rawFields[field], scopes)
+		markerSensitive, err := expr.FieldSensitive(rawFields[field], scopes, sensitiveVars)
 		if err != nil {
 			return nil, fmt.Errorf("with.%s: %w", field, err)
 		}
@@ -1422,7 +1429,7 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	schemaSensitive, schemaErr := sensitiveWithFields(stepSchema(r.caps[ref.Plugin], ref.Step))
 	if schemaErr != nil {
 		r.emit(name, "warning: inputs: "+uerr.Display(schemaErr))
-	} else if rows, rowsErr := inputRows(step.With, with, r.scopesFor(name, deps, setupDeps), schemaSensitive); rowsErr != nil {
+	} else if rows, rowsErr := inputRows(step.With, with, r.scopesFor(name, deps, setupDeps), schemaSensitive, r.cfg.SensitiveVariables()); rowsErr != nil {
 		r.emit(name, "warning: inputs: "+uerr.Display(rowsErr))
 	} else {
 		r.store.SetStepInputs(name, rows)
@@ -1998,7 +2005,7 @@ func (r *run) doExportCrossScopeStep(ctx context.Context, setupName string) (exp
 	if !stepExports(r.caps[ref.Plugin], ref.Step) {
 		return exportedStep{}, fmt.Errorf("setup step %q (%s) does not implement export", setupName, ref)
 	}
-	with, err := expr.Render(step.With, setupName, expr.Scopes{Project: r.project})
+	with, err := expr.Render(step.With, setupName, expr.Scopes{Project: r.project, Vars: r.cfg.VariableValues})
 	if err != nil {
 		return exportedStep{}, fmt.Errorf("setup step %q: %w", setupName, err)
 	}

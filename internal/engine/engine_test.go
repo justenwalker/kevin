@@ -769,7 +769,7 @@ func TestExportCrossScopeStepRetriesAfterFailure(t *testing.T) {
 	dir := project(t, `
 setup: cluster: {uses: "echo:echo", with: export: greeting: "from-setup"}
 `)
-	cfg, plugins, caps, err := LoadAndLaunch(t.Context(), dir, "", nil)
+	cfg, plugins, caps, err := LoadAndLaunch(t.Context(), dir, "", nil, config.VariableInputs{})
 	require.NoError(t, err)
 	defer CloseAll(plugins)
 
@@ -1341,6 +1341,51 @@ env: {
 	require.NoError(t, <-done)
 }
 
+// TestRunResolvesVariables proves a declared variables: entry reaches
+// "${vars.<name>}" in a with block, sourced from Options.Vars (the "--var"
+// equivalent), and that a field referencing a variable variables: marks
+// sensitive is redacted in the console even though the field itself
+// carries no schema-level @sensitive() attribute of its own.
+func TestRunResolvesVariables(t *testing.T) {
+	requireRelay(t)
+
+	consoleAddr := freeAddr(t)
+	dir := project(t, `
+console: listen: "`+consoleAddr+`"
+variables: {
+	greeting: default: "bye"
+	token: sensitive: true
+}
+env: {
+	a: {uses: "echo:echo", with: {message: "${vars.greeting}", export: token: "${vars.token}"}}
+}
+`)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	w := &watcher{}
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Options{
+			Dir: dir, Scope: config.ScopeEnv, Events: w,
+			Vars: []string{"token=s3cr3t-token"},
+		})
+	}()
+
+	waitForCount(t, w, "a                ready", 1, 30*time.Second)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	page := getPage(t, client, "http://"+consoleAddr)
+
+	assert.Contains(t, page, `title="bye"`, "the message field must show vars.greeting's declared default")
+	assert.Contains(t, page, ">export<", "the export field's label must still show")
+	assert.NotContains(t, page, "s3cr3t-token",
+		"a field referencing a sensitive variable must be redacted, even with no @sensitive() of its own")
+
+	cancel()
+	require.NoError(t, <-done)
+}
+
 // TestRunRemovesAnOrphanContainerAndTheNetwork proves reap finds a container
 // a crashed plugin left behind by its labels alone, and removes it along
 // with the project's network.
@@ -1508,7 +1553,7 @@ func TestOutputsToProto(t *testing.T) {
 
 func TestInputRows(t *testing.T) {
 	t.Run("no with block reports no rows", func(t *testing.T) {
-		rows, err := inputRows(nil, nil, expr.Scopes{}, nil)
+		rows, err := inputRows(nil, nil, expr.Scopes{}, nil, nil)
 		require.NoError(t, err)
 		assert.Nil(t, rows)
 	})
@@ -1518,7 +1563,7 @@ func TestInputRows(t *testing.T) {
 		rendered := json.RawMessage(`{"image":"postgres:16","port":"5432"}`)
 		rows, err := inputRows(raw, rendered, expr.Scopes{Needs: map[string]dag.Outputs{
 			"db": {"port": output.Value{String: "5432"}},
-		}}, nil)
+		}}, nil, nil)
 		require.NoError(t, err)
 		assert.Equal(t, []session.Detail{
 			{Label: "image", Value: "postgres:16", Copyable: true},
@@ -1531,21 +1576,29 @@ func TestInputRows(t *testing.T) {
 		rendered := json.RawMessage(`{"password":"hunter2"}`)
 		rows, err := inputRows(raw, rendered, expr.Scopes{Needs: map[string]dag.Outputs{
 			"db": {"password": output.Value{String: "hunter2", Sensitive: true}},
-		}}, nil)
+		}}, nil, nil)
 		require.NoError(t, err)
 		assert.Equal(t, []session.Detail{{Label: "password", Value: "hunter2", Sensitive: true, Copyable: false}}, rows)
 	})
 
 	t.Run("a field the schema marks sensitive is redacted even as a literal with no marker at all", func(t *testing.T) {
 		raw := json.RawMessage(`{"password":"hunter2"}`)
-		rows, err := inputRows(raw, raw, expr.Scopes{}, map[string]bool{"password": true})
+		rows, err := inputRows(raw, raw, expr.Scopes{}, map[string]bool{"password": true}, nil)
 		require.NoError(t, err)
 		assert.Equal(t, []session.Detail{{Label: "password", Value: "hunter2", Sensitive: true, Copyable: false}}, rows)
 	})
 
+	t.Run("a field referencing a sensitive variable is redacted", func(t *testing.T) {
+		raw := json.RawMessage(`{"token":"${vars.api_key}"}`)
+		rendered := json.RawMessage(`{"token":"sk-123"}`)
+		rows, err := inputRows(raw, rendered, expr.Scopes{Vars: map[string]string{"api_key": "sk-123"}}, nil, map[string]bool{"api_key": true})
+		require.NoError(t, err)
+		assert.Equal(t, []session.Detail{{Label: "token", Value: "sk-123", Sensitive: true, Copyable: false}}, rows)
+	})
+
 	t.Run("a non-string field keeps its compact JSON form", func(t *testing.T) {
 		raw := json.RawMessage(`{"ports":[5432,5433]}`)
-		rows, err := inputRows(raw, raw, expr.Scopes{}, nil)
+		rows, err := inputRows(raw, raw, expr.Scopes{}, nil, nil)
 		require.NoError(t, err)
 		assert.Equal(t, []session.Detail{{Label: "ports", Value: "[5432,5433]", Copyable: true}}, rows)
 	})
