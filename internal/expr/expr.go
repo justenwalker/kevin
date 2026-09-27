@@ -19,13 +19,22 @@ import (
 // marker opens an expression. Render skips the whole walk when a value carries none.
 const marker = "${"
 
+// The CEL variable names a marker's select chain roots at ("needs"/"setup"),
+// and the two namespaces beneath each dependency's name ("out"/"system").
+const (
+	rootNeeds = "needs"
+	rootSetup = "setup"
+	nsOut     = "out"
+	nsSystem  = "system"
+)
+
 var celEnv = sync.OnceValues(buildEnv)
 
 func buildEnv() (*cel.Env, error) {
 	needsType := cel.MapType(cel.StringType, cel.MapType(cel.StringType, cel.MapType(cel.StringType, cel.StringType)))
 	env, err := cel.NewEnv(
-		cel.Variable("needs", needsType),
-		cel.Variable("setup", needsType),
+		cel.Variable(rootNeeds, needsType),
+		cel.Variable(rootSetup, needsType),
 		cel.Variable("env", cel.MapType(cel.StringType, cel.StringType)),
 		cel.Variable("project", cel.MapType(cel.StringType, cel.StringType)),
 	)
@@ -180,13 +189,116 @@ func selectRoots(env *cel.Env, exprStr string) ([]string, []string, error) {
 			return
 		}
 		switch operand.AsIdent() {
-		case "needs":
+		case rootNeeds:
 			needsRefs = append(needsRefs, sel.FieldName())
-		case "setup":
+		case rootSetup:
 			setupRefs = append(setupRefs, sel.FieldName())
 		}
 	}))
 	return needsRefs, setupRefs, nil
+}
+
+// FieldSensitive reports whether raw's "${...}" markers reference a
+// needs.<step>.out.<key>, needs.<step>.system.<key>, or
+// setup.<step>.out.<key> value that scopes marks Sensitive - for a caller
+// building a display row from one `with` field who wants to redact it the
+// same way an Outputs row already is, without inventing a second
+// sensitivity convention. raw with no marker, or none referencing a
+// sensitive value, reports false.
+func FieldSensitive(raw json.RawMessage, scopes Scopes) (bool, error) {
+	if !bytes.Contains(raw, []byte(marker)) {
+		return false, nil
+	}
+
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return false, fmt.Errorf("expr: decode: %w", err)
+	}
+	var exprs []string
+	if err := collectExprs(v, &exprs); err != nil {
+		return false, err
+	}
+
+	env, err := parseOnlyEnv()
+	if err != nil {
+		return false, fmt.Errorf("expr: build the cel environment: %w", err)
+	}
+	for _, exprStr := range exprs {
+		refs, err := keyRefs(env, exprStr)
+		if err != nil {
+			return false, fmt.Errorf("expr: %q: %w", exprStr, err)
+		}
+		for _, ref := range refs {
+			if val, ok := ref.lookup(scopes); ok && val.Sensitive {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// keyRef names one needs/setup value a "${...}" expression's select chain
+// reaches: root is "needs" or "setup", step is the dependency's name, ns is
+// "out" or "system", and key is the value's own name within that namespace.
+type keyRef struct {
+	root, step, ns, key string
+}
+
+// lookup resolves ref against scopes, reporting the value and whether it
+// was found - false for a namespace/root combination scopes doesn't carry
+// (e.g. "setup.<name>.system", which doesn't exist) or a step/key scopes
+// has no entry for.
+func (ref keyRef) lookup(scopes Scopes) (output.Value, bool) {
+	var deps map[string]dag.Outputs
+	switch {
+	case ref.root == rootNeeds && ref.ns == nsOut:
+		deps = scopes.Needs
+	case ref.root == rootNeeds && ref.ns == nsSystem:
+		deps = scopes.System
+	case ref.root == rootSetup && ref.ns == nsOut:
+		deps = scopes.Setup
+	default:
+		return output.Value{}, false
+	}
+	val, ok := deps[ref.step][ref.key].(output.Value)
+	return val, ok
+}
+
+// keyRefs parses exprStr and reports every "needs.<step>.<ns>.<key>" or
+// "setup.<step>.<ns>.<key>" select chain in it, rooted at an identifier
+// named "needs" or "setup" - the same three-level shape Render's "needs"/
+// "setup" CEL variables expose, one level deeper than selectRoots walks.
+func keyRefs(env *cel.Env, exprStr string) ([]keyRef, error) {
+	parsed, iss := env.Parse(exprStr)
+	if iss != nil && iss.Err() != nil {
+		return nil, fmt.Errorf("expr: parse: %w", iss.Err())
+	}
+
+	var refs []keyRef
+	root := parsed.NativeRep().Expr()
+	celast.PreOrderVisit(root, celast.NewExprVisitor(func(e celast.Expr) {
+		if e.Kind() != celast.SelectKind {
+			return
+		}
+		keySel := e.AsSelect()
+		if keySel.Operand().Kind() != celast.SelectKind {
+			return
+		}
+		nsSel := keySel.Operand().AsSelect()
+		if nsSel.Operand().Kind() != celast.SelectKind {
+			return
+		}
+		stepSel := nsSel.Operand().AsSelect()
+		if stepSel.Operand().Kind() != celast.IdentKind {
+			return
+		}
+		rootName := stepSel.Operand().AsIdent()
+		if rootName != rootNeeds && rootName != rootSetup {
+			return
+		}
+		refs = append(refs, keyRef{root: rootName, step: stepSel.FieldName(), ns: nsSel.FieldName(), key: keySel.FieldName()})
+	}))
+	return refs, nil
 }
 
 // renderValue is a recursive function that evaluates CEL expressions in a JSON value.
@@ -303,7 +415,7 @@ func eval(exprStr, step string, needs, setup map[string]any, env, project map[st
 		return "", fmt.Errorf("expr: %q: %w", exprStr, err)
 	}
 
-	out, _, err := prg.Eval(map[string]any{"needs": needs, "setup": setup, "env": env, "project": project})
+	out, _, err := prg.Eval(map[string]any{rootNeeds: needs, rootSetup: setup, "env": env, "project": project})
 	if err != nil {
 		return "", fmt.Errorf("expr: %q: %w (is the step it names listed in %q's needs, or the variable set in the environment?)", exprStr, err, step)
 	}
@@ -327,8 +439,8 @@ func activation(deps, system map[string]dag.Outputs) map[string]any {
 	needs := make(map[string]any, len(deps))
 	for name, out := range deps {
 		needs[name] = map[string]any{
-			"out":    stringValues(out),
-			"system": stringValues(system[name]),
+			nsOut:    stringValues(out),
+			nsSystem: stringValues(system[name]),
 		}
 	}
 	return needs

@@ -267,3 +267,73 @@ func TestReferencedSteps(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+func TestFieldSensitive(t *testing.T) {
+	sensitiveDeps := map[string]dag.Outputs{
+		"db": {
+			"password": output.Value{String: "hunter2", Sensitive: true},
+			"host":     output.Value{String: "localhost"},
+		},
+	}
+	sensitiveSystem := map[string]dag.Outputs{
+		"db": {"internal_addr": output.Value{String: "10.0.0.5", Sensitive: true}},
+	}
+	sensitiveSetup := map[string]dag.Outputs{
+		"cluster": {"token": output.Value{String: "s3cr3t", Sensitive: true}},
+	}
+
+	t.Run("no marker at all", func(t *testing.T) {
+		sensitive, err := expr.FieldSensitive(json.RawMessage(`"plain-value"`), expr.Scopes{Needs: sensitiveDeps})
+		require.NoError(t, err)
+		assert.False(t, sensitive)
+	})
+
+	t.Run("a marker referencing a non-sensitive value", func(t *testing.T) {
+		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${needs.db.out.host}"`), expr.Scopes{Needs: sensitiveDeps})
+		require.NoError(t, err)
+		assert.False(t, sensitive)
+	})
+
+	t.Run("a needs.out marker referencing a sensitive value", func(t *testing.T) {
+		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${needs.db.out.password}"`), expr.Scopes{Needs: sensitiveDeps})
+		require.NoError(t, err)
+		assert.True(t, sensitive)
+	})
+
+	t.Run("a needs.system marker referencing a sensitive value", func(t *testing.T) {
+		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${needs.db.system.internal_addr}"`), expr.Scopes{System: sensitiveSystem})
+		require.NoError(t, err)
+		assert.True(t, sensitive)
+	})
+
+	t.Run("a setup.out marker referencing a sensitive value", func(t *testing.T) {
+		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${setup.cluster.out.token}"`), expr.Scopes{Setup: sensitiveSetup})
+		require.NoError(t, err)
+		assert.True(t, sensitive)
+	})
+
+	t.Run("one sensitive reference among several marks the whole field", func(t *testing.T) {
+		raw := json.RawMessage(`"${needs.db.out.host}-${needs.db.out.password}"`)
+		sensitive, err := expr.FieldSensitive(raw, expr.Scopes{Needs: sensitiveDeps})
+		require.NoError(t, err)
+		assert.True(t, sensitive, "a field combining a plain and a sensitive reference must still be treated as sensitive")
+	})
+
+	t.Run("a sensitive reference nested in an object or array is still found", func(t *testing.T) {
+		raw := json.RawMessage(`{"a":["${needs.db.out.password}"]}`)
+		sensitive, err := expr.FieldSensitive(raw, expr.Scopes{Needs: sensitiveDeps})
+		require.NoError(t, err)
+		assert.True(t, sensitive)
+	})
+
+	t.Run("a reference to an unknown step or key is not sensitive", func(t *testing.T) {
+		sensitive, err := expr.FieldSensitive(json.RawMessage(`"${needs.other.out.x}"`), expr.Scopes{Needs: sensitiveDeps})
+		require.NoError(t, err)
+		assert.False(t, sensitive, "an unresolved reference reports false rather than erroring - this is a display aid, not a validator")
+	})
+
+	t.Run("an unbalanced marker errors", func(t *testing.T) {
+		_, err := expr.FieldSensitive(json.RawMessage(`"${needs.db.out.password"`), expr.Scopes{Needs: sensitiveDeps})
+		require.Error(t, err)
+	})
+}
