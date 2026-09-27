@@ -162,6 +162,15 @@ If a `Detail`'s `Value` is `plugin.Sensitive`, the console masks it and does not
 
 The same dialog's Inputs and Outputs tabs need nothing from the plugin: Inputs shows the step's resolved `with:` config, and Outputs shows `Result.Outputs`, both masked the same way a sensitive `Detail` is.
 
+Inputs sensitivity is usually inferred: a field is masked when it embeds a `${needs...}`/`${setup...}` reference to an already-sensitive output. That inference has nothing to trace for a field whose value is always secret regardless of source - a literal typed directly into `kevin.cue`, say. Mark such a field `@sensitive()` in your schema.cue, and the console and MCP server mask it unconditionally:
+
+```cue
+#Config: {
+	// password authenticates against the upstream service.
+	password?: string @sensitive()
+}
+```
+
 ## Stream a command's output
 
 If a step runs a long command, send its output to the console as it runs:
