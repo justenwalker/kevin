@@ -7,14 +7,10 @@ weight: 12
 
 # `kevin status`
 
-Reports every step's current state for a `kevin run` (started plain or
-with `--detach`) for this project and environment - the same data the
-web console shows, without opening a browser. Prints `not running` if
-there's nothing to report.
+Prints the state of each step of a running `kevin run`, as the console shows it. Prints `not running` if kevin is not running for this project and environment.
 
 ```sh
 kevin status
 ```
 
-See [`kevin logs`]({{< relref "/docs/reference/commands/logs" >}}) for a
-step's actual output.
+See [`kevin logs`]({{< relref "/docs/reference/commands/logs" >}}) for the output of a step.

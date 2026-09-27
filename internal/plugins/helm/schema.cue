@@ -36,13 +36,14 @@
 	// post_renderer_args are extra arguments for post_renderer.
 	post_renderer_args?: [...string]
 
-	// wait is how long to wait for the release to become ready, as a Go
-	// duration. Empty disables --wait.
+	// wait is how long to wait for the release to become ready, such as
+	// "5m". An empty string does not wait.
 	wait?: string | *"5m"
 
 	// atomic rolls the release back automatically on a failed upgrade.
 	atomic?: bool | *true
 
-	// keep leaves the release installed on Down, instead of uninstalling it.
+	// keep leaves the release installed on teardown, instead of uninstalling
+	// it.
 	keep?: bool | *false
 }

@@ -7,10 +7,7 @@ weight: 8
 
 # `builtin:exec`
 
-Runs `up`'s command once on the host. A nonzero exit fails the step; its
-trimmed stdout becomes the step's `stdout` output, so a dependent can read
-it back with `${needs.<step>.out.stdout}`. `down`, if set, runs on
-teardown for cleanup - omitted, `Down` does nothing.
+Runs a command on the host when the step starts, and optionally another command on teardown.
 
 ```cue
 migrate: {
@@ -22,10 +19,7 @@ migrate: {
 }
 ```
 
-`up` and `down` each have their own `cwd`/`env`, since a cleanup command
-often wants a different working directory or environment than the command
-that created what it's cleaning up. `proxy`/`egress` apply to both, since
-they're about network posture, not about either command's own inputs:
+To send the commands' requests through the kevin proxy:
 
 ```cue
 fetch: {
@@ -38,9 +32,7 @@ fetch: {
 }
 ```
 
-A tool that only takes a CA certificate or a proxy address as a flag, not
-via `SSL_CERT_FILE`/`HTTP_PROXY`-style environment variables, can read
-them directly out of the `project.*` CEL scope instead:
+For a tool that takes a CA file or proxy address only as a flag, use the [`project`]({{< relref "/docs/reference/cel-expressions#project" >}}) variables:
 
 ```cue
 up: command: [
@@ -50,34 +42,28 @@ up: command: [
 ]
 ```
 
-See [CEL expressions]({{< relref "/docs/reference/cel-expressions" >}}).
-
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `up` | `#Exec` | - | Runs once. A nonzero exit fails this step, and its exit gates this step's dependents. Its stdout, trimmed, is published as the `"stdout"` output. |
-| `down` | `#Exec` | - | Runs on teardown. Omitted, Down does nothing. |
-| `proxy` | `bool` | `false` | Adds the proxy variables and the CA to up and down, so that their egress is visible. |
-| `egress` | `[...string]` | - | Lists the external hosts that up's command can reach. The proxy denies egress by default. Only meaningful when proxy is true. |
+| `up` | `#Exec` | - | Runs once when the step starts. A nonzero exit fails the step. Its stdout, with surrounding whitespace removed, is the `"stdout"` output. |
+| `down` | `#Exec` | - | Runs on teardown. Unset, teardown runs nothing. |
+| `proxy` | `bool` | `false` | Sets the proxy environment variables and the kevin CA for up and down, so their requests go through the kevin proxy and show in the console. |
+| `egress` | `[...string]` | - | Lists external hosts that the commands can reach when proxy.egress.deny is true. Has an effect only when proxy is true. |
 
 ## `#Exec`
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `command` | `[string, ...string]` | - | **Required.** The argv to run. There is no shell: use [`"sh"`, `"-c"`, `"..."`] if a shell is needed. |
-| `cwd` | `string` | - | The working directory, resolved against the project directory if relative. Defaults to the project directory. |
+| `command` | `[string, ...string]` | - | **Required.** The program and its arguments. There is no shell: use [`"sh"`, `"-c"`, `"..."`] for shell features. |
+| `cwd` | `string` | - | The working directory. A relative path resolves against the project directory, which is also the default. |
 | `env` | `[string]: string` | - | Sets additional environment variables for the command. |
 
-**Kind: action.** `Down` always runs (it's declared on the step type,
-same as `builtin:kubectl`), but does nothing when `down` is unset - same
-as `builtin:kubectl`'s `Down` doing nothing when `keep` is set.
+## Outputs
 
-Not idempotent: kevin has no way to know whether rerunning an arbitrary
-command is safe, so a cascading rerun of a step this one depends on never
-sweeps this step back in automatically.
+| Key | Value |
+|:----|:------|
+| `stdout` | Standard output of `up`, with surrounding whitespace removed. |
 
-Implements `Export`, reporting the same `stdout` value `Outputs` uses, for
-a cross-scope `setup.<name>` need or a `commands:` entry's `run`. `Up`
-persists the captured stdout under the workspace so a later, separate
-process's `Export` call can read it back - Export never runs the command
-again, only reports what `Up` already produced, and fails when `Up` hasn't
-run yet. `Down` removes the persisted value.
+## Behavior
+
+- Supports export: `stdout`, for a `setup.<step>` need or a command. Export returns the output of the last `up` and does not run the command again. It fails if `up` has not run.
+- When you rerun a step that this step needs, kevin does not rerun this step, because the command might not be safe to run twice.

@@ -7,12 +7,7 @@ weight: 5
 
 # `builtin:helm`
 
-**Idempotent**
-
-Installs or upgrades a Helm release on an existing Kubernetes cluster,
-using the host `helm` binary.
-
-See [Deploying workloads]({{< relref "/docs/guides/deploying-workloads" >}}).
+Installs or upgrades a Helm release in a Kubernetes cluster, with the `helm` command on the host. See [Deploying workloads]({{< relref "/docs/guides/deploying-workloads" >}}).
 
 ```cue
 app: {
@@ -42,12 +37,13 @@ app: {
 | `values_files` | `[...string]` | - | Passed as repeated -f flags, in order. Relative to the project directory unless absolute. |
 | `post_renderer` | `string` | - | A command that helm pipes rendered manifests through. |
 | `post_renderer_args` | `[...string]` | - | Extra arguments for post_renderer. |
-| `wait` | `string` | `"5m"` | How long to wait for the release to become ready, as a Go duration. Empty disables --wait. |
+| `wait` | `string` | `"5m"` | How long to wait for the release to become ready, such as `"5m"`. An empty string does not wait. |
 | `atomic` | `bool` | `true` | Rolls the release back automatically on a failed upgrade. |
-| `keep` | `bool` | `false` | Leaves the release installed on Down, instead of uninstalling it. |
+| `keep` | `bool` | `false` | Leaves the release installed on teardown, instead of uninstalling it. |
 
-> [!NOTE]
-> `post_renderer` is a path to the renderer executable, resolved via
-> `$PATH` if it has no separator, otherwise relative to the current
-> directory. This argument is different between Helm 3 and Helm 4.
-> See Also: [Helm Documentation](https://helm.sh/docs/topics/advanced/)
+`post_renderer` is a program name found on `PATH`, or a path relative to the current directory. Helm 3 and Helm 4 accept different values. See the [Helm documentation](https://helm.sh/docs/topics/advanced/).
+
+## Behavior
+
+- Runs `helm upgrade --install`, so running the step again is safe.
+- Uninstalls the release on teardown, unless `keep` is `true`.

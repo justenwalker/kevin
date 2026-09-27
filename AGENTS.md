@@ -310,5 +310,5 @@ plugin fetch and signature verification - both schemes - runs in
 `LoadAndLaunch` before `startProxy` (`internal/engine/engine.go`'s `Run`),
 so it's unproxied host traffic, out of scope for `proxy: egress: deny`. An
 optional `config` block is delivered once via `Configure`). See
-[docs/site/content/docs/environment-file.md](docs/site/content/docs/environment-file.md)
+[docs/site/content/docs/reference/environment-file.md](docs/site/content/docs/reference/environment-file.md)
 for worked examples.

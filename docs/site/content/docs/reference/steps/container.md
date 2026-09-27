@@ -7,15 +7,13 @@ weight: 1
 
 # `builtin:container`
 
-Runs a container, on docker or podman - whichever the `--engine` flag or
-`KEVIN_ENGINE` env var selects, or auto-detection finds.
+Runs a container.
 
 ```cue
 web: {
     uses: "builtin:container"
     with: {
         image:  "nginx:alpine"
-        ports:  ["8080:80"]
         expose: web: {port: 80}
     }
 }
@@ -28,50 +26,50 @@ web: {
 | `cmd` | `[...string]` | - | Replaces the command of the image. |
 | `entrypoint` | `[...string]` | - | Replaces the entrypoint of the image, such as [`"sh"`, `"-c"`]. Unset keeps the image's own entrypoint. |
 | `env` | `[string]: string` | - | Holds extra environment variables for the container. |
-| `ports` | `[...string]` | - | Publish a container port on the host, such as `"8080:80"`. A workload reaches another workload through the docker network, thus a published port is a convenience for a tool on the host. |
+| `ports` | `[...string]` | - | Publish a container port on the host, such as `"8080:80"`. Steps reach each other by step name and do not need a published port. |
 | `volumes` | `[...string]` | - | Mount a host path, such as `"/src:/dst:ro"`. |
-| `proxy` | `bool` | `true` | Installs kevin's CA into the container, so a request the proxy terminates verifies. The container's egress is captured regardless of this setting; proxy only controls whether it trusts the result. |
-| `egress` | `[...string]` | - | Lists the external hosts that this container can reach. The proxy denies egress by default. |
-| `start_timeout` | `string` | `"30s"` | The time to wait for the container to run. The value is a Go duration. |
-| `expose` | `[string]: #Expose` | - | Publishes a container port on the host loopback, keyed by a name that labels the entry in the console and the ready log line. This is the only way this step makes a port reachable outside the docker network. Nothing routes by name here; the console and the ready log report the address directly, and Outputs carries it too, as host_80 for port 80 and so on. Pair it with a builtin:route step to put a subdomain of the environment domain in front of it. A map, not a list, so one entry can be added or changed without replacing the whole set. |
+| `proxy` | `bool` | `true` | Mounts the kevin CA certificate in the container and sets SSL_CERT_FILE to it, so the container trusts certificates from the kevin proxy. Outbound traffic goes through the proxy either way. |
+| `egress` | `[...string]` | - | Lists external hosts that this container can reach when proxy.egress.deny is true, in addition to proxy.egress.allow. |
+| `start_timeout` | `string` | `"30s"` | The maximum time to wait for the container to start, as a duration such as `"30s"`. |
+| `expose` | `[string]: #Expose` | - | Makes a container port reachable from the host, on 127.0.0.1. The key names the entry in the console. The step is ready when each published TCP port accepts connections. To give the port a name on the environment domain, add a builtin:route step. |
 
 ## `#Expose`
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
 | `port` | `int` | - | **Required.** The container port to publish. |
-| `protocol` | `"tcp"` \| `"udp"` | `"tcp"` |  |
-| `host_port` | `int` | - | Pins the port on the host. Omitted, the OS assigns one. Ignored when relay is true - there's no dedicated port to pin. |
-| `relay` | `bool` | `false` | Routes this entry through the environment's relay container instead of publishing a dedicated host port on this container - one relay, shared by every relay-routed entry across every container step, instead of one host port per entry. Up reports the entry as an `"expose_<name>"` system output (a socks5:// upstream) and, once the engine's local forward is up, a `"forward_<name>"` output carrying a plain host:port a non-SOCKS5-aware tool can dial directly - the same shape a builtin:kind step's expose entry uses. Works with either protocol. |
+| `protocol` | `"tcp"` \| `"udp"` | `"tcp"` | The transport protocol of the port. |
+| `host_port` | `int` | - | Sets the port on the host. Unset, the OS picks a free port. Ignored when relay is true. |
+| `relay` | `bool` | `false` | Reaches the port through the relay container instead of a published host port. Use it when host ports are limited. The address is in the `"expose_<name>"` and `"forward_<name>"` system values instead of a `"host_<port>"` output. |
 
-## Publishes
+## Outputs
 
-`Outputs`, read as `needs.<step>.out.<key>`: `id`, `name`, `ip` (on the
-shared project network, when it has one), and one `host_80`-style key per
-published port (from `ports` and a directly-published `expose` entry
-alike, named after the container port). Each is a host-reachable address,
-already accepting connections by the time `Up` returns for a TCP `expose`
-entry. A `relay: true` expose entry publishes no `host_<port>` key - see
-`system` below instead.
+| Key | Value |
+|:----|:------|
+| `id` | Container ID. |
+| `name` | Container name. |
+| `ip` | Container address on the project network. |
+| `host_<port>` | Host address of a published container port, such as `host_80`, from `ports` or an `expose` entry without `relay`. |
 
-`system`, read as `needs.<step>.system.<key>`, is a sub-namespace kept
-separate from `out` so it can never collide with one of the above (see
-[Cross-step values]({{< relref "/docs/environment-file#cross-step-values" >}})):
-one `expose_<name>` per `relay: true` expose entry, its relay address, for a
-downstream step such as
-[`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}), and one
-`forward_<name>` per such entry, a plain `127.0.0.1:<port>` address the
-engine forwards to the relay on a client's behalf, so a tool with no SOCKS5
-awareness (`psql`, `curl`, ...) can dial it directly.
+## System values
 
-A container step never puts itself on the environment domain. Pair a
-published port's address output with a
-[`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step to do
-that.
+For each `expose` entry with `relay: true`:
 
-Implements `Export`, reporting the same `id`/`name`/`ip`/`host_<port>`
-shape `Outputs` uses, for a cross-scope `setup.<name>` need or a
-`commands:` entry's `run` (`docker exec -it "${needs.<step>.out.name}" sh`,
-or `podman exec` on a project configured for podman, for example). Export
-inspects the running container - it fails when the step hasn't come up yet
-or the container isn't running.
+| Key | Value |
+|:----|:------|
+| `expose_<name>` | Relay address, as `socks5://<relay>/<step>:<port>`. |
+| `forward_<name>` | A `127.0.0.1:<port>` address that forwards to the port through the relay. |
+
+## Behavior
+
+- Steps reach each other by step name on the project network.
+- A container step does not give itself a name on the environment domain. Use a [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step.
+- Supports export: `id`, `name`, `ip`, and `host_<port>`, for a `setup.<step>` need or a command. Export fails if the container is not running.
+- Removed on teardown.
+
+```cue
+commands: sh: {
+    needs: ["web"]
+    run: ["docker", "exec", "-it", "${needs.web.out.name}", "sh"]
+}
+```

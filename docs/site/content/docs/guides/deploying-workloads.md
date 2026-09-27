@@ -23,7 +23,7 @@ env: {
 }
 ```
 
-Both steps read `kubeconfig`/`context` off `needs` with a `${...}` expression. See [Environment file: cross-step values]({{< relref "/docs/environment-file#cross-step-values" >}}).
+Both steps read `kubeconfig`/`context` off `needs` with a `${...}` expression. See [Environment file: cross-step values]({{< relref "/docs/reference/environment-file#reading-another-steps-outputs" >}}).
 
 ## kubectl
 

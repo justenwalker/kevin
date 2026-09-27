@@ -7,17 +7,11 @@ weight: 7
 
 # `kevin plugin`
 
-Works with the plugins that ship inside `kevin`, and with the plugin
-package format used by `plugins:` entries in `kevin.cue` (see
-[Configuring an environment]({{< relref "/docs/environment-file" >}})).
+Packages, publishes, finds, and trusts plugins. See [Third-party plugins]({{< relref "/docs/guides/third-party-plugins" >}}) and [Publishing a plugin]({{< relref "/docs/extending/publishing-a-plugin" >}}).
 
 ## `kevin plugin pack <dir>`
 
-Builds a plugin package (a gzip-compressed tar) from `dir`: a
-`manifest.json` plus the entrypoint binary and any files it needs
-alongside it. `dir` may already hold a `manifest.json`; the override flags
-below fill in or replace its fields, and must fully supply the manifest
-when `dir` has none.
+Creates a plugin package (`.tar.gz`) from the files in `dir`, and writes its `manifest.json`. If `dir` has a `manifest.json`, the flags replace its fields. If it has none, the flags must supply every field.
 
 ```sh
 kevin plugin pack ./my-plugin -o my-plugin.tar.gz
@@ -27,14 +21,7 @@ kevin plugin pack ./my-plugin -o my-plugin.tar.gz
 
 ## `kevin plugin push <tar.gz> <oci-ref>`
 
-Uploads the plugin package at `tar.gz` to `oci-ref` (e.g.
-`ghcr.io/acme/plugin:v1`), reusing whatever credentials `docker login`
-already wrote. If `tar.gz.minisig` (`minisign -Sm tar.gz`'s default output)
-or `tar.gz.sigstore.json` (`cosign sign-blob --bundle`'s output) exists,
-push uploads whichever it finds too, for consumers with a matching
-`signing:` scheme and the signer trusted (see `kevin plugin trust` below).
-The OCI fallback tag holds one signature per digest, so pushing both
-schemes for the same package leaves only the one pushed last.
+Uploads a plugin package to an OCI registry, with the credentials from `docker login`. If `<tar.gz>.minisig` or `<tar.gz>.sigstore.json` exists, `push` uploads it too. The registry keeps one signature for each package, so push only one of them.
 
 ```sh
 kevin plugin push my-plugin.tar.gz ghcr.io/acme/plugin:v1
@@ -42,101 +29,66 @@ kevin plugin push my-plugin.tar.gz ghcr.io/acme/plugin:v1
 
 ## `kevin plugin trust`
 
-Manages the local trust stores a `plugins.<name>` entry's signing block
-verifies against: `~/.kevin/trusted-keys` for `signing: scheme:
-"minisign"`, and `~/.kevin/trusted-identities` for `signing: scheme:
-"sigstore"`. See [the CA and trust guide]({{< relref "/docs/guides/ca-and-trust" >}})
-for the machine trust store this is not - `kevin plugin trust` is a
-separate, per-key/per-identity store used only for plugin package
-signatures.
+Manages the signers that kevin trusts for plugin packages with `signing` set. Minisign keys are in `~/.kevin/trusted-keys/`, and sigstore identities in `~/.kevin/trusted-identities/`. These are separate from the machine trust store that `kevin ca` manages.
 
 ### `kevin plugin trust add <pubkey-file>`
 
-Adds a minisign public key to the trust store.
+Trusts a minisign public key.
 
 ### `kevin plugin trust list`
 
-Lists the trust store's keys and identities, scheme-tagged.
+Lists trusted keys and identities, with their scheme.
 
 ### `kevin plugin trust remove <key-id>`
 
-Removes a key from the trust store.
+Removes a minisign key.
 
 ### `kevin plugin trust add-identity`
 
-Trusts a sigstore signing identity - the certificate identity (an email,
-or a GitHub Actions workflow-ref URI) and OIDC issuer URL a
-`signing: scheme: "sigstore"` package's bundle must carry.
+Trusts a sigstore identity: the certificate identity (an email, or a GitHub Actions workflow URI) and the OIDC issuer URL.
 
 [[template "flags" (index .Commands.trust.Commands "add-identity")]]
 
 ### `kevin plugin trust remove-identity <identity> <issuer>`
 
-Removes a sigstore signing identity from the trust store.
+Removes a sigstore identity.
 
 ## `kevin plugin index`
 
-Manages git repos that publish discoverable plugins: each repo holds a
-`plugins/<name>/{plugin.yaml,versions/<semver>.yaml}` tree. See
-[the plugin discovery guide]({{< relref "/docs/guides/plugin-discovery" >}})
-for the repo format, the "latest" resolution rule, and the
-`<alias>/<name>` disambiguation syntax. This is a phonebook, not a trust
-boundary - `kevin plugin trust` above is still required before kevin ever
-fetches a signed package.
+Manages indexes: git repositories that list plugins and their releases.
 
 ### `kevin plugin index add <git-url>`
 
-Configures `git-url` as an index source, clones it immediately, and
-reports how many plugins it holds. Adding a URL that is already
-configured is a silent no-op that reports the existing source.
+Adds an index, clones it, and prints the number of plugins in it. Adding an index that is already configured does nothing.
 
 [[template "flags" .Commands.index.Commands.add]]
 
 ### `kevin plugin index list`
 
-Lists configured index sources: alias and URL.
+Lists indexes, with their aliases and URLs.
 
 ### `kevin plugin index remove <alias>`
 
-Removes a configured index source and its cloned repo cache.
+Removes an index and its local copy.
 
 ### `kevin plugin index update`
 
-Re-clones every configured index source from scratch, independently - one
-source's clone or load failure is reported on its own line and never
-blocks another source from updating. Exits non-zero if any source failed,
-even though every source is still attempted.
+Clones each index again. An index that fails does not stop the others. Exits non-zero if any index failed.
 
 ### `kevin plugin index show <name-or-alias/name>`
 
-Prints a plugin's metadata, every known version (newest first), and the
-latest version's pasteable `plugins: <name>: {...}` snippet, ready to
-paste into `kevin.cue`. A bare `<name>` found in more than one configured
-source errors, naming every matching alias; retype it as
-`<alias>/<name>`.
+Prints the metadata and versions of a plugin, newest first, and the `plugins:` entry for the latest version. The latest version is the highest version without a pre-release suffix. If the name is in more than one index, use `<alias>/<name>`.
 
 [[template "flags" .Commands.index.Commands.show]]
 
 ### `kevin plugin index install <name-or-alias/name>`
 
-Resolves a plugin (the latest version, or `--version`'s exact match),
-trusts every signer `plugin.yaml` declares for that version's signing
-scheme (`kevin plugin trust add`/`add-identity`'s own stores - `install`
-is a convenience on top of them, not a new trust boundary: it only ever
-trusts a signer the plugin's own identity file names, the same signer a
-user would otherwise copy in by hand), and writes the plugin's
-`plugins:` entry straight into the environment file - no copy/paste. A
-version signed with no matching declared signer prints a warning and
-still installs; the entry is safe to write either way. Refuses if the
-environment file already declares that plugin name, or isn't a
-single-file CUE environment (a YAML/JSON file, or a CUE file using
-`package` mode) - either way, paste the printed snippet in by hand
-instead.
+Trusts the signers that the plugin's index entry declares for the version's signing scheme, then adds the plugin's `plugins:` entry to the environment file. If the index declares no signer for that scheme, `install` prints a warning and still adds the entry.
+
+Fails if the environment file already declares the plugin, or is not a single CUE file without a package clause. In that case, copy the entry from `show`.
 
 [[template "flags" .Commands.index.Commands.install]]
 
 ## `kevin plugin search [query]`
 
-Searches every configured index source's plugins by name and summary,
-case-insensitively. With no query, lists every plugin found. Each row is
-`<alias>/<name>`, its summary, and its latest version.
+Searches the names and summaries of plugins in every index. The search ignores case. With no query, lists every plugin. Each result shows `<alias>/<name>`, the summary, and the latest version.

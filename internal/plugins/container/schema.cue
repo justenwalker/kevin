@@ -15,36 +15,30 @@
 	// env holds extra environment variables for the container.
 	env?: [string]: string
 
-	// ports publish a container port on the host, such as "8080:80". A
-	// workload reaches another workload through the docker network, thus a
-	// published port is a convenience for a tool on the host.
+	// ports publish a container port on the host, such as "8080:80". Steps
+	// reach each other by step name and do not need a published port.
 	ports?: [...string]
 
 	// volumes mount a host path, such as "/src:/dst:ro".
 	volumes?: [...string]
 
-	// proxy installs kevin's CA into the container, so a request the proxy
-	// terminates verifies. The container's egress is captured regardless of
-	// this setting; proxy only controls whether it trusts the result.
+	// proxy mounts the kevin CA certificate in the container and sets
+	// SSL_CERT_FILE to it, so the container trusts certificates from the
+	// kevin proxy. Outbound traffic goes through the proxy either way.
 	proxy?: bool | *true
 
-	// egress lists the external hosts that this container can reach. The proxy
-	// denies egress by default.
+	// egress lists external hosts that this container can reach when
+	// proxy.egress.deny is true, in addition to proxy.egress.allow.
 	egress?: [...string]
 
-	// start_timeout is the time to wait for the container to run. The value is
-	// a Go duration.
+	// start_timeout is the maximum time to wait for the container to start,
+	// as a duration such as "30s".
 	start_timeout?: string | *"30s"
 
-	// expose publishes a container port on the host loopback, keyed by a
-	// name that labels the entry in the console and the ready log line.
-	// This is the only way this step makes a port reachable outside the
-	// docker network. Nothing routes by name here; the console and the
-	// ready log report the address directly, and Outputs carries it too,
-	// as host_80 for port 80 and so on. Pair it with a builtin:route step
-	// to put a subdomain of the environment domain in front of it. A map,
-	// not a list, so one entry can be added or changed without replacing
-	// the whole set.
+	// expose makes a container port reachable from the host, on 127.0.0.1.
+	// The key names the entry in the console. The step is ready when each
+	// published TCP port accepts connections. To give the port a name on
+	// the environment domain, add a builtin:route step.
 	expose?: [string]: #Expose
 }
 
@@ -52,20 +46,16 @@
 	// port is the container port to publish.
 	port!: int
 
+	// protocol is the transport protocol of the port.
 	protocol?: "tcp" | "udp" | *"tcp"
 
-	// host_port pins the port on the host. Omitted, the OS assigns one.
-	// Ignored when relay is true - there's no dedicated port to pin.
+	// host_port sets the port on the host. Unset, the OS picks a free port.
+	// Ignored when relay is true.
 	host_port?: int
 
-	// relay routes this entry through the environment's relay container
-	// instead of publishing a dedicated host port on this container - one
-	// relay, shared by every relay-routed entry across every container
-	// step, instead of one host port per entry. Up reports the entry as an
-	// "expose_<name>" system output (a socks5:// upstream) and, once the
-	// engine's local forward is up, a "forward_<name>" output carrying a
-	// plain host:port a non-SOCKS5-aware tool can dial directly - the same
-	// shape a builtin:kind step's expose entry uses. Works with either
-	// protocol.
+	// relay reaches the port through the relay container instead of a
+	// published host port. Use it when host ports are limited. The address
+	// is in the "expose_<name>" and "forward_<name>" system values instead of a
+	// "host_<port>" output.
 	relay?: bool | *false
 }

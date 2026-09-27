@@ -33,4 +33,4 @@ A step runs only after step 4 succeeds. A bad environment file fails before the 
 
 The plugin processes stay alive for the whole session. The engine stops them when the session ends.
 
-See [Environment file: cross-step values]({{< relref "/docs/environment-file#cross-step-values" >}}) for how a step's outputs reach a downstream step, both in the plugin's own wire request and in `${...}` expressions inside `with`.
+See [Environment file: cross-step values]({{< relref "/docs/reference/environment-file#reading-another-steps-outputs" >}}) for how a step's outputs reach a downstream step, both in the plugin's own wire request and in `${...}` expressions inside `with`.

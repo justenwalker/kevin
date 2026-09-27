@@ -17,7 +17,7 @@ The environment file holds two independent DAGs, and each DAG is a scope.
 
 The two scopes use one engine and one protocol. An `env` step's `needs` may additionally name a `setup` step, prefixed `setup.` (`needs: ["setup.<name>"]`) - resolved through `Export`, not `Up`, since a plain `kevin run` never brings the setup scope up in that process. See [Cross-step values]({{< relref "/docs/concepts/cross-step-values" >}}).
 
-State for one project lives in a `.kevin/` folder, or `.kevin/<name>/` for a named environment selected with `-e`/`--env` (see [Environment file]({{< relref "/docs/environment-file#file-name-and-format" >}})). Two projects, or two named environments in one project directory, can run at the same time, because kevin prefixes every resource with the project name.
+State for one project lives in a `.kevin/` folder, or `.kevin/<name>/` for a named environment selected with `-e`/`--env` (see [Environment file]({{< relref "/docs/reference/environment-file#file-name-and-format" >}})). Two projects, or two named environments in one project directory, can run at the same time, because kevin prefixes every resource with the project name.
 
 ## Provider model
 

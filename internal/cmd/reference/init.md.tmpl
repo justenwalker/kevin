@@ -7,10 +7,7 @@ weight: 5
 
 # `kevin init`
 
-Resolves each `plugins:` entry a step actually uses, downloading and
-extracting a `file:`/`oci:`/`http:` source and verifying its signature if
-`signing` is set. It starts no plugin process and validates nothing
-against a schema.
+Downloads and extracts each plugin package that a step uses, and verifies its signature if the entry sets `signing`. It does not start plugins or check the environment file against their schemas. Use `kevin validate` for that.
 
 ```sh
 kevin init

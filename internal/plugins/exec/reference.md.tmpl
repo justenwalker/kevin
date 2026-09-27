@@ -7,10 +7,7 @@ weight: 8
 
 # `builtin:exec`
 
-Runs `up`'s command once on the host. A nonzero exit fails the step; its
-trimmed stdout becomes the step's `stdout` output, so a dependent can read
-it back with `${needs.<step>.out.stdout}`. `down`, if set, runs on
-teardown for cleanup - omitted, `Down` does nothing.
+Runs a command on the host when the step starts, and optionally another command on teardown.
 
 ```cue
 migrate: {
@@ -22,10 +19,7 @@ migrate: {
 }
 ```
 
-`up` and `down` each have their own `cwd`/`env`, since a cleanup command
-often wants a different working directory or environment than the command
-that created what it's cleaning up. `proxy`/`egress` apply to both, since
-they're about network posture, not about either command's own inputs:
+To send the commands' requests through the kevin proxy:
 
 ```cue
 fetch: {
@@ -38,9 +32,7 @@ fetch: {
 }
 ```
 
-A tool that only takes a CA certificate or a proxy address as a flag, not
-via `SSL_CERT_FILE`/`HTTP_PROXY`-style environment variables, can read
-them directly out of the `project.*` CEL scope instead:
+For a tool that takes a CA file or proxy address only as a flag, use the [`project`]({{< relref "/docs/reference/cel-expressions#project" >}}) variables:
 
 ```cue
 up: command: [
@@ -50,25 +42,19 @@ up: command: [
 ]
 ```
 
-See [CEL expressions]({{< relref "/docs/reference/cel-expressions" >}}).
-
 [[template "table" .Definitions.Config]]
 
 ## `#Exec`
 
 [[template "table" .Definitions.Exec]]
 
-**Kind: action.** `Down` always runs (it's declared on the step type,
-same as `builtin:kubectl`), but does nothing when `down` is unset - same
-as `builtin:kubectl`'s `Down` doing nothing when `keep` is set.
+## Outputs
 
-Not idempotent: kevin has no way to know whether rerunning an arbitrary
-command is safe, so a cascading rerun of a step this one depends on never
-sweeps this step back in automatically.
+| Key | Value |
+|:----|:------|
+| `stdout` | Standard output of `up`, with surrounding whitespace removed. |
 
-Implements `Export`, reporting the same `stdout` value `Outputs` uses, for
-a cross-scope `setup.<name>` need or a `commands:` entry's `run`. `Up`
-persists the captured stdout under the workspace so a later, separate
-process's `Export` call can read it back - Export never runs the command
-again, only reports what `Up` already produced, and fails when `Up` hasn't
-run yet. `Down` removes the persisted value.
+## Behavior
+
+- Supports export: `stdout`, for a `setup.<step>` need or a command. Export returns the output of the last `up` and does not run the command again. It fails if `up` has not run.
+- When you rerun a step that this step needs, kevin does not rerun this step, because the command might not be safe to run twice.

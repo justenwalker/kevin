@@ -26,7 +26,7 @@
 	// server_side applies with --server-side.
 	server_side?: bool | *false
 
-	// keep leaves the applied resources in place on Down, instead of
+	// keep leaves the applied resources in place on teardown, instead of
 	// deleting them.
 	keep?: bool | *false
 }

@@ -7,9 +7,7 @@ weight: 11
 
 # `kevin stop`
 
-Signals a `kevin run` for this project and environment (started plain or
-with `--detach`) to shut down, the same way an interrupt would, and
-waits for it to exit. It's a no-op if nothing is running.
+Stops a running `kevin run` for this project and environment, as Ctrl-C would, and waits for it to exit. Does nothing if kevin is not running.
 
 ```sh
 kevin stop

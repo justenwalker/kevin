@@ -7,10 +7,7 @@ weight: 6
 
 # `kevin validate`
 
-Loads the environment file, starts its declared plugins, and validates every
-step's `with` block against its plugin's schema: everything `run` and
-`setup` do before touching the container engine. It creates nothing and
-needs no engine daemon running.
+Checks the environment file: its fields, each step's `with` block against the schema of its step type, `needs` references, and `${...}` expressions. It starts the plugins to read their schemas, but creates nothing and does not need a container engine.
 
 ```sh
 kevin validate

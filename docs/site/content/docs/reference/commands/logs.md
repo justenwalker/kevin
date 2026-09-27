@@ -7,11 +7,7 @@ weight: 13
 
 # `kevin logs`
 
-Prints a step's recorded output for this project and environment. With no
-step name, it prints every step's output interleaved. It reads straight
-from the durable log file rather than asking a running process, so it
-works whether or not `kevin run` is still active, including after a
-crash.
+Prints the output of a step. With no step name, it prints the output of every step, in order. It works while `kevin run` is running and after it exits, including after a crash.
 
 ```sh
 kevin logs

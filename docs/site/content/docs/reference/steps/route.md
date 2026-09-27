@@ -7,14 +7,9 @@ weight: 7
 
 # `builtin:route`
 
-Registers one or more subdomains of the environment domain as HTTP
-routes into an address. This is the one mechanism for putting any step
-on the domain, whatever kind of step produced the address. A route step
-deploys nothing itself: it only tells the kevin proxy how to dial each
-host.
+Gives addresses a name on the environment domain, served by the kevin proxy. It can also send traffic for a real hostname to a local address. The step creates nothing: it adds routes to the proxy.
 
-Pair it with a [`builtin:container`]({{< relref "/docs/reference/steps/container" >}})
-step's `expose` output for an address the proxy can dial directly:
+To route a [`builtin:container`]({{< relref "/docs/reference/steps/container" >}}) port:
 
 ```cue
 web: {uses: "builtin:container", with: {image: "nginx:alpine", expose: web: {port: 80}}}
@@ -26,24 +21,13 @@ web_route: {
 }
 ```
 
-A leading `*.` on `host` registers a wildcard subdomain, matching any
-name under it but not the bare domain itself - this works the same way
-whether or not `intercept` is set:
+A `host` that starts with `*.` matches every subdomain, but not the name itself. This route matches `a.web.<domain>`, but not `web.<domain>`:
 
 ```cue
-tenant_route: {
-    uses:  "builtin:route"
-    needs: ["web"]
-    with: routes: [{host: "*.web", address: "${needs.web.out.host_80}"}]
-}
+routes: [{host: "*.web", address: "${needs.web.out.host_80}"}]
 ```
 
-registers `*.web.<domain>`, matching `anything.web.<domain>` (but not the
-bare `web.<domain>`) into the same address.
-
-Or with a [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}) cluster's
-relay for a target the proxy can only reach through a SOCKS5 tunnel. Set
-`relay` to dial through it, with a CONNECT to each route's address:
+To route a Service in a [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}) cluster, set `relay` to the cluster's relay address:
 
 ```cue
 cluster: {uses: "builtin:kind", with: {relay: true}}
@@ -59,15 +43,9 @@ app_route: {
 }
 ```
 
-`needs` the step that publishes the address (and, for the relay case, the
-step that publishes the relay address too). `Up` must run after both are
-ready.
+Put the step that deploys the target in `needs`, so the route starts after it.
 
-Set `intercept` on an entry to intercept a real-world hostname instead of
-registering a subdomain - `host` is then used exactly as given, and traffic
-meant for that real service transparently lands on `address` instead, such
-as a local fake running behind a `container` step. The same `*.` wildcard
-rule above still applies to `host` here too:
+To send traffic for a real hostname to a local container, set `intercept`:
 
 ```cue
 s3_fake: {uses: "builtin:container", with: {image: "ministackorg/ministack", expose: s3: {port: 4566}}}
@@ -82,36 +60,26 @@ s3_intercept: {
 }
 ```
 
-See [`examples/intercept`](https://github.com/justenwalker/kevin/tree/main/examples/intercept)
-for this end to end, with a probe that hits both routes and gets back a
-genuine (if unauthenticated) S3 API response.
+[`examples/intercept`](https://github.com/justenwalker/kevin/tree/main/examples/intercept) is a complete example.
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `relay` | `string` | - | The relay address to dial through, typically read from a kind step's relay_addr output, e.g. `"${needs.cluster.out.relay_addr}"` where cluster names that step. Unset means every route's address is already something the proxy process can dial directly, such as a container step's published loopback address. |
-| `routes` | `[...#Route]` | - | The subdomains this step registers. |
+| `relay` | `string` | - | The address of a relay, such as `"${needs.cluster.out.relay_addr}"` from a builtin:kind step. Set it when the addresses are inside a kind cluster. Unset, the proxy connects to each address directly. |
+| `routes` | `[...#Route]` | - | The names that this step registers. |
 
 ## `#Route`
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `host` | `string` | - | **Required.** The subdomain under the environment domain that serves this route, e.g. `"myapp"` registers `"myapp.<domain>"`. When intercept is true, host is instead a real-world hostname used exactly as given, e.g. `"s3.amazonaws.com"`. Either way, a leading `"*."` wildcard matches any subdomain but not the bare domain itself: `"*.myapp"` registers `"*.myapp.<domain>"`, matching `"anything.myapp.<domain>"` but not `"myapp.<domain>"` - same rule the proxy's route table applies to `"*.s3.amazonaws.com"` for an intercept entry. |
-| `address` | `string` | - | **Required.** The target: a Kubernetes Service DNS name and port when relay is set (`"myapp.default.svc.cluster.local:80"`), or a host-reachable address the proxy process can dial directly otherwise (`"127.0.0.1:8080"`). |
-| `tls` | `bool` | - | True when the target itself speaks TLS, such as a Service fronting HTTPS on its port. |
-| `intercept` | `bool` | - | True when host is a real-world hostname to intercept, rather than a subdomain of the environment domain - traffic meant for that real service transparently lands on address instead, such as a local fake running behind a container step. |
-| `ports` | `[...int]` | `[443]` | Lists the ports a client actually dials host on, beyond 443, which the relay always listens on - defaults to 443, the overwhelming common case for a TLS API. Ignored unless intercept is true. |
-| `mode` | `"mitm"` \| `"passthrough"` \| `"raw"` | `"mitm"` | Selects how the proxy handles a client's connection to this route - independent of tls, which only says whether address itself speaks TLS: - `"mitm"` (default): terminate the client's TLS and re-sign it with kevin's own leaf, then route the decrypted request normally. - `"passthrough"`: tunnel the client's TLS through untouched, so the client validates address's real certificate directly - useful for testing a workload's own TLS, such as a Service fronted by cert-manager inside a builtin:kind cluster. Requires tls: true; a plain-HTTP target has no certificate to pass through. - `"raw"`: tunnel the connection byte for byte, with no TLS or HTTP assumption at all, for a raw TCP service such as a database's wire protocol. Requires tls: false. |
+| `host` | `string` | - | **Required.** The name to route. Without intercept, it is a subdomain of the environment domain: `"myapp"` routes `"myapp.<domain>"`. With intercept, it is a full hostname, such as `"s3.amazonaws.com"`. A leading `"*."` matches any subdomain but not the name itself: `"*.myapp"` matches `"a.myapp.<domain>"` but not `"myapp.<domain>"`. |
+| `address` | `string` | - | **Required.** The target host:port. With relay, it is an address inside the cluster, such as `"myapp.default.svc.cluster.local:80"`. Without relay, it is an address the host can connect to, such as a container step's `"host_<port>"` output. |
+| `tls` | `bool` | - | True when address expects TLS. |
+| `intercept` | `bool` | - | Sends traffic for the real hostname in host to address, for example to replace a cloud service with a local fake. |
+| `ports` | `[...int]` | `[443]` | Lists the ports that clients use to connect to host. Has an effect only when intercept is true. |
+| `mode` | `"mitm"` \| `"passthrough"` \| `"raw"` | `"mitm"` | Selects how the proxy handles connections to this route. `"mitm"` terminates TLS with a certificate from the kevin CA and forwards each request. `"passthrough"` forwards the client's TLS connection unchanged, so the client checks the certificate of address; it requires tls: true. `"raw"` forwards the TCP connection unchanged, for a protocol that is not HTTP, such as a database protocol; it requires tls: false. |
 
-## Publishes
+## Behavior
 
-Every route also appears as a card `Detail`: a copyable `https://` link
-to the route's host, unless it's an `intercept` route or a wildcard
-host - neither names a single address to browse to, so those show as
-plain copyable text instead.
-
-Has no `Down`: the proxy has no mechanism to remove a route once
-registered.
-
-Idempotent: Up is safe to call again. The proxy's route table replaces
-an earlier route for the same host rather than growing one, so a rerun
-just republishes the same routes.
+- The console shows a link to each route, except for wildcard and `intercept` routes.
+- Safe to run again: a route replaces an earlier route for the same host.
+- Routes stay in the proxy until kevin stops.

@@ -2,9 +2,9 @@
 title: "Steps"
 weight: 10
 bookCollapseSection: true
-description: "The with block config for every builtin step type, generated from its #Config CUE schema."
+description: "The with fields, outputs, and behavior of every builtin step type."
 ---
 
 # Steps
 
-The `with` block config for every builtin step type, generated from each step's `#Config` CUE schema. `!` marks a required field, `?` an optional one, `| *value` a default. See [CEL expressions]({{< relref "/docs/reference/cel-expressions" >}}) for the `${...}` syntax used inside `with` values.
+The `with` fields, outputs, and behavior of every builtin step type. A step uses one as `uses: "builtin:<type>"`. See [CEL expressions]({{< relref "/docs/reference/cel-expressions" >}}) for `${...}` in `with` values.

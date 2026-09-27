@@ -7,18 +7,11 @@ weight: 9
 
 # `kevin do <name> [-- extra args...]`
 
-Looks up `name` in the `kevin.cue` `commands` block, exports the environment
-of every step its `needs` list names, and execs its `run` argv in place of
-`kevin` - the same mechanism `connect` uses, with a predefined command
-instead of an ad-hoc one. Any args after `--` append to the command's own
-`run` argv.
+Runs a command from the `commands` block of the environment file. kevin reads the outputs of the steps in the command's `needs`, fills in the `${...}` expressions in `run`, and replaces itself with the command. Arguments after `--` are appended to `run`.
 
 ```sh
 kevin do shell
 kevin do migrate -- --dry-run
 ```
 
-Only a step whose plugin reports `Export` support (see
-[the plugin protocol]({{< relref "/docs/extending/plugin-protocol" >}}))
-may appear in a command's `needs` list - `kevin validate` catches a `needs`
-entry that can't export before `do` ever runs it.
+The steps in `needs` must be running, and their step types must support export. See [Environment file: commands]({{< relref "/docs/reference/environment-file#commands" >}}).

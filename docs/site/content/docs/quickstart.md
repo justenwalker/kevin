@@ -84,4 +84,4 @@ See [CA and trust store]({{< relref "guides/ca-and-trust" >}}) for what this ins
 
 - [Guides]({{< relref "guides" >}}): how to use each part of kevin, including the other three example environments in the repository.
 - [Concepts]({{< relref "/docs/concepts" >}}): why the DAG engine, the proxy, and the CA are shaped the way they are.
-- [Environment file]({{< relref "environment-file" >}}): the full `kevin.cue` shape.
+- [Environment file]({{< relref "/docs/reference/environment-file" >}}): the full `kevin.cue` shape.

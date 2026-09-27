@@ -2,14 +2,12 @@
 title: "Commands"
 weight: 20
 bookCollapseSection: true
-description: "Every kevin subcommand, generated from its cobra definition."
+description: "Every kevin command and its flags."
 ---
 
 # Commands
 
-Every `kevin` subcommand, generated from its cobra definition. Every
-subcommand also accepts these global flags, defined once on the root
-`kevin` command:
+Every `kevin` command accepts these flags:
 
 | Flag | Type | Default | Description |
 |:-----|:----:|:-------:|:------------|

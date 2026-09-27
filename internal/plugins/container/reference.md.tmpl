@@ -7,15 +7,13 @@ weight: 1
 
 # `builtin:container`
 
-Runs a container, on docker or podman - whichever the `--engine` flag or
-`KEVIN_ENGINE` env var selects, or auto-detection finds.
+Runs a container.
 
 ```cue
 web: {
     uses: "builtin:container"
     with: {
         image:  "nginx:alpine"
-        ports:  ["8080:80"]
         expose: web: {port: 80}
     }
 }
@@ -27,34 +25,34 @@ web: {
 
 [[template "table" .Definitions.Expose]]
 
-## Publishes
+## Outputs
 
-`Outputs`, read as `needs.<step>.out.<key>`: `id`, `name`, `ip` (on the
-shared project network, when it has one), and one `host_80`-style key per
-published port (from `ports` and a directly-published `expose` entry
-alike, named after the container port). Each is a host-reachable address,
-already accepting connections by the time `Up` returns for a TCP `expose`
-entry. A `relay: true` expose entry publishes no `host_<port>` key - see
-`system` below instead.
+| Key | Value |
+|:----|:------|
+| `id` | Container ID. |
+| `name` | Container name. |
+| `ip` | Container address on the project network. |
+| `host_<port>` | Host address of a published container port, such as `host_80`, from `ports` or an `expose` entry without `relay`. |
 
-`system`, read as `needs.<step>.system.<key>`, is a sub-namespace kept
-separate from `out` so it can never collide with one of the above (see
-[Cross-step values]({{< relref "/docs/environment-file#cross-step-values" >}})):
-one `expose_<name>` per `relay: true` expose entry, its relay address, for a
-downstream step such as
-[`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}), and one
-`forward_<name>` per such entry, a plain `127.0.0.1:<port>` address the
-engine forwards to the relay on a client's behalf, so a tool with no SOCKS5
-awareness (`psql`, `curl`, ...) can dial it directly.
+## System values
 
-A container step never puts itself on the environment domain. Pair a
-published port's address output with a
-[`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step to do
-that.
+For each `expose` entry with `relay: true`:
 
-Implements `Export`, reporting the same `id`/`name`/`ip`/`host_<port>`
-shape `Outputs` uses, for a cross-scope `setup.<name>` need or a
-`commands:` entry's `run` (`docker exec -it "${needs.<step>.out.name}" sh`,
-or `podman exec` on a project configured for podman, for example). Export
-inspects the running container - it fails when the step hasn't come up yet
-or the container isn't running.
+| Key | Value |
+|:----|:------|
+| `expose_<name>` | Relay address, as `socks5://<relay>/<step>:<port>`. |
+| `forward_<name>` | A `127.0.0.1:<port>` address that forwards to the port through the relay. |
+
+## Behavior
+
+- Steps reach each other by step name on the project network.
+- A container step does not give itself a name on the environment domain. Use a [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step.
+- Supports export: `id`, `name`, `ip`, and `host_<port>`, for a `setup.<step>` need or a command. Export fails if the container is not running.
+- Removed on teardown.
+
+```cue
+commands: sh: {
+    needs: ["web"]
+    run: ["docker", "exec", "-it", "${needs.web.out.name}", "sh"]
+}
+```

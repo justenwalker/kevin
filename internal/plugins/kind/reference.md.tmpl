@@ -7,8 +7,7 @@ weight: 2
 
 # `builtin:kind`
 
-Runs a local Kubernetes cluster with [kind](https://kind.sigs.k8s.io/),
-using the host `kind` binary.
+Runs a local Kubernetes cluster with [kind](https://kind.sigs.k8s.io/), with the `kind` command on the host. See [Kubernetes clusters]({{< relref "/docs/guides/kubernetes" >}}).
 
 ```cue
 cluster: {
@@ -20,29 +19,11 @@ cluster: {
 }
 ```
 
-Each key of `workers` names a node - applied as a `kevin.node` Kubernetes
-node label, so a dependent step can address it by that name directly
-(see [`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}})),
-instead of kind's own `"<cluster>-workerN"` container naming. The
-control-plane node always gets the fixed label `kevin.node: control-plane`.
-
 [[template "table" .Definitions.Config]]
 
 ## `#NodeConfig`
 
-`control_plane` and each `workers` entry pass additional per-node kind
-config straight through, using kind's own field names directly - see
-[kind's per-node options](https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options)
-for what's available (`image`, `extraMounts`, `extraPortMappings`,
-`kubeadmConfigPatches`, and so on). A field here is merged with what kevin
-itself generates for that node, not a wholesale replacement of it:
-
-- `labels` combines with kevin's own `kevin.node` label - setting
-  `kevin.node` yourself is rejected, since a dependent step relies on it
-  to address the node.
-- `extraPortMappings` combines with the relay's own mapping (when one
-  exists on the control-plane node), rather than replacing it.
-- `role` can't be set at all - it's structural, not configurable.
+`control_plane` and each `workers` value take kind's [per-node options](https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options), with kind's field names:
 
 ```cue
 cluster: {
@@ -54,38 +35,40 @@ cluster: {
 }
 ```
 
+kevin merges these with its own node settings:
+
+- `labels` adds to the `kevin.node` label. You cannot set `kevin.node`.
+- `extraPortMappings` adds to the relay port mapping.
+- You cannot set `role`.
+
+The control-plane node has the label `kevin.node: control-plane`.
+
 ## `#Expose`
 
 [[template "table" .Definitions.Expose]]
 
-## Publishes
+## Outputs
 
-`Outputs`, read as `needs.<step>.out.<key>`: `name`, `kubeconfig` (an
-absolute path), `context` (always `"kind-"+name`), `nodes` (a
-comma-separated list), and `relay_addr` (a plain host:port loopback
-address) whenever the relay is up (see `relay` above), for a
-[`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step to dial
-through. Implements `Export`, reporting `name`/`kubeconfig`/`context`/
-`relay_addr` for a cross-scope `setup.<name>` need or a `commands:` entry's
-`run` (`"${needs.<step>.out.kubeconfig}"`, for example) - `relay_addr` is
-read back from a file `Up` writes alongside `kubeconfig`. `nodes` needs
-the container engine, so Export never reports it.
+| Key | Value |
+|:----|:------|
+| `name` | Cluster name. |
+| `kubeconfig` | Absolute path of the kubeconfig file. |
+| `context` | kubeconfig context, `kind-<name>`. |
+| `nodes` | Comma-separated node names. |
+| `relay_addr` | Host address of the relay pod, when `relay` is `true` or `expose` has entries. For a [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step. |
 
-`system`, read as `needs.<step>.system.<key>`, is a sub-namespace kept
-separate from `out` so it can never collide with one of the above (see
-[Cross-step values]({{< relref "/docs/environment-file#cross-step-values" >}})):
-one `expose_<name>` per `expose` entry, its relay address, for a downstream
-step such as [`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}), and
-one `forward_<name>` per `expose` entry, a plain `127.0.0.1:<port>` address
-the engine forwards to the relay on a client's behalf, so a tool with
-no SOCKS5 awareness (`psql`, `curl`, ...) can dial it directly.
+## System values
 
-`Up` and `Export` both also report one container per node on a third
-channel, `UpRequest.Containers`, used by a dependent step directly rather
-than through `${needs...}` - see
-[`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}}), which
-targets a specific node by container name this way. `Export`'s own report
-needs a live `GetNodes` call the same way `Up`'s does (unlike the rest of
-`Export`, which only reads files `Up` already wrote) - it still never
-reports the `nodes` Outputs key itself, only this separate container-info
-channel.
+For each `expose` entry:
+
+| Key | Value |
+|:----|:------|
+| `expose_<name>` | Relay address, as `socks5://<relay>/<address>`. A [`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}) `tcp` check accepts it. |
+| `forward_<name>` | A `127.0.0.1:<port>` address that forwards to `address` through the relay. |
+
+## Behavior
+
+- If a cluster with the same name exists and its settings and the proxy address have not changed, the step uses it. Otherwise the step deletes it and creates a new one.
+- Deletes the cluster on teardown.
+- Supports export: `name`, `kubeconfig`, `context`, and `relay_addr`, for a `setup.<step>` need or a command.
+- Each node is a container that [`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}}) can target by its `workers` key.

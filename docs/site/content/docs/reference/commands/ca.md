@@ -7,16 +7,11 @@ weight: 8
 
 # `kevin ca`
 
-Manages the kevin root CA in the trust stores of this machine. It needs no
-project - the root names none and is shared by every kevin project on the
-machine. See [the CA and trust guide]({{< relref "/docs/guides/ca-and-trust" >}})
-for the full picture.
+Manages the kevin root CA in the trust stores of this machine. It does not need a project: every project on the machine uses the same root CA. See [Trust the kevin CA]({{< relref "/docs/guides/ca-and-trust" >}}).
 
 ## `kevin ca install`
 
-Generates the kevin root CA if it does not already exist, then adds it to
-the trust stores of this machine. Run this once for the machine; there is
-no need to repeat it per project.
+Creates the kevin root CA if it does not exist, then adds it to the trust stores of this machine: the macOS keychain or the Linux CA directory, and the certificate database of each Firefox profile. A trust store that is not on the machine is skipped. Running it again is safe.
 
 ```sh
 kevin ca install
@@ -29,7 +24,7 @@ kevin ca install
 
 ## `kevin ca uninstall`
 
-Removes the kevin root CA from the trust stores of this machine.
+Removes the kevin root CA from the trust stores of this machine. Running it again is safe.
 
 ```sh
 kevin ca uninstall

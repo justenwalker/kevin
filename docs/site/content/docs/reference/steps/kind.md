@@ -7,8 +7,7 @@ weight: 2
 
 # `builtin:kind`
 
-Runs a local Kubernetes cluster with [kind](https://kind.sigs.k8s.io/),
-using the host `kind` binary.
+Runs a local Kubernetes cluster with [kind](https://kind.sigs.k8s.io/), with the `kind` command on the host. See [Kubernetes clusters]({{< relref "/docs/guides/kubernetes" >}}).
 
 ```cue
 cluster: {
@@ -20,43 +19,25 @@ cluster: {
 }
 ```
 
-Each key of `workers` names a node - applied as a `kevin.node` Kubernetes
-node label, so a dependent step can address it by that name directly
-(see [`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}})),
-instead of kind's own `"<cluster>-workerN"` container naming. The
-control-plane node always gets the fixed label `kevin.node: control-plane`.
-
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `name` | `string` | - | The cluster name. It defaults to the step name, prefixed with the project. |
-| `image` | `string` | - | The node image, such as `"kindest/node:v1.34.0"`. kind picks its own default when this is empty. |
-| `control_plane` | `#NodeConfig` | - | Passes additional per-node kind config through to the control-plane node's generated entry - image, extraMounts, extraPortMappings, kubeadmConfigPatches, and so on - using kind's own field names directly (see kind's own per-node options: https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options). Merged with what kevin itself generates for this node, not replacing it: labels combine (a `"kevin.node"` key here is rejected - Up manages that one itself), extraPortMappings combine (the relay's own mapping, when one exists, stays alongside yours), and role may not be set at all - it's structural, not configurable. |
-| `workers` | `[string]: #NodeConfig` | - | Names each worker node to create, on top of the one control plane node - the map key is the node's own name, applied as a Kubernetes node label (`"kevin.node"`) so a dependent step (such as builtin:fault) can address it by that name directly, instead of kind's own `"<cluster>-workerN"` container naming. Each entry also passes through additional per-node config the same way control_plane does. A map, not a list, for the same reason expose is: one entry can be added or changed without replacing the whole set. |
-| `config` | `string` | - | A kind cluster configuration in YAML. It replaces the generated one, thus workers is ignored when this is set. |
-| `wait` | `string` | `"5m"` | How long to wait for the control plane to become ready. The value is a Go duration. |
-| `retain` | `bool` | - | Keeps the nodes when creation fails, so that the logs of a broken cluster survive. |
-| `proxy` | `bool` | `true` | Passes the kevin proxy to the nodes. kind copies the proxy variables into every node when it creates the cluster. |
-| `egress` | `[...string]` | - | Lists the external hosts that this cluster can reach. |
-| `coredns` | `bool` | `true` | Patches the cluster DNS to forward the environment domain to the relay, so that a pod resolves a step. Set it to false to opt out. |
-| `trust_ca` | `bool` | `true` | Installs the kevin root certificate into every node, so a pull through the proxy verifies. Set it to false to opt out. |
-| `expose` | `[string]: #Expose` | - | Lets a client outside the cluster dial an arbitrary in-cluster address (a Service DNS name or a Pod IP, with its port) through a single SOCKS5 relay pod inside the cluster, keyed by a name that labels the entry in the console and the ready log line. Unlike a container step, Up does not create what expose names. The target may come from a manifest applied separately, after the cluster is up, so Up does not wait for it to be dialable, only wires the relay and reports the address. Up also reports each entry's relay address as an `"expose_<name>"` output, for a downstream step (such as builtin:wait) to read. A map, not a list, so one entry can be added or changed without replacing the whole set. |
-| `relay` | `bool` | `false` | Deploys the SOCKS5 relay pod even with no expose entries, and publishes its address as the `"relay_addr"` output. Set this to route a subdomain into the cluster with builtin:route, without also needing an expose entry. |
+| `name` | `string` | - | The cluster name. Defaults to `"<project>-<step>"`. |
+| `image` | `string` | - | The node image, such as `"kindest/node:v1.34.0"`. Unset uses the default of the installed kind version. |
+| `control_plane` | `#NodeConfig` | - | Adds kind node settings to the control-plane node, with kind's field names, such as extraMounts or kubeadmConfigPatches (see https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options). labels and extraPortMappings add to the values kevin sets. The `"kevin.node"` label and role cannot be set. |
+| `workers` | `[string]: #NodeConfig` | - | Creates one worker node for each key, in addition to the control-plane node. The key names the node: kevin sets it as the `"kevin.node"` node label, and builtin:fault accepts it in containers. Each value takes the same node settings as control_plane. |
+| `config` | `string` | - | A complete kind cluster configuration in YAML. It replaces the configuration kevin generates: control_plane and workers have no effect. |
+| `wait` | `string` | `"5m"` | How long to wait for the control plane to become ready, such as `"5m"`. |
+| `retain` | `bool` | - | Keeps the nodes when the cluster fails to start, so you can inspect them. |
+| `proxy` | `bool` | `true` | Sets the kevin proxy environment variables in every node. |
+| `egress` | `[...string]` | - | Lists external hosts that the nodes can reach when proxy.egress.deny is true. |
+| `coredns` | `bool` | `true` | Configures the cluster DNS so that pods can resolve names on the environment domain, such as `"web.kevin.home"`. |
+| `trust_ca` | `bool` | `true` | Installs the kevin root certificate in every node, so that image pulls through the kevin proxy succeed. |
+| `expose` | `[string]: #Expose` | - | Makes an address inside the cluster, such as a Service DNS name and port, reachable from the host through a relay pod. The key names the entry in the console. The step does not wait for the address to accept connections: use a builtin:wait step with the `"expose_<name>"` system value. |
+| `relay` | `bool` | `false` | Deploys the relay pod even when expose is empty, and sets the relay_addr output. Use it with builtin:route to give a Service in the cluster a name on the environment domain. |
 
 ## `#NodeConfig`
 
-`control_plane` and each `workers` entry pass additional per-node kind
-config straight through, using kind's own field names directly - see
-[kind's per-node options](https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options)
-for what's available (`image`, `extraMounts`, `extraPortMappings`,
-`kubeadmConfigPatches`, and so on). A field here is merged with what kevin
-itself generates for that node, not a wholesale replacement of it:
-
-- `labels` combines with kevin's own `kevin.node` label - setting
-  `kevin.node` yourself is rejected, since a dependent step relies on it
-  to address the node.
-- `extraPortMappings` combines with the relay's own mapping (when one
-  exists on the control-plane node), rather than replacing it.
-- `role` can't be set at all - it's structural, not configurable.
+`control_plane` and each `workers` value take kind's [per-node options](https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options), with kind's field names:
 
 ```cue
 cluster: {
@@ -68,42 +49,44 @@ cluster: {
 }
 ```
 
+kevin merges these with its own node settings:
+
+- `labels` adds to the `kevin.node` label. You cannot set `kevin.node`.
+- `extraPortMappings` adds to the relay port mapping.
+- You cannot set `role`.
+
+The control-plane node has the label `kevin.node: control-plane`.
+
 ## `#Expose`
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
 | `address` | `string` | - | **Required.** The in-cluster host:port to reach, such as `"postgres.default.svc.cluster.local:5432"`. |
-| `protocol` | `"tcp"` \| `"udp"` | `"tcp"` | The wire protocol address speaks. |
-| `host_port` | `int` | - | Pins the port of the local forward that lets a host process dial this entry directly, reported as the `"forward_<name>"` output. Omitted, the OS assigns one. |
+| `protocol` | `"tcp"` \| `"udp"` | `"tcp"` | The transport protocol of the address. |
+| `host_port` | `int` | - | Sets the port of the `"forward_<name>"` address on the host. Unset, the OS picks a free port. |
 
-## Publishes
+## Outputs
 
-`Outputs`, read as `needs.<step>.out.<key>`: `name`, `kubeconfig` (an
-absolute path), `context` (always `"kind-"+name`), `nodes` (a
-comma-separated list), and `relay_addr` (a plain host:port loopback
-address) whenever the relay is up (see `relay` above), for a
-[`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step to dial
-through. Implements `Export`, reporting `name`/`kubeconfig`/`context`/
-`relay_addr` for a cross-scope `setup.<name>` need or a `commands:` entry's
-`run` (`"${needs.<step>.out.kubeconfig}"`, for example) - `relay_addr` is
-read back from a file `Up` writes alongside `kubeconfig`. `nodes` needs
-the container engine, so Export never reports it.
+| Key | Value |
+|:----|:------|
+| `name` | Cluster name. |
+| `kubeconfig` | Absolute path of the kubeconfig file. |
+| `context` | kubeconfig context, `kind-<name>`. |
+| `nodes` | Comma-separated node names. |
+| `relay_addr` | Host address of the relay pod, when `relay` is `true` or `expose` has entries. For a [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step. |
 
-`system`, read as `needs.<step>.system.<key>`, is a sub-namespace kept
-separate from `out` so it can never collide with one of the above (see
-[Cross-step values]({{< relref "/docs/environment-file#cross-step-values" >}})):
-one `expose_<name>` per `expose` entry, its relay address, for a downstream
-step such as [`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}), and
-one `forward_<name>` per `expose` entry, a plain `127.0.0.1:<port>` address
-the engine forwards to the relay on a client's behalf, so a tool with
-no SOCKS5 awareness (`psql`, `curl`, ...) can dial it directly.
+## System values
 
-`Up` and `Export` both also report one container per node on a third
-channel, `UpRequest.Containers`, used by a dependent step directly rather
-than through `${needs...}` - see
-[`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}}), which
-targets a specific node by container name this way. `Export`'s own report
-needs a live `GetNodes` call the same way `Up`'s does (unlike the rest of
-`Export`, which only reads files `Up` already wrote) - it still never
-reports the `nodes` Outputs key itself, only this separate container-info
-channel.
+For each `expose` entry:
+
+| Key | Value |
+|:----|:------|
+| `expose_<name>` | Relay address, as `socks5://<relay>/<address>`. A [`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}) `tcp` check accepts it. |
+| `forward_<name>` | A `127.0.0.1:<port>` address that forwards to `address` through the relay. |
+
+## Behavior
+
+- If a cluster with the same name exists and its settings and the proxy address have not changed, the step uses it. Otherwise the step deletes it and creates a new one.
+- Deletes the cluster on teardown.
+- Supports export: `name`, `kubeconfig`, `context`, and `relay_addr`, for a `setup.<step>` need or a command.
+- Each node is a container that [`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}}) can target by its `workers` key.

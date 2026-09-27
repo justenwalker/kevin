@@ -28,10 +28,9 @@
 }
 
 #TCP: {
-	// address is host:port to dial, or a "socks5://<relay>/<host:port>" URL,
-	// the form a builtin:kind step's expose entries publish as a
-	// "needs.<step>.system.expose_<name>" value, to dial through the
-	// kind SOCKS5 relay instead of directly.
+	// address is a host:port to connect to, or a
+	// "socks5://<relay>/<host:port>" address from an "expose_<name>" system
+	// value, which connects through the relay.
 	address!: string
 }
 
@@ -74,7 +73,7 @@
 }
 
 #Exec: {
-	// command is the argv to run and retry. There is no shell: use
-	// ["sh", "-c", "..."] if a shell is needed.
+	// command is the program and its arguments. There is no shell: use
+	// ["sh", "-c", "..."] for shell features.
 	command!: [string, ...string]
 }

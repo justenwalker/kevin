@@ -7,11 +7,7 @@ weight: 4
 
 # `builtin:kubectl`
 
-**Idempotent**
-
-Applies a manifest, a manifest directory, or a kustomization to an
-existing Kubernetes cluster, using the host `kubectl` binary. See
-[Deploying workloads]({{< relref "/docs/guides/deploying-workloads" >}}).
+Applies a manifest, a directory of manifests, or a kustomization to a Kubernetes cluster, with the `kubectl` command on the host. See [Deploying workloads]({{< relref "/docs/guides/deploying-workloads" >}}).
 
 ```cue
 app: {
@@ -34,8 +30,12 @@ app: {
 | `path` | `string` | - | A manifest file or directory, applied with -f. Relative to the project directory unless absolute. |
 | `kustomize` | `string` | - | A kustomization directory, applied with kubectl -k. Relative to the project directory unless absolute. |
 | `server_side` | `bool` | `false` | Applies with --server-side. |
-| `keep` | `bool` | `false` | Leaves the applied resources in place on Down, instead of deleting them. |
+| `keep` | `bool` | `false` | Leaves the applied resources in place on teardown, instead of deleting them. |
 
+Set exactly one of `manifest`, `path`, and `kustomize`.
 
-> [!CAUTION]
-> Exactly one of `manifest`, `path`, `kustomize` must be set.
+## Behavior
+
+- Runs `kubectl apply`, so running the step again is safe.
+- Deletes the applied resources on teardown, unless `keep` is `true`.
+- Does not wait for the resources to become ready. Add a [`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}) step.

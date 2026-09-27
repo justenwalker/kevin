@@ -7,14 +7,9 @@ weight: 7
 
 # `builtin:route`
 
-Registers one or more subdomains of the environment domain as HTTP
-routes into an address. This is the one mechanism for putting any step
-on the domain, whatever kind of step produced the address. A route step
-deploys nothing itself: it only tells the kevin proxy how to dial each
-host.
+Gives addresses a name on the environment domain, served by the kevin proxy. It can also send traffic for a real hostname to a local address. The step creates nothing: it adds routes to the proxy.
 
-Pair it with a [`builtin:container`]({{< relref "/docs/reference/steps/container" >}})
-step's `expose` output for an address the proxy can dial directly:
+To route a [`builtin:container`]({{< relref "/docs/reference/steps/container" >}}) port:
 
 ```cue
 web: {uses: "builtin:container", with: {image: "nginx:alpine", expose: web: {port: 80}}}
@@ -26,24 +21,13 @@ web_route: {
 }
 ```
 
-A leading `*.` on `host` registers a wildcard subdomain, matching any
-name under it but not the bare domain itself - this works the same way
-whether or not `intercept` is set:
+A `host` that starts with `*.` matches every subdomain, but not the name itself. This route matches `a.web.<domain>`, but not `web.<domain>`:
 
 ```cue
-tenant_route: {
-    uses:  "builtin:route"
-    needs: ["web"]
-    with: routes: [{host: "*.web", address: "${needs.web.out.host_80}"}]
-}
+routes: [{host: "*.web", address: "${needs.web.out.host_80}"}]
 ```
 
-registers `*.web.<domain>`, matching `anything.web.<domain>` (but not the
-bare `web.<domain>`) into the same address.
-
-Or with a [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}) cluster's
-relay for a target the proxy can only reach through a SOCKS5 tunnel. Set
-`relay` to dial through it, with a CONNECT to each route's address:
+To route a Service in a [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}) cluster, set `relay` to the cluster's relay address:
 
 ```cue
 cluster: {uses: "builtin:kind", with: {relay: true}}
@@ -59,15 +43,9 @@ app_route: {
 }
 ```
 
-`needs` the step that publishes the address (and, for the relay case, the
-step that publishes the relay address too). `Up` must run after both are
-ready.
+Put the step that deploys the target in `needs`, so the route starts after it.
 
-Set `intercept` on an entry to intercept a real-world hostname instead of
-registering a subdomain - `host` is then used exactly as given, and traffic
-meant for that real service transparently lands on `address` instead, such
-as a local fake running behind a `container` step. The same `*.` wildcard
-rule above still applies to `host` here too:
+To send traffic for a real hostname to a local container, set `intercept`:
 
 ```cue
 s3_fake: {uses: "builtin:container", with: {image: "ministackorg/ministack", expose: s3: {port: 4566}}}
@@ -82,9 +60,7 @@ s3_intercept: {
 }
 ```
 
-See [`examples/intercept`](https://github.com/justenwalker/kevin/tree/main/examples/intercept)
-for this end to end, with a probe that hits both routes and gets back a
-genuine (if unauthenticated) S3 API response.
+[`examples/intercept`](https://github.com/justenwalker/kevin/tree/main/examples/intercept) is a complete example.
 
 [[template "table" .Definitions.Config]]
 
@@ -92,16 +68,8 @@ genuine (if unauthenticated) S3 API response.
 
 [[template "table" .Definitions.Route]]
 
-## Publishes
+## Behavior
 
-Every route also appears as a card `Detail`: a copyable `https://` link
-to the route's host, unless it's an `intercept` route or a wildcard
-host - neither names a single address to browse to, so those show as
-plain copyable text instead.
-
-Has no `Down`: the proxy has no mechanism to remove a route once
-registered.
-
-Idempotent: Up is safe to call again. The proxy's route table replaces
-an earlier route for the same host rather than growing one, so a rerun
-just republishes the same routes.
+- The console shows a link to each route, except for wildcard and `intercept` routes.
+- Safe to run again: a route replaces an earlier route for the same host.
+- Routes stay in the proxy until kevin stops.

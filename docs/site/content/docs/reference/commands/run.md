@@ -7,15 +7,9 @@ weight: 1
 
 # `kevin run`
 
-Creates the environment's `env` steps in dependency order, then blocks until
-an interrupt. On Ctrl-C, `run` removes the steps in reverse order.
+Starts the `env` steps in dependency order and waits. On Ctrl-C, it removes the steps in reverse order.
 
-`--detach`/`-d` detaches instead of blocking: `run` starts a child
-process, prints its console/proxy addresses once they're up, and returns.
-Stop it with [`kevin stop`]({{< relref "/docs/reference/commands/stop" >}}).
-The detached process's pidfile, address file, and (background only) log
-live under `.kevin/<env>/run/` - `kevin stop` reads them, nothing else
-needs to.
+With `--detach`/`-d`, `run` starts in the background, prints the console and proxy addresses, and returns. Stop it with [`kevin stop`]({{< relref "/docs/reference/commands/stop" >}}).
 
 ```sh
 kevin run
@@ -29,5 +23,4 @@ kevin run --detach
 | `--keep` | `bool` | `false` | leave the environment in place on exit |
 | `--open` | `bool` | `false` | open the console in the default browser once it's listening |
 
-See [Configuring an environment]({{< relref "/docs/environment-file" >}})
-for what an `env` step is.
+See [Environment file]({{< relref "/docs/reference/environment-file" >}}).

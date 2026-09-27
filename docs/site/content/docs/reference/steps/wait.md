@@ -7,20 +7,25 @@ weight: 6
 
 # `builtin:wait`
 
-Blocks a step's dependents until a check succeeds: a TCP dial, an HTTP(S)
-probe, a `kubectl wait`/`rollout status`, a command retried until it exits
-zero, or a fixed `duration` sleep. Useful after a
-[`kubectl`]({{< relref "/docs/reference/steps/kubectl" >}})
-or [`helm`]({{< relref "/docs/reference/steps/helm" >}}) step applies a manifest,
-to gate a dependent step on the workload actually being ready. See
-[Deploying workloads]({{< relref "/docs/guides/deploying-workloads" >}}).
+Waits until a check succeeds, so that the steps that need it start only when a dependency is ready. The check is a TCP connection, an HTTP request, `kubectl wait` or `kubectl rollout status`, a command, or a fixed delay. See [Deploying workloads]({{< relref "/docs/guides/deploying-workloads" >}}).
 
-A `tcp` check's `address` may be a plain `host:port`, or the
-`socks5://<relay>/<host:port>` form a `builtin:kind` step's `expose` entries
-publish as a `needs.<step>.system.expose_<name>` value, to reach a service
-inside a kind cluster through its relay. `system` is a sub-namespace kept
-separate from `out` (a step's own outputs); see
-[Cross-step values]({{< relref "/docs/environment-file#cross-step-values" >}}):
+```cue
+app_ready: {
+    uses: "builtin:wait"
+    needs: ["cluster", "app"]
+    with: {
+        timeout: "2m"
+        kubectl: {
+            kubeconfig: "${needs.cluster.out.kubeconfig}"
+            context:    "${needs.cluster.out.context}"
+            resource:   "deployment/app"
+            rollout:    true
+        }
+    }
+}
+```
+
+To check a service inside a [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}) cluster, use the `expose_<name>` system value of an `expose` entry:
 
 ```cue
 postgres_ready: {
@@ -43,14 +48,13 @@ postgres_ready: {
 | `exec` | `#Exec` | - | Retries a command until it exits zero. |
 | `duration` | `string` | - | Sleeps for a fixed amount of time, such as `"5s"`, instead of checking anything. timeout and interval do not apply to it. |
 
-Exactly one of `tcp`, `http`, `kubectl`, `exec`, `duration` must be set.
-`Up` rejects a `with` block that sets zero or more than one.
+Set exactly one of `tcp`, `http`, `kubectl`, `exec`, and `duration`.
 
 ## `#TCP`
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `address` | `string` | - | **Required.** Host:port to dial, or a `"socks5://<relay>/<host:port>"` URL, the form a builtin:kind step's expose entries publish as a `"needs.<step>.system.expose_<name>"` value, to dial through the kind SOCKS5 relay instead of directly. |
+| `address` | `string` | - | **Required.** A host:port to connect to, or a `"socks5://<relay>/<host:port>"` address from an `"expose_<name>"` system value, which connects through the relay. |
 
 ## `#HTTP`
 
@@ -71,16 +75,15 @@ Exactly one of `tcp`, `http`, `kubectl`, `exec`, `duration` must be set.
 | `for` | `string` | - | The condition to wait for, passed to kubectl wait --for=, such as `"condition=Ready"`. |
 | `rollout` | `bool` | `false` | Runs kubectl rollout status against resource instead of kubectl wait. |
 
-Exactly one of `for`, `rollout` must be set.
+Set exactly one of `for` and `rollout`.
 
 ## `#Exec`
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `command` | `[string, ...string]` | - | **Required.** The argv to run and retry. There is no shell: use [`"sh"`, `"-c"`, `"..."`] if a shell is needed. |
+| `command` | `[string, ...string]` | - | **Required.** The program and its arguments. There is no shell: use [`"sh"`, `"-c"`, `"..."`] for shell features. |
 
-**Kind: probe.** A wait step creates no resource to clean up, so it has
-no `Down` and does nothing on teardown.
+## Behavior
 
-Idempotent: a wait step creates nothing, so it's safe to rerun, directly,
-or swept into a cascading rerun of a step it depends on.
+- Creates nothing, and does nothing on teardown.
+- Safe to run again.

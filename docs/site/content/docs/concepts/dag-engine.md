@@ -16,4 +16,4 @@ Bringing an environment up returns the outputs of every step that completed; the
 
 Tearing an environment down reverses every dependency edge and removes steps with the same scheduler, so removal is parallel wherever the graph allows it, the same as bringing it up.
 
-A [step group]({{< relref "/docs/environment-file#step-groups" >}}) flattens to one ordinary extra node in the same map: its own name needs every one of its members, and its "step" is a pure computation with no plugin RPC, evaluating the group's `outputs` block against its members' own outputs once they're all done. A member's internal name is never exposed as a dependency target outside its own group.
+A [step group]({{< relref "/docs/reference/environment-file#step-groups" >}}) flattens to one ordinary extra node in the same map: its own name needs every one of its members, and its "step" is a pure computation with no plugin RPC, evaluating the group's `outputs` block against its members' own outputs once they're all done. A member's internal name is never exposed as a dependency target outside its own group.

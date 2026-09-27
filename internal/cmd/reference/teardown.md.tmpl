@@ -7,8 +7,7 @@ weight: 3
 
 # `kevin teardown`
 
-Runs the environment's `setup` DAG in reverse, removing what `setup`
-installed.
+Removes the `setup` steps, in reverse dependency order.
 
 ```sh
 kevin teardown

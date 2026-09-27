@@ -61,7 +61,7 @@ package kevin
 proxy: egress: deny: bool @tag(airgap,type=bool)
 ```
 
-Then flip it per run with `kevin run -t airgap` instead of duplicating the whole file into a named environment just to change one field. See [`@tag` mode switches]({{< relref "/docs/environment-file#tag-mode-switches" >}}) for tagging a field that already has a fallback value, and for sharing one toggle across more than one field.
+Then flip it per run with `kevin run -t airgap` instead of duplicating the whole file into a named environment just to change one field. See [`@tag` mode switches]({{< relref "/docs/reference/environment-file#tags" >}}) for tagging a field that already has a fallback value, and for sharing one toggle across more than one field.
 
 ### Reaching an allowed host with no CA trust
 

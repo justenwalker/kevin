@@ -7,19 +7,9 @@ weight: 9
 
 # `builtin:fault`
 
-Simulates a bad network on one or more containers: delay, jitter, packet
-loss, corruption, duplication, reordering, and bandwidth caps, set
-together in one `with` block. Use it to see how your app handles a slow
-or unreliable dependency.
-It works underneath [`builtin:route`]({{< relref "/docs/reference/steps/route" >}})
-and the kevin proxy, so it impairs a container's traffic no matter how
-that traffic gets there.
+Adds network faults to containers: delay, jitter, packet loss, corruption, duplication, reordering, and a bandwidth limit. Use it to test how your application handles a slow or unreliable dependency. The faults apply to all traffic of the container, including traffic that does not go through the kevin proxy.
 
-Like other steps, you target containers through `needs`. With no
-`containers` set, a fault step affects every container its `needs`
-entries resolve to. That covers the common case: a
-[`builtin:container`]({{< relref "/docs/reference/steps/container" >}})
-step reports exactly one container, so there's nothing to narrow:
+The step applies faults to the containers of the steps in its `needs`:
 
 ```cue
 backend: {uses: "builtin:container", with: {image: "myapp/backend"}}
@@ -34,10 +24,7 @@ backend_fault: {
 }
 ```
 
-A [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}) cluster
-reports one container per node - name a `workers` key
-(see that reference page) to fault it individually, or two of them
-at once:
+A [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}) step has one container for each node. Use `containers` with the keys of `workers` to select nodes:
 
 ```cue
 cluster: {uses: "builtin:kind", with: {workers: {worker_a: {}, worker_b: {}}}}
@@ -52,25 +39,13 @@ worker_fault: {
 }
 ```
 
-`containers` matches the literal name you already declared - `worker_a`
-in `cluster`'s own `workers` map, or (for a single-container step like
-`backend` above) that step's own name as a fallback: `containers:
-["backend"]` works too, even though `builtin:container` itself reports
-`"kevin-demo-backend"`. Cross-scope works the same way `needs` already
-does: `needs: ["setup.registry"]`, and `"registry"` still resolves as
-that step's fallback name.
+For a step in `needs` that has one container, such as `backend` above, `containers` accepts the step name. This also works for a `setup.<step>` entry.
 
 [[template "table" .Definitions.Config]]
 
-At least one impairment field must be set; `Up` rejects an otherwise-empty
-`with` block. A `containers` entry naming nothing any needs step reports
-is an `Up`-time error - as is an empty `with` block when no needs step
-reports any container at all.
+## Behavior
 
-**Kind: action.** A fault step deploys nothing itself: it tells the relay
-how to treat a namespace another step already created. It has no `Down` -
-the engine clears every fault it applied at teardown on its own,
-independent of whether a step's plugin implements `Down` at all.
-
-Idempotent: re-`Up`-ing with a changed config replaces each netem qdisc's
-parameters, matching how Linux's own `tc qdisc replace` behaves.
+- At least one fault field is required.
+- The step fails if a `containers` entry matches no container, or if no step in `needs` has a container.
+- kevin removes the faults on teardown.
+- Running the step again with changed values replaces the faults.

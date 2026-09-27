@@ -7,13 +7,7 @@ weight: 10
 
 # `kevin doctor`
 
-Checks whether the selected container engine (docker or podman, via
-`--engine`/`KEVIN_ENGINE` or auto-detection) is reachable, whether the
-kevin root CA is trusted, and (if the current directory holds an
-environment file) whether its console/proxy ports are free. It creates
-nothing and changes no trust store - an engine check that fails, or a
-certificate that isn't trusted yet, is reported, never fixed on your
-behalf.
+Checks that the container engine is reachable, that the kevin root CA is trusted, and, if the project directory has an environment file, that its proxy and console ports are free. It changes nothing.
 
 ```sh
 kevin doctor

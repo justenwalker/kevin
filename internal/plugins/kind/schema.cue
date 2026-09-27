@@ -1,78 +1,62 @@
 #Config: {
-	// name is the cluster name. It defaults to the step name, prefixed with
-	// the project.
+	// name is the cluster name. Defaults to "<project>-<step>".
 	name?: string
 
-	// image is the node image, such as "kindest/node:v1.34.0". kind picks its
-	// own default when this is empty.
+	// image is the node image, such as "kindest/node:v1.34.0". Unset uses
+	// the default of the installed kind version.
 	image?: string
 
-	// control_plane passes additional per-node kind config through to the
-	// control-plane node's generated entry - image, extraMounts,
-	// extraPortMappings, kubeadmConfigPatches, and so on - using kind's own
-	// field names directly (see kind's own per-node options:
+	// control_plane adds kind node settings to the control-plane node, with
+	// kind's field names, such as extraMounts or kubeadmConfigPatches (see
 	// https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options).
-	// Merged with what kevin itself generates for this node, not replacing
-	// it: labels combine (a "kevin.node" key here is rejected - Up manages
-	// that one itself), extraPortMappings combine (the relay's own mapping,
-	// when one exists, stays alongside yours), and role may not be set at
-	// all - it's structural, not configurable.
+	// labels and extraPortMappings add to the values kevin sets. The
+	// "kevin.node" label and role cannot be set.
 	control_plane?: #NodeConfig
 
-	// workers names each worker node to create, on top of the one control
-	// plane node - the map key is the node's own name, applied as a
-	// Kubernetes node label ("kevin.node") so a dependent step (such as
-	// builtin:fault) can address it by that name directly, instead of
-	// kind's own "<cluster>-workerN" container naming. Each entry also
-	// passes through additional per-node config the same way control_plane
-	// does. A map, not a list, for the same reason expose is: one entry can
-	// be added or changed without replacing the whole set.
+	// workers creates one worker node for each key, in addition to the
+	// control-plane node. The key names the node: kevin sets it as the
+	// "kevin.node" node label, and builtin:fault accepts it in containers.
+	// Each value takes the same node settings as control_plane.
 	workers?: [string]: #NodeConfig
 
-	// config is a kind cluster configuration in YAML. It replaces the
-	// generated one, thus workers is ignored when this is set.
+	// config is a complete kind cluster configuration in YAML. It replaces
+	// the configuration kevin generates: control_plane and workers have no
+	// effect.
 	config?: string
 
-	// wait is how long to wait for the control plane to become ready. The
-	// value is a Go duration.
+	// wait is how long to wait for the control plane to become ready, such
+	// as "5m".
 	wait?: string | *"5m"
 
-	// retain keeps the nodes when creation fails, so that the logs of a
-	// broken cluster survive.
+	// retain keeps the nodes when the cluster fails to start, so you can
+	// inspect them.
 	retain?: bool
 
-	// proxy passes the kevin proxy to the nodes. kind copies the proxy
-	// variables into every node when it creates the cluster.
+	// proxy sets the kevin proxy environment variables in every node.
 	proxy?: bool | *true
 
-	// egress lists the external hosts that this cluster can reach.
+	// egress lists external hosts that the nodes can reach when
+	// proxy.egress.deny is true.
 	egress?: [...string]
 
-	// coredns patches the cluster DNS to forward the environment domain to
-	// the relay, so that a pod resolves a step. Set it to false to opt out.
+	// coredns configures the cluster DNS so that pods can resolve names on
+	// the environment domain, such as "web.kevin.home".
 	coredns?: bool | *true
 
-	// trust_ca installs the kevin root certificate into every node, so a
-	// pull through the proxy verifies. Set it to false to opt out.
+	// trust_ca installs the kevin root certificate in every node, so that
+	// image pulls through the kevin proxy succeed.
 	trust_ca?: bool | *true
 
-	// expose lets a client outside the cluster dial an arbitrary in-cluster
-	// address (a Service DNS name or a Pod IP, with its port) through a
-	// single SOCKS5 relay pod inside the cluster, keyed by a name that
-	// labels the entry in the console and the ready log line. Unlike a
-	// container step, Up does not create what expose names. The target may
-	// come from a manifest applied separately, after the cluster is up, so
-	// Up does not wait for it to be dialable, only wires the relay and
-	// reports the address. Up also reports each entry's relay address as
-	// an "expose_<name>" output, for a downstream step (such as
-	// builtin:wait) to read. A map, not a list, so one entry can be added
-	// or changed without replacing the whole set.
+	// expose makes an address inside the cluster, such as a Service DNS name
+	// and port, reachable from the host through a relay pod. The key names
+	// the entry in the console. The step does not wait for the address to
+	// accept connections: use a builtin:wait step with the "expose_<name>"
+	// system value.
 	expose?: [string]: #Expose
 
-	// relay deploys the SOCKS5 relay pod even with no expose entries, and
-	// publishes its address as the "relay_addr" output. Set this to route
-	// a subdomain into the cluster with builtin:route, without also
-	// needing an expose entry.
+	// relay deploys the relay pod even when expose is empty, and sets the
+	// relay_addr output. Use it with builtin:route to give a Service in the
+	// cluster a name on the environment domain.
 	relay?: bool | *false
 }
 
@@ -87,11 +71,10 @@
 	// "postgres.default.svc.cluster.local:5432".
 	address!: string
 
-	// protocol is the wire protocol address speaks.
+	// protocol is the transport protocol of the address.
 	protocol?: "tcp" | "udp" | *"tcp"
 
-	// host_port pins the port of the local forward that lets a host
-	// process dial this entry directly, reported as the "forward_<name>"
-	// output. Omitted, the OS assigns one.
+	// host_port sets the port of the "forward_<name>" address on the host.
+	// Unset, the OS picks a free port.
 	host_port?: int
 }
