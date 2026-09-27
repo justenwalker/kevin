@@ -217,8 +217,10 @@ type Config struct {
 	Variables map[string]Variable `json:"variables"`
 
 	// VariableValues holds each declared variable's resolved value, once
-	// [Config.ResolveVariables] has run - nil until then.
-	VariableValues map[string]string `json:"-"`
+	// [Config.ResolveVariables] has run - nil until then. A value can be
+	// any JSON-representable type (string, int64, float64, bool, []any,
+	// map[string]any, nil), per the variable's own declared type.
+	VariableValues map[string]any `json:"-"`
 
 	Proxy   Proxy   `json:"proxy"`
 	Console Console `json:"console"`
@@ -635,7 +637,7 @@ func (f *File) Validate(schemas map[string]PluginSchemas) error {
 		}
 	}
 
-	return f.validatePluginConfigs(plugins, schemas)
+	return f.validatePluginConfigs(plugins, schemas, out.Variables)
 }
 
 // validatePluginKeys checks that every plugins key is not [IsReservedName]. The
@@ -722,8 +724,15 @@ func (f *File) validateStep(scopeName, step string, path cue.Path, spec Step, pl
 		return nil
 	}
 
-	merged := schema.Unify(with)
-	if err := merged.Validate(cue.Concrete(true)); err != nil {
+	merged, except, err := unifyDeferred(f.ctx, schema, with, spec.With)
+	if err != nil {
+		return err
+	}
+	if err := merged.Err(); err != nil {
+		wrapped := cueerrors.Wrapf(err, with.Pos(), "%s.%s.with", scopeName, step)
+		return f.invalid(fmt.Errorf("%w: %w", ErrInvalid, wrapped))
+	}
+	if err := concreteExcept(merged, cue.Path{}, except); err != nil {
 		wrapped := cueerrors.Wrapf(err, with.Pos(), "%s.%s.with", scopeName, step)
 		return f.invalid(fmt.Errorf("%w: %w", ErrInvalid, wrapped))
 	}
@@ -820,7 +829,14 @@ func (f *File) validateCommand(name string, cmd Command, env, setup map[string]S
 // validatePluginConfigs checks the config block of every declared plugin
 // against the config schema that plugin published. A plugin with no config
 // block skips the check.
-func (f *File) validatePluginConfigs(plugins map[string]PluginSpec, schemas map[string]PluginSchemas) error {
+//
+// A config block has no needs/setup scope at all - no step has run Up yet
+// when Configure sends it (see [internal/engine.ConfigureAll]) - so a
+// "${needs...}"/"${setup...}" reference inside one is always an error, not
+// a deferred one the way a step's with block gets: this checks that with an
+// empty needs list, the same way [validateNeedsReferences] checks a step's
+// with block against its own declared needs.
+func (f *File) validatePluginConfigs(plugins map[string]PluginSpec, schemas map[string]PluginSchemas, variables map[string]Variable) error {
 	names := make([]string, 0, len(plugins))
 	for name := range plugins {
 		names = append(names, name)
@@ -834,6 +850,13 @@ func (f *File) validatePluginConfigs(plugins map[string]PluginSpec, schemas map[
 		}
 
 		pos := f.value.LookupPath(cue.MakePath(cue.Str("plugins"), cue.Str(name), cue.Str("config"))).Pos()
+
+		if refErr := validateNeedsReferences("plugins", name, "config", nil, spec.Config); refErr != nil {
+			return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
+		}
+		if refErr := validateVarReferences("plugins", name, "config", variables, spec.Config); refErr != nil {
+			return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
+		}
 
 		configSrc := schemas[name].Config
 		if len(configSrc) == 0 {
@@ -849,8 +872,15 @@ func (f *File) validatePluginConfigs(plugins map[string]PluginSpec, schemas map[
 
 		// spec.Config above was decoded from this same path, so it exists.
 		val := f.value.LookupPath(cue.MakePath(cue.Str("plugins"), cue.Str(name), cue.Str("config")))
-		merged := schema.Unify(val)
-		if err := merged.Validate(cue.Concrete(true)); err != nil {
+		merged, except, err := unifyDeferred(f.ctx, schema, val, spec.Config)
+		if err != nil {
+			return err
+		}
+		if err := merged.Err(); err != nil {
+			wrapped := cueerrors.Wrapf(err, val.Pos(), "plugins.%s.config", name)
+			return f.invalid(fmt.Errorf("%w: %w", ErrInvalid, wrapped))
+		}
+		if err := concreteExcept(merged, cue.Path{}, except); err != nil {
 			wrapped := cueerrors.Wrapf(err, val.Pos(), "plugins.%s.config", name)
 			return f.invalid(fmt.Errorf("%w: %w", ErrInvalid, wrapped))
 		}
@@ -860,14 +890,17 @@ func (f *File) validatePluginConfigs(plugins map[string]PluginSpec, schemas map[
 
 // Config decodes the environment. Call Config after Validate.
 func (f *File) Config() (*Config, error) {
-	if err := f.value.Validate(cue.Concrete(true)); err != nil {
+	if err := f.validateConcrete(); err != nil {
 		return nil, f.invalid(fmt.Errorf("%w: %w", ErrInvalid, err))
 	}
 
 	cfg := &Config{Dir: f.dir}
-	// The Validate(cue.Concrete(true)) above already proved f.value decodes
-	// cleanly, so this cannot fail.
+	// The validateConcrete above already proved f.value decodes cleanly, so
+	// this cannot fail.
 	_ = f.decode(cfg)
+	if err := f.fillVariableTypes(cfg.Variables); err != nil {
+		return nil, err
+	}
 
 	setupEntries, err := f.decodeScope(ScopeSetup)
 	if err != nil {
@@ -896,7 +929,7 @@ func (f *File) Config() (*Config, error) {
 
 // decode renders the CUE value as JSON, then unmarshals the JSON into into.
 func (f *File) decode(into any) error {
-	data, err := f.value.MarshalJSON()
+	data, err := f.marshalJSON()
 	if err != nil {
 		return f.invalid(fmt.Errorf("%w: %w", ErrInvalid, err))
 	}

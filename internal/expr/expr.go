@@ -38,7 +38,7 @@ func buildEnv() (*cel.Env, error) {
 		cel.Variable(rootSetup, needsType),
 		cel.Variable("env", cel.MapType(cel.StringType, cel.StringType)),
 		cel.Variable("project", cel.MapType(cel.StringType, cel.StringType)),
-		cel.Variable(rootVars, cel.MapType(cel.StringType, cel.StringType)),
+		cel.Variable(rootVars, cel.MapType(cel.StringType, cel.DynType)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("expr: build the CEL environment: %w", err)
@@ -64,8 +64,11 @@ type Scopes struct {
 	// Vars supplies `vars.<name>`: an environment's declared variables:
 	// block, resolved from a var-file, a KEVIN_VAR_<NAME> environment
 	// variable, a "--var" argument, or the variable's own declared
-	// default.
-	Vars map[string]string
+	// default. A value can be any JSON-representable type (string, int64,
+	// float64, bool, []any, map[string]any, nil), per the variable's own
+	// declared type - unlike needs/setup/env/project, which are always
+	// strings.
+	Vars map[string]any
 }
 
 // Render walks a JSON value and replaces all the "${cel-expression}" markers found inside strings with the result it computes.
@@ -387,12 +390,19 @@ func keyRefs(env *cel.Env, exprStr string) ([]keyRef, error) {
 }
 
 // renderValue is a recursive function that evaluates CEL expressions in a JSON value.
-// If the value `v` is a string, it tries to render any cel expression in the string.
-// If the value is a collection type, it will recursively try to evaluate each collection element.
-// Otherwise, it returns the value unchanged.
-func renderValue(v any, step string, needs, setup map[string]any, env, project, variables map[string]string) (any, error) {
+// If the value `v` is a string whose entire content is one bare "${...}"
+// marker, it evaluates to that expression's native result (a string, number,
+// bool, list, map, or nil), replacing the string leaf outright. If the value
+// is a string carrying a marker alongside other text, it splices the
+// expression's string result into that text - which requires the result be
+// a string. If the value is a collection type, it recursively evaluates
+// each element. Otherwise, it returns the value unchanged.
+func renderValue(v any, step string, needs, setup map[string]any, env, project map[string]string, variables map[string]any) (any, error) {
 	switch t := v.(type) {
 	case string:
+		if exprStr, ok := BareMarker(t); ok {
+			return evalTyped(exprStr, step, needs, setup, env, project, variables)
+		}
 		return renderString(t, step, needs, setup, env, project, variables)
 	case map[string]any:
 		for k, elem := range t {
@@ -417,9 +427,23 @@ func renderValue(v any, step string, needs, setup map[string]any, env, project, 
 	}
 }
 
+// BareMarker reports the CEL expression inside s, and whether s's entire
+// content is exactly one "${...}" marker with no surrounding literal text -
+// the leaf shape renderValue substitutes a native, non-string value into
+// rather than splicing a string. internal/config reuses this to identify a
+// "with"/"config" field it must defer a schema type check on, using the
+// same parsing renderString's splicing already does.
+func BareMarker(s string) (string, bool) {
+	before, exprStr, remainder, found, err := nextMarker(s)
+	if err != nil || !found || before != "" || remainder != "" {
+		return "", false
+	}
+	return exprStr, true
+}
+
 // renderString splices the result of every "${...}" expression in s back
 // into the surrounding literal text. s with no marker returns unchanged.
-func renderString(s string, step string, needs, setup map[string]any, env, project, variables map[string]string) (string, error) {
+func renderString(s string, step string, needs, setup map[string]any, env, project map[string]string, variables map[string]any) (string, error) {
 	if !strings.Contains(s, marker) {
 		return s, nil
 	}
@@ -484,32 +508,52 @@ func markersIn(s string) ([]string, error) {
 }
 
 // eval compiles and evaluates one CEL expression against needs, setup, env,
-// project, and variables, and requires the result is a string.
-func eval(exprStr, step string, needs, setup map[string]any, env, project, variables map[string]string) (string, error) {
+// project, and variables, and requires the result is a string - for a
+// marker spliced into surrounding literal text, which only a string result
+// can be concatenated into.
+func eval(exprStr, step string, needs, setup map[string]any, env, project map[string]string, variables map[string]any) (string, error) {
+	val, err := compileAndEval(exprStr, step, needs, setup, env, project, variables)
+	if err != nil {
+		return "", err
+	}
+	result, ok := val.(string)
+	if !ok {
+		return "", fmt.Errorf("expr: %q: must evaluate to a string when interpolated into surrounding text, got %T", exprStr, val)
+	}
+	return result, nil
+}
+
+// evalTyped compiles and evaluates one CEL expression the same way eval
+// does, but returns its native result unconverted - for a bare marker
+// occupying a whole leaf, which can become any JSON-representable value,
+// not only a string.
+func evalTyped(exprStr, step string, needs, setup map[string]any, env, project map[string]string, variables map[string]any) (any, error) {
+	return compileAndEval(exprStr, step, needs, setup, env, project, variables)
+}
+
+// compileAndEval compiles exprStr, evaluates it against needs, setup, env,
+// project, and variables, and returns its native Go value (the shared step
+// eval and evalTyped build on).
+func compileAndEval(exprStr, step string, needs, setup map[string]any, env, project map[string]string, variables map[string]any) (any, error) {
 	cEnv, err := celEnv()
 	if err != nil {
-		return "", fmt.Errorf("expr: build the cel environment: %w", err)
+		return nil, fmt.Errorf("expr: build the cel environment: %w", err)
 	}
 
 	ast, iss := cEnv.Compile(exprStr)
 	if iss != nil && iss.Err() != nil {
-		return "", fmt.Errorf("expr: %q: %w", exprStr, iss.Err())
+		return nil, fmt.Errorf("expr: %q: %w", exprStr, iss.Err())
 	}
 	prg, err := cEnv.Program(ast)
 	if err != nil {
-		return "", fmt.Errorf("expr: %q: %w", exprStr, err)
+		return nil, fmt.Errorf("expr: %q: %w", exprStr, err)
 	}
 
 	out, _, err := prg.Eval(map[string]any{rootNeeds: needs, rootSetup: setup, "env": env, "project": project, rootVars: variables})
 	if err != nil {
-		return "", fmt.Errorf("expr: %q: %w (is the step it names listed in %q's needs, or the variable set in the environment?)", exprStr, err, step)
+		return nil, fmt.Errorf("expr: %q: %w (is the step it names listed in %q's needs, or the variable set in the environment?)", exprStr, err, step)
 	}
-
-	result, ok := out.Value().(string)
-	if !ok {
-		return "", fmt.Errorf("expr: %q: must evaluate to a string, got %T", exprStr, out.Value())
-	}
-	return result, nil
+	return out.Value(), nil
 }
 
 // activation converts deps and system into the map[string]any shape CEL's

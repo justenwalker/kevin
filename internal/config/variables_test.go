@@ -14,10 +14,10 @@ import (
 func TestResolveVariables(t *testing.T) {
 	t.Run("a default is used when nothing external supplies a value", func(t *testing.T) {
 		cfg := &config.Config{Variables: map[string]config.Variable{
-			"region": {Default: new("us-east-1")},
+			"region": {Default: []byte(`"us-east-1"`)},
 		}}
 		require.NoError(t, cfg.ResolveVariables(config.VariableInputs{}))
-		assert.Equal(t, map[string]string{"region": "us-east-1"}, cfg.VariableValues)
+		assert.Equal(t, map[string]any{"region": "us-east-1"}, cfg.VariableValues)
 	})
 
 	t.Run("a file value overrides the default", func(t *testing.T) {
@@ -25,7 +25,7 @@ func TestResolveVariables(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte("region=us-west-2\n"), 0o600))
 
 		cfg := &config.Config{Variables: map[string]config.Variable{
-			"region": {Default: new("us-east-1")},
+			"region": {Default: []byte(`"us-east-1"`)},
 		}}
 		require.NoError(t, cfg.ResolveVariables(config.VariableInputs{File: path}))
 		assert.Equal(t, "us-west-2", cfg.VariableValues["region"])
@@ -57,7 +57,7 @@ func TestResolveVariables(t *testing.T) {
 	})
 
 	t.Run("a malformed --var entry errors", func(t *testing.T) {
-		cfg := &config.Config{Variables: map[string]config.Variable{"region": {Default: new("x")}}}
+		cfg := &config.Config{Variables: map[string]config.Variable{"region": {Default: []byte(`"x"`)}}}
 		err := cfg.ResolveVariables(config.VariableInputs{Set: []string{"region"}})
 		require.ErrorIs(t, err, config.ErrMalformedVariable)
 	})
@@ -66,9 +66,9 @@ func TestResolveVariables(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "vars.env")
 		require.NoError(t, os.WriteFile(path, []byte("unrelated=1\n"), 0o600))
 
-		cfg := &config.Config{Variables: map[string]config.Variable{"region": {Default: new("us-east-1")}}}
+		cfg := &config.Config{Variables: map[string]config.Variable{"region": {Default: []byte(`"us-east-1"`)}}}
 		require.NoError(t, cfg.ResolveVariables(config.VariableInputs{File: path, Set: []string{"also_unrelated=2"}}))
-		assert.Equal(t, map[string]string{"region": "us-east-1"}, cfg.VariableValues)
+		assert.Equal(t, map[string]any{"region": "us-east-1"}, cfg.VariableValues)
 	})
 
 	t.Run("no declared variables reports an empty, non-nil result", func(t *testing.T) {
@@ -76,11 +76,60 @@ func TestResolveVariables(t *testing.T) {
 		require.NoError(t, cfg.ResolveVariables(config.VariableInputs{}))
 		assert.Empty(t, cfg.VariableValues)
 	})
+
+	t.Run("a --var value is parsed as the declared int type", func(t *testing.T) {
+		cfg := &config.Config{Variables: map[string]config.Variable{"replicas": {Type: []byte("int")}}}
+		require.NoError(t, cfg.ResolveVariables(config.VariableInputs{Set: []string{"replicas=3"}}))
+		assert.Equal(t, int64(3), cfg.VariableValues["replicas"])
+	})
+
+	t.Run("a --var value is parsed as the declared bool type", func(t *testing.T) {
+		cfg := &config.Config{Variables: map[string]config.Variable{"strict": {Type: []byte("bool")}}}
+		require.NoError(t, cfg.ResolveVariables(config.VariableInputs{Set: []string{"strict=true"}}))
+		assert.Equal(t, true, cfg.VariableValues["strict"])
+	})
+
+	t.Run("a --var value is parsed as the declared list type", func(t *testing.T) {
+		cfg := &config.Config{Variables: map[string]config.Variable{"tags": {Type: []byte("[...string]")}}}
+		require.NoError(t, cfg.ResolveVariables(config.VariableInputs{Set: []string{`tags=["a","b"]`}}))
+		assert.Equal(t, []any{"a", "b"}, cfg.VariableValues["tags"])
+	})
+
+	t.Run("an int default is used verbatim, not through JSON's float64", func(t *testing.T) {
+		cfg := &config.Config{Variables: map[string]config.Variable{"replicas": {Type: []byte("int"), Default: []byte("3")}}}
+		require.NoError(t, cfg.ResolveVariables(config.VariableInputs{}))
+		assert.Equal(t, int64(3), cfg.VariableValues["replicas"])
+	})
+
+	t.Run("a value outside a declared range errors", func(t *testing.T) {
+		cfg := &config.Config{Variables: map[string]config.Variable{"replicas": {Type: []byte("int & >=1 & <=10")}}}
+		err := cfg.ResolveVariables(config.VariableInputs{Set: []string{"replicas=20"}})
+		require.ErrorIs(t, err, config.ErrVariableValue)
+		assert.Contains(t, err.Error(), "replicas")
+	})
+
+	t.Run("a value outside a declared enum errors", func(t *testing.T) {
+		cfg := &config.Config{Variables: map[string]config.Variable{"env": {Type: []byte(`"prod" | "staging" | "dev"`)}}}
+		err := cfg.ResolveVariables(config.VariableInputs{Set: []string{"env=qa"}})
+		require.ErrorIs(t, err, config.ErrVariableValue)
+	})
+
+	t.Run("a value inside a declared enum succeeds", func(t *testing.T) {
+		cfg := &config.Config{Variables: map[string]config.Variable{"env": {Type: []byte(`"prod" | "staging" | "dev"`)}}}
+		require.NoError(t, cfg.ResolveVariables(config.VariableInputs{Set: []string{"env=staging"}}))
+		assert.Equal(t, "staging", cfg.VariableValues["env"])
+	})
+
+	t.Run("a plain string type still takes a --var value literally, unquoted", func(t *testing.T) {
+		cfg := &config.Config{Variables: map[string]config.Variable{"region": {}}}
+		require.NoError(t, cfg.ResolveVariables(config.VariableInputs{Set: []string{"region=us-east-1"}}))
+		assert.Equal(t, "us-east-1", cfg.VariableValues["region"])
+	})
 }
 
 func TestSensitiveVariables(t *testing.T) {
 	cfg := &config.Config{Variables: map[string]config.Variable{
-		"region":  {Default: new("us-east-1")},
+		"region":  {Default: []byte(`"us-east-1"`)},
 		"api_key": {Sensitive: true},
 	}}
 	assert.Equal(t, map[string]bool{"api_key": true}, cfg.SensitiveVariables())

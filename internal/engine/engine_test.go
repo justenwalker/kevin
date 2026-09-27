@@ -1591,7 +1591,7 @@ func TestInputRows(t *testing.T) {
 	t.Run("a field referencing a sensitive variable is redacted", func(t *testing.T) {
 		raw := json.RawMessage(`{"token":"${vars.api_key}"}`)
 		rendered := json.RawMessage(`{"token":"sk-123"}`)
-		rows, err := inputRows(raw, rendered, expr.Scopes{Vars: map[string]string{"api_key": "sk-123"}}, nil, map[string]bool{"api_key": true})
+		rows, err := inputRows(raw, rendered, expr.Scopes{Vars: map[string]any{"api_key": "sk-123"}}, nil, map[string]bool{"api_key": true})
 		require.NoError(t, err)
 		assert.Equal(t, []session.Detail{{Label: "token", Value: "sk-123", Sensitive: true, Copyable: false}}, rows)
 	})

@@ -70,13 +70,6 @@ func TestRender(t *testing.T) {
 		assert.Contains(t, err.Error(), "needs")
 	})
 
-	t.Run("a non-string result errors", func(t *testing.T) {
-		raw := json.RawMessage(`{"a":"${1 + 1}"}`)
-		_, err := expr.Render(raw, "app", expr.Scopes{Needs: deps(), System: sysDeps()})
-		require.Error(t, err, "expected an error for a non-string expression result")
-		assert.Contains(t, err.Error(), "must evaluate to a string")
-	})
-
 	t.Run("a compile error surfaces", func(t *testing.T) {
 		raw := json.RawMessage(`{"a":"${needs.}"}`)
 		_, err := expr.Render(raw, "app", expr.Scopes{Needs: deps(), System: sysDeps()})
@@ -125,9 +118,12 @@ func TestRender(t *testing.T) {
 	// entry within it, not on "system" itself being undefined.
 	t.Run("system is an empty map, not a missing key, for a step with no system outputs", func(t *testing.T) {
 		raw := json.RawMessage(`{"a":"${needs.cluster.system.size() == 0}"}`)
-		_, err := expr.Render(raw, "app", expr.Scopes{Needs: deps(), System: map[string]dag.Outputs{}})
-		require.Error(t, err, "expected a non-string-result error, not a missing-key error, proving needs.cluster.system resolved to an empty map")
-		assert.Contains(t, err.Error(), "must evaluate to a string")
+		out, err := expr.Render(raw, "app", expr.Scopes{Needs: deps(), System: map[string]dag.Outputs{}})
+		require.NoError(t, err, "expected needs.cluster.system to resolve to an empty map, not a missing-key error")
+
+		var v map[string]bool
+		require.NoError(t, json.Unmarshal(out, &v))
+		assert.True(t, v["a"], "needs.cluster.system must be an empty map (size 0), not absent")
 	})
 
 	t.Run("an env expression", func(t *testing.T) {
@@ -211,7 +207,7 @@ func TestRender(t *testing.T) {
 
 	t.Run("a vars expression", func(t *testing.T) {
 		raw := json.RawMessage(`{"a":"${vars.region}"}`)
-		out, err := expr.Render(raw, "step", expr.Scopes{Vars: map[string]string{"region": "us-east-1"}})
+		out, err := expr.Render(raw, "step", expr.Scopes{Vars: map[string]any{"region": "us-east-1"}})
 		require.NoError(t, err)
 
 		var v map[string]string
@@ -221,8 +217,77 @@ func TestRender(t *testing.T) {
 
 	t.Run("a missing var key errors", func(t *testing.T) {
 		raw := json.RawMessage(`{"a":"${vars.no_such_key}"}`)
-		_, err := expr.Render(raw, "app", expr.Scopes{Vars: map[string]string{"region": "us-east-1"}})
+		_, err := expr.Render(raw, "app", expr.Scopes{Vars: map[string]any{"region": "us-east-1"}})
 		require.Error(t, err, "expected an error for a variable that was never set")
+	})
+}
+
+// TestRenderTypedValues covers the whole-leaf, non-string substitution a
+// bare "${...}" marker gets (see [expr.BareMarker]), split out of TestRender
+// to keep that function's size in check.
+func TestRenderTypedValues(t *testing.T) {
+	t.Run("a bare non-string expression evaluates to its native type", func(t *testing.T) {
+		raw := json.RawMessage(`{"a":"${1 + 1}"}`)
+		out, err := expr.Render(raw, "app", expr.Scopes{Needs: deps(), System: sysDeps()})
+		require.NoError(t, err)
+
+		var v map[string]int
+		require.NoError(t, json.Unmarshal(out, &v))
+		assert.Equal(t, 2, v["a"])
+	})
+
+	t.Run("a non-string result interpolated into surrounding text errors", func(t *testing.T) {
+		raw := json.RawMessage(`{"a":"count-${1 + 1}"}`)
+		_, err := expr.Render(raw, "app", expr.Scopes{Needs: deps(), System: sysDeps()})
+		require.Error(t, err, "expected an error for a non-string expression result spliced into surrounding text")
+		assert.Contains(t, err.Error(), "must evaluate to a string")
+	})
+
+	t.Run("a bare int variable substitutes its native type", func(t *testing.T) {
+		raw := json.RawMessage(`{"replicas":"${vars.replicas}"}`)
+		out, err := expr.Render(raw, "step", expr.Scopes{Vars: map[string]any{"replicas": int64(3)}})
+		require.NoError(t, err)
+
+		var v map[string]int
+		require.NoError(t, json.Unmarshal(out, &v))
+		assert.Equal(t, 3, v["replicas"])
+	})
+
+	t.Run("a bare bool variable substitutes its native type", func(t *testing.T) {
+		raw := json.RawMessage(`{"strict":"${vars.strict}"}`)
+		out, err := expr.Render(raw, "step", expr.Scopes{Vars: map[string]any{"strict": true}})
+		require.NoError(t, err)
+
+		var v map[string]bool
+		require.NoError(t, json.Unmarshal(out, &v))
+		assert.True(t, v["strict"])
+	})
+
+	t.Run("a bare list variable substitutes its native type", func(t *testing.T) {
+		raw := json.RawMessage(`{"tags":"${vars.tags}"}`)
+		out, err := expr.Render(raw, "step", expr.Scopes{Vars: map[string]any{"tags": []any{"a", "b"}}})
+		require.NoError(t, err)
+
+		var v map[string][]string
+		require.NoError(t, json.Unmarshal(out, &v))
+		assert.Equal(t, []string{"a", "b"}, v["tags"])
+	})
+
+	t.Run("a bare struct variable substitutes its native type", func(t *testing.T) {
+		raw := json.RawMessage(`{"labels":"${vars.labels}"}`)
+		out, err := expr.Render(raw, "step", expr.Scopes{Vars: map[string]any{"labels": map[string]any{"env": "prod"}}})
+		require.NoError(t, err)
+
+		var v map[string]map[string]string
+		require.NoError(t, json.Unmarshal(out, &v))
+		assert.Equal(t, "prod", v["labels"]["env"])
+	})
+
+	t.Run("a non-string variable interpolated into surrounding text errors", func(t *testing.T) {
+		raw := json.RawMessage(`{"a":"count-${vars.replicas}"}`)
+		_, err := expr.Render(raw, "app", expr.Scopes{Vars: map[string]any{"replicas": int64(3)}})
+		require.Error(t, err, "expected an error for a non-string variable spliced into surrounding text")
+		assert.Contains(t, err.Error(), "must evaluate to a string")
 	})
 }
 
@@ -421,4 +486,30 @@ func TestFieldSensitive(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, sensitive)
 	})
+}
+
+func TestBareMarker(t *testing.T) {
+	tests := []struct {
+		name    string
+		s       string
+		wantExp string
+		wantOK  bool
+	}{
+		{name: "a bare marker", s: "${vars.x}", wantExp: "vars.x", wantOK: true},
+		{name: "leading text", s: "prefix-${vars.x}", wantOK: false},
+		{name: "trailing text", s: "${vars.x}-suffix", wantOK: false},
+		{name: "no marker", s: "plain", wantOK: false},
+		{name: "empty string", s: "", wantOK: false},
+		{name: "unbalanced marker", s: "${vars.x", wantOK: false},
+		{name: "two markers", s: "${vars.x}${vars.y}", wantOK: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exprStr, ok := expr.BareMarker(tt.s)
+			assert.Equal(t, tt.wantOK, ok)
+			if tt.wantOK {
+				assert.Equal(t, tt.wantExp, exprStr)
+			}
+		})
+	}
 }

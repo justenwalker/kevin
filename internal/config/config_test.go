@@ -725,6 +725,62 @@ env: a: uses: "echo:echo"
 		require.ErrorIs(t, err, config.ErrInvalid)
 		assert.Contains(t, err.Error(), "#Config")
 	})
+
+	t.Run("a bare vars marker filling a non-string field defers its type check", func(t *testing.T) {
+		schemas := map[string]config.PluginSchemas{
+			"echo": {Steps: map[string][]byte{"echo": []byte(`#Config: {replicas: int}`)}},
+		}
+		f := load(t, `
+plugins: echo: cmd: "echo"
+variables: replicas: {type: int, default: 3}
+env: a: {uses: "echo:echo", with: replicas: "${vars.replicas}"}
+`)
+		require.NoError(t, f.Validate(schemas))
+	})
+
+	t.Run("a bare needs marker filling a non-string field defers its type check", func(t *testing.T) {
+		schemas := map[string]config.PluginSchemas{
+			"echo": {Steps: map[string][]byte{
+				"producer": nil,
+				"consumer": []byte(`#Config: {port: int}`),
+			}},
+		}
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: {
+	a: uses: "echo:producer"
+	b: {uses: "echo:consumer", needs: ["a"], with: port: "${needs.a.out.port}"}
+}
+`)
+		require.NoError(t, f.Validate(schemas))
+	})
+
+	t.Run("a genuine type conflict on an unrelated field is still caught immediately", func(t *testing.T) {
+		schemas := map[string]config.PluginSchemas{
+			"echo": {Steps: map[string][]byte{"echo": []byte(`#Config: {replicas: int, image: string}`)}},
+		}
+		f := load(t, `
+plugins: echo: cmd: "echo"
+variables: replicas: {type: int, default: 3}
+env: a: {uses: "echo:echo", with: {replicas: "${vars.replicas}", image: 7}}
+`)
+		err := f.Validate(schemas)
+		require.ErrorIs(t, err, config.ErrInvalid)
+		assert.Contains(t, err.Error(), "env.a.with")
+	})
+
+	t.Run("a marker interpolated into surrounding text still requires the schema field be a string", func(t *testing.T) {
+		schemas := map[string]config.PluginSchemas{
+			"echo": {Steps: map[string][]byte{"echo": []byte(`#Config: {replicas: int}`)}},
+		}
+		f := load(t, `
+plugins: echo: cmd: "echo"
+variables: replicas: {type: int, default: 3}
+env: a: {uses: "echo:echo", with: replicas: "count-${vars.replicas}"}
+`)
+		err := f.Validate(schemas)
+		require.ErrorIs(t, err, config.ErrInvalid)
+	})
 }
 
 func TestValidateNeedsReferences(t *testing.T) {
@@ -859,6 +915,72 @@ plugins: echo: cmd: "echo"
 env: a: uses: "echo:echo"
 `)
 		require.NoError(t, f.Validate(offers("echo", "echo")))
+	})
+}
+
+func TestVariableType(t *testing.T) {
+	t.Run("Validate succeeds for a typed variable with a range constraint", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+variables: replicas: {type: int & >=1 & <=10, default: 3}
+env: a: {uses: "echo:echo", with: count: "${vars.replicas}"}
+`)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+	})
+
+	t.Run("Config decodes an int-typed variable's declared type and resolved value", func(t *testing.T) {
+		f := load(t, `
+project: "demo"
+plugins: echo: cmd: "echo"
+variables: replicas: {type: int, default: 3}
+env: a: uses: "echo:echo"
+`)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+
+		cfg, err := f.Config()
+		require.NoError(t, err)
+
+		require.Contains(t, cfg.Variables, "replicas")
+		assert.Equal(t, "int", string(cfg.Variables["replicas"].Type))
+		assert.JSONEq(t, "3", string(cfg.Variables["replicas"].Default))
+
+		require.NoError(t, cfg.ResolveVariables(config.VariableInputs{}))
+		assert.Equal(t, int64(3), cfg.VariableValues["replicas"])
+	})
+
+	t.Run("a non-concrete type field does not break decoding of unrelated fields in the same file", func(t *testing.T) {
+		f := load(t, `
+project: "demo"
+plugins: echo: cmd: "echo"
+variables: {
+	replicas: {type: int & >=1 & <=10, default: 3}
+	region: {default: "us-east-1"}
+}
+env: a: uses: "echo:echo"
+commands: hello: run: ["echo", "hi"]
+`)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+
+		cfg, err := f.Config()
+		require.NoError(t, err)
+
+		assert.Equal(t, "demo", cfg.Project)
+		assert.Contains(t, cfg.Env, "a")
+		assert.Contains(t, cfg.Commands, "hello")
+		assert.Empty(t, cfg.Variables["region"].Type, "an untyped variable declares no Type")
+	})
+
+	t.Run("a variable declaring no type omits Type, unchanged from before", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+variables: region: default: "us-east-1"
+env: a: uses: "echo:echo"
+`)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+
+		cfg, err := f.Config()
+		require.NoError(t, err)
+		assert.Empty(t, cfg.Variables["region"].Type)
 	})
 }
 
@@ -1017,6 +1139,40 @@ plugins: "echo-two": {
 `,
 			plugin:       "echo-two",
 			configSchema: []byte(`#Config: greeting!: string`),
+		},
+		{
+			name: "a vars marker filling a non-string field",
+			src: `
+variables: replicas: {type: int, default: 3}
+plugins: echo: {
+	cmd:    "echo"
+	config: replicas: "${vars.replicas}"
+}
+`,
+			configSchema: []byte(`#Config: replicas!: int`),
+		},
+		{
+			name: "an undeclared var reference errors",
+			src: `
+plugins: echo: {
+	cmd:    "echo"
+	config: replicas: "${vars.replicas}"
+}
+`,
+			configSchema: []byte(`#Config: replicas!: int`),
+			wantErr:      config.ErrUndeclaredVariable,
+		},
+		{
+			name: "a needs reference in a config block errors, config has no needs scope",
+			src: `
+plugins: echo: {
+	cmd:    "echo"
+	config: greeting: "${needs.a.out.x}"
+}
+`,
+			configSchema: []byte(`#Config: greeting!: string`),
+			wantErr:      config.ErrUndeclaredNeed,
+			wantContains: []string{"plugins.echo.config"},
 		},
 	}
 	for _, tt := range tests {

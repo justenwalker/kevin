@@ -164,10 +164,18 @@ env: [string]: #Step | #StepGroup
 variables: close({[=~"^[A-Za-z_][A-Za-z0-9_]*$"]: #Variable})
 
 #Variable: {
-	// default is this variable's value when nothing external supplies one.
-	// Omit it to make the variable required: `kevin validate` fails when
-	// no var-file, KEVIN_VAR_<NAME>, or --var supplies a value for it.
-	default?: string
+	// type constrains this variable's value: any CUE expression - a bare
+	// kind ("int", "bool"), a bounded range ("int & >=1 & <=10"), a
+	// disjunction ("\"a\" | \"b\""), a struct shape, a regex
+	// ("=~\"^prod-\""). Omit it for a plain string, the default when type
+	// is not set.
+	type?: _
+
+	// default is this variable's value when nothing external supplies
+	// one, checked against type. Omit it to make the variable required:
+	// `kevin validate` fails when no var-file, KEVIN_VAR_<NAME>, or --var
+	// supplies a value for it.
+	default?: _
 
 	// sensitive marks this variable's value as secret. A with block field
 	// that reads it via "${vars.<name>}" is always redacted wherever the

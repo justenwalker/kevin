@@ -93,6 +93,11 @@ const (
 
 	// ErrMalformedVariable reports a "--var" argument with no "=".
 	ErrMalformedVariable = Error(`config: --var argument must be "KEY=VALUE"`)
+
+	// ErrVariableValue reports a variable's resolved value (its default, or
+	// a value from a var-file, KEVIN_VAR_<NAME>, or --var) that does not
+	// satisfy its own declared type.
+	ErrVariableValue = Error("config: variable value does not satisfy its declared type")
 )
 
 // ValidationError indicates a problem validating a kevin configuration file.
