@@ -1,7 +1,7 @@
 ---
 title: "Environment file"
 weight: 1
-description: "Every field of kevin.cue: steps, plugins, commands, proxy, console, and relay settings."
+description: "Every field of kevin.cue: steps, plugins, commands, variables, proxy, console, and relay settings."
 ---
 
 # Environment file
