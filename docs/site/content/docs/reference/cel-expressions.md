@@ -6,7 +6,9 @@ description: "The ${...} syntax and variables (needs, setup, env, project, vars)
 
 # CEL expressions
 
-kevin evaluates each `${...}` in a string in a step's `with` block, a group's `outputs`, or a command's `run` as a [CEL](https://cel.dev) expression, and replaces it with the result. A string can hold more than one expression. A string with no `${` does not change.
+kevin evaluates each `${...}` in a string in a step's `with` block, a plugin's `config` block, a group's `outputs`, or a command's `run` as a [CEL](https://cel.dev) expression, and replaces it with the result. A string can hold more than one expression, spliced into the surrounding text as a string. A string with no `${` does not change.
+
+A field whose entire value is one bare `${...}` marker, with no surrounding text, takes on that expression's own type instead - a number, a bool, a list, or a struct, not only a string. This only matters for `vars`, where a declared variable can carry a type other than string; every other variable (`needs`, `setup`, `env`, `project`) is always a string.
 
 This page lists the variables kevin provides. For the language itself (operators, `has()`, `? :`, string methods), see the [CEL language definition](https://github.com/google/cel-spec/blob/master/doc/langdef.md).
 
@@ -83,14 +85,20 @@ up: command: [
 
 ## `vars`
 
-`vars.<name>`. A [`variables`]({{< relref "/docs/reference/environment-file#variables" >}}) entry's resolved value - a var-file, a `KEVIN_VAR_<NAME>` environment variable, a `--var` argument, or the entry's own `default`.
+`vars.<name>`. A [`variables`]({{< relref "/docs/reference/environment-file#variables" >}}) entry's resolved value - a var-file, a `KEVIN_VAR_<NAME>` environment variable, a `--var` argument, or the entry's own `default`. `vars` is the only one of these variables that isn't always a string: a variable with no declared `type` is a string, one with a `type` resolves to that type.
 
 ```cue
-variables: region: default: "us-east-1"
-env: app: with: env: REGION: "${vars.region}"
+variables: {
+    region:   {default: "us-east-1"}
+    replicas: {type: int, default: 3}
+}
+env: app: with: {
+    env:      REGION: "${vars.region}"
+    replicas: "${vars.replicas}"
+}
 ```
 
-A `variables` entry with `sensitive: true` is always redacted wherever the console or MCP server shows a field that reads it, the same as a field reading an already-sensitive output.
+Available in a step's `with` block and a plugin's `config` block. A `variables` entry with `sensitive: true` is always redacted wherever the console or MCP server shows a field that reads it, the same as a field reading an already-sensitive output.
 
 ## Errors
 
@@ -102,6 +110,7 @@ Each error fails the step before the step starts. `kevin validate` also reports 
 | `<VAR>` isn't set in kevin's environment | `${env.MISSING}` | the step name |
 | `<key>` isn't one of `project`'s known keys | `${project.no_such_key}` | the step name |
 | `<name>` isn't declared in `variables`, or has no value from any source and no `default` | `${vars.no_such_key}` | the variable name |
-| The result is not a string | `${1 + 1}` | `must evaluate to a string` |
+| A bare marker's resolved value doesn't satisfy the field's own schema type | a `string`-typed variable filling a field the plugin's schema types `int` | the field name |
+| A non-string result is spliced into surrounding text | `"count-${1 + 1}"` | `must evaluate to a string` |
 | `${` with no matching `}` | `${needs.cluster.out.x` | the unbalanced marker |
 | The text inside `${...}` isn't valid CEL | `${needs.}` | the CEL compile error |

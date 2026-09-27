@@ -262,9 +262,17 @@ Key model to hold in your head when changing any of this:
   path, upstream outputs) is in the request.
 - **Session bring-up order**: unify `kevin.cue` with core schema → start
   declared plugins → `Info` from each → unify each step's `with` block
-  against its plugin's schema → `Configure` each plugin once → walk the DAG
-  calling `Up`. A malformed environment fails at schema-unify, before
-  anything is created.
+  against its plugin's schema → resolve `variables:` → render and
+  re-validate every plugin's `config:` block against `vars`/`env`/`project`
+  → `Configure` each plugin once → walk the DAG calling `Up`. A malformed
+  environment fails at schema-unify, before anything is created - except a
+  `with:` field whose value is a single `${...}` marker (a variable, or a
+  `needs`/`setup` reference): its real type is only known once that step
+  renders its `with` block at its own `Up` call, so a mismatch there (e.g.
+  a `string`-typed variable filling a field the plugin's schema types
+  `int`) fails at that point instead. A `config:` block has no
+  `needs`/`setup` scope, so every marker it carries always resolves before
+  `Configure` runs - it keeps the full fail-before-anything-runs guarantee.
 - **Cross-step values**: a step's `Result.Outputs` are handed to every step
   with a `needs` edge on it (e.g. a registry endpoint, a kubeconfig path).
   An `env` step's `needs` may additionally name a `setup` step as

@@ -200,22 +200,29 @@ Arguments after `--` are appended to `run`. `kevin validate` checks every comman
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `default` | `string` | - | Value when nothing external supplies one. Omit it to make the variable required. |
+| `type` | any CUE expression | `string` | Constrains the variable's value: a bare kind (`int`, `bool`), a bounded range (`int & >=1 & <=10`), a disjunction (`"a" \| "b"`), a struct shape, a regex (`=~"^prod-"`). If omitted, the variable is a plain string. |
+| `default` | matching `type` | - | Value when nothing external supplies one, checked against `type`. Omit it to make the variable required. |
 | `sensitive` | `bool` | `false` | Marks the value as secret. A field reading it via `${vars.<name>}` is always redacted in the console and MCP server, the same as a field reading an already-sensitive output. |
 
 ```cue
 variables: {
-    region: default: "us-east-1"
-    api_key: sensitive: true
+    region:   {default: "us-east-1"}
+    api_key:  {sensitive: true}
+    replicas: {type: int & >=1 & <=10, default: 3}
 }
 env: app: {
     uses: "builtin:container"
-    with: env: {
-        REGION:  "${vars.region}"
-        API_KEY: "${vars.api_key}"
+    with: {
+        env: {
+            REGION:  "${vars.region}"
+            API_KEY: "${vars.api_key}"
+        }
+        replicas: "${vars.replicas}"
     }
 }
 ```
+
+A field that reads a typed variable as its entire value (nothing else in the same string) takes on that variable's real type - a number, a bool, a list, a struct - not a string. A field that mixes a marker into surrounding text (`"prefix-${vars.x}-suffix"`) still requires the expression evaluate to a string.
 
 A value comes from one of three sources, highest precedence first:
 
@@ -225,7 +232,9 @@ A value comes from one of three sources, highest precedence first:
 | `KEVIN_VAR_<NAME>` (name upper-cased) | `KEVIN_VAR_API_KEY=sk-123 kevin run` |
 | `--var-file <path>` | `kevin run --var-file secrets.env`, one `KEY=VALUE` per line, blank lines and `#` comments skipped |
 
-A key in a var-file or the environment that names no declared variable is ignored - the file can be shared across more than one `kevin.cue`. `kevin validate` fails when a required variable has no value from any source, or when a `${vars.<name>}` expression names a variable `variables` does not declare.
+A plain string variable (no `type`) takes any of these three sources literally, unquoted. A typed variable parses the supplied value as CUE syntax, so `--var replicas=3` supplies the int `3` and `--var tags='["a","b"]'` supplies a list.
+
+A key in a var-file or the environment that names no declared variable is ignored - the file can be shared across more than one `kevin.cue`. `kevin validate` fails when a required variable has no value from any source, when a value does not satisfy its declared `type`, or when a `${vars.<name>}` expression names a variable `variables` does not declare.
 
 ## Plugins
 
@@ -252,7 +261,7 @@ Each entry sets exactly one source field.
 
 | Field | Sources | Type | Description |
 |:------|:--------|:----:|:------------|
-| `config` | all | `{...}` | Configuration for the plugin, checked against the plugin's config schema and sent once before its first step. |
+| `config` | all | `{...}` | Configuration for the plugin, checked against the plugin's config schema and sent once before its first step. A field can read `${vars.<name>}`, `${env.<key>}`, or `${project.<key>}` (see [Variables](#variables)), not `${needs...}`/`${setup...}`. |
 | `args` | all | `[...string]` | Arguments for the plugin binary. For a package, these replace the package's default arguments. |
 | `env` | all | `{[string]: string}` | Environment variables for the plugin process. |
 | `checksum` | `file`, `http` | `string` | SHA-256 that the package must match, as `"sha256:<hex>"`. For `oci`, pin a digest in the reference instead. Without a checksum, kevin downloads an `http` package on every run. |
