@@ -149,10 +149,19 @@ leaves no tag or GitHub release behind.
 A task is not complete until all of the following hold:
 
 1. `go build ./...`, `go vet ./...`, `go test -race -cover ./...`, and
-   `./build/gnob lint` all pass.
+   `./build/gnob lint` all pass. If the change touches `docs/site`, a
+   `reference.md.tmpl`, or a `schema.cue`, `./build/gnob docs-check` passes
+   too.
 2. Docs affected by the change are updated in the same commit, for any
-   user-facing behavior change: architecture/concepts pages, the feature
-   index, comparison page, README, and generated reference docs.
+   user-facing behavior change: concepts pages, guides, the Reference
+   section, comparison page, README, and generated reference docs (run
+   `./build/gnob generate`). See Documentation below. Run the
+   `docs-reviewer` agent (docs against code) on the diff whenever it
+   touches docs, CLI commands or flags, a proto, `internal/config`, a
+   `schema.cue`, or a step's outputs: it catches docs that should have
+   changed and didn't. Run the `docs-style-reviewer` agent (page type and
+   prose) whenever the diff touches docs. Resolve their findings the same
+   way as step 3.
 3. A fresh subagent with no implementation context reviews the diff alone,
    with nothing beyond the diff itself as input. Ask it to find over-scoped
    changes, unnecessary comments, violations of AGENTS.md/GO_CONVENTIONS.md,
@@ -162,6 +171,42 @@ A task is not complete until all of the following hold:
    monolithic commit at the end - see Commit Discipline above.
 5. Report to the user what the reviewer subagent flagged and how each item
    was resolved (fixed, or why not), before calling the task done.
+
+## Documentation
+
+The docs site follows [Diataxis](https://diataxis.fr). Put content in
+the section that matches the reader's need, and link across sections
+instead of mixing them. Paths are relative to `docs/site/content/docs/`:
+
+| Section | Type | Contains |
+|:--------|:-----|:---------|
+| `quickstart.md` | Tutorial | One path to a working result, with expected output. No options or internals. |
+| `guides/` | How-to | One task per heading, as steps with CUE and commands. No mechanism or rationale. |
+| `reference/` | Reference | Tables of fields, commands, variables, outputs, defaults. No steps, advice, or engine internals. |
+| `concepts/`, `comparison.md` | Explanation | How and why. Internals are fine here. No instructions. |
+| `extending/` | Plugin author how-to | SDK types and RPCs are the interface here, so they belong. |
+| `contributing.md` | Contributor how-to | Building, testing, and releasing kevin. Repository internals are fine. |
+| `_index.md` pages | Section landing | One or two sentences on what the section holds, then links. |
+
+- **Generated pages.** `reference/steps/*.md` and `reference/commands/*.md`
+  are generated. Edit `internal/plugins/<type>/reference.md.tmpl`, the
+  field comments in its `schema.cue`, or
+  `internal/cmd/reference/<command>.md.tmpl`, then run
+  `./build/gnob generate`. A `schema.cue` field comment is user-facing
+  reference text: start with the field name (the generator drops it), say
+  what the field does, and quote placeholders (`"forward_<name>"`) so they
+  render as one code span.
+- **Verify against code, not other docs.** Check every output key in an
+  example (`${needs.x.out.key}`, case-sensitive), file path, default, and
+  behavior claim ("reuses", "is ignored", "is an error") against the code
+  that implements it. Two pages that agree can both be wrong.
+- **Moving a page or renaming a heading** breaks links outside the Hugo
+  build too: grep README.md, AGENTS.md, `docs/*.md`, and `.claude/` for
+  the old path or `#anchor`. `./build/gnob docs-check` covers the site
+  itself.
+- **Prose.** Describe current behavior only: no "now", "no longer", or
+  "originally". No notes to maintainers in user docs. Short sentences,
+  second person, present tense, imperative steps.
 
 ## Linting
 
