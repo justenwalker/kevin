@@ -1,51 +1,67 @@
 ---
 title: "Deploying workloads"
-description: "Deploy into a cluster with kubectl and helm steps, gated on real readiness checks."
+description: "Deploy manifests and Helm charts into a cluster, and wait until they are ready."
 weight: 4
 ---
 
 # Deploying workloads
 
-A `builtin:kind` step only brings up a cluster; it doesn't put anything inside one. The `kubectl` and `helm` steps close that gap. Each shells out to the real `kubectl`/`helm` binary on your host, against a `needs` edge on a step that publishes a `kubeconfig` and a `context`, typically a kind step:
+This guide deploys into a cluster from a [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}) step. See [Kubernetes clusters]({{< relref "kubernetes" >}}) to add one.
+
+## Prerequisites
+
+- `kubectl`, and `helm` for Helm charts, on your `PATH`.
+
+## Apply manifests
+
+Add a [`builtin:kubectl`]({{< relref "/docs/reference/steps/kubectl" >}}) step that reads the cluster's kubeconfig:
 
 ```cue
-env: {
-    cluster: uses: "builtin:kind"
-    app: {
-        uses: "builtin:kubectl"
-        needs: ["cluster"]
-        with: {
-            kubeconfig: "${needs.cluster.out.kubeconfig}"
-            context:    "${needs.cluster.out.context}"
-            manifest:   "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: demo\n"
-        }
+app: {
+    uses:  "builtin:kubectl"
+    needs: ["cluster"]
+    with: {
+        kubeconfig: "${needs.cluster.out.kubeconfig}"
+        context:    "${needs.cluster.out.context}"
+        path:       "k8s/app.yaml"
     }
 }
 ```
 
-Both steps read `kubeconfig`/`context` off `needs` with a `${...}` expression. See [Environment file: cross-step values]({{< relref "/docs/reference/environment-file#reading-another-steps-outputs" >}}).
+Set one of:
 
-## kubectl
+- `manifest`: YAML in the environment file.
+- `path`: a manifest file or directory.
+- `kustomize`: a kustomization directory.
 
-Set exactly one of `manifest` (inline YAML), `path` (a manifest file or directory), or `kustomize` (a directory, applied with `-k`). `Up` rejects a `with` block that sets zero or more than one. See [kubectl reference]({{< relref "/docs/reference/steps/kubectl" >}}) for the full `with` block.
+A relative path resolves against the project directory.
 
-## Helm
+## Install a Helm chart
 
-Name a `chart` (a local path, an `oci://` reference, or a chart name inside `repo`) and a `release`. `post_renderer`/`post_renderer_args` plumb straight through to `helm upgrade --install --post-renderer`. kevin doesn't implement rendering itself; it only forwards the flag. See [helm reference]({{< relref "/docs/reference/steps/helm" >}}) for the full `with` block.
+Add a [`builtin:helm`]({{< relref "/docs/reference/steps/helm" >}}) step:
 
-`path`, `kustomize`, `chart`, and `values_files` all resolve against the project directory (the directory holding `kevin.cue`) when given as a relative path.
+```cue
+db: {
+    uses:  "builtin:helm"
+    needs: ["cluster"]
+    with: {
+        kubeconfig: "${needs.cluster.out.kubeconfig}"
+        context:    "${needs.cluster.out.context}"
+        release:    "db"
+        chart:      "oci://registry-1.docker.io/bitnamicharts/postgresql"
+    }
+}
+```
 
-## Cleanup
+`chart` is a local path, an `oci://` reference, or a chart name in `repo`. By default, the step waits up to 5 minutes for the release to become ready.
 
-`Down` deletes or uninstalls by default: `kubectl`'s runs `kubectl delete` against the same manifest/path/kustomize `Up` applied, `helm`'s runs `helm uninstall`. kevin didn't create the cluster these steps target, and doesn't tear the cluster itself down here - only what was applied or installed inside it. Set `keep: true` on either step's `with` block to leave that in place instead; it then survives `kevin teardown` and Ctrl-C the same way the untouched cluster does.
+## Wait until a workload is ready
 
-## Readiness
-
-`helm upgrade --install` waits for its own release by default (`wait: "5m"` in its `with` block), but `kubectl apply` doesn't wait for anything, and neither step's `Down` matters for gating a *dependent* step on the workload actually being up. `builtin:wait` closes that gap: add a step with a `needs` edge on the one that applied the manifest, and a check that only succeeds once the workload is ready.
+`kubectl apply` does not wait. Add a [`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}) step, and put it in the `needs` of the steps that use the workload:
 
 ```cue
 app_ready: {
-    uses: "builtin:wait"
+    uses:  "builtin:wait"
     needs: ["cluster", "app"]
     with: {
         timeout: "2m"
@@ -59,4 +75,12 @@ app_ready: {
 }
 ```
 
-A `kubectl` check runs `kubectl wait --for=<condition>` or `kubectl rollout status`, retrying while the resource doesn't exist yet. There is no need to sequence it after the apply beyond the `needs` edge. `builtin:wait` also has `tcp`, `http`, and `exec` checks, for a step whose readiness isn't a kubectl condition. A `tcp` check reaches a service inside a kind cluster through the SOCKS5 relay, dialing the `needs.<step>.system.expose_<name>` value a `builtin:kind` step's `expose` entries publish (see [Cluster tunnel]({{< relref "/docs/concepts/relay#cluster-tunnel" >}})). See [wait reference]({{< relref "/docs/reference/steps/wait" >}}) for every check kind, and [`examples/kind`](https://github.com/justenwalker/kevin/tree/main/examples/kind) for a full chain: a `kubectl` step and a `helm` step each gated by their own `wait` step, plus a `tcp` check through the relay and an `http` check against a plain container.
+The check retries until the resource exists and is ready. `builtin:wait` also has `tcp`, `http`, and `exec` checks.
+
+## Keep resources after teardown
+
+By default, teardown deletes what `kubectl` applied and uninstalls what `helm` installed. To keep them, set `keep: true` in the step's `with` block.
+
+## Related
+
+- [`examples/kind`](https://github.com/justenwalker/kevin/tree/main/examples/kind): a `kubectl` step and a `helm` step, each with a `wait` step.

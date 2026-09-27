@@ -1,86 +1,127 @@
 ---
 title: "Proxy and egress"
-description: "Reach a step through the proxy, and control what it can reach on the way out."
+description: "Reach a step through the proxy, give it a name, and control outbound traffic."
 weight: 1
 ---
 
 # Proxy and egress
 
-kevin changes no file on the host: no entry in `/etc/hosts`, no file in `/etc/resolver`, no DNS server for the host. You reach the environment through the proxy instead.
+kevin does not change files on your machine, such as `/etc/hosts`. You reach the services of an environment through the kevin proxy.
 
-## Reaching a step
+## Set the proxy and console addresses
 
-Set `HTTP_PROXY`/`HTTPS_PROXY`, or point a browser at `http://<proxy>/proxy.pac`. The auto-config file sends the environment domain through the proxy and everything else direct, so normal browsing is untouched, and it updates automatically as steps are added (no reload needed).
+Every environment file sets both addresses:
 
-The environment has a base domain, `kevin.home` by default; set `domain:` in `kevin.cue` to use a different one. A [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step puts a name on it, pointed at a `builtin:container` step's published port for a direct address, or at a relay for a target the proxy can't dial itself, such as a Service inside a `builtin:kind` cluster. A bare step name alone is never routable; it always needs the dot and the domain, so a step name can't accidentally shadow a real host on the internet.
+```cue
+proxy: {
+    listen:       "127.0.0.1:18080"
+    gateway_port: 18082
+}
+console: listen: "127.0.0.1:18081"
+```
 
-`proxy: listen:` in `kevin.cue` sets the proxy's primary, host-facing address, such as `"127.0.0.1:18080"` - kevin picks no port for you, and requires a real one: a `builtin:kind` step bakes this address into every node's containerd config at creation time, so a cluster left running by `kevin setup` needs it stable across a later process picking a different one. The web console has the same knob, `console: listen:`, and requires a real port for the same reason: kevin never auto-assigns a listener address, so a bookmark, a script, or anything else that expects the console at a fixed place stays valid across runs.
+`gateway_port` is the port that containers use to reach the proxy. Choose ports that are free on your machine. kevin does not choose them for you, so the addresses stay the same across runs.
 
-The proxy also binds a second listener, on the docker network's gateway address, for the relay to reach it from inside the network. `proxy: gateway_port:` sets that listener's port - also required, for the same reason as `listen`.
+## Give a service a name
 
-A `builtin:kind` cluster's reuse check folds the resolved proxy address into its comparison, so a cluster created against one `proxy: listen:` value is never silently reused against another - changing it (or toggling the proxy on and off) forces a fresh cluster instead of leaving nodes dialing a dead address.
+Add a [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step:
 
-`NO_PROXY` lists the step names too, so a client that honors it reaches another step directly over the docker network. Not every client does (busybox `wget` ignores `NO_PROXY`, for example), so a step is always also reachable through the proxy under its full `<step>.<domain>` name.
+```cue
+env: {
+    web: {
+        uses: "builtin:container"
+        with: {image: "nginx:alpine", expose: web: {port: 80}}
+    }
+    web_route: {
+        uses:  "builtin:route"
+        needs: ["web"]
+        with: routes: [{host: "web", address: "${needs.web.out.host_80}"}]
+    }
+}
+```
 
-The proxy terminates TLS for you: it mints a leaf certificate for the requested host and signs it with the kevin CA (see [CA and trust store]({{< relref "ca-and-trust" >}})), so `curl --cacert` or a machine that already trusts the kevin root just works. The proxy negotiates both HTTP/1.1 and HTTP/2 with the client over that connection.
+The service is now `web.kevin.home`. To use a different base domain, set `domain:` in the environment file.
 
-If a step's upstream already terminates its own TLS - a Service fronted by cert-manager inside a `builtin:kind` cluster, say - and you want to test that certificate itself rather than kevin's, set `mode: "passthrough"` on the route entry alongside `tls: true`:
+## Reach a service from the host
+
+Use one of these:
+
+- **One command.** Pass the proxy to the client:
+
+  ```sh
+  curl --proxy http://127.0.0.1:18080 https://web.kevin.home/
+  ```
+
+- **A shell.** Set the proxy variables:
+
+  ```sh
+  export HTTP_PROXY=http://127.0.0.1:18080 HTTPS_PROXY=http://127.0.0.1:18080
+  ```
+
+- **A browser.** Set the proxy auto-config URL to `http://127.0.0.1:18080/proxy.pac`. The browser sends the environment domain through the proxy and all other traffic directly.
+
+HTTPS needs the kevin CA. See [Trust the kevin CA]({{< relref "ca-and-trust" >}}).
+
+## Block outbound traffic
+
+Set `proxy.egress.deny` and list the hosts that steps can reach:
+
+```cue
+proxy: egress: {
+    deny:  true
+    allow: ["api.github.com", "*.docker.io", "docker.io"]
+}
+```
+
+A wildcard such as `*.docker.io` does not match `docker.io`, so list both if you need both.
+
+To allow a host for one step only, use the `egress` field of that step, such as on [`builtin:container`]({{< relref "/docs/reference/steps/container" >}}) or [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}).
+
+A blocked request gets a `403` page that names the host and the CUE to add. The console shows the blocked request.
+
+To allow all outbound traffic, set `deny: false`.
+
+To switch `deny` on the command line, see [Per-machine and per-run settings]({{< relref "local-and-per-run-settings" >}}).
+
+## Reach an allowed host without trusting the kevin CA
+
+By default, the proxy terminates TLS for every host, so a client that does not trust the kevin CA fails to connect, even to an allowed host. Clients such as `git`, `pip`, or a Go program often use only the system trust store.
+
+Set `passthrough` to send TLS to allowed hosts unchanged:
+
+```cue
+proxy: egress: {
+    deny:        true
+    allow:       ["api.github.com"]
+    passthrough: true
+}
+```
+
+The client then checks the real certificate of the host. A blocked host still gets a `403`. The console shows one entry for each connection, with no request details.
+
+`passthrough` applies only to hosts with no route.
+
+## Test the TLS certificate of your service
+
+If your service has its own certificate, such as one from cert-manager in a kind cluster, set `mode: "passthrough"` on its route:
 
 ```cue
 routes: [{host: "myapp", address: "myapp.default.svc.cluster.local:443", tls: true, mode: "passthrough"}]
 ```
 
-The client then validates the upstream's own certificate directly; kevin never decrypts that route's traffic, and a browser needs the upstream's own CA trusted, not kevin's. `"passthrough"` requires `tls: true` - a plain-HTTP upstream has no certificate to preserve and always needs kevin's MITM to serve HTTPS to the client at all.
+The client then checks the certificate of your service, not a kevin certificate.
 
-For an upstream that speaks neither TLS nor HTTP - a raw TCP protocol such as a database's wire format - set `mode: "raw"` instead, with `tls: false` (raw's default): the connection tunnels byte for byte, with no protocol assumption at all.
+## Route a protocol that is not HTTP
 
-## Egress control
-
-`proxy: egress: deny:` has no schema default - `kevin.cue` must set it to `true` or `false` itself:
+For a TCP protocol such as a database protocol, set `mode: "raw"`:
 
 ```cue
-proxy: egress: {
-	deny:  true
-	allow: ["api.example.com"]
-}
+routes: [{host: "db", address: "${needs.db.out.host_5432}", mode: "raw"}]
 ```
 
-With `deny: true`, a workload reaches the internet only through a host `kevin.cue` names. A denied host gets a `403` page naming the host and the exact CUE to add. An allow entry is an exact host, such as `api.github.com`, or a leading-dot wildcard, such as `*.github.com`. A wildcard matches a subdomain but not the bare domain, so list both when both need to be reachable. Matching ignores case and any port.
+The proxy forwards the connection unchanged. A client connects with an HTTP `CONNECT` request to the proxy for `db.kevin.home:5432`.
 
-`proxy: egress: allow` in `kevin.cue` names hosts for the whole environment. A step can also open hosts for itself alone through its own plugin (the `egress` field on `builtin:container` and `builtin:kind`, for example). See [Reference]({{< relref "/docs/reference" >}}) for each step type's `with` block.
+## Related
 
-Set `proxy: egress: deny: false` instead, for an environment that needs no such protection - every request then reaches the internet.
-
-The `403` page carries cache-busting headers, so a browser won't keep showing a stale denial after you fix the allow list.
-
-It also flips cleanly per run - attach `@tag` straight to it:
-
-```cue
-package kevin
-
-proxy: egress: deny: bool @tag(airgap,type=bool)
-```
-
-Then flip it per run with `kevin run -t airgap` instead of duplicating the whole file into a named environment just to change one field. See [`@tag` mode switches]({{< relref "/docs/reference/environment-file#tags" >}}) for tagging a field that already has a fallback value, and for sharing one toggle across more than one field.
-
-### Reaching an allowed host with no CA trust
-
-`proxy: egress: deny:` still enforces the allow list even for a host with no `route` step - but by default that check happens *after* the proxy MITMs the CONNECT with a kevin-signed leaf, so a workload that doesn't trust the kevin CA (a bare `git`, `pip`, or a Go `http.Client` on the system cert pool, as opposed to a browser someone can click through) fails TLS to an allowed host outright.
-
-`proxy: egress: passthrough: true` fixes that for the unrouted case: an allowed host's CONNECT tunnels raw instead, so the client validates the real upstream's own certificate directly, and a denied host still gets its `403` - as the CONNECT response itself, before any TLS starts, so no client needs kevin's CA trusted to read it either way.
-
-```cue
-proxy: egress: {
-	deny:        true
-	allow:       ["api.github.com"]
-	passthrough: true
-}
-```
-
-This only changes the unrouted path. A `route` step still opts out of MITM per-route with its own `mode: "passthrough"`/`"raw"` (above) regardless of this setting.
-
-The trade-off: a passthrough connection logs one line per TCP connection (host, duration, no method or path) instead of the per-request detail a MITM'd request gives - the same granularity a route's own `passthrough`/`raw` mode already produces today.
-
-## Step readiness
-
-A container reports `Running` before the process inside has necessarily bound its port. A TCP `expose` entry is only actually reachable once its published port accepts a connection. kevin waits for that before marking the step ready. Note this if you're debugging a race in your own tooling against a step.
+- [Proxy]({{< relref "/docs/concepts/proxy" >}}): how the proxy works.
+- [Environment file: proxy]({{< relref "/docs/reference/environment-file#proxy" >}})
