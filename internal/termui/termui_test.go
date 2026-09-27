@@ -20,7 +20,7 @@ func TestRender(t *testing.T) {
 		r.Render([]session.Step{{Name: "web", Label: "web", State: session.Pending}})
 
 		assert.NotContains(t, buf.String(), "\x1b[", "the first frame has nothing above it to redraw over")
-		assert.Contains(t, buf.String(), "web")
+		assert.Contains(t, buf.String(), "1 pending")
 	})
 
 	t.Run("later frames move the cursor up first", func(t *testing.T) {
@@ -70,7 +70,7 @@ func TestRender(t *testing.T) {
 		r := termui.New(&buf)
 
 		longLabel := strings.Repeat("x", 40)
-		r.Render([]session.Step{{Name: "web", Label: longLabel, State: session.Pending}})
+		r.Render([]session.Step{{Name: "web", Label: longLabel, State: session.Running}})
 
 		assert.NotContains(t, buf.String(), longLabel)
 		assert.Contains(t, buf.String(), "…")
@@ -89,5 +89,60 @@ func TestRender(t *testing.T) {
 		lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
 		require.Len(t, lines, 1, "one step must draw exactly one physical line")
 		assert.LessOrEqual(t, len([]rune(lines[0])), 80)
+	})
+
+	t.Run("collapses pending, ready, and skipped steps into one summary line", func(t *testing.T) {
+		var buf bytes.Buffer
+		r := termui.New(&buf)
+
+		r.Render([]session.Step{
+			{Name: "alpha", Label: "alpha", State: session.Pending},
+			{Name: "bravo", Label: "bravo", State: session.Pending},
+			{Name: "charlie", Label: "charlie", State: session.Ready},
+			{Name: "delta", Label: "delta", State: session.Skipped},
+			{Name: "echo", Label: "echo", State: session.Running},
+		})
+
+		out := buf.String()
+		lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+		require.Len(t, lines, 2, "one row for the running step, one summary line for the rest")
+		assert.Contains(t, out, "echo")
+		assert.Contains(t, out, "2 pending")
+		assert.Contains(t, out, "1 ready")
+		assert.Contains(t, out, "1 skipped")
+		for _, name := range []string{"alpha", "bravo", "charlie", "delta"} {
+			assert.NotContains(t, out, name, "a folded step's own label shouldn't appear")
+		}
+	})
+
+	t.Run("never folds a failed step into the summary", func(t *testing.T) {
+		var buf bytes.Buffer
+		r := termui.New(&buf)
+
+		r.Render([]session.Step{
+			{Name: "ok", Label: "ok", State: session.Ready},
+			{Name: "bad", Label: "bad", State: session.Failed, Message: "boom"},
+		})
+
+		out := buf.String()
+		lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+		require.Len(t, lines, 2, "the failed step gets its own row, the ready step folds into the summary")
+		assert.Contains(t, out, "bad")
+		assert.Contains(t, out, "boom")
+		assert.Contains(t, out, "1 ready")
+		assert.NotContains(t, out, "failed,", "a failed step must never appear in the summary's own count")
+	})
+
+	t.Run("no summary line when every step is running", func(t *testing.T) {
+		var buf bytes.Buffer
+		r := termui.New(&buf)
+
+		r.Render([]session.Step{
+			{Name: "a", Label: "a", State: session.Running},
+			{Name: "b", Label: "b", State: session.Running},
+		})
+
+		lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+		require.Len(t, lines, 2, "no non-running steps means no summary line at all")
 	})
 }

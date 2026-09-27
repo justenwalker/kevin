@@ -1,5 +1,6 @@
 // Package termui draws a live-updating list of steps to a terminal: one row
-// per step, its state, and a progress bar when an estimate exists for it.
+// per running, removing, or failed step, one summary line counting every
+// other step by state, and a progress bar when an estimate exists for it.
 package termui
 
 import (
@@ -47,10 +48,12 @@ func New(w io.Writer) *Renderer {
 	return &Renderer{w: w}
 }
 
-// Render draws one frame for steps, in the order given. Each row is
-// truncated to the terminal width: r.lines (the cursor-up count the next
-// Render uses to overwrite this frame) counts printed lines, not steps, so
-// a row that wrapped onto a second physical line would desync it.
+// Render draws one frame: one row each for a running, removing, or failed
+// step, in the order given, followed by one summary line counting every
+// other step by state. Each row is truncated to the terminal width: r.lines
+// (the cursor-up count the next Render uses to overwrite this frame) counts
+// printed lines, not steps, so a row that wrapped onto a second physical
+// line would desync it.
 func (r *Renderer) Render(steps []session.Step) {
 	if r.lines > 0 {
 		// \r first: the terminal's own line discipline can echo input (a
@@ -61,13 +64,60 @@ func (r *Renderer) Render(steps []session.Step) {
 		_, _ = fmt.Fprintf(r.w, "\r\x1b[%dA\x1b[J", r.lines)
 	}
 	width := termWidth(r.w)
-	labelW := labelWidth(steps)
+	var shown []session.Step
 	for _, s := range steps {
+		if interesting(s.State) {
+			shown = append(shown, s)
+		}
+	}
+	labelW := labelWidth(shown)
+	var lines int
+	for _, s := range shown {
 		line := truncate(formatStep(s, labelW, r.frame), width)
 		_, _ = fmt.Fprintln(r.w, line)
+		lines++
 	}
-	r.lines = len(steps)
+	if summary := summarize(steps); summary != "" {
+		_, _ = fmt.Fprintln(r.w, truncate(summary, width))
+		lines++
+	}
+	r.lines = lines
 	r.frame++
+}
+
+// interesting reports whether state earns its own row: still in motion, or
+// needing attention. Every other state folds into the summary line.
+func interesting(state session.State) bool {
+	switch state {
+	case session.Running, session.Removing, session.Failed:
+		return true
+	case session.Pending, session.Ready, session.Skipped, session.Removed:
+		return false
+	default:
+		return false
+	}
+}
+
+// summarize counts every non-interesting step in steps by state, in a
+// fixed order, and joins them into one line - "  12 pending, 5 ready".
+// Returns "" if there's nothing to summarize.
+func summarize(steps []session.Step) string {
+	counts := make(map[session.State]int)
+	for _, s := range steps {
+		if !interesting(s.State) {
+			counts[s.State]++
+		}
+	}
+	var parts []string
+	for _, state := range []session.State{session.Pending, session.Ready, session.Skipped, session.Removed} {
+		if n := counts[state]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, state))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "  " + strings.Join(parts, ", ")
 }
 
 // termWidth returns the terminal column width of w, or defaultWidth if w
