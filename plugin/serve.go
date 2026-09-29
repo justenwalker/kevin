@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ import (
 // Serve runs p as a kevin plugin. Serve blocks until the supervisor
 // disconnects. Serve is the whole body of the main function of a plugin.
 func Serve(p Plugin) {
+	go exitWhenOrphaned(os.Getppid(), time.Second, func() { os.Exit(1) })
 	goplugin.Serve(&goplugin.ServeConfig{
 		HandshakeConfig: Handshake,
 		VersionedPlugins: map[int]goplugin.PluginSet{
@@ -29,6 +31,17 @@ func Serve(p Plugin) {
 		},
 		GRPCServer: goplugin.DefaultGRPCServer,
 	})
+}
+
+// exitWhenOrphaned calls exit once the parent process is no longer parent.
+func exitWhenOrphaned(parent int, interval time.Duration, exit func()) {
+	// go-plugin only stops a plugin on a clean Kill, so a killed supervisor would orphan it.
+	for range time.Tick(interval) {
+		if os.Getppid() != parent {
+			exit()
+			return
+		}
+	}
 }
 
 // GRPCPlugin adapts a [Plugin] to go-plugin. A supervisor uses GRPCPlugin

@@ -2,7 +2,10 @@ package plugin
 
 import (
 	"context"
+	"os"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	goplugin "github.com/hashicorp/go-plugin"
 	"github.com/stretchr/testify/assert"
@@ -698,4 +701,25 @@ type stepWithDowner struct {
 type stepWithToolProvider struct {
 	*MockStep
 	*MockToolProvider
+}
+
+func TestExitWhenOrphaned(t *testing.T) {
+	t.Run("exits when the parent differs", func(t *testing.T) {
+		done := make(chan struct{})
+		go exitWhenOrphaned(os.Getppid()+1, time.Millisecond, func() { close(done) })
+
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("exit was not called")
+		}
+	})
+
+	t.Run("keeps running while the parent is unchanged", func(t *testing.T) {
+		var called atomic.Bool
+		go exitWhenOrphaned(os.Getppid(), time.Millisecond, func() { called.Store(true) })
+
+		time.Sleep(50 * time.Millisecond)
+		assert.False(t, called.Load())
+	})
 }
