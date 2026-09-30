@@ -1,7 +1,7 @@
 #Config: {
 	// relay is the address of a relay, such as
-	// "${needs.cluster.out.relay_addr}" from a builtin:kind step. Set it when
-	// the addresses are inside a kind cluster. Unset, the proxy connects to
+	// "${needs.cluster.out.relay_addr}" from a builtin:kubernetes step. Set it when
+	// the addresses are inside a cluster. Unset, the proxy connects to
 	// each address directly.
 	relay?: string
 

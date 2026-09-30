@@ -17,7 +17,7 @@ environment from a DAG of steps (`kevin.cue`), exposes a web console, an
 MCP server for coding agents (mounted on the console's own listener at
 `/_mcp`), and an HTTP/HTTPS proxy with TLS termination and default-deny
 egress, tears down on exit. Every step type is a plugin speaking gRPC -
-`container`, `exec`, `fault`, `kind`, `kubectl`, `helm`, `wait`, `route`
+`container`, `exec`, `fault`, `kubernetes`, `kubectl`, `helm`, `wait`, `route`
 ship as builtins inside the `kevin` binary; third-party plugins are separate binaries. Full
 design
 rationale:
@@ -114,9 +114,10 @@ leaves no tag or GitHub release behind.
 - Unit tests: `go test -race -cover ./...` (what `gnob test` runs).
 - A single package/test: `go test ./internal/dag/... -run TestName -v`.
 - Integration tests are gated behind the `integration` build tag (see files
-  named `integration_test.go` in `cmd/kevin-relay`, `internal/plugins/kind`,
-  `internal/plugins/container`, `internal/relay`, `internal/engine`) and
-  generally require Docker. Run with `go test -tags integration ./...`.
+  named `integration_test.go` or `*_integration_test.go` in `cmd/kevin-relay`,
+  `internal/plugins/kubernetes`, `internal/plugins/container`, `internal/relay`,
+  `internal/engine`) and generally require Docker. Run with
+  `go test -tags integration ./...`.
 - Try a real environment end-to-end:
   ```sh
   ./build/gnob build
@@ -244,7 +245,7 @@ Key model to hold in your head when changing any of this:
 - **Provider model**: a plugin process is a *provider* that offers one or
   more step types. A step's `uses: "<plugin>:<step>"` names both parts.
   `builtin` (never declared in `plugins:`) offers `container`, `exec`,
-  `fault`, `kind`, `kubectl`, `helm`, `wait`, `route`. One process serves
+  `fault`, `kubernetes`, `kubectl`, `helm`, `wait`, `route`. One process serves
   every step type it offers and must be safe for concurrent `Up`/`Down`
   calls - the DAG can create several steps of the same type at once.
 - **Two independent DAG scopes** sharing one engine/protocol: `setup`
@@ -319,8 +320,8 @@ Key model to hold in your head when changing any of this:
   `internal/cri`, selected by `internal/engines`) and parses JSON output
   rather than importing
   `github.com/docker/docker`, to avoid that dependency tree. Kubernetes
-  support is a plugin (`internal/plugins/kind`)
-  that shells out to the host `kind` binary the same way `kubectl` and
+  support is a plugin (`internal/plugins/kubernetes`) whose `kind` driver
+  shells out to the host `kind` binary the same way `kubectl` and
   `helm` shell out to theirs, rather than importing `sigs.k8s.io/kind` as a
   library - that library reads proxy variables from its own process
   environment with no way to pass them in otherwise, which shelling out

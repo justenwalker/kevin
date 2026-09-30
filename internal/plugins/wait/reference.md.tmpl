@@ -1,6 +1,6 @@
 ---
 title: "wait"
-weight: 6
+weight: 7
 ---
 
 [[template "banner"]]
@@ -25,7 +25,7 @@ app_ready: {
 }
 ```
 
-To check a service inside a [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}) cluster, use the `expose_<name>` system value of an `expose` entry:
+To check a service inside a [`builtin:kubernetes`]({{< relref "/docs/reference/steps/kubernetes" >}}) cluster, use the `expose_<name>` system value of an `expose` entry:
 
 ```cue
 postgres_ready: {

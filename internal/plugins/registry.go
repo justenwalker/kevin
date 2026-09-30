@@ -11,8 +11,8 @@ import (
 	"github.com/justenwalker/kevin/internal/plugins/exec"
 	"github.com/justenwalker/kevin/internal/plugins/fault"
 	"github.com/justenwalker/kevin/internal/plugins/helm"
-	"github.com/justenwalker/kevin/internal/plugins/kind"
 	"github.com/justenwalker/kevin/internal/plugins/kubectl"
+	"github.com/justenwalker/kevin/internal/plugins/kubernetes"
 	"github.com/justenwalker/kevin/internal/plugins/route"
 	"github.com/justenwalker/kevin/internal/plugins/wait"
 	"github.com/justenwalker/kevin/plugin"
@@ -28,18 +28,18 @@ var version = "dev"
 // steps maps each step type that the builtin provider offers to its
 // implementation.
 var steps = map[string]plugin.Step{
-	"container": container.New(),
-	"fault":     fault.New(),
-	"kind":      kind.New(),
-	"kubectl":   kubectl.New(),
-	"helm":      helm.New(),
-	"wait":      wait.New(),
-	"route":     route.New(),
-	"exec":      exec.New(),
+	"container":  container.New(),
+	"fault":      fault.New(),
+	"kubernetes": kubernetes.New(),
+	"kubectl":    kubectl.New(),
+	"helm":       helm.New(),
+	"wait":       wait.New(),
+	"route":      route.New(),
+	"exec":       exec.New(),
 }
 
 // Provider returns the plugin that kevin supplies. It offers container,
-// fault, kind, kubectl, helm, wait, route, and exec.
+// fault, kubernetes, kubectl, helm, wait, route, and exec.
 func Provider() plugin.Plugin {
 	return plugin.Plugin{Name: Name, Version: version, Steps: steps}
 }

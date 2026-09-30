@@ -28,7 +28,7 @@ type portForward struct {
 
 // newPortForward opens a loopback listener for ep and starts accepting
 // connections on it. ep.Upstream must be a "socks5://<relay>/<target>"
-// address - the same shape a builtin:kind step's expose entry reports.
+// address - the same shape a builtin:kubernetes step's expose entry reports.
 func newPortForward(ctx context.Context, ep *pb.ExposedPort) (*portForward, error) {
 	relay, target, ok := splitSOCKS5(ep.GetUpstream())
 	if !ok {

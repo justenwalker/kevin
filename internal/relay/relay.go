@@ -270,7 +270,7 @@ func create(ctx context.Context, client cri.Runtime, name string, opts Options) 
 		// (OrbStack) can't setns() into a path that appeared in that
 		// directory after the mount was already attached, only read it.
 		// CAP_SYS_PTRACE is what actually lets that open succeed against a
-		// --privileged target (a builtin:kind node, say): the kernel's
+		// --privileged target (a builtin:kubernetes node, say): the kernel's
 		// cross-process /proc/<pid>/ns/* access check treats a privileged
 		// container's process as non-dumpable, which blocks it without that
 		// capability even though CAP_SYS_ADMIN plus PidHost alone are enough
@@ -437,7 +437,7 @@ func (r *Relay) EnsureListener(ctx context.Context, host string, ports []int) er
 // namespace at netnsPath to itself, so id's egress is captured
 // transparently. With no excludeCIDRs, netnsPath is a single workload's own
 // namespace. With excludeCIDRs set, netnsPath routes traffic for others - a
-// builtin:kind node - and is captured at what transits it instead, skipping
+// builtin:kubernetes node - and is captured at what transits it instead, skipping
 // any destination in excludeCIDRs.
 func (r *Relay) RegisterCapture(ctx context.Context, id, netnsPath string, excludeCIDRs []string) error {
 	req := &pb.RegisterCaptureRequest{Id: id, NetnsPath: netnsPath, ExcludeCidrs: excludeCIDRs}

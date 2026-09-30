@@ -16,7 +16,7 @@
 //
 //   - registry_ready: an http check against the registry container's own
 //     API, reached directly (no relay needed - it's a published port).
-//   - apiserver_ready: a tcp check that dials through a builtin:kind step's
+//   - apiserver_ready: a tcp check that dials through a builtin:kubernetes step's
 //     SOCKS5 relay, reading the address from the cluster step's
 //     "needs.cluster.system.expose_apiserver" value - the system
 //     sub-namespace, kept separate from "out" so it can't collide with a
@@ -69,10 +69,11 @@ env: {
 		}
 	}
 	cluster: {
-		uses:  "builtin:kind"
+		uses:  "builtin:kubernetes"
 		label: "Kind Cluster"
 		needs: ["registry"]
 		with: {
+			driver: "kind"
 			workers: worker: {}
 			wait:    "5m"
 			// A pod pulls a public image through the proxy. Allow Docker Hub,

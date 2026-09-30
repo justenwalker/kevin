@@ -42,7 +42,7 @@ Inside a [step group]({{< relref "/docs/reference/environment-file#step-groups" 
 `setup.<name>.out.<key>`. An output of a `setup` step, for an `env` step with `setup.<name>` in its `needs`. Only `env` steps and commands can use `setup`.
 
 ```cue
-setup: cluster: {uses: "builtin:kind"}
+setup: cluster: {uses: "builtin:kubernetes", with: driver: "kind"}
 env: deploy: {
     uses:  "builtin:kubectl"
     needs: ["setup.cluster"]

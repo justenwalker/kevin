@@ -75,7 +75,7 @@ proxy: egress: {
 
 A wildcard such as `*.docker.io` does not match `docker.io`, so list both if you need both.
 
-To allow a host for one step only, use the `egress` field of that step, such as on [`builtin:container`]({{< relref "/docs/reference/steps/container" >}}) or [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}).
+To allow a host for one step only, use the `egress` field of that step, such as on [`builtin:container`]({{< relref "/docs/reference/steps/container" >}}) or [`builtin:kubernetes`]({{< relref "/docs/reference/steps/kubernetes" >}}).
 
 A blocked request gets a `403` page that names the host and the CUE to add. The console shows the blocked request.
 

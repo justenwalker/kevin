@@ -1,6 +1,6 @@
 //go:build integration
 
-package kind
+package kubernetes
 
 import (
 	"context"
@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/net/proxy"
 
@@ -39,8 +41,8 @@ const kindDomain = "kevin.home"
 // kindStepName is the step name that the suite passes to Up and Down.
 const kindStepName = "cluster"
 
-// kindRelayImageTag matches RelayImageTag in build/main.go.
-const kindRelayImageTag = "kevin-relay:dev"
+// relayImageTag is the image that ensureRelayImage builds. It matches RelayImageTag in build/main.go.
+const relayImageTag = "kevin-relay:dev"
 
 // KindSuite drives one kind cluster against a real docker daemon. A cluster
 // takes minutes to create, so the suite creates exactly one and asserts
@@ -107,7 +109,7 @@ func (s *KindSuite) SetupSuite() {
 			Domain:    kindDomain,
 			Relay:     s.relay.Addr(),
 		},
-		Config: []byte(`{"expose":{"apiserver":{"address":"kubernetes.default.svc:443"}}}`),
+		Config: []byte(`{"driver":"kind","expose":{"apiserver":{"address":"kubernetes.default.svc:443"}}}`),
 	}, &capture{})
 	s.Require().NoError(err, "Up must create the cluster")
 	s.up = res
@@ -123,7 +125,7 @@ func (s *KindSuite) TearDownSuite() {
 	downErr := Step{}.Down(t.Context(), &plugin.DownRequest{
 		Step:   kindStepName,
 		Env:    plugin.Env{Project: kindProject, Workspace: s.workspace},
-		Config: []byte(`{}`),
+		Config: []byte(`{"driver":"kind"}`),
 	}, &capture{})
 	s.NoError(downErr, "Down must remove the cluster without error")
 	if downErr != nil {
@@ -146,11 +148,12 @@ func (s *KindSuite) TearDownSuite() {
 // controlPlaneNode returns the container name of the control plane node of
 // the suite cluster.
 func (s *KindSuite) controlPlaneNode() string {
-	allNodes, err := kindcmd.GetNodes(s.T().Context(), s.clusterName, nil)
-	s.Require().NoError(err)
-	node, err := bootstrapControlPlaneNode(allNodes)
-	s.Require().NoError(err)
-	return node
+	return s.kindDriver().ControlPlane()
+}
+
+// kindDriver returns the driver for the suite cluster.
+func (s *KindSuite) kindDriver() *kindDriver {
+	return &kindDriver{name: s.clusterName, rt: dockerClient}
 }
 
 // TestUpPublishesWhatADependentStepNeeds proves that Up returns a kubeconfig
@@ -168,22 +171,33 @@ func (s *KindSuite) TestUpPublishesWhatADependentStepNeeds() {
 }
 
 // TestNodesJoinedTheSharedNetwork proves that a node of the cluster joined
-// the docker network of the suite, in place of kind's own default network.
+// the docker network of the suite, and that the network carries its default
+// route.
 func (s *KindSuite) TestNodesJoinedTheSharedNetwork() {
 	t := s.T()
 	nodeList := strings.Split(s.up.Outputs["nodes"].Reveal(), ",")
 	info, err := dockerClient.Inspect(t.Context(), nodeList[0])
 	s.Require().NoError(err)
 	s.Contains(info.IPs, s.network, "a pod reaches a container step only when the node joins the shared network")
+	requireDefaultRoute(t, nodeList[0], s.network)
+}
+
+// requireDefaultRoute fails the test unless the default route of node goes
+// through the gateway of network.
+func requireDefaultRoute(t *testing.T, node, network string) {
+	t.Helper()
+	gw, err := dockerClient.NetworkGateway(t.Context(), network)
+	require.NoError(t, err)
+	routes, err := dockerClient.Exec(t.Context(), node, "ip", "route")
+	require.NoError(t, err)
+	assert.Contains(t, routes, "default via "+gw.V4.String(), "egress must leave through the project network")
 }
 
 // TestCoreDNSCarriesTheForwardZone proves that Up patches CoreDNS with a
 // forward zone for the domain, and that the original zone survives.
 func (s *KindSuite) TestCoreDNSCarriesTheForwardZone() {
 	t := s.T()
-	container := s.controlPlaneNode()
-
-	out, err := kubectl(t.Context(), dockerClient, container, "-n", "kube-system", "get", "configmap", "coredns",
+	out, err := s.kindDriver().Kubectl(t.Context(), "-n", "kube-system", "get", "configmap", "coredns",
 		"-o", "jsonpath={.data.Corefile}")
 	s.Require().NoError(err)
 
@@ -216,7 +230,7 @@ func (s *KindSuite) TestContainersReportOnePerNode() {
 	t := s.T()
 	nodeList := strings.Split(s.up.Outputs["nodes"].Reveal(), ",")
 
-	wantCIDRs, err := podAndServiceCIDRs(t.Context(), dockerClient, s.controlPlaneNode())
+	wantCIDRs, err := podAndServiceCIDRs(t.Context(), s.kindDriver())
 	s.Require().NoError(err)
 
 	s.Require().Len(s.up.Containers, len(nodeList))
@@ -240,7 +254,7 @@ func (s *KindSuite) TestNodeTrustsTheKevinRoot() {
 }
 
 // TestContainerdAnswersAfterTheRestart proves that containerd answers on the
-// control plane node once Up returns. installTrustCA restarts containerd,
+// control plane node once Up returns. TrustCA restarts containerd,
 // and waitContainerdReady waits for it during Up.
 func (s *KindSuite) TestContainerdAnswersAfterTheRestart() {
 	t := s.T()
@@ -359,7 +373,7 @@ func (s *KindSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 			Domain:    kindDomain,
 			Relay:     s.relay.Addr(),
 		},
-		Config: []byte(`{"expose":{"apiserver":{"address":"kubernetes.default.svc:443"}}}`),
+		Config: []byte(`{"driver":"kind","expose":{"apiserver":{"address":"kubernetes.default.svc:443"}}}`),
 	}, out)
 	s.Require().NoError(err)
 
@@ -386,13 +400,12 @@ func (s *KindSuite) TestUpIsIdempotent() {
 	allNodes, err := kindcmd.GetNodes(ctx, s.clusterName, nil)
 	s.Require().NoError(err)
 
-	s.Require().NoError(patchCoreDNS(ctx, dockerClient, allNodes, kindDomain, s.relay.Addr(), &capture{}),
+	s.Require().NoError(patchCoreDNS(ctx, s.kindDriver(), allNodes, kindDomain, s.relay.Addr(), &capture{}),
 		"a second patch must not fail")
-	s.Require().NoError(installTrustCA(ctx, dockerClient, allNodes, s.caPEM, &capture{}),
+	s.Require().NoError(s.kindDriver().TrustCA(ctx, allNodes, s.caPEM, &capture{}),
 		"a second install must not fail")
 
-	container := s.controlPlaneNode()
-	out, err := kubectl(ctx, dockerClient, container, "-n", "kube-system", "get", "configmap", "coredns",
+	out, err := s.kindDriver().Kubectl(ctx, "-n", "kube-system", "get", "configmap", "coredns",
 		"-o", "jsonpath={.data.Corefile}")
 	s.Require().NoError(err)
 	s.Equal(1, strings.Count(out, kindDomain+":53 {"), "a second patch must replace the zone, not add a second one")
@@ -404,7 +417,7 @@ func (s *KindSuite) TestUpIsIdempotent() {
 func ensureRelayImage(t *testing.T) {
 	t.Helper()
 
-	check := exec.CommandContext(t.Context(), "docker", "image", "inspect", kindRelayImageTag)
+	check := exec.CommandContext(t.Context(), "docker", "image", "inspect", relayImageTag)
 	if check.Run() == nil {
 		return
 	}
@@ -425,7 +438,7 @@ func ensureRelayImage(t *testing.T) {
 	}
 
 	dockerBuild := exec.CommandContext(t.Context(), "docker", "build",
-		"-f", filepath.Join(root, "build", "relay.Dockerfile"), "-t", kindRelayImageTag, dir)
+		"-f", filepath.Join(root, "build", "relay.Dockerfile"), "-t", relayImageTag, dir)
 	if out, err := dockerBuild.CombinedOutput(); err != nil {
 		t.Skip("cannot build the relay image:", err, string(out))
 	}

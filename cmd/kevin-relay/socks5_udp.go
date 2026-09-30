@@ -54,7 +54,7 @@ func (p *udpPool) release(port int) {
 }
 
 // parseUDPRelayPorts parses a "<start>-<end>" inclusive port range, the
-// form internal/relay and internal/plugins/kind pass via --udp-relay-ports,
+// form internal/relay and internal/plugins/kubernetes pass via --udp-relay-ports,
 // into the ports it names. An empty s returns no ports: kevin-relay then
 // has no UDP ASSOCIATE capacity, the right default for a direct or manual
 // invocation and for a test that doesn't care about it.

@@ -1,23 +1,27 @@
 ---
 title: "Kubernetes clusters"
-description: "Add a local Kubernetes cluster to an environment with kind."
+description: "Add a local Kubernetes cluster to an environment with the kind driver."
 weight: 3
 ---
 
 # Kubernetes clusters
 
-This guide adds a local Kubernetes cluster to an environment with [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}).
+This guide adds a local Kubernetes cluster to an environment with [`builtin:kubernetes`]({{< relref "/docs/reference/steps/kubernetes" >}}).
 
 ## Prerequisites
 
-- `kind` and `kubectl` on your `PATH`.
+- `kubectl` on your `PATH`.
+- The command of your driver on your `PATH`: `kind` for the `kind` driver.
 
 ## Add a cluster
 
 ```cue
 env: cluster: {
-    uses: "builtin:kind"
-    with: egress: ["docker.io", "*.docker.io", "*.docker.com"]
+    uses: "builtin:kubernetes"
+    with: {
+        driver: "kind"
+        egress: ["docker.io", "*.docker.io", "*.docker.com"]
+    }
 }
 ```
 
@@ -51,8 +55,11 @@ kevin -C examples/kind do nodes
 
 ```cue
 cluster: {
-    uses: "builtin:kind"
-    with: workers: {worker_a: {}, worker_b: {}}
+    uses: "builtin:kubernetes"
+    with: {
+        driver:  "kind"
+        workers: {worker_a: {}, worker_b: {}}
+    }
 }
 ```
 
@@ -66,8 +73,11 @@ Add an `expose` entry for the Service address:
 
 ```cue
 cluster: {
-    uses: "builtin:kind"
-    with: expose: db: address: "postgres.default.svc.cluster.local:5432"
+    uses: "builtin:kubernetes"
+    with: {
+        driver: "kind"
+        expose: db: address: "postgres.default.svc.cluster.local:5432"
+    }
 }
 ```
 
@@ -84,7 +94,7 @@ The step does not wait for the Service to exist. To wait, add a [`builtin:wait`]
 Set `relay: true` on the cluster, and add a [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step:
 
 ```cue
-cluster: {uses: "builtin:kind", with: {relay: true}}
+cluster: {uses: "builtin:kubernetes", with: {driver: "kind", relay: true}}
 app:     {uses: "builtin:kubectl", needs: ["cluster"], with: {...}}
 
 app_route: {
@@ -101,9 +111,9 @@ The Service is now `myapp.kevin.home` through the proxy. Pods can also resolve i
 
 ## Use Podman
 
-With `--engine podman`, kind runs the nodes on Podman. kind's Podman support is experimental.
+With `--engine podman`, kind runs the nodes on Podman. See [Container engine]({{< relref "/docs/concepts/container-engine" >}}) for the limits.
 
 ## Related
 
-- [`builtin:kind` reference]({{< relref "/docs/reference/steps/kind" >}})
+- [`builtin:kubernetes` reference]({{< relref "/docs/reference/steps/kubernetes" >}})
 - [Relay]({{< relref "/docs/concepts/relay" >}}): how pods reach the environment, and how the host reaches pods.

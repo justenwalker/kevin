@@ -1,4 +1,4 @@
-package kind
+package kubernetes
 
 import (
 	"context"
@@ -64,28 +64,21 @@ func TestClusterConfigValue(t *testing.T) {
 }
 
 func TestNodeContainers(t *testing.T) {
-	t.Run("no control-plane node is a hard failure", func(t *testing.T) {
-		_, err := nodeContainers(t.Context(), dockerClient, []string{"kevin-demo-worker"}, &capture{})
-		assert.ErrorIs(t, err, ErrNoControlPlaneNode)
-	})
-
 	t.Run("assembles container info for every ready node", func(t *testing.T) {
-		rt := fakeRuntime{
-			exec: func(_ context.Context, _ string, args ...string) (string, error) {
-				switch {
-				case slices.Contains(args, "kubeadm-config"):
-					return clusterConfigurationFixture, nil
-				case slices.Contains(args, "nodes"):
-					return nodesJSONFixture, nil
-				}
-				return "", nil
-			},
-			inspect: func(_ context.Context, name string) (cri.Container, error) {
-				return cri.Container{ID: name + "-id", NetnsPath: "/proc/1/ns/net"}, nil
-			},
-		}
+		drv := fakeDriver{kubectl: func(_ context.Context, args ...string) (string, error) {
+			switch {
+			case slices.Contains(args, "kubeadm-config"):
+				return clusterConfigurationFixture, nil
+			case slices.Contains(args, "nodes"):
+				return nodesJSONFixture, nil
+			}
+			return "", nil
+		}}
+		rt := fakeRuntime{inspect: func(_ context.Context, name string) (cri.Container, error) {
+			return cri.Container{ID: name + "-id", NetnsPath: "/proc/1/ns/net"}, nil
+		}}
 
-		got, err := nodeContainers(t.Context(), rt, []string{"demo-cluster-control-plane", "demo-cluster-worker"}, &capture{})
+		got, err := nodeContainers(t.Context(), rt, drv, []string{"demo-cluster-control-plane", "demo-cluster-worker"}, &capture{})
 		require.NoError(t, err)
 		require.Len(t, got, 2)
 		assert.Equal(t, []string{"10.244.0.0/16", "10.96.0.0/12"}, got[0].ExcludeCIDRs)
@@ -95,59 +88,55 @@ func TestNodeContainers(t *testing.T) {
 
 	t.Run("CIDR discovery failing skips capture instead of failing Up", func(t *testing.T) {
 		out := &capture{}
-		rt := fakeRuntime{exec: func(context.Context, string, ...string) (string, error) {
+		drv := fakeDriver{kubectl: func(context.Context, ...string) (string, error) {
 			return "", errors.New("exec: no such container")
 		}}
 
-		got, err := nodeContainers(t.Context(), rt, []string{"demo-cluster-control-plane"}, out)
+		got, err := nodeContainers(t.Context(), fakeRuntime{}, drv, []string{"demo-cluster-control-plane"}, out)
 		require.NoError(t, err)
 		assert.Nil(t, got)
 		assert.Contains(t, strings.Join(out.stdout, "\n"), "skipping egress capture")
 	})
 
 	t.Run("a node with no network namespace is excluded", func(t *testing.T) {
-		rt := fakeRuntime{
-			exec: func(_ context.Context, _ string, args ...string) (string, error) {
-				if slices.Contains(args, "kubeadm-config") {
-					return clusterConfigurationFixture, nil
-				}
-				return "", nil
-			},
-			inspect: func(_ context.Context, name string) (cri.Container, error) {
-				if name == "demo-cluster-worker" {
-					return cri.Container{ID: "worker-id"}, nil
-				}
-				return cri.Container{ID: "control-plane-id", NetnsPath: "/proc/1/ns/net"}, nil
-			},
-		}
+		drv := fakeDriver{kubectl: func(_ context.Context, args ...string) (string, error) {
+			if slices.Contains(args, "kubeadm-config") {
+				return clusterConfigurationFixture, nil
+			}
+			return "", nil
+		}}
+		rt := fakeRuntime{inspect: func(_ context.Context, name string) (cri.Container, error) {
+			if name == "demo-cluster-worker" {
+				return cri.Container{ID: "worker-id"}, nil
+			}
+			return cri.Container{ID: "control-plane-id", NetnsPath: "/proc/1/ns/net"}, nil
+		}}
 
-		got, err := nodeContainers(t.Context(), rt, []string{"demo-cluster-control-plane", "demo-cluster-worker"}, &capture{})
+		got, err := nodeContainers(t.Context(), rt, drv, []string{"demo-cluster-control-plane", "demo-cluster-worker"}, &capture{})
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		assert.Equal(t, "control-plane-id", got[0].ID)
 	})
 
 	t.Run("an Inspect failure is a hard error", func(t *testing.T) {
-		rt := fakeRuntime{
-			exec: func(_ context.Context, _ string, args ...string) (string, error) {
-				if slices.Contains(args, "kubeadm-config") {
-					return clusterConfigurationFixture, nil
-				}
-				return "", nil
-			},
-			inspect: func(context.Context, string) (cri.Container, error) {
-				return cri.Container{}, errors.New("no such container")
-			},
-		}
+		drv := fakeDriver{kubectl: func(_ context.Context, args ...string) (string, error) {
+			if slices.Contains(args, "kubeadm-config") {
+				return clusterConfigurationFixture, nil
+			}
+			return "", nil
+		}}
+		rt := fakeRuntime{inspect: func(context.Context, string) (cri.Container, error) {
+			return cri.Container{}, errors.New("no such container")
+		}}
 
-		_, err := nodeContainers(t.Context(), rt, []string{"demo-cluster-control-plane"}, &capture{})
+		_, err := nodeContainers(t.Context(), rt, drv, []string{"demo-cluster-control-plane"}, &capture{})
 		require.Error(t, err)
 	})
 }
 
 // nodesJSONFixture is a trimmed "kubectl get nodes -o json" response: one
-// control-plane node with the kevin.node label, one worker node without
-// it (an older cluster, created before this label existed, say).
+// control-plane node and one worker node with the kevin.node label, and one
+// worker node without it.
 const nodesJSONFixture = `{
 	"items": [
 		{"metadata": {"name": "demo-cluster-control-plane", "labels": {"kevin.node": "control-plane"}}},
@@ -176,50 +165,50 @@ func TestContainerInfoFor(t *testing.T) {
 
 func TestPodAndServiceCIDRs(t *testing.T) {
 	t.Run("parses the pod and service subnets off kubeadm-config", func(t *testing.T) {
-		rt := fakeRuntime{exec: func(context.Context, string, ...string) (string, error) {
+		drv := fakeDriver{kubectl: func(context.Context, ...string) (string, error) {
 			return clusterConfigurationFixture, nil
 		}}
 
-		got, err := podAndServiceCIDRs(t.Context(), rt, "demo-cluster-control-plane")
+		got, err := podAndServiceCIDRs(t.Context(), drv)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"10.244.0.0/16", "10.96.0.0/12"}, got)
 	})
 
 	t.Run("kubectl failing is an error", func(t *testing.T) {
-		rt := fakeRuntime{exec: func(context.Context, string, ...string) (string, error) {
+		drv := fakeDriver{kubectl: func(context.Context, ...string) (string, error) {
 			return "", errors.New("exec: no such container")
 		}}
 
-		_, err := podAndServiceCIDRs(t.Context(), rt, "demo-cluster-control-plane")
+		_, err := podAndServiceCIDRs(t.Context(), drv)
 		require.Error(t, err)
 	})
 
 	t.Run("neither subnet present is ErrNoClusterCIDRs", func(t *testing.T) {
-		rt := fakeRuntime{exec: func(context.Context, string, ...string) (string, error) {
+		drv := fakeDriver{kubectl: func(context.Context, ...string) (string, error) {
 			return "networking:\n  dnsDomain: cluster.local\n", nil
 		}}
 
-		_, err := podAndServiceCIDRs(t.Context(), rt, "demo-cluster-control-plane")
+		_, err := podAndServiceCIDRs(t.Context(), drv)
 		require.ErrorIs(t, err, ErrNoClusterCIDRs)
 	})
 
 	t.Run("a subnet that doesn't parse as a CIDR is an error", func(t *testing.T) {
-		rt := fakeRuntime{exec: func(context.Context, string, ...string) (string, error) {
+		drv := fakeDriver{kubectl: func(context.Context, ...string) (string, error) {
 			return "networking:\n  podSubnet: not-a-cidr\n  serviceSubnet: 10.96.0.0/12\n", nil
 		}}
 
-		_, err := podAndServiceCIDRs(t.Context(), rt, "demo-cluster-control-plane")
+		_, err := podAndServiceCIDRs(t.Context(), drv)
 		require.Error(t, err)
 	})
 }
 
 func TestNodeNames(t *testing.T) {
 	t.Run("reads the kevin.node label back off every node", func(t *testing.T) {
-		rt := fakeRuntime{exec: func(context.Context, string, ...string) (string, error) {
+		drv := fakeDriver{kubectl: func(context.Context, ...string) (string, error) {
 			return nodesJSONFixture, nil
 		}}
 
-		got := nodeNames(t.Context(), rt, "demo-cluster-control-plane")
+		got := nodeNames(t.Context(), drv)
 		assert.Equal(t, map[string]string{
 			"demo-cluster-control-plane": "control-plane",
 			"demo-cluster-worker":        "worker_a",
@@ -227,19 +216,19 @@ func TestNodeNames(t *testing.T) {
 	})
 
 	t.Run("kubectl failing falls back to no names, not an error", func(t *testing.T) {
-		rt := fakeRuntime{exec: func(context.Context, string, ...string) (string, error) {
+		drv := fakeDriver{kubectl: func(context.Context, ...string) (string, error) {
 			return "", errors.New("exec: no such container")
 		}}
 
-		assert.Nil(t, nodeNames(t.Context(), rt, "demo-cluster-control-plane"))
+		assert.Nil(t, nodeNames(t.Context(), drv))
 	})
 
 	t.Run("unparsable output falls back to no names, not an error", func(t *testing.T) {
-		rt := fakeRuntime{exec: func(context.Context, string, ...string) (string, error) {
+		drv := fakeDriver{kubectl: func(context.Context, ...string) (string, error) {
 			return "{", nil
 		}}
 
-		assert.Nil(t, nodeNames(t.Context(), rt, "demo-cluster-control-plane"))
+		assert.Nil(t, nodeNames(t.Context(), drv))
 	})
 }
 

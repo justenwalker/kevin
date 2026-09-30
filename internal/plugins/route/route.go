@@ -2,8 +2,8 @@
 // as HTTP routes into an address - a host-reachable address already
 // dialable directly, such as one of a builtin:container step's host_80
 // style outputs, or a target behind a relay, such as a Kubernetes
-// Service inside a builtin:kind cluster, reached through a SOCKS5 relay
-// address such as a builtin:kind step's relay_addr output.
+// Service inside a builtin:kubernetes cluster, reached through a SOCKS5 relay
+// address such as a builtin:kubernetes step's relay_addr output.
 // This is the one mechanism for putting a step on the environment
 // domain, whatever kind of step produced the address.
 //

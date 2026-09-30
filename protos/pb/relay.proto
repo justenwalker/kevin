@@ -15,7 +15,7 @@ service RelayControl {
   // honors a proxy environment variable. With no exclude_cidrs, netns_path
   // is a single workload's own namespace, captured at its own outbound
   // connections (a builtin:container step). With exclude_cidrs set,
-  // netns_path routes traffic for others - a builtin:kind node - and is
+  // netns_path routes traffic for others - a builtin:kubernetes node - and is
   // captured at what transits it instead, skipping any destination in
   // exclude_cidrs so pod-to-pod and pod-to-service traffic isn't touched.
   rpc RegisterCapture(RegisterCaptureRequest) returns (RegisterCaptureResponse);

@@ -382,7 +382,7 @@ type Result struct {
 
 // ContainerInfo is what a plugin reports about one container it manages -
 // a builtin:container step's own container, or one node of a
-// builtin:kind cluster. Nothing about this type is specific to any one
+// builtin:kubernetes cluster. Nothing about this type is specific to any one
 // plugin: a step that manages several containers just reports several
 // entries.
 type ContainerInfo struct {

@@ -16,8 +16,7 @@ The Docker Go module brings a large dependency tree for the few calls kevin make
 
 The engine is a setting of your machine, not of the project, so the environment file has no field for it. Use `--engine` or `KEVIN_ENGINE`, with `docker` or `podman`. With neither, kevin uses the first engine whose daemon answers, and prefers docker.
 
-Both engines implement the same internal interface, `cri.Runtime`. Podman's command is compatible with Docker's, so the two implementations match method for method. With Podman, a [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}) cluster also runs on Podman, through kind's experimental `KIND_EXPERIMENTAL_PROVIDER` setting, which kevin sets.
-
+Both engines implement the same internal interface, `cri.Runtime`. Podman's command is compatible with Docker's, so the two implementations match method for method. With `--engine podman`, a [`builtin:kubernetes`]({{< relref "/docs/reference/steps/kubernetes" >}}) cluster runs on Podman. The `kind` driver does this through kind's experimental `KIND_EXPERIMENTAL_PROVIDER` setting, which kevin sets.
 ## Labels instead of a state file
 
 Each container has three labels. Each value includes the value of the label before it:
@@ -36,4 +35,4 @@ A label stays on the container after a crash. A state file can go out of date. T
 
 ## The project network
 
-kevin creates one network for the project before the first step, and removes it after the last. Each container joins it with the step name as a network alias, so steps reach each other by name. The network has IPv4 and IPv6. The relay answers DNS and handles traffic for each address family it has an address in. See [Relay]({{< relref "/docs/concepts/relay" >}}).
+kevin creates one network for the project before the first step, and removes it after the last. Each container joins it with the step name as a network alias, so steps reach each other by name. The network has IPv4 and IPv6. The relay answers DNS and handles traffic for each address family it has an address in. A Kubernetes node keeps the network its cluster tool creates and also joins this one. The project network carries the node's default route, so the node's egress leaves through it. See [Relay]({{< relref "/docs/concepts/relay" >}}).

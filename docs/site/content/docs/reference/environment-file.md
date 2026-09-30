@@ -108,7 +108,10 @@ A string in `with` can contain `${...}` expressions that read the outputs of the
 
 ```cue
 env: {
-    cluster: uses: "builtin:kind"
+    cluster: {
+        uses: "builtin:kubernetes"
+        with: driver: "kind"
+    }
     app: {
         uses:  "builtin:kubectl"
         needs: ["cluster"]

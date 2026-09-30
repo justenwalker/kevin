@@ -12,7 +12,7 @@ import (
 // UDPPoolSizeEnvVar overrides the number of UDP relay ports the relay
 // container publishes for SOCKS5 UDP ASSOCIATE sessions - a host/local-dev
 // setting, not a kevin.cue field, read directly here and by
-// internal/plugins/kind so both sides agree on the pool size without
+// internal/plugins/kubernetes so both sides agree on the pool size without
 // either learning it from the other.
 const UDPPoolSizeEnvVar = "KEVIN_RELAY_UDP_POOL_SIZE"
 
@@ -27,7 +27,7 @@ const defaultUDPPoolSize = 16
 const udpRelayPortBase = 40000
 
 // UDPPoolSize reads UDPPoolSizeEnvVar, falling back to defaultUDPPoolSize
-// when unset - shared by this package and internal/plugins/kind so both
+// when unset - shared by this package and internal/plugins/kubernetes so both
 // sides of the pool (the relay container's published ports and, for kind,
 // the cluster's own extraPortMappings/Pod hostPorts) agree on its size
 // without either learning it from the other.

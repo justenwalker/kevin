@@ -48,10 +48,11 @@ env: {
 		}
 	}
 	cluster: {
-		uses:  "builtin:kind"
+		uses:  "builtin:kubernetes"
 		label: "Kind Cluster"
 		needs: ["registry"]
 		with: {
+			driver: "kind"
 			workers: worker: {}
 			wait:    "5m"
 			egress:  ["docker.io", "*.docker.io", "*.docker.com"]
@@ -179,7 +180,7 @@ commands: {
 }
 `
 
-// KindSuite covers docs/MANUAL_TESTING.md sections 7 (builtin:kind,
+// KindSuite covers docs/MANUAL_TESTING.md sections 7 (builtin:kubernetes,
 // builtin:kubectl, builtin:helm, relay routing) and 9 (kevin do).
 // SetupSuite brings up one cluster - by far the most expensive part of the
 // whole e2e run - and TearDownSuite tears it down once; merging the two
@@ -361,9 +362,10 @@ func (s *KindSuite) TestDoErrorsCleanlyWithoutExport() {
 const keepCUE = `project: "%s"
 
 setup: cluster: {
-	uses:  "builtin:kind"
+	uses:  "builtin:kubernetes"
 	label: "Kind Cluster"
 	with: {
+		driver: "kind"
 		workers: {}
 		wait:    "5m"
 	}

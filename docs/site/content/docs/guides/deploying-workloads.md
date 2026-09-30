@@ -6,7 +6,7 @@ weight: 4
 
 # Deploying workloads
 
-This guide deploys into a cluster from a [`builtin:kind`]({{< relref "/docs/reference/steps/kind" >}}) step. See [Kubernetes clusters]({{< relref "kubernetes" >}}) to add one.
+This guide deploys into a cluster from a [`builtin:kubernetes`]({{< relref "/docs/reference/steps/kubernetes" >}}) step. See [Kubernetes clusters]({{< relref "kubernetes" >}}) to add one.
 
 ## Prerequisites
 

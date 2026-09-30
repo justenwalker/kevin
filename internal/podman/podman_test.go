@@ -337,7 +337,7 @@ func TestNetworkConnect(t *testing.T) {
 // TestNetworkRemoveToleratesActiveEndpoints proves NetworkRemove leaves a
 // network in place, instead of erroring, when a container is still on it -
 // a container podman itself created outside kevin's own tracking, such as a
-// builtin:kind node joined directly through the "kind" CLI.
+// builtin:kubernetes node joined directly through the "kind" CLI.
 func TestNetworkRemoveToleratesActiveEndpoints(t *testing.T) {
 	requirePodman(t)
 	c := Client{}

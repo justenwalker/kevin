@@ -42,9 +42,10 @@ console: listen: "127.0.0.1:18091"
 
 setup: {
 	cluster: {
-		uses:  "builtin:kind"
+		uses:  "builtin:kubernetes"
 		label: "Kind Cluster"
 		with: {
+			driver: "kind"
 			name: "s3app"
 			// A pod pulls public images (ministack, aws-cli) through the
 			// proxy. Allow Docker Hub, so the pull reaches the internet

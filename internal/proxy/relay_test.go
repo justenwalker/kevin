@@ -14,7 +14,7 @@ import (
 
 // startSOCKS5 runs a bare SOCKS5 server on a loopback port until the test
 // ends, and returns its address. Mirrors cmd/kevin-relay/socks5.go's
-// serveSOCKS5, the same server a builtin:kind relay pod actually runs.
+// serveSOCKS5, the same server a builtin:kubernetes relay pod actually runs.
 func startSOCKS5(t *testing.T) string {
 	t.Helper()
 

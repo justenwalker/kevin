@@ -214,5 +214,5 @@ interfaces; mix and match per type, as `echo`/`failStep`/`probeStep` do.
    `plugin-protocol.md` - the prose version of this skill, plus the wire
    protocol and session-startup sequence.
 5. A real builtin for a heavier example: `internal/plugins/container` (a
-   resource with `Down`), `internal/plugins/kind` (`Export` + relay),
+   resource with `Down`), `internal/plugins/kubernetes` (`Export` + relay),
    `internal/plugins/wait` (a probe).

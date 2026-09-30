@@ -1,7 +1,7 @@
 #Config: {
 	// containers limits the fault to these containers. Unset, the fault
 	// applies to every container of every step in needs. A name is the
-	// container name that its step reports, a key of a builtin:kind step's
+	// container name that its step reports, a key of a builtin:kubernetes step's
 	// workers, or the name of a step in needs that has one container.
 	containers?: [...string]
 

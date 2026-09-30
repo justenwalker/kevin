@@ -27,7 +27,7 @@ A plugin is a provider. It offers one or more step types, and a step names one a
 
 `builtin` is the provider that ships in kevin. It has no `plugins:` entry. See [Steps]({{< relref "/docs/reference/steps" >}}) for its step types.
 
-The engine has no code for any specific step type. A Kubernetes cluster is a plugin like any other: the builtin one uses kind, and a plugin for minikube or k3s would be a new binary with no change to the engine.
+The engine has no code for any specific step type. A Kubernetes cluster is a plugin like any other: the builtin one drives kind, and a plugin for another distribution would be a new binary with no change to the engine.
 
 ## Plugin sources
 

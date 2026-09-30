@@ -15,7 +15,7 @@ import (
 // routed through the environment's relay (relay: true) instead of a
 // published host port. web_ready proves the "expose_web" system output (a
 // socks5:// upstream) is dialable through the relay's SOCKS5 gateway, the
-// same way examples/kind's apiserver_ready proves builtin:kind's own
+// same way examples/kind's apiserver_ready proves builtin:kubernetes's own
 // expose entries. fetch then proves the "forward_web" system output (the
 // plain host:port the engine's own local forward publishes on loopback) is
 // dialable directly, with no SOCKS5 awareness needed - curl runs on the

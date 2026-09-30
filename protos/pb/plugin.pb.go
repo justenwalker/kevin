@@ -1328,7 +1328,7 @@ type Result struct {
 	Details []*Detail `protobuf:"bytes,5,rep,name=details,proto3" json:"details,omitempty"`
 	// Containers are the containers this step manages - empty for a step
 	// with no container workload of its own (wait, exec, a resourceless
-	// step). A builtin:container step reports exactly one; a builtin:kind
+	// step). A builtin:container step reports exactly one; a builtin:kubernetes
 	// step reports one per node. The engine forwards these to the relay so
 	// each container's egress can be transparently redirected there, and
 	// hands a dependent step's own Containers to it directly on
@@ -1421,7 +1421,7 @@ func (x *Result) GetFaults() []*NetworkFault {
 }
 
 // ContainerInfo is what a plugin reports about one container it manages -
-// a builtin:container step's own container, or one node of a builtin:kind
+// a builtin:container step's own container, or one node of a builtin:kubernetes
 // cluster. Nothing about this type is specific to any one plugin: a step
 // that manages several containers just reports several entries - see
 // Result.containers, ExportResponse.containers, and

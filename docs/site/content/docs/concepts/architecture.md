@@ -26,7 +26,7 @@ graph TD
 
     subgraph DOCKERNET["container network"]
         RELAY["relay<br/>(container)"]
-        STEPC["step containers<br/>(container/kind)"]
+        STEPC["step containers<br/>(container/kubernetes)"]
     end
 
     CLI -->|invokes| ENG

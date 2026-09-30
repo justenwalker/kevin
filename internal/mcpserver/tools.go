@@ -212,7 +212,7 @@ func stepStates(steps []session.Step) map[string]session.State {
 
 // ExportStepInput names the step to export.
 type ExportStepInput struct {
-	Name string `json:"name" jsonschema:"the step's name, from kevin.cue - see list_steps; must be a step type that supports export, e.g. builtin:kind"`
+	Name string `json:"name" jsonschema:"the step's name, from kevin.cue - see list_steps; must be a step type that supports export, e.g. builtin:kubernetes"`
 }
 
 // ExportStepOutput is the result of export_step.

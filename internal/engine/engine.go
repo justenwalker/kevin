@@ -1531,7 +1531,7 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 
 // wireRelay registers result's routes with the host proxy, and tells the
 // relay to transparently capture each of result's Containers' egress - a
-// builtin:container step reports one, a builtin:kind step one per node,
+// builtin:container step reports one, a builtin:kubernetes step one per node,
 // treated identically here. A step with none (exec, a resourceless step)
 // has nothing to register.
 func (r *run) wireRelay(ctx context.Context, name string, result *pb.Result) error {

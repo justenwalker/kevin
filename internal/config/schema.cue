@@ -209,7 +209,7 @@ commands: [string]: #Command
 
 proxy: {
 	// listen is the proxy's primary, host-facing address. Must name a
-	// real port - kevin does not pick one for you, so a builtin:kind
+	// real port - kevin does not pick one for you, so a builtin:kubernetes
 	// step's containerd config (baked in at cluster creation) and a
 	// setup-scope proxy stay reachable across process restarts.
 	listen: string & =~ "^.+:[1-9][0-9]*$"

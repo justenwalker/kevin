@@ -53,7 +53,7 @@ var (
 // ghcr.io image matching this checkout's internal/version/VERSION - a real
 // released tag that predates whatever relay change is still unreleased on
 // this branch. startKevinWithEnv injects it for every suite for exactly
-// this reason: any builtin:container or builtin:kind step registers for
+// this reason: any builtin:container or builtin:kubernetes step registers for
 // capture unconditionally, so any suite bringing either up depends on the
 // relay actually matching this checkout's control protocol, not the last
 // released one.

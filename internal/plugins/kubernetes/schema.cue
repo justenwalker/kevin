@@ -1,28 +1,15 @@
 #Config: {
+	// driver is the tool that creates the cluster: "kind".
+	driver!: "kind"
+
 	// name is the cluster name. Defaults to "<project>-<step>".
 	name?: string
-
-	// image is the node image, such as "kindest/node:v1.34.0". Unset uses
-	// the default of the installed kind version.
-	image?: string
-
-	// control_plane adds kind node settings to the control-plane node, with
-	// kind's field names, such as extraMounts or kubeadmConfigPatches (see
-	// https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options).
-	// labels and extraPortMappings add to the values kevin sets. The
-	// "kevin.node" label and role cannot be set.
-	control_plane?: #NodeConfig
 
 	// workers creates one worker node for each key, in addition to the
 	// control-plane node. The key names the node: kevin sets it as the
 	// "kevin.node" node label, and builtin:fault accepts it in containers.
-	// Each value takes the same node settings as control_plane.
+	// Each value takes the node settings described for "#NodeConfig".
 	workers?: [string]: #NodeConfig
-
-	// config is a complete kind cluster configuration in YAML. It replaces
-	// the configuration kevin generates: control_plane and workers have no
-	// effect.
-	config?: string
 
 	// wait is how long to wait for the control plane to become ready, such
 	// as "5m".
@@ -58,12 +45,32 @@
 	// relay_addr output. Use it with builtin:route to give a Service in the
 	// cluster a name on the environment domain.
 	relay?: bool | *false
+
+	// kind holds the settings that only the "kind" driver has.
+	kind?: #Kind
 }
 
-// #NodeConfig is an open passthrough for one node's kind config -
-// control_plane's and each workers entry's value type. kevin doesn't chase
-// every kind Node field it might want to expose, the same trade #Config's
-// own config field already makes for the whole cluster.
+// #Kind is the settings of the kind driver.
+#Kind: {
+	// image is the node image, such as "kindest/node:v1.34.0". Unset uses
+	// the default of the installed kind version.
+	image?: string
+
+	// control_plane adds kind node settings to the control-plane node, with
+	// kind's field names, such as extraMounts or kubeadmConfigPatches (see
+	// https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options).
+	// labels and extraPortMappings add to the values kevin sets. The
+	// "kevin.node" label and role cannot be set.
+	control_plane?: #NodeConfig
+
+	// config is a complete kind cluster configuration in YAML. It replaces
+	// the configuration kevin generates: control_plane and workers have no
+	// effect.
+	config?: string
+}
+
+// #NodeConfig is the settings of one node. The "kind" driver accepts any
+// kind node field.
 #NodeConfig: {...}
 
 #Expose: {

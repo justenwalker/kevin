@@ -46,7 +46,7 @@ With `proxy.egress.passthrough: true`, the proxy checks the host in the `CONNECT
 
 The relay sends all TCP traffic of a `builtin:container` step on ports 80 and 443 to the proxy, whatever the container resolved and whatever proxy variables it has. See [Relay]({{< relref "/docs/concepts/relay#traffic-capture" >}}). Egress control therefore applies to every container.
 
-A `builtin:exec` step runs on the host, and relies on the proxy variables. For a `builtin:kind` pod, the relay captures traffic at the node.
+A `builtin:exec` step runs on the host, and relies on the proxy variables. For a `builtin:kubernetes` pod, the relay captures traffic at the node.
 
 `NO_PROXY` lists the step names, so a client that honors it reaches another step directly over the project network. Some clients ignore `NO_PROXY`, such as busybox `wget`, so each step is also reachable through the proxy by its full name.
 

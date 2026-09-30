@@ -7,7 +7,7 @@
 //
 // setup (persistent, survives every "kevin run"):
 //
-//   - cluster: a builtin:kind Kubernetes cluster.
+//   - cluster: a builtin:kubernetes Kubernetes cluster.
 //   - ministack/ministack_ready: builtin:kubectl deploys MiniStack (a free,
 //     open-source AWS emulator, https://ministack.org/) into it, builtin:wait
 //     gates on the rollout.
@@ -83,9 +83,10 @@ console: listen: "127.0.0.1:18141"
 
 setup: {
 	cluster: {
-		uses:  "builtin:kind"
+		uses:  "builtin:kubernetes"
 		label: "Kind Cluster"
 		with: {
+			driver: "kind"
 			name: "showcase"
 			// Stands up the relay pod so relay_addr is exported for env's
 			// routes, even though nothing here uses "expose".

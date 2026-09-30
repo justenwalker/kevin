@@ -18,7 +18,7 @@ import (
 // capturePreroutingChainName name its two possible chains - a workload
 // namespace (no excludeCIDRs) gets the output chain, capturing its own
 // outbound connections; a router namespace (excludeCIDRs set, a
-// builtin:kind node) gets the prerouting chain instead, capturing what
+// builtin:kubernetes node) gets the prerouting chain instead, capturing what
 // transits it.
 const (
 	captureTableName           = "kevin"

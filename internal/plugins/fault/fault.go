@@ -9,7 +9,7 @@
 // treat a namespace another step already created. needs names which
 // steps to affect; containers optionally narrows that down to specific
 // containers by name, when a needs step manages more than one (a
-// builtin:kind cluster's nodes). Every container is resolved from the
+// builtin:kubernetes cluster's nodes). Every container is resolved from the
 // container info the engine already hands this step on
 // UpRequest.Containers - never a raw path, never CEL. It has no Down of
 // its own: the engine clears an applied fault at teardown independent of

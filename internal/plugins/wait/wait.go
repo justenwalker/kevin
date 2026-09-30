@@ -3,7 +3,7 @@
 // command retried until it exits zero, or a fixed duration sleep.
 //
 // A tcp check's address may be a plain host:port, or a
-// "socks5://<relay>/<host:port>" URL - the form a builtin:kind step's
+// "socks5://<relay>/<host:port>" URL - the form a builtin:kubernetes step's
 // expose entries publish as an "expose_<name>" output - to reach a service
 // inside a kind cluster through its SOCKS5 relay.
 package wait

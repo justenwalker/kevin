@@ -52,7 +52,7 @@ only.
   `${setup.<step>.out.<key>}` must name a key the step type actually
   returns: grep the plugin's `Up`/`Export` for the key string (for
   example `internal/plugins/container/container.go`,
-  `internal/plugins/kind/kind.go`). Keys are case-sensitive.
+  `internal/plugins/kubernetes/kubernetes.go`). Keys are case-sensitive.
 - **Paths and file names** in docs (`~/.kevin/root.crt`, `.kevin/ca.crt`,
   `.kevin/kubeconfig/...`, mount paths inside containers) against the
   constants that write them (`internal/ca/ca.go`, `internal/state`, the
@@ -75,7 +75,7 @@ only.
   against `protos/pb/relay.proto`.
 - **`plugin.Env` and request fields** in `extending/writing-a-plugin.md`
   against `plugin/plugin.go`.
-- **Builtin step types** (`container`, `exec`, `fault`, `helm`, `kind`,
+- **Builtin step types** (`container`, `exec`, `fault`, `helm`, `kubernetes`,
   `kubectl`, `route`, `wait`) against `internal/plugins/*` directories.
 - **Plugin index format** in `reference/plugin-index.md` against
   `internal/pluginindex/schema.cue`.

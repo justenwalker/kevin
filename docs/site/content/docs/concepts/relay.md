@@ -10,14 +10,14 @@ The relay is a container on the project network. It has four jobs:
 
 1. Answer DNS for the environment domain, so workloads can resolve route names.
 2. Send the traffic of containers to the proxy on the host.
-3. Let the host reach ports inside the project network or a kind cluster.
+3. Let the host reach ports inside the project network or a `builtin:kubernetes` cluster.
 4. Apply network faults for [`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}}).
 
 The relay has no routing table. The proxy is the only place that routes. The relay makes sure traffic reaches the proxy.
 
 ## Lifecycle
 
-The relay container has a fixed name, `kevin-<project>-relay`. If it is already running, kevin uses it. A `setup` step can depend on the relay's address, such as the DNS forward that a kind cluster keeps. That address must stay the same after the `kevin setup` process exits. `kevin setup` leaves the relay running, `kevin run` uses it, and `kevin teardown` removes it when neither scope needs it.
+The relay container has a fixed name, `kevin-<project>-relay`. If it is already running, kevin uses it. A `setup` step can depend on the relay's address, such as the DNS forward that a `builtin:kubernetes` cluster keeps. That address must stay the same after the `kevin setup` process exits. `kevin setup` leaves the relay running, `kevin run` uses it, and `kevin teardown` removes it when neither scope needs it.
 
 kevin compares the domain and proxy address of a running relay with its own. If they differ, it replaces the relay, which would otherwise forward to an address where no proxy listens. This happens only when `domain` or `proxy.gateway_port` changes.
 
@@ -27,9 +27,9 @@ The proxy has a second listener on the gateway address of the project network, a
 
 Docker Desktop on macOS and Windows runs the daemon in a virtual machine, and the gateway address exists only there. Binding it from the host fails with `EADDRNOTAVAIL`. The relay then reaches the proxy through `host.docker.internal`. On Linux, the daemon runs on the host, the bind succeeds, and the relay uses it.
 
-## Name resolution in kind clusters
+## Name resolution in Kubernetes clusters
 
-The kind plugin changes the cluster's CoreDNS configuration to forward the environment domain to the relay, then restarts CoreDNS. A pod resolves `<name>.<domain>` through the cluster DNS, with no proxy settings of its own.
+The `kind` driver changes the cluster's CoreDNS configuration to forward the environment domain to the relay, then restart CoreDNS. A pod resolves `<name>.<domain>` through the cluster DNS, with no proxy settings of its own.
 
 A pod's request to a route then crosses two hops on the host: the pod connects to the relay over the project network, the relay forwards to the proxy on the host, and the proxy connects to the step's published port.
 
@@ -45,9 +45,9 @@ The relay captures ports 80 and 443. An `intercept: true` route that lists other
 
 The relay reads the TLS server name or the HTTP `Host` header of a captured connection to find where it goes, then forwards it to the proxy.
 
-### kind nodes
+### Cluster nodes
 
-Pods run in the cluster's own network, which the relay cannot enter. A kind node, though, is an ordinary container. kevin registers each node once when the cluster starts. Every pod's traffic leaves through its node.
+Pods run in the cluster's own network, which the relay cannot enter. A cluster node, though, is an ordinary container. kevin registers each node once when the cluster starts. Every pod's traffic leaves through its node.
 
 A node's rules differ from a container's. They use the `prerouting` hook, to capture traffic that passes through the node, not traffic the node sends itself. They skip the cluster's pod and service CIDRs, which kevin reads from kubeadm's `ClusterConfiguration`, so traffic between pods and to Services is not redirected. If kevin cannot read the CIDRs, it logs the error and does not add capture for that cluster. Wrong exclusions would break pod-to-pod traffic, which is worse than no capture.
 
@@ -65,9 +65,9 @@ The relay runs a SOCKS5 server. A client on the host can ask it to connect to an
 
 Most clients do not speak SOCKS5. For each relay `ExposedPort`, from any plugin, kevin opens a local listener and forwards each connection through the relay. For TCP it uses SOCKS5 `CONNECT`. For UDP it holds one SOCKS5 `ASSOCIATE` session open for the life of the listener. kevin adds the listener's address as `needs.<step>.system.forward_<name>`, next to `expose_<name>`, and the console shows both.
 
-### kind clusters
+### Cluster relay pods
 
-A `builtin:kind` step's `expose` entries run a SOCKS5 relay as a pod in the cluster, from the `kevin-relay socks5-gateway` command. kind's `extraPortMappings` are fixed when the cluster is created, before `Up` knows which services exist. One relay pod needs one host port, whatever the number of services. `Up` chooses the port, adds one `extraPortMappings` entry for it on the control-plane node, loads the relay image into the node, and applies the pod with `kubectl` inside the node.
+A `builtin:kubernetes` step's `expose` entries run a SOCKS5 relay as a pod in the cluster, from the `kevin-relay socks5-gateway` command. The host port mapping is fixed when the cluster is created, before `Up` knows which services exist. The `kind` driver uses `extraPortMappings`. One relay pod needs one host port, whatever the number of services. `Up` chooses the port and adds the port mapping to the control-plane node. It then loads the relay image into the node and applies the pod with `kubectl` inside the node.
 
 `Up` does not wait for an `expose` address to accept connections. The target usually comes from a manifest applied after the cluster starts. A [`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}) `tcp` check can dial the `expose_<name>` value to wait for it.
 
@@ -85,11 +85,11 @@ A local UDP forward sends each reply to every client that used it recently. SOCK
 
 ## Routes through the relay
 
-A `builtin:route` entry names either an address the proxy can dial, such as a container's published port, or, with `relay` set, an address inside a kind cluster.
+A `builtin:route` entry names either an address the proxy can dial, such as a container's published port, or, with `relay` set, an address inside a `builtin:kubernetes` cluster.
 
 For a relay route, the step returns a `Route` whose upstream uses the `socks5://` form above. When the proxy dials an upstream of that form, it connects to the relay and sends a SOCKS5 `CONNECT` for the real address. WebSocket upgrades use the same dial path.
 
-`builtin:route` does no Kubernetes work. It takes a relay address and a list of host and address pairs. A kind step starts the relay pod when it has `expose` entries or `relay: true`, and reports its address as `relay_addr`. The route's `needs` must include the step that deploys the target, so the target exists when the route starts.
+`builtin:route` does no Kubernetes work. It takes a relay address and a list of host and address pairs. A `builtin:kubernetes` step starts the relay pod when it has `expose` entries or `relay: true`, and reports its address as `relay_addr`. The route's `needs` must include the step that deploys the target, so the target exists when the route starts.
 
 ## Control channel
 

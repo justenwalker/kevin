@@ -266,7 +266,7 @@ kevin -C examples/echo run
       from the provider config"`, set once via `Configure`) shows up wherever
       `kevin-plugin-echo` logs/echoes it.
 
-## 7. `builtin:kind`, `builtin:kubectl`, `builtin:helm`, relay routing
+## 7. `builtin:kubernetes`, `builtin:kubectl`, `builtin:helm`, relay routing
 
 _Automated by `gnob e2e` (`tests/e2e/kind_test.go`)._
 
@@ -278,8 +278,10 @@ kevin -C examples/kind run
 
 - [ ] `registry` comes up, `registry_ready` (`builtin:wait`, plain HTTP
       check) passes before `cluster` needs it.
-- [ ] `cluster` (`builtin:kind`) creates a real kind cluster; cluster nodes
-      join kevin's shared network in place of kind's own default network.
+- [ ] `cluster` (`builtin:kubernetes`) creates a real kind cluster; cluster nodes
+      join kevin's shared network as well as kind's own network, and the
+      shared network carries their default route (`docker exec <node> ip
+      route` shows `default via` the shared network's gateway).
 - [ ] `KUBECONFIG=examples/kind/.kevin/kubeconfig/kind-example-cluster kubectl get nodes`
       from the host shows the node(s) `Ready`.
 - [ ] `apiserver_ready` (`builtin:wait`, `tcp` check through the cluster's
@@ -319,7 +321,7 @@ DNS-based intercept.
       ever left the node, with no `hostAliases`, no proxy environment
       variable, and no route registered for the host.
 
-Add `control_plane: extraMounts: [{hostPath: "/tmp/some-dir", containerPath:
+Add `kind: control_plane: extraMounts: [{hostPath: "/tmp/some-dir", containerPath:
 "/host-src"}]` to `cluster`'s `with` block, alongside `relay: true` or an
 `expose` entry:
 
@@ -327,13 +329,13 @@ Add `control_plane: extraMounts: [{hostPath: "/tmp/some-dir", containerPath:
       directory's contents - a bind mount into the node, generated
       alongside the relay's `extraPortMappings` in the same config, not a
       replacement for it.
-- [ ] Setting `config:` (a raw kind config) at the same time makes
-      `control_plane` and `workers` both a no-op, the same way it already
+- [ ] Setting `kind: config:` (a raw kind config) at the same time makes
+      `kind: control_plane` and `workers` both a no-op, the same way it already
       is for the generated node list - write the mount into the raw config
       yourself instead.
 
 Add `workers: worker_a: image: "kindest/node:v1.34.0"` (a different tag than
-the cluster's own default, or `image:` if set) to the same `with` block -
+the cluster's own default, or `kind: image:` if set) to the same `with` block -
 kind names the container `<cluster>-worker` for a single worker, regardless
 of what its `workers` map key is:
 
@@ -342,7 +344,7 @@ of what its `workers` map key is:
       cluster default - a worker's own passthrough only ever touches that
       one node.
 
-Add `control_plane: labels: {"kevin.node": "not-allowed"}` (or `role:
+Add `kind: control_plane: labels: {"kevin.node": "not-allowed"}` (or `role:
 "worker"`) to the same `with` block:
 
 - [ ] `Up` fails immediately with a clear error naming the reserved field,
@@ -700,7 +702,7 @@ kevin plugin list
 ```
 
 - [ ] Prints every builtin step type as `builtin:<name>` (`builtin:container`,
-      `builtin:fault`, `builtin:kind`, `builtin:kubectl`, `builtin:helm`,
+      `builtin:fault`, `builtin:kubernetes`, `builtin:kubectl`, `builtin:helm`,
       `builtin:wait`, `builtin:route`, `builtin:exec`), one per line.
 
 ## 14. Reserved plugin namespace
@@ -871,7 +873,7 @@ KEVIN_RELAY_IMAGE=kevin-relay:dev kevin -C /path/to/this run
 - [ ] `web_ready` reaches `Ready` - the `expose_web` system output (a
       `socks5://<relay>/web:80` upstream) is dialable through the relay's
       SOCKS5 gateway, the same way `examples/kind`'s `apiserver_ready`
-      proves `builtin:kind`'s own expose entries.
+      proves `builtin:kubernetes`'s own expose entries.
 - [ ] `docker inspect --format '{{json .NetworkSettings.Ports}}'
       kevin-<project>-web` shows no `HostPort` - a `relay: true` entry never
       gets a `docker --publish` spec, unlike a plain `expose` entry.
@@ -892,7 +894,7 @@ KEVIN_RELAY_IMAGE=kevin-relay:dev kevin -C /path/to/this run
 
 ## 20. `examples/s3-app` - persistent cluster, intercepted S3, cross-scope route
 
-_Not yet automated - combines sections 7, 8, and 12 (`builtin:kind` +
+_Not yet automated - combines sections 7, 8, and 12 (`builtin:kubernetes` +
 `intercept: true` interception + `setup`/`env` cross-scope `needs`) into one
 environment; each is covered separately elsewhere, but not together._
 
@@ -901,7 +903,7 @@ kevin -C examples/s3-app setup      # once: cluster + ministack + a seeded bucke
 kevin -C examples/s3-app run        # every iteration: deploy/redeploy the app
 ```
 
-- [ ] `setup` brings up `cluster` (`builtin:kind`, `relay: true`),
+- [ ] `setup` brings up `cluster` (`builtin:kubernetes`, `relay: true`),
       `ministack`, and a `seed` Job that populates a bucket - all `setup`
       scope, meant to outlive any single `run`.
 - [ ] `s3_intercept` (`env` scope) registers
