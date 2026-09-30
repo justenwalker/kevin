@@ -37,6 +37,10 @@ import (
 // without ever blocking for Ctrl-C.
 const defaultTimeout = 60 * time.Second
 
+// stopGrace is how long stopKevin waits for a kevin process to tear down
+// after SIGINT before it kills the process.
+const stopGrace = 30 * time.Second
+
 var (
 	kevinBinOnce      = sync.OnceValues(buildKevin)
 	echoPluginBinOnce = sync.OnceValues(buildEchoPlugin)
@@ -175,6 +179,23 @@ type kevinProc struct {
 	buf    *syncBuffer
 	waitCh chan struct{} // closed once cmd.Wait returns
 	err    error         // valid once waitCh is closed
+}
+
+// stop interrupts p so that it tears down, then kills it if it is still
+// running after stopGrace. It does nothing once p has exited.
+func (p *kevinProc) stop() {
+	select {
+	case <-p.waitCh:
+		return
+	default:
+	}
+	_ = p.cmd.Process.Signal(syscall.SIGINT)
+	select {
+	case <-p.waitCh:
+	case <-time.After(stopGrace):
+		_ = p.cmd.Process.Kill()
+		<-p.waitCh
+	}
 }
 
 // e2eSuite is the base every section's suite embeds, for the harness
@@ -326,6 +347,7 @@ func (s *e2eSuite) startKevinWithEnv(dir string, extraEnv []string, args ...stri
 		p.err = cmd.Wait()
 		close(p.waitCh)
 	}()
+	t.Cleanup(p.stop)
 	return p
 }
 
@@ -500,4 +522,23 @@ func readAll(t *testing.T, r io.Reader) string {
 	body, err := io.ReadAll(r)
 	require.NoError(t, err)
 	return string(body)
+}
+
+func TestKevinProcStop(t *testing.T) {
+	cmd := exec.CommandContext(t.Context(), "sleep", "60")
+	require.NoError(t, cmd.Start())
+	p := &kevinProc{cmd: cmd, buf: &syncBuffer{}, waitCh: make(chan struct{})}
+	go func() {
+		p.err = cmd.Wait()
+		close(p.waitCh)
+	}()
+
+	p.stop()
+	select {
+	case <-p.waitCh:
+	default:
+		t.Fatal("a running process must be stopped")
+	}
+
+	p.stop() // a second call on an exited process returns at once
 }

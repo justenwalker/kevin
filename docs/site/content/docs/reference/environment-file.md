@@ -91,7 +91,7 @@ The flag is repeatable. Without the flag, the field keeps its value from the fil
 | `with` | `{...}` | - | Configuration for the step type. See [Steps]({{< relref "/docs/reference/steps" >}}) for builtin step types. |
 | `label` | `string` | step name | Display name in the console. |
 
-Steps with no dependency between them start in parallel. If a step fails, kevin cancels steps that have not started and removes the steps that came up, in reverse dependency order.
+Steps with no dependency between them start in parallel. If a step fails, kevin cancels steps that have not started and removes the steps that came up, and any step whose `Up` was still running, in reverse dependency order.
 
 ### Needs
 

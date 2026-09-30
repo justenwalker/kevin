@@ -498,6 +498,7 @@ type Step interface {
 
 // Downer is an interface that indicates a step has a tear-down implementation.
 // When the system is shutting down, Down will be called for each step that has a Downer implementation.
+// It is also called for a step whose Up was still running when the run was canceled, with no outputs.
 type Downer interface {
 	Down(ctx context.Context, req *DownRequest, out Emitter) error
 }

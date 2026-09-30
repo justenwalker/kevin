@@ -992,10 +992,12 @@ type run struct {
 	// published, the same way, for a dependent step's own
 	// UpRequest.Containers. completedMu guards both: r.up and a rerun
 	// triggered from the console can run concurrently once a step reaches
-	// Ready or Failed.
+	// Ready or Failed. started holds the steps that called Up and have not
+	// failed on their own since, under the same lock.
 	completedMu         sync.Mutex
 	completed           map[string]dag.Outputs
 	completedContainers map[string][]*pb.ContainerInfo
+	started             map[string]struct{}
 
 	// exportGroup deduplicates concurrent exportCrossScopeStep calls for
 	// the same setup step name, so several consumers up at once share one
@@ -1046,6 +1048,39 @@ func (r *run) snapshotCompleted() map[string]dag.Outputs {
 	out := make(map[string]dag.Outputs, len(r.completed))
 	maps.Copy(out, r.completed)
 	return out
+}
+
+// markStarted records that name called Up.
+func (r *run) markStarted(name string) {
+	r.completedMu.Lock()
+	defer r.completedMu.Unlock()
+	if r.started == nil {
+		r.started = make(map[string]struct{})
+	}
+	r.started[name] = struct{}{}
+}
+
+// markSettled records that name's Up failed on its own, which leaves any
+// cleanup to the plugin.
+func (r *run) markSettled(name string) {
+	r.completedMu.Lock()
+	defer r.completedMu.Unlock()
+	delete(r.started, name)
+}
+
+// snapshotInterrupted returns the steps that called Up and never completed,
+// because the run was canceled while Up ran, or because a later stage of
+// the step failed after Up succeeded.
+func (r *run) snapshotInterrupted() []string {
+	r.completedMu.Lock()
+	defer r.completedMu.Unlock()
+	var names []string
+	for name := range r.started {
+		if _, done := r.completed[name]; !done {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // completedContainersFor returns the containers name last published, or
@@ -1407,6 +1442,19 @@ func (r *run) reportUpFailure(ctx context.Context, name string, err error) {
 	r.store.SetStep(name, session.Failed, msg)
 }
 
+// failUp reports that name's Up returned err. A step that failed on its own
+// is settled and left to its plugin; a step that Up canceled stays started,
+// and shutdown calls Down for it.
+func (r *run) failUp(ctx context.Context, name string, err error) {
+	// Read the context before the report: the report reaches a watcher,
+	// which can cancel the run.
+	canceled := ctx.Err() != nil
+	r.reportUpFailure(ctx, name, err)
+	if !canceled {
+		r.markSettled(name)
+	}
+}
+
 // upStep calls Up on one step. It is the dag.NodeFunc both the initial
 // bring-up and a console-triggered rerun run through, so a rerun gets route
 // registration, egress allow, detail/progress reporting, and timing history
@@ -1484,9 +1532,10 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	// the old ones first so a rerun doesn't pile a second copy onto them.
 	r.store.ClearStepDetails(name)
 
+	r.markStarted(name)
 	result, upErr := client.Up(ctx, req, r.onEvent(name))
 	if upErr != nil {
-		r.reportUpFailure(ctx, name, upErr)
+		r.failUp(ctx, name, upErr)
 		return nil, upErr
 	}
 
@@ -1768,14 +1817,16 @@ func (r *run) markSkipped(considered []string, results map[string]dag.Outputs) {
 
 func (r *run) down(ctx context.Context) error {
 	completed := r.snapshotCompleted()
+	// An interrupted step gets a Down with no outputs.
+	for _, name := range r.snapshotInterrupted() {
+		completed[name] = nil
+	}
 	if len(completed) == 0 {
 		return nil
 	}
 
-	// Remove only the steps (and groups) that came up, in reverse
-	// dependency order - a name absent from completed never ran (or
-	// failed), so it must not be walked here at all, not just have its
-	// edges filtered.
+	// Walk only the steps in completed, in reverse dependency order: a name
+	// absent from it never ran, or failed on its own.
 	needs := r.downNeeds(completed)
 
 	_, err := dag.New(needs).Reverse().Walk(ctx, func(ctx context.Context, name string, _ map[string]dag.Outputs) (dag.Outputs, error) {

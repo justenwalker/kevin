@@ -14,7 +14,7 @@ The engine runs each step in its own goroutine. A goroutine waits for the steps 
 
 When a step fails, the engine cancels the steps still running. A step whose dependency failed is skipped, not failed, so the error kevin reports is the cause, not a list of failures that follow from it.
 
-The engine returns the outputs of every step that finished. kevin uses this list to remove exactly the steps that came up.
+The engine returns the outputs of every step that finished. kevin uses this list to remove the steps that came up. It also removes a step whose `Up` was still running when the run was canceled.
 
 ## Removing
 

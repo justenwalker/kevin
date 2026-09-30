@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -155,10 +156,31 @@ func project(t *testing.T, body string) string {
 	if !strings.Contains(body, "project:") {
 		name := config.SlugName(t.Name()) + "-" + filepath.Base(dir)
 		src += "project: " + strconv.Quote(name) + "\n"
+		removeProject(t, name)
+	} else if m := projectField.FindStringSubmatch(body); m != nil {
+		removeProject(t, m[1])
 	}
 	src += body
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(src), 0o600))
 	return dir
+}
+
+// projectField finds the name of a quoted project field in a fixture body.
+var projectField = regexp.MustCompile(`(?m)^\s*project:\s*"([^"]+)"`)
+
+// removeProject removes, when t ends, the containers and the network that a
+// run with Keep leaves behind for the project called name. A failure is
+// ignored: the run may have removed them already.
+func removeProject(t *testing.T, name string) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx := context.WithoutCancel(t.Context())
+		containers, _ := dockerClient.ListByLabel(ctx, cri.LabelProject, name)
+		for _, container := range containers {
+			_ = dockerClient.Remove(ctx, container)
+		}
+		_ = dockerClient.NetworkRemove(ctx, NetworkName(name))
+	})
 }
 
 // proxyBlock is a "proxy: {listen: ..., gateway_port: ..., egress: deny:
@@ -582,6 +604,7 @@ env: {
 		out := w.String()
 		assert.Contains(t, out, "a                removed", "the engine must remove the step that came up")
 		assert.NotContains(t, out, "next             up", "a step after the failure must not run")
+		assert.NotContains(t, out, "boom             removed", "a step that failed on its own is left to its plugin")
 	})
 
 	t.Run("delivers the plugin config before any step runs", func(t *testing.T) {
@@ -619,6 +642,62 @@ env: {
 		out := w.String()
 		assert.Contains(t, out, fmt.Sprintf("%-16s %s", "ok", "ready"),
 			"the echo step type must come up in the same run as the fail step type")
+	})
+}
+
+// TestRunRemovesAStepThatWasInUpAtCancellation proves a step that is still in
+// Up when the run is canceled gets a Down with no outputs, because it may have
+// made resources that Up never reported.
+func TestRunRemovesAStepThatWasInUpAtCancellation(t *testing.T) {
+	requireRelay(t)
+	dir := project(t, `
+env: {
+	a:    {uses: "echo:echo", with: message: "A"}
+	slow: {uses: "echo:echo", needs: ["a"], with: {message: "S", delay: "1h"}}
+}
+`)
+
+	w, err := runUntil(t, dir, fmt.Sprintf("%-16s %s", "slow", "waiting"))
+	require.NoError(t, err)
+
+	out := w.String()
+	assert.Contains(t, out, "slow             removed", "the interrupted step must get a Down")
+	assert.Contains(t, out, "a                removed")
+	logs, readErr := os.ReadFile(filepath.Join(dir, WorkspaceDir, LogsFile))
+	require.NoError(t, readErr)
+	assert.Contains(t, string(logs), "removing slow")
+}
+
+func TestInterruptedSteps(t *testing.T) {
+	t.Run("a step that started and never completed", func(t *testing.T) {
+		r := &run{}
+		r.markStarted("a")
+
+		assert.Equal(t, []string{"a"}, r.snapshotInterrupted())
+	})
+
+	t.Run("a step whose Up failed on its own is left to its plugin", func(t *testing.T) {
+		r := &run{}
+		r.markStarted("a")
+		r.markSettled("a")
+
+		assert.Empty(t, r.snapshotInterrupted())
+	})
+
+	t.Run("a completed step is not interrupted, even when a rerun started it again", func(t *testing.T) {
+		r := &run{}
+		r.markStarted("a")
+		r.mergeCompleted(map[string]dag.Outputs{"a": {"k": "v"}})
+		r.markStarted("a")
+
+		assert.Empty(t, r.snapshotInterrupted())
+	})
+
+	t.Run("a step that never called Up", func(t *testing.T) {
+		r := &run{}
+		r.mergeCompleted(map[string]dag.Outputs{"a": nil})
+
+		assert.Empty(t, r.snapshotInterrupted())
 	})
 }
 

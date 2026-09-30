@@ -22,6 +22,8 @@ One plugin process serves every step type of its provider.
 
 `Up` and `Down` stream their responses. One call carries log lines, progress, and the final result.
 
+`Down` also runs for a step whose `Up` was still running when the run was canceled. That request carries no outputs, and the step can be absent or only partly created.
+
 Each request has everything the plugin needs: the network name, the CA certificate, the proxy address, the workspace path, and the outputs of upstream steps. kevin has no callback service.
 
 ## Start sequence

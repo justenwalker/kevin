@@ -32,6 +32,6 @@ A plugin can mark an output sensitive, such as a generated password. kevin then 
 
 ## Plugin crashes
 
-If an `Up` or `Down` call fails, the step fails, whether the plugin returned an error or its process exited. kevin then removes the steps that came up, and deletes containers left with the project's labels. A crashed plugin shows as a gRPC `Unavailable` error, as in other go-plugin programs such as Terraform.
+If an `Up` or `Down` call fails, the step fails, whether the plugin returned an error or its process exited. kevin then removes the steps that came up and any step whose `Up` was still running when the run was canceled, and deletes containers left with the project's labels. A crashed plugin shows as a gRPC `Unavailable` error, as in other go-plugin programs such as Terraform.
 
 kevin does not restart a crashed plugin or resume the walk. Run `kevin run` again. A builtin step that creates a resource, such as a container or a cluster, names it from the project and step name, and its `Up` replaces or reuses what is there. A new run continues from the state that the failed run left. `builtin:exec` is the exception: kevin cannot know whether a command is safe to run twice.
