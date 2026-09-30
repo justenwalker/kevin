@@ -1,4 +1,4 @@
-package kind
+package corefile
 
 import (
 	"strings"
@@ -33,7 +33,7 @@ const defaultBlock = `.:53 {
     loadbalance
 }`
 
-func TestCorefileWithZone(t *testing.T) {
+func TestWithZone(t *testing.T) {
 	tests := []struct {
 		name     string
 		corefile string
@@ -70,7 +70,7 @@ func TestCorefileWithZone(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := corefileWithZone(tt.corefile, tt.domain, tt.relay)
+			got := WithZone(tt.corefile, tt.domain, tt.relay)
 
 			assert.Equal(t, 1, strings.Count(got, tt.domain+":53 {"),
 				"a repeat call must replace the zone, not add a second one")
@@ -88,7 +88,7 @@ func TestCorefileWithZone(t *testing.T) {
 	t.Run("keeps the original block exactly", func(t *testing.T) {
 		corefile := defaultBlock + "\n"
 
-		got := corefileWithZone(corefile, "kevin.home", "10.244.0.5:53")
+		got := WithZone(corefile, "kevin.home", "10.244.0.5:53")
 
 		assert.Contains(t, got, defaultBlock, "the untouched zone must appear byte for byte")
 	})
@@ -96,8 +96,8 @@ func TestCorefileWithZone(t *testing.T) {
 	t.Run("is idempotent", func(t *testing.T) {
 		corefile := defaultBlock + "\n"
 
-		once := corefileWithZone(corefile, "kevin.home", "10.244.0.5:53")
-		twice := corefileWithZone(once, "kevin.home", "10.244.0.5:53")
+		once := WithZone(corefile, "kevin.home", "10.244.0.5:53")
+		twice := WithZone(once, "kevin.home", "10.244.0.5:53")
 
 		assert.Equal(t, once, twice, "patching an already patched Corefile must change nothing")
 	})

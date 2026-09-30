@@ -21,10 +21,10 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/justenwalker/kevin/internal/clusterrelay"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/engines"
 	"github.com/justenwalker/kevin/internal/kindcmd"
-	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -160,7 +160,7 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 	}
 	relayAddress := ""
 	if useRelay {
-		relayAddress = relayAddr(ports.TCP)
+		relayAddress = clusterrelay.Addr(ports.TCP)
 	}
 
 	exposedPorts, containers, err := finishClusterSetup(ctx, rt, cfg, req, name, nodeList, relayAddress, ports.UDP, useRelay, out)
@@ -294,10 +294,10 @@ func readRelayUDPPorts(kubeconfig string) ([]int, bool) {
 // rebuilt on every "kevin setup", only when its own config actually
 // changed. It falls back to createCluster (delete, then create fresh) in
 // every other case.
-func reuseOrCreateCluster(ctx context.Context, cfg config, req *plugin.UpRequest, name, kubeconfig string, wait time.Duration, useRelay bool, out plugin.Emitter) ([]string, relayPorts, error) {
+func reuseOrCreateCluster(ctx context.Context, cfg config, req *plugin.UpRequest, name, kubeconfig string, wait time.Duration, useRelay bool, out plugin.Emitter) ([]string, clusterrelay.Ports, error) {
 	existingNodes, err := kindcmd.GetNodes(ctx, name, providerEnv(req.Env))
 	if err != nil {
-		return nil, relayPorts{}, fmt.Errorf("kind: check for an existing cluster %q: %w", name, err)
+		return nil, clusterrelay.Ports{}, fmt.Errorf("kind: check for an existing cluster %q: %w", name, err)
 	}
 
 	// Relay ports can only be reused, never freshly picked, without also
@@ -313,7 +313,7 @@ func reuseOrCreateCluster(ctx context.Context, cfg config, req *plugin.UpRequest
 		// at creation, and nothing updates it afterward.
 		wantConfig, fingerprintErr := reuseFingerprint(cfg, ports, proxyEnv(cfg, req.Env))
 		if fingerprintErr != nil {
-			return nil, relayPorts{}, fingerprintErr
+			return nil, clusterrelay.Ports{}, fingerprintErr
 		}
 		if marker, readErr := os.ReadFile(configMarkerFile(kubeconfig)); readErr == nil && string(marker) == wantConfig {
 			out.Log("stdout", fmt.Sprintf("reusing cluster %s with %d node(s)", name, len(existingNodes)))
@@ -322,20 +322,20 @@ func reuseOrCreateCluster(ctx context.Context, cfg config, req *plugin.UpRequest
 	}
 
 	if useRelay {
-		if ports, err = pickRelayPorts(ctx); err != nil {
-			return nil, relayPorts{}, err
+		if ports, err = clusterrelay.PickPorts(ctx); err != nil {
+			return nil, clusterrelay.Ports{}, err
 		}
 	}
 	nodeList, err := createCluster(ctx, cfg, req, name, kubeconfig, wait, ports, out)
 	if err != nil {
-		return nil, relayPorts{}, err
+		return nil, clusterrelay.Ports{}, err
 	}
 	marker, err := reuseFingerprint(cfg, ports, proxyEnv(cfg, req.Env))
 	if err != nil {
-		return nil, relayPorts{}, err
+		return nil, clusterrelay.Ports{}, err
 	}
 	if err = os.WriteFile(configMarkerFile(kubeconfig), []byte(marker), 0o600); err != nil {
-		return nil, relayPorts{}, fmt.Errorf("kind: write the cluster config marker for %q: %w", name, err)
+		return nil, clusterrelay.Ports{}, fmt.Errorf("kind: write the cluster config marker for %q: %w", name, err)
 	}
 	return nodeList, ports, nil
 }
@@ -344,39 +344,18 @@ func reuseOrCreateCluster(ctx context.Context, cfg config, req *plugin.UpRequest
 // kubeconfig, when useRelay - reusablePorts is false when useRelay is true
 // but either the TCP port or the UDP pool can't be read back, meaning the
 // caller must pick fresh ones and cannot reuse an existing cluster as-is.
-func reusableRelayPorts(kubeconfig string, useRelay bool) (relayPorts, bool) {
+func reusableRelayPorts(kubeconfig string, useRelay bool) (clusterrelay.Ports, bool) {
 	if !useRelay {
-		return relayPorts{}, true
+		return clusterrelay.Ports{}, true
 	}
 	tcp, tcpOK := readRelayPort(kubeconfig)
 	udp, udpOK := readRelayUDPPorts(kubeconfig)
-	return relayPorts{TCP: tcp, UDP: udp}, tcpOK && udpOK
-}
-
-// pickRelayPorts asks the OS for a fresh TCP relay port and, when
-// relay.UDPPoolSize() is nonzero, a fresh UDP ASSOCIATE pool of that size.
-func pickRelayPorts(ctx context.Context) (relayPorts, error) {
-	tcp, err := findFreePort(ctx)
-	if err != nil {
-		return relayPorts{}, fmt.Errorf("kind: pick a port for the relay: %w", err)
-	}
-	poolSize, err := relay.UDPPoolSize()
-	if err != nil {
-		return relayPorts{}, fmt.Errorf("kind: %w", err)
-	}
-	if poolSize == 0 {
-		return relayPorts{TCP: tcp}, nil
-	}
-	udp, err := findFreePorts(ctx, poolSize)
-	if err != nil {
-		return relayPorts{}, fmt.Errorf("kind: pick ports for the relay's udp pool: %w", err)
-	}
-	return relayPorts{TCP: tcp, UDP: udp}, nil
+	return clusterrelay.Ports{TCP: tcp, UDP: udp}, tcpOK && udpOK
 }
 
 // reuseFingerprint reports the generated kind config plus the resolved
 // proxy endpoint, as a single comparable string.
-func reuseFingerprint(cfg config, ports relayPorts, proxy map[string]string) (string, error) {
+func reuseFingerprint(cfg config, ports clusterrelay.Ports, proxy map[string]string) (string, error) {
 	generated, err := clusterConfig(cfg, ports)
 	if err != nil {
 		return "", err
@@ -386,7 +365,7 @@ func reuseFingerprint(cfg config, ports relayPorts, proxy map[string]string) (st
 
 // createCluster removes a stale cluster of the same name, then creates a
 // fresh one directly on the project's shared network.
-func createCluster(ctx context.Context, cfg config, req *plugin.UpRequest, name, kubeconfig string, wait time.Duration, ports relayPorts, out plugin.Emitter) ([]string, error) {
+func createCluster(ctx context.Context, cfg config, req *plugin.UpRequest, name, kubeconfig string, wait time.Duration, ports clusterrelay.Ports, out plugin.Emitter) ([]string, error) {
 	provider := providerEnv(req.Env)
 
 	// A cluster of this name may survive a crash, or reuseOrCreateCluster may
@@ -684,7 +663,7 @@ func buildNode(role string, kevinLabels map[string]string, kevinPortMappings []m
 // cluster comes up. These must be baked in here, before creation - unlike
 // a container's port publish, kind's node port mappings are fixed at
 // cluster creation and cannot be added later.
-func clusterConfig(cfg config, ports relayPorts) (string, error) {
+func clusterConfig(cfg config, ports clusterrelay.Ports) (string, error) {
 	if strings.TrimSpace(cfg.Config) != "" {
 		return cfg.Config, nil
 	}
@@ -692,7 +671,7 @@ func clusterConfig(cfg config, ports relayPorts) (string, error) {
 	var relayMappings []map[string]any
 	if ports.TCP > 0 {
 		relayMappings = append(relayMappings, map[string]any{
-			"containerPort": relayNodePort,
+			"containerPort": clusterrelay.NodePort,
 			"hostPort":      ports.TCP,
 			"listenAddress": "127.0.0.1",
 			"protocol":      "TCP",
@@ -700,7 +679,7 @@ func clusterConfig(cfg config, ports relayPorts) (string, error) {
 	}
 	for i, hostPort := range ports.UDP {
 		relayMappings = append(relayMappings, map[string]any{
-			"containerPort": relayUDPNodePortBase + i,
+			"containerPort": clusterrelay.UDPNodePortBase + i,
 			"hostPort":      hostPort,
 			"listenAddress": "127.0.0.1",
 			"protocol":      "UDP",

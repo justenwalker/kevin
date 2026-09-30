@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/justenwalker/kevin/internal/corefile"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -32,7 +33,7 @@ func patchCoreDNS(ctx context.Context, rt cri.Runtime, allNodes []string, domain
 		return fmt.Errorf("kind: read the coredns Corefile: %w", err)
 	}
 
-	next := corefileWithZone(current, domain, relay)
+	next := corefile.WithZone(current, domain, relay)
 
 	manifest, err := kubectl(ctx, rt, container, "create", "configmap", "coredns",
 		"-n", "kube-system", "--from-literal=Corefile="+next, "--dry-run=client", "-o", "yaml")

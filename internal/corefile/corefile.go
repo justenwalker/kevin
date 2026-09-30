@@ -1,10 +1,11 @@
-package kind
+// Package corefile edits a CoreDNS Corefile's server blocks as text.
+package corefile
 
 import "strings"
 
-// corefileWithZone returns the Corefile with a forward zone for domain
-// pointing at relay. An existing zone for the same domain is replaced.
-func corefileWithZone(corefile, domain, relay string) string {
+// WithZone returns the Corefile with a forward zone for domain pointing at
+// relay. An existing zone for the same domain is replaced.
+func WithZone(corefile, domain, relay string) string {
 	block := zoneBlock(domain, relay)
 
 	lines := strings.Split(corefile, "\n")
