@@ -50,6 +50,10 @@ type CreateSpec struct {
 	// NoRollback keeps the nodes of a cluster that fails to start.
 	NoRollback bool
 
+	// Memory limits the memory of every server and agent, such as "2g". Empty
+	// leaves the nodes unlimited.
+	Memory string
+
 	// Agents is the worker count. The cluster always has one server.
 	Agents int
 
@@ -111,6 +115,9 @@ func CreateArgs(spec CreateSpec) []string {
 	}
 	if spec.NoRollback {
 		args = append(args, "--no-rollback")
+	}
+	if spec.Memory != "" {
+		args = append(args, "--servers-memory", spec.Memory, "--agents-memory", spec.Memory)
 	}
 	for _, key := range slices.Sorted(maps.Keys(spec.Env)) {
 		args = append(args, "--env", key+"="+spec.Env[key]+"@all")

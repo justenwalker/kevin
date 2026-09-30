@@ -100,7 +100,27 @@
 	// image is the k3s image, such as "rancher/k3s:v1.34.1-k3s1". Unset uses
 	// the default of the installed k3d version.
 	image?: string
+
+	// disable turns off bundled k3s components.
+	disable?: [...#K3sComponent]
+
+	// env sets environment variables in every node. kevin sets the proxy
+	// variables itself, so they are an error here.
+	env?: [string]: string
+
+	// memory limits the memory of each node, such as "2g".
+	memory?: #MemoryLimit
+
+	// labels adds labels to every node. The "kevin.node" label cannot be set.
+	labels?: [string]: string
 }
+
+// #K3sComponent is a component that k3s bundles and k3d.disable can turn off.
+#K3sComponent: "traefik" | "servicelb" | "metrics-server" | "local-storage"
+
+// #MemoryLimit is a container memory limit: a number with an optional unit of
+// b, k, m, or g.
+#MemoryLimit: =~"^[0-9]+[bBkKmMgG]?$"
 
 // #NodeConfig is the settings of one node. The "kind" driver accepts any
 // kind node field. The "k3d" driver takes none.

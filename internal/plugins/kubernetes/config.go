@@ -62,7 +62,11 @@ type kindConfig struct {
 // k3dConfig is the with block's k3d field: the settings that only the k3d
 // driver has.
 type k3dConfig struct {
-	Image string `json:"image"`
+	Image   string            `json:"image"`
+	Disable []string          `json:"disable"`
+	Env     map[string]string `json:"env"`
+	Memory  string            `json:"memory"`
+	Labels  map[string]string `json:"labels"`
 }
 
 // expose is one entry of the with block's expose map: an in-cluster

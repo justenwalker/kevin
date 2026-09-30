@@ -57,6 +57,12 @@ cluster: {
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
 | `image` | `string` | - | The k3s image, such as `"rancher/k3s:v1.34.1-k3s1"`. Unset uses the default of the installed k3d version. |
+| `disable` | `[...#K3sComponent]` | - | Turns off bundled k3s components. |
+| `env` | `[string]: string` | - | Sets environment variables in every node. kevin sets the proxy variables itself, so they are an error here. |
+| `memory` | `#MemoryLimit` | - | Limits the memory of each node, such as `"2g"`. |
+| `labels` | `[string]: string` | - | Adds labels to every node. The `"kevin.node"` label cannot be set. |
+
+`#K3sComponent` is one of `"traefik"`, `"servicelb"`, `"metrics-server"`, or `"local-storage"`. `#MemoryLimit` is a number with an optional unit of `b`, `k`, `m`, or `g`, in either case, such as `"512m"` or `"2g"`.
 
 ## `#Mount`
 

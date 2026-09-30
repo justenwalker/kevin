@@ -57,13 +57,23 @@ type k3dDriver struct {
 var _ driver = (*k3dDriver)(nil)
 
 // newK3dDriver returns the k3d driver for one cluster. It returns
-// [ErrK3dWorkerSettings] when a worker carries node settings. rt may be nil,
-// and then Delete leaves the network of the cluster in place.
+// [ErrK3dWorkerSettings] when a worker carries node settings,
+// [ErrK3dReservedEnv] when k3d.env sets a proxy variable that kevin sets, and
+// [ErrK3dReservedLabel] when k3d.labels sets the kevin.node label. rt may be
+// nil, and then Delete leaves the network of the cluster in place.
 func newK3dDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.Runtime) (*k3dDriver, error) {
 	for worker, settings := range cfg.Workers {
 		if len(settings) > 0 {
 			return nil, fmt.Errorf("worker %q: %w", worker, ErrK3dWorkerSettings)
 		}
+	}
+	for key := range cfg.K3d.Env {
+		if _, reserved := proxyEnv(cfg, env.ProxyEnv)[key]; reserved {
+			return nil, fmt.Errorf("env %q: %w", key, ErrK3dReservedEnv)
+		}
+	}
+	if _, reserved := cfg.K3d.Labels[nodeLabelKey]; reserved {
+		return nil, fmt.Errorf("labels %q: %w", nodeLabelKey, ErrK3dReservedLabel)
 	}
 	return &k3dDriver{
 		cfg: cfg, env: env, name: name, kubeconfig: kubeconfig, rt: rt,
@@ -112,13 +122,20 @@ func (d *k3dDriver) createSpec(spec createSpec) k3dcmd.CreateSpec {
 		NoRollback: d.cfg.Retain,
 		Agents:     len(d.cfg.Workers),
 		Wait:       spec.Wait,
-		Env:        proxyEnv(d.cfg, d.env.ProxyEnv),
+		Memory:     d.cfg.K3d.Memory,
+		Env:        mergeEnv(d.cfg.K3d.Env, proxyEnv(d.cfg, d.env.ProxyEnv)),
 		Ports:      k3dPortFlags(spec.Ports),
 		NodeLabels: []string{nodeLabelKey + "=" + controlPlaneNodeName + "@server:0"},
 		K3sArgs: []string{
 			"--cluster-cidr=" + k3sPodCIDR + "@server:*",
 			"--service-cidr=" + k3sServiceCIDR + "@server:*",
 		},
+	}
+	for _, component := range slices.Compact(slices.Sorted(slices.Values(d.cfg.K3d.Disable))) {
+		create.K3sArgs = append(create.K3sArgs, "--disable="+component+"@server:*")
+	}
+	for _, key := range slices.Sorted(maps.Keys(d.cfg.K3d.Labels)) {
+		create.NodeLabels = append(create.NodeLabels, key+"="+d.cfg.K3d.Labels[key]+"@server:*;agent:*")
 	}
 	if d.mountsCA() {
 		create.Volumes = []string{d.env.CAPath + ":" + k3dCAPath + "@server:*;agent:*"}

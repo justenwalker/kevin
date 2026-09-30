@@ -81,6 +81,16 @@ func TestDecode(t *testing.T) {
 		assert.Equal(t, "rancher/k3s:v1.34.1-k3s1", cfg.K3d.Image)
 	})
 
+	t.Run("reads the k3d options", func(t *testing.T) {
+		cfg, err := decode([]byte(`{"driver":"k3d","k3d":{"disable":["traefik","servicelb"],"env":{"A":"1"},"memory":"2g","labels":{"team":"x"}}}`))
+		require.NoError(t, err)
+
+		assert.Equal(t, []string{"traefik", "servicelb"}, cfg.K3d.Disable)
+		assert.Equal(t, map[string]string{"A": "1"}, cfg.K3d.Env)
+		assert.Equal(t, "2g", cfg.K3d.Memory)
+		assert.Equal(t, map[string]string{"team": "x"}, cfg.K3d.Labels)
+	})
+
 	t.Run("reads mounts", func(t *testing.T) {
 		cfg, err := decode([]byte(`{"mounts":[{"host":"src","container":"/workspace"},{"host":"/d","container":"/d","readonly":true}]}`))
 		require.NoError(t, err)

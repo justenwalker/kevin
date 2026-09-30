@@ -39,9 +39,11 @@ const k3dStepName = "cluster"
 const k3dMountPath = "/mnt/host"
 
 // configJSON is the with block of the suite cluster: one worker, a relay for
-// the API server, and a host directory mounted in every node.
+// the API server, a host directory mounted in every node, and the k3d options.
 func (s *K3dSuite) configJSON() string {
-	return fmt.Sprintf(`{"driver":"k3d","workers":{"worker":{}},"expose":{"apiserver":{"address":"kubernetes.default.svc:443"}},"mounts":[{"host":%q,"container":%q,"readonly":true}]}`,
+	return fmt.Sprintf(`{"driver":"k3d","workers":{"worker":{}},"expose":{"apiserver":{"address":"kubernetes.default.svc:443"}},`+
+		`"mounts":[{"host":%q,"container":%q,"readonly":true}],`+
+		`"k3d":{"disable":["traefik"],"env":{"KEVIN_IT":"yes"},"memory":"2g","labels":{"kevin-it":"true"}}}`,
 		s.mountDir, k3dMountPath)
 }
 
@@ -276,6 +278,31 @@ func (s *K3dSuite) TestNodeHoldsTheKevinRoot() {
 		out, err := dockerClient.Exec(t.Context(), node, "cat", k3dCAPath)
 		s.Require().NoError(err)
 		s.Contains(normalizePEM(out), normalizePEM(s.caPEM))
+	}
+}
+
+// TestOptionsReachTheCluster proves that the k3d options take effect: the
+// disabled component is absent, and every node has the variable, the label,
+// and the memory limit.
+func (s *K3dSuite) TestOptionsReachTheCluster() {
+	t := s.T()
+
+	pods, err := s.k3dDriver().Kubectl(t.Context(), "get", "pods", "-A", "-o", "name")
+	s.Require().NoError(err)
+	s.NotContains(pods, "traefik", "traefik is disabled")
+
+	labelled, err := s.k3dDriver().Kubectl(t.Context(), "get", "nodes", "-l", "kevin-it=true", "-o", "name")
+	s.Require().NoError(err)
+	s.Len(strings.Fields(labelled), len(s.nodeList()), "every node carries the label")
+
+	for _, node := range s.nodeList() {
+		out, execErr := dockerClient.Exec(t.Context(), node, "printenv", "KEVIN_IT")
+		s.Require().NoError(execErr, "node %s", node)
+		s.Equal("yes", strings.TrimSpace(out), "node %s", node)
+
+		limit, inspectErr := exec.CommandContext(t.Context(), "docker", "inspect", "--format", "{{.HostConfig.Memory}}", node).Output()
+		s.Require().NoError(inspectErr, "node %s", node)
+		s.Equal("2147483648", strings.TrimSpace(string(limit)), "node %s is limited to 2g", node)
 	}
 }
 

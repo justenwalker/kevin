@@ -75,6 +75,7 @@ func TestCreateArgs(t *testing.T) {
 			Volumes:    []string{"/ca.pem:/etc/ssl/certs/kevin-root.crt@server:*;agent:*"},
 			NodeLabels: []string{"kevin.node=gpu@agent:0"},
 			K3sArgs:    []string{"--cluster-cidr=10.42.0.0/16@server:*"},
+			Memory:     "2g",
 		})
 		want := []string{
 			"cluster", "create", "demo",
@@ -88,6 +89,8 @@ func TestCreateArgs(t *testing.T) {
 			"--image", "rancher/k3s:v1.34.1-k3s1",
 			"--api-port", "127.0.0.1:6550",
 			"--no-rollback",
+			"--servers-memory", "2g",
+			"--agents-memory", "2g",
 			"--env", "HTTP_PROXY=http://127.0.0.1:8080@all",
 			"--env", "NO_PROXY=localhost@all",
 			"--port", "127.0.0.1:54321:1080/tcp@server:0",

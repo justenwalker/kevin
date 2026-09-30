@@ -46,6 +46,14 @@ const ErrInvalidNodeField = Error("kubernetes: kind: a node config passthrough f
 // which k3d has no create-time flag for.
 const ErrK3dWorkerSettings = Error("kubernetes: k3d: a worker takes no node settings")
 
+// ErrK3dReservedEnv reports that k3d.env sets a variable that kevin sets
+// itself for the proxy.
+const ErrK3dReservedEnv = Error("kubernetes: k3d: env may not set a proxy variable that kevin sets")
+
+// ErrK3dReservedLabel reports that k3d.labels sets the kevin.node label, which
+// kevin sets on every node.
+const ErrK3dReservedLabel = Error("kubernetes: k3d: labels may not set the kevin.node label")
+
 // ErrNotTCPAddr reports that a TCP listener did not report a TCP address.
 const ErrNotTCPAddr = Error("kubernetes: the listener has no TCP address")
 

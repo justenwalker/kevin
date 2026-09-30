@@ -32,6 +32,59 @@ func TestNewK3dDriver(t *testing.T) {
 		_, err := newDrv(config{Workers: map[string]map[string]any{"worker": {"image": "x"}}})
 		require.ErrorIs(t, err, ErrK3dWorkerSettings)
 	})
+
+	t.Run("an env that sets a proxy variable is an error", func(t *testing.T) {
+		env := plugin.Env{ProxyEnv: map[string]string{"HTTP_PROXY": "http://kevin:8080"}}
+		cfg := config{Proxy: true, K3d: k3dConfig{Env: map[string]string{"HTTP_PROXY": "http://other"}}}
+
+		_, err := newK3dDriver(cfg, env, "demo", "/kubeconfig", nil)
+		require.ErrorIs(t, err, ErrK3dReservedEnv)
+	})
+
+	t.Run("a proxy variable is fine when the proxy is off", func(t *testing.T) {
+		env := plugin.Env{ProxyEnv: map[string]string{"HTTP_PROXY": "http://kevin:8080"}}
+		cfg := config{Proxy: false, K3d: k3dConfig{Env: map[string]string{"HTTP_PROXY": "http://other"}}}
+
+		_, err := newK3dDriver(cfg, env, "demo", "/kubeconfig", nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("a label that sets kevin.node is an error", func(t *testing.T) {
+		_, err := newDrv(config{K3d: k3dConfig{Labels: map[string]string{nodeLabelKey: "x"}}})
+		require.ErrorIs(t, err, ErrK3dReservedLabel)
+	})
+}
+
+func TestK3dDriverCreateSpecOptions(t *testing.T) {
+	d := &k3dDriver{
+		name: "demo",
+		env:  plugin.Env{ProxyEnv: map[string]string{"HTTP_PROXY": "http://kevin:8080"}},
+		cfg: config{
+			Proxy: true,
+			K3d: k3dConfig{
+				Disable: []string{"traefik", "metrics-server", "traefik"},
+				Env:     map[string]string{"A": "1"},
+				Memory:  "2g",
+				Labels:  map[string]string{"team": "x", "tier": "dev"},
+			},
+		},
+	}
+
+	got := d.createSpec(createSpec{})
+
+	assert.Equal(t, "2g", got.Memory)
+	assert.Equal(t, map[string]string{"A": "1", "HTTP_PROXY": "http://kevin:8080"}, got.Env)
+	assert.Equal(t, []string{
+		"--cluster-cidr=10.42.0.0/16@server:*",
+		"--service-cidr=10.43.0.0/16@server:*",
+		"--disable=metrics-server@server:*",
+		"--disable=traefik@server:*",
+	}, got.K3sArgs, "components are sorted and listed once, so their order does not recreate the cluster")
+	assert.Equal(t, []string{
+		"kevin.node=control-plane@server:0",
+		"team=x@server:*;agent:*",
+		"tier=dev@server:*;agent:*",
+	}, got.NodeLabels)
 }
 
 func TestK3dDriverCreateSpec(t *testing.T) {

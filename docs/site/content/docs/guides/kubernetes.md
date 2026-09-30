@@ -153,6 +153,22 @@ List the registries in `proxy.egress.allow`, not in the step's `egress`, so the 
 
 `kubeconfig`, `expose`, `relay`, `workers`, and `builtin:route` work as they do with `kind`. The [`builtin:kubernetes` reference]({{< relref "/docs/reference/steps/kubernetes" >}}) lists the limits of the `k3d` driver.
 
+## Turn off k3s components
+
+Name the bundled components to skip in `k3d.disable`:
+
+```cue
+env: cluster: {
+    uses: "builtin:kubernetes"
+    with: {
+        driver: "k3d"
+        k3d: disable: ["traefik", "metrics-server"]
+    }
+}
+```
+
+Run `kubectl --kubeconfig <kubeconfig> get pods -A`, with the `kubeconfig` output of the `cluster` step. The list no longer shows `traefik`. The [`builtin:kubernetes` reference]({{< relref "/docs/reference/steps/kubernetes" >}}#k3d) lists the component names.
+
 ## Related
 
 - [`builtin:kubernetes` reference]({{< relref "/docs/reference/steps/kubernetes" >}})
