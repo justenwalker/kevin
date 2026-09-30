@@ -85,12 +85,28 @@ type nodeSetup interface {
 	LoadImage(ctx context.Context, path string, out plugin.Emitter) error
 }
 
+// clusterCIDRs is implemented by a driver whose cluster has no kubeadm-config
+// configmap to read the pod and service subnets from.
+type clusterCIDRs interface {
+	// ClusterCIDRs lists the pod and service subnets of the cluster.
+	ClusterCIDRs() []string
+}
+
+// customCoreDNS is implemented by a driver whose cluster manages the coredns
+// configmap itself, and would undo an edit to it. That cluster imports
+// extra zones from the coredns-custom configmap instead.
+type customCoreDNS interface {
+	CoreDNSCustom()
+}
+
 // newDriver builds the driver that cfg names for one cluster. rt may be nil
 // for a caller that only removes or inspects the cluster.
 func newDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.Runtime) (driver, error) { //nolint:ireturn // the driver is the seam: which one is only known from the with block
 	switch cfg.Driver {
 	case "kind":
 		return newKindDriver(cfg, env, name, kubeconfig, rt), nil
+	case "k3d":
+		return newK3dDriver(cfg, env, name, kubeconfig, rt)
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnknownDriver, cfg.Driver)
 	}

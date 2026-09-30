@@ -72,6 +72,12 @@ func patchCoreDNSDriver(callN int) fakeDriver {
 	}
 }
 
+// customDNSDriver is a fakeDriver that reports a cluster with its own coredns
+// configmap.
+type customDNSDriver struct{ fakeDriver }
+
+func (customDNSDriver) CoreDNSCustom() {}
+
 func TestPatchCoreDNS(t *testing.T) {
 	nodes := []string{"demo-cluster-control-plane"}
 
@@ -94,6 +100,32 @@ func TestPatchCoreDNS(t *testing.T) {
 		require.NoError(t, patchCoreDNS(t.Context(), drv, nodes, "kevin.home", "10.244.0.5", &capture{}))
 		assert.Equal(t, nodes, gotNodes)
 		assert.Equal(t, "10.244.0.5", gotRelay)
+	})
+
+	t.Run("a cluster that manages coredns gets the zone in coredns-custom", func(t *testing.T) {
+		var kubectlCalls [][]string
+		var applied []string
+		drv := customDNSDriver{fakeDriver{
+			kubectl: func(_ context.Context, args ...string) (string, error) {
+				kubectlCalls = append(kubectlCalls, args)
+				return "manifest", nil
+			},
+			kubectlInput: func(_ context.Context, _ io.Reader, args ...string) (string, error) {
+				applied = args
+				return "", nil
+			},
+		}}
+
+		require.NoError(t, patchCoreDNS(t.Context(), drv, nodes, "kevin.home", "10.244.0.5", &capture{}))
+
+		require.NotEmpty(t, kubectlCalls)
+		assert.Equal(t, []string{"create", "configmap", "coredns-custom"}, kubectlCalls[0][:3])
+		assert.Contains(t, kubectlCalls[0][5], "--from-literal=kevin.server=")
+		assert.Contains(t, kubectlCalls[0][5], "kevin.home:53 {")
+		assert.Equal(t, []string{"-n", "kube-system", "apply", "-f", "-"}, applied)
+		for _, call := range kubectlCalls {
+			assert.NotContains(t, call, "get", "the coredns configmap is not read or replaced")
+		}
 	})
 
 	for i, step := range []string{

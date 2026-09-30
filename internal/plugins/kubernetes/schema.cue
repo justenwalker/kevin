@@ -1,6 +1,6 @@
 #Config: {
-	// driver is the tool that creates the cluster: "kind".
-	driver!: "kind"
+	// driver is the tool that creates the cluster: "kind" or "k3d".
+	driver!: "kind" | "k3d"
 
 	// name is the cluster name. Defaults to "<project>-<step>".
 	name?: string
@@ -48,6 +48,16 @@
 
 	// kind holds the settings that only the "kind" driver has.
 	kind?: #Kind
+
+	// k3d holds the settings that only the "k3d" driver has.
+	k3d?: #K3d
+
+	if driver == "kind" {
+		k3d?: _|_
+	}
+	if driver == "k3d" {
+		kind?: _|_
+	}
 }
 
 // #Kind is the settings of the kind driver.
@@ -69,8 +79,15 @@
 	config?: string
 }
 
+// #K3d holds the settings that only the k3d driver has.
+#K3d: {
+	// image is the k3s image, such as "rancher/k3s:v1.34.1-k3s1". Unset uses
+	// the default of the installed k3d version.
+	image?: string
+}
+
 // #NodeConfig is the settings of one node. The "kind" driver accepts any
-// kind node field.
+// kind node field. The "k3d" driver takes none.
 #NodeConfig: {...}
 
 #Expose: {

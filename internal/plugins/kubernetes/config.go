@@ -28,6 +28,7 @@ type config struct {
 	Expose  map[string]expose         `json:"expose"`
 	Relay   bool                      `json:"relay"`
 	Kind    kindConfig                `json:"kind"`
+	K3d     k3dConfig                 `json:"k3d"`
 }
 
 // kindConfig is the with block's kind field: the settings that only the
@@ -36,6 +37,12 @@ type kindConfig struct {
 	Image        string         `json:"image"`
 	ControlPlane map[string]any `json:"control_plane"`
 	Config       string         `json:"config"`
+}
+
+// k3dConfig is the with block's k3d field: the settings that only the k3d
+// driver has.
+type k3dConfig struct {
+	Image string `json:"image"`
 }
 
 // expose is one entry of the with block's expose map: an in-cluster

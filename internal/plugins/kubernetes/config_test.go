@@ -61,6 +61,14 @@ func TestDecode(t *testing.T) {
 		assert.False(t, cfg.Retain, "a failed cluster is removed unless a step keeps it")
 	})
 
+	t.Run("reads the k3d block", func(t *testing.T) {
+		cfg, err := decode([]byte(`{"driver":"k3d","k3d":{"image":"rancher/k3s:v1.34.1-k3s1"}}`))
+		require.NoError(t, err)
+
+		assert.Equal(t, "k3d", cfg.Driver)
+		assert.Equal(t, "rancher/k3s:v1.34.1-k3s1", cfg.K3d.Image)
+	})
+
 	t.Run("reads workers", func(t *testing.T) {
 		cfg, err := decode([]byte(`{"workers":{"worker_a":{},"worker_b":{}}}`))
 		require.NoError(t, err)

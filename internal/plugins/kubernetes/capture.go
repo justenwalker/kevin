@@ -131,6 +131,9 @@ func parseNodeLabels(nodesJSON string) (map[string]string, error) {
 // silently break pod-to-pod/pod-to-service traffic, which is worse than no
 // capture.
 func podAndServiceCIDRs(ctx context.Context, drv driver) ([]string, error) {
+	if known, ok := drv.(clusterCIDRs); ok {
+		return known.ClusterCIDRs(), nil
+	}
 	out, err := drv.Kubectl(ctx, "-n", "kube-system", "get", "configmap", "kubeadm-config",
 		"-o", "jsonpath={.data.ClusterConfiguration}")
 	if err != nil {

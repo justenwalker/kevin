@@ -420,6 +420,18 @@ func TestNewDriver(t *testing.T) {
 		assert.IsType(t, &kindDriver{}, drv)
 	})
 
+	t.Run("k3d", func(t *testing.T) {
+		drv, err := newDriver(config{Driver: "k3d"}, plugin.Env{}, "demo-cluster", "/kubeconfig", nil)
+		require.NoError(t, err)
+		assert.IsType(t, &k3dDriver{}, drv)
+	})
+
+	t.Run("a k3d driver that is misconfigured is an error", func(t *testing.T) {
+		_, err := newDriver(config{Driver: "k3d", Workers: map[string]map[string]any{"a": {"x": 1}}},
+			plugin.Env{}, "demo-cluster", "/kubeconfig", nil)
+		require.ErrorIs(t, err, ErrK3dWorkerSettings)
+	})
+
 	t.Run("an unknown driver is an error", func(t *testing.T) {
 		_, err := newDriver(config{Driver: "bogus"}, plugin.Env{}, "demo-cluster", "/kubeconfig", nil)
 		require.ErrorIs(t, err, ErrUnknownDriver)

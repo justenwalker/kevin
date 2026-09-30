@@ -1,6 +1,6 @@
 ---
 title: "Kubernetes clusters"
-description: "Add a local Kubernetes cluster to an environment with the kind driver."
+description: "Add a local Kubernetes cluster to an environment with the kind or k3d driver."
 weight: 3
 ---
 
@@ -11,7 +11,7 @@ This guide adds a local Kubernetes cluster to an environment with [`builtin:kube
 ## Prerequisites
 
 - `kubectl` on your `PATH`.
-- The command of your driver on your `PATH`: `kind` for the `kind` driver.
+- The command of your driver on your `PATH`: `kind` for the `kind` driver, `k3d` for the `k3d` driver.
 
 ## Add a cluster
 
@@ -112,6 +112,29 @@ The Service is now `myapp.kevin.home` through the proxy. Pods can also resolve i
 ## Use Podman
 
 With `--engine podman`, kind runs the nodes on Podman. See [Container engine]({{< relref "/docs/concepts/container-engine" >}}) for the limits.
+
+## Use k3d instead
+
+Set `driver` to `"k3d"`:
+
+```cue
+proxy: egress: {
+    deny: true
+    allow: ["docker.io", "*.docker.io", "*.docker.com"]
+}
+
+env: cluster: {
+    uses: "builtin:kubernetes"
+    with: {
+        driver: "k3d"
+        workers: worker_a: {}
+    }
+}
+```
+
+List the registries in `proxy.egress.allow`, not in the step's `egress`, so the k3s images can pull. Run `kevin run`: the `cluster` step reports `ready` once the nodes are up.
+
+`kubeconfig`, `expose`, `relay`, `workers`, and `builtin:route` work as they do with `kind`. The [`builtin:kubernetes` reference]({{< relref "/docs/reference/steps/kubernetes" >}}) lists the limits of the `k3d` driver.
 
 ## Related
 

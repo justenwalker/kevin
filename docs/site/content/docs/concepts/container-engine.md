@@ -16,7 +16,8 @@ The Docker Go module brings a large dependency tree for the few calls kevin make
 
 The engine is a setting of your machine, not of the project, so the environment file has no field for it. Use `--engine` or `KEVIN_ENGINE`, with `docker` or `podman`. With neither, kevin uses the first engine whose daemon answers, and prefers docker.
 
-Both engines implement the same internal interface, `cri.Runtime`. Podman's command is compatible with Docker's, so the two implementations match method for method. With `--engine podman`, a [`builtin:kubernetes`]({{< relref "/docs/reference/steps/kubernetes" >}}) cluster runs on Podman. The `kind` driver does this through kind's experimental `KIND_EXPERIMENTAL_PROVIDER` setting, which kevin sets.
+Both engines implement the same internal interface, `cri.Runtime`. Podman's command is compatible with Docker's, so the two implementations match method for method. With `--engine podman`, a [`builtin:kubernetes`]({{< relref "/docs/reference/steps/kubernetes" >}}) cluster runs on Podman. The `kind` driver does this through kind's experimental `KIND_EXPERIMENTAL_PROVIDER` setting, which kevin sets. The `k3d` driver supports Docker only.
+
 ## Labels instead of a state file
 
 Each container has three labels. Each value includes the value of the label before it:

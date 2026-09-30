@@ -174,6 +174,12 @@ func TestPodAndServiceCIDRs(t *testing.T) {
 		assert.Equal(t, []string{"10.244.0.0/16", "10.96.0.0/12"}, got)
 	})
 
+	t.Run("a driver that knows its subnets skips kubeadm-config", func(t *testing.T) {
+		got, err := podAndServiceCIDRs(t.Context(), &k3dDriver{})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"10.42.0.0/16", "10.43.0.0/16"}, got)
+	})
+
 	t.Run("kubectl failing is an error", func(t *testing.T) {
 		drv := fakeDriver{kubectl: func(context.Context, ...string) (string, error) {
 			return "", errors.New("exec: no such container")

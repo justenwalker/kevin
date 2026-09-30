@@ -29,7 +29,9 @@ Docker Desktop on macOS and Windows runs the daemon in a virtual machine, and th
 
 ## Name resolution in Kubernetes clusters
 
-The `kind` driver changes the cluster's CoreDNS configuration to forward the environment domain to the relay, then restart CoreDNS. A pod resolves `<name>.<domain>` through the cluster DNS, with no proxy settings of its own.
+The `kind` and `k3d` drivers each change the cluster's CoreDNS configuration to forward the environment domain to the relay, then restart CoreDNS.
+
+k3d clusters get the zone through the `coredns-custom` configmap, because k3s restores any edit to the `coredns` configmap. A pod resolves `<name>.<domain>` through the cluster DNS, with no proxy settings of its own.
 
 A pod's request to a route then crosses two hops on the host: the pod connects to the relay over the project network, the relay forwards to the proxy on the host, and the proxy connects to the step's published port.
 
@@ -67,7 +69,7 @@ Most clients do not speak SOCKS5. For each relay `ExposedPort`, from any plugin,
 
 ### Cluster relay pods
 
-A `builtin:kubernetes` step's `expose` entries run a SOCKS5 relay as a pod in the cluster, from the `kevin-relay socks5-gateway` command. The host port mapping is fixed when the cluster is created, before `Up` knows which services exist. The `kind` driver uses `extraPortMappings`. One relay pod needs one host port, whatever the number of services. `Up` chooses the port and adds the port mapping to the control-plane node. It then loads the relay image into the node and applies the pod with `kubectl` inside the node.
+A `builtin:kubernetes` step's `expose` entries run a SOCKS5 relay as a pod in the cluster, from the `kevin-relay socks5-gateway` command. The host port mapping is fixed when the cluster is created, before `Up` knows which services exist. The `kind` driver uses `extraPortMappings`. The `k3d` driver uses `--port` with a filter for the server node. Both bind the port to `127.0.0.1`. One relay pod needs one host port, whatever the number of services. `Up` chooses the port and adds the port mapping to the control-plane node. It then loads the relay image into the node and applies the pod with `kubectl` inside the node.
 
 `Up` does not wait for an `expose` address to accept connections. The target usually comes from a manifest applied after the cluster starts. A [`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}) `tcp` check can dial the `expose_<name>` value to wait for it.
 
@@ -77,7 +79,7 @@ A `builtin:container` `expose` entry with `relay: true` uses the project relay's
 
 ### UDP
 
-SOCKS5 UDP `ASSOCIATE` (RFC 1928 section 7) normally binds a random port, which is known only after the relay container or pod exists, too late to publish it. `kevin-relay` binds a port from a fixed pool instead. The pool is `KEVIN_RELAY_UDP_POOL_SIZE` ports (default 16), published by the relay container, or reserved as host ports on a kind node. When the pool is full, a new session fails immediately. A size of `0` reserves no ports.
+SOCKS5 UDP `ASSOCIATE` (RFC 1928 section 7) normally binds a random port, which is known only after the relay container or pod exists, too late to publish it. `kevin-relay` binds a port from a fixed pool instead. The pool is `KEVIN_RELAY_UDP_POOL_SIZE` ports (default 16), published by the relay container, or reserved as host ports on a kind or k3d node. When the pool is full, a new session fails immediately. A size of `0` reserves no ports.
 
 Each UDP `ExposedPort` carries `RelayUdpAddrs`, which maps each pool port to its address on the host. The `ASSOCIATE` reply names a pool port, and kevin's local forward looks up the address there. RFC 1928 ties a session to its TCP control connection, so if that connection drops, kevin closes the local listener.
 
@@ -107,7 +109,7 @@ Faults apply to the interface, so they affect all traffic, whether or not it goe
 
 To change another container's network namespace, the relay container has `CAP_NET_ADMIN` (to add rules), `CAP_SYS_ADMIN` (to enter the namespace), and `CAP_SYS_PTRACE`, and shares the host PID namespace (`--pid host`). It opens a target's namespace at `/proc/<pid>/ns/net`, from the PID that `docker inspect` reports.
 
-kevin does not use a bind mount of `/var/run/docker/netns`, because on OrbStack a namespace file created after the mount can be read, but entering it fails with `EINVAL`. `/proc/<pid>/ns/net` always shows the current host PID namespace, so start order does not matter. `CAP_SYS_PTRACE` is needed to open the namespace of a `--privileged` container, such as a kind node, because the kernel marks its processes non-dumpable.
+kevin does not use a bind mount of `/var/run/docker/netns`, because on OrbStack a namespace file created after the mount can be read, but entering it fails with `EINVAL`. `/proc/<pid>/ns/net` always shows the current host PID namespace, so start order does not matter. `CAP_SYS_PTRACE` is needed to open the namespace of a `--privileged` container, such as a kind or k3d node, because the kernel marks its processes non-dumpable.
 
 These capabilities let a compromised relay enter the namespace of any process on the host. The relay acts only on paths that kevin sends over the mTLS control channel, which limits this in practice. kevin accepts this risk for its threat model: one local developer, whose kevin CA can already read the project's TLS traffic.
 

@@ -22,7 +22,7 @@ cluster: {
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `driver` | `"kind"` | - | **Required.** The tool that creates the cluster: `"kind"`. |
+| `driver` | `"kind"` \| `"k3d"` | - | **Required.** The tool that creates the cluster: `"kind"` or `"k3d"`. |
 | `name` | `string` | - | The cluster name. Defaults to `"<project>-<step>"`. |
 | `workers` | `[string]: #NodeConfig` | - | Creates one worker node for each key, in addition to the control-plane node. The key names the node: kevin sets it as the `"kevin.node"` node label, and builtin:fault accepts it in containers. Each value takes the node settings described for `"#NodeConfig"`. |
 | `wait` | `string` | `"5m"` | How long to wait for the control plane to become ready, such as `"5m"`. |
@@ -34,12 +34,14 @@ cluster: {
 | `expose` | `[string]: #Expose` | - | Makes an address inside the cluster, such as a Service DNS name and port, reachable from the host through a relay pod. The key names the entry in the console. The step does not wait for the address to accept connections: use a builtin:wait step with the `"expose_<name>"` system value. |
 | `relay` | `bool` | `false` | Deploys the relay pod even when expose is empty, and sets the relay_addr output. Use it with builtin:route to give a Service in the cluster a name on the environment domain. |
 | `kind` | `#Kind` | - | Holds the settings that only the `"kind"` driver has. |
+| `k3d` | `#K3d` | - | Holds the settings that only the `"k3d"` driver has. |
 
 ## Drivers
 
 | Driver | Command on the host |
 |:-------|:--------------------|
 | `kind` | [`kind`](https://kind.sigs.k8s.io/) |
+| `k3d` | [`k3d`](https://k3d.io/) |
 
 ## `#Kind`
 
@@ -49,9 +51,15 @@ cluster: {
 | `control_plane` | `#NodeConfig` | - | Adds kind node settings to the control-plane node, with kind's field names, such as extraMounts or kubeadmConfigPatches (see https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options). labels and extraPortMappings add to the values kevin sets. The `"kevin.node"` label and role cannot be set. |
 | `config` | `string` | - | A complete kind cluster configuration in YAML. It replaces the configuration kevin generates: control_plane and workers have no effect. |
 
+## `#K3d`
+
+| Field | Type | Default | Description |
+|:------|:----:|:-------:|:------------|
+| `image` | `string` | - | The k3s image, such as `"rancher/k3s:v1.34.1-k3s1"`. Unset uses the default of the installed k3d version. |
+
 ## `#NodeConfig`
 
-`kind.control_plane` and each `workers` value take node settings. The `kind` driver accepts kind's [per-node options](https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options), with kind's field names. For example:
+`kind.control_plane` and each `workers` value take node settings. The `kind` driver accepts kind's [per-node options](https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options), with kind's field names. The `k3d` driver accepts none, so write each `workers` value as `{}`. For example, with `kind`:
 
 ```cue
 cluster: {
@@ -86,7 +94,7 @@ The control-plane node has the label `kevin.node: control-plane`.
 |:----|:------|
 | `name` | Cluster name. |
 | `kubeconfig` | Absolute path of the kubeconfig file. |
-| `context` | kubeconfig context. `kind-<name>` for the `kind` driver. |
+| `context` | kubeconfig context. `kind-<name>` for the `kind` driver, `k3d-<name>` for the `k3d` driver. |
 | `nodes` | Comma-separated node names. |
 | `relay_addr` | Host address of the relay pod, when `relay` is `true` or `expose` has entries. Use it with a [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step. |
 
@@ -105,4 +113,7 @@ For each `expose` entry:
 - The step deletes the cluster on teardown.
 - The step supports export: a `setup.<step>` need or a command can read `name`, `kubeconfig`, `context`, and `relay_addr`.
 - Each node is a container that [`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}}) can target by its `workers` key, or by `control-plane` for the control-plane node.
+- The `k3d` driver needs Docker: it does not support the `podman` engine. It publishes the API server and relay ports on `127.0.0.1` only.
+- The `k3d` nodes pull the k3s system images, such as `rancher/mirrored-pause`, while the cluster starts. This step's `egress` applies later, so `proxy.egress.allow` must cover those registries when `proxy.egress.deny` is `true`.
+- With the `k3d` driver, `trust_ca` mounts the kevin root certificate into each node at cluster creation. The step replaces a cluster whose certificate no longer matches.
 - Each node also joins the project network. See [The project network]({{< relref "/docs/concepts/container-engine" >}}#the-project-network).
