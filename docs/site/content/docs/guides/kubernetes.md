@@ -63,6 +63,23 @@ cluster: {
 }
 ```
 
+## Mount a host directory into the nodes
+
+List the directory in `mounts`. It appears in every node, including the workers:
+
+```cue
+cluster: {
+    uses: "builtin:kubernetes"
+    with: {
+        driver:  "kind"
+        workers: worker_a: {}
+        mounts: [{host: "src", container: "/workspace"}]
+    }
+}
+```
+
+A relative `host` path is relative to the project directory. Add `readonly: true` to mount it read-only. See the [`builtin:kubernetes` reference]({{< relref "/docs/reference/steps/kubernetes" >}}#mount) for the fields.
+
 ## Deploy workloads
 
 See [Deploying workloads]({{< relref "deploying-workloads" >}}).

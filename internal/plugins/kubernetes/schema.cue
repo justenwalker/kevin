@@ -46,6 +46,9 @@
 	// cluster a name on the environment domain.
 	relay?: bool | *false
 
+	// mounts makes host paths visible in every node of the cluster.
+	mounts?: [...#Mount]
+
 	// kind holds the settings that only the "kind" driver has.
 	kind?: #Kind
 
@@ -58,6 +61,19 @@
 	if driver == "k3d" {
 		kind?: _|_
 	}
+}
+
+// #Mount is one host path that every node sees.
+#Mount: {
+	// host is the path on your machine. A relative path is relative to the
+	// project directory.
+	host!: string
+
+	// container is the path inside each node.
+	container!: string
+
+	// readonly mounts the path read-only.
+	readonly?: bool
 }
 
 // #Kind is the settings of the kind driver.

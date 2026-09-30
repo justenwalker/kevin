@@ -443,3 +443,30 @@ func ensureRelayImage(t *testing.T) {
 		t.Skip("cannot build the relay image:", err, string(out))
 	}
 }
+
+// TestKindMounts proves that a mount reaches every node of a kind cluster,
+// the control plane and a worker.
+func TestKindMounts(t *testing.T) {
+	requireDocker(t)
+	requireKind(t)
+
+	hostDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(hostDir, "probe.txt"), []byte("from the host"), 0o600))
+
+	env := plugin.Env{Project: "kind-mounts-it", Workspace: t.TempDir()}
+	config := []byte(fmt.Sprintf(`{"driver":"kind","workers":{"worker":{}},"coredns":false,"trust_ca":false,"mounts":[{"host":%q,"container":"/mnt/host"}]}`, hostDir))
+	t.Cleanup(func() {
+		_ = Step{}.Down(context.WithoutCancel(t.Context()), &plugin.DownRequest{Step: "cluster", Env: env, Config: config}, &capture{})
+	})
+
+	res, err := Step{}.Up(t.Context(), &plugin.UpRequest{Step: "cluster", Env: env, Config: config}, &capture{})
+	require.NoError(t, err)
+
+	nodes := strings.Split(res.Outputs["nodes"].Reveal(), ",")
+	require.Len(t, nodes, 2)
+	for _, node := range nodes {
+		out, execErr := dockerClient.Exec(t.Context(), node, "cat", "/mnt/host/probe.txt")
+		require.NoError(t, execErr, "node %s", node)
+		assert.Equal(t, "from the host", strings.TrimSpace(out), "node %s", node)
+	}
+}

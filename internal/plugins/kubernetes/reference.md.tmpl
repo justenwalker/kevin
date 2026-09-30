@@ -37,6 +37,10 @@ cluster: {
 
 [[template "table" .Definitions.K3d]]
 
+## `#Mount`
+
+[[template "table" .Definitions.Mount]]
+
 ## `#NodeConfig`
 
 `kind.control_plane` and each `workers` value take node settings. The `kind` driver accepts kind's [per-node options](https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options), with kind's field names. The `k3d` driver accepts none, so write each `workers` value as `{}`. For example, with `kind`:
@@ -92,5 +96,6 @@ For each `expose` entry:
 - The `k3d` driver runs on the `docker` and `podman` engines.
 - The `k3d` driver publishes the API server and relay ports on `127.0.0.1` only.
 - The `k3d` nodes pull the k3s system images, such as `rancher/mirrored-pause`, while the cluster starts. This step's `egress` applies later, so `proxy.egress.allow` must cover those registries when `proxy.egress.deny` is `true`.
+- `mounts` applies to every node. With the `kind` driver, `kind.config` replaces the generated configuration, so `mounts` has no effect.
 - With the `k3d` driver, `trust_ca` mounts the kevin root certificate into each node at cluster creation. The step replaces a cluster whose certificate no longer matches.
 - Each node also joins the project network. See [The project network]({{< relref "/docs/concepts/container-engine" >}}#the-project-network).

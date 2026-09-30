@@ -29,6 +29,26 @@ type config struct {
 	Relay   bool                      `json:"relay"`
 	Kind    kindConfig                `json:"kind"`
 	K3d     k3dConfig                 `json:"k3d"`
+	Mounts  []mount                   `json:"mounts"`
+}
+
+// mount is one entry of the with block's mounts list: a host path that
+// every node of the cluster sees.
+type mount struct {
+	Host      string `json:"host"`
+	Container string `json:"container"`
+	ReadOnly  bool   `json:"readonly"`
+}
+
+// resolveMounts returns mounts with each relative host path resolved against
+// projectDir.
+func resolveMounts(mounts []mount, projectDir string) []mount {
+	resolved := make([]mount, len(mounts))
+	for i, m := range mounts {
+		m.Host = resolvePath(m.Host, projectDir)
+		resolved[i] = m
+	}
+	return resolved
 }
 
 // kindConfig is the with block's kind field: the settings that only the

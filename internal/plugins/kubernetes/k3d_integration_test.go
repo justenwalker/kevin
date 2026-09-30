@@ -5,9 +5,11 @@ package kubernetes
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -33,9 +35,15 @@ const k3dDomain = "kevin.home"
 // k3dStepName is the step name that the suite passes to Up and Down.
 const k3dStepName = "cluster"
 
-// k3dConfigJSON is the with block of the suite cluster: one worker, and a
-// relay for the API server.
-const k3dConfigJSON = `{"driver":"k3d","workers":{"worker":{}},"expose":{"apiserver":{"address":"kubernetes.default.svc:443"}}}`
+// k3dMountPath is where the suite mounts a host directory in every node.
+const k3dMountPath = "/mnt/host"
+
+// configJSON is the with block of the suite cluster: one worker, a relay for
+// the API server, and a host directory mounted in every node.
+func (s *K3dSuite) configJSON() string {
+	return fmt.Sprintf(`{"driver":"k3d","workers":{"worker":{}},"expose":{"apiserver":{"address":"kubernetes.default.svc:443"}},"mounts":[{"host":%q,"container":%q,"readonly":true}]}`,
+		s.mountDir, k3dMountPath)
+}
 
 // K3dSuite drives one k3d cluster against a real docker daemon. The suite
 // creates a single cluster and asserts everything against it.
@@ -48,6 +56,7 @@ type K3dSuite struct {
 	relay       *relay.Relay
 	clusterName string
 	kubeconfig  string
+	mountDir    string
 	up          *plugin.Result
 }
 
@@ -103,10 +112,12 @@ func (s *K3dSuite) SetupSuite() {
 	s.relay = r
 
 	s.workspace = t.TempDir()
+	s.mountDir = t.TempDir()
+	s.Require().NoError(os.WriteFile(filepath.Join(s.mountDir, "probe.txt"), []byte("from the host"), 0o600))
 	res, err := Step{}.Up(t.Context(), &plugin.UpRequest{
 		Step:   k3dStepName,
 		Env:    s.env(),
-		Config: []byte(k3dConfigJSON),
+		Config: []byte(s.configJSON()),
 	}, &capture{})
 	s.Require().NoError(err, "Up must create the cluster")
 	s.up = res
@@ -124,7 +135,7 @@ func (s *K3dSuite) TearDownSuite() {
 		downErr := Step{}.Down(t.Context(), &plugin.DownRequest{
 			Step:   k3dStepName,
 			Env:    plugin.Env{Project: k3dProject, Workspace: s.workspace},
-			Config: []byte(k3dConfigJSON),
+			Config: []byte(s.configJSON()),
 		}, &capture{})
 		s.NoError(downErr, "Down must remove the cluster without error")
 		if downErr != nil {
@@ -268,6 +279,20 @@ func (s *K3dSuite) TestNodeHoldsTheKevinRoot() {
 	}
 }
 
+// TestMountsReachEveryNode proves that the mounted host directory is visible
+// in the server and the agent, and read-only.
+func (s *K3dSuite) TestMountsReachEveryNode() {
+	t := s.T()
+	for _, node := range s.nodeList() {
+		out, err := dockerClient.Exec(t.Context(), node, "cat", k3dMountPath+"/probe.txt")
+		s.Require().NoError(err, "node %s", node)
+		s.Equal("from the host", strings.TrimSpace(out), "node %s", node)
+
+		_, err = dockerClient.Exec(t.Context(), node, "touch", k3dMountPath+"/written")
+		s.Error(err, "node %s must see the mount read-only", node)
+	}
+}
+
 // TestExposeReachesTheAPIServerThroughSOCKS5 proves that the relay lets a
 // client outside the cluster reach an in-cluster address, with a worker in
 // the cluster.
@@ -301,7 +326,7 @@ func (s *K3dSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 	_, err = Step{}.Up(t.Context(), &plugin.UpRequest{
 		Step:   k3dStepName,
 		Env:    s.env(),
-		Config: []byte(k3dConfigJSON),
+		Config: []byte(s.configJSON()),
 	}, out)
 	s.Require().NoError(err)
 

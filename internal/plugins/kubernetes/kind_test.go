@@ -102,6 +102,7 @@ type kindNodeYAML struct {
 type kindMountYAML struct {
 	HostPath      string `yaml:"hostPath"`
 	ContainerPath string `yaml:"containerPath"`
+	ReadOnly      bool   `yaml:"readOnly"`
 }
 
 type kindPortMapYAML struct {
@@ -164,6 +165,53 @@ func TestClusterConfig(t *testing.T) {
 			names[i] = n.Labels[nodeLabelKey]
 		}
 		assert.ElementsMatch(t, []string{"control-plane", "worker_a", "worker_b"}, names)
+	})
+
+	t.Run("mounts reach every node", func(t *testing.T) {
+		cfg := config{
+			Workers: map[string]map[string]any{"a": {}, "b": {}},
+			Mounts:  []mount{{Host: "/src", Container: "/workspace"}, {Host: "/data", Container: "/data", ReadOnly: true}},
+		}
+
+		text, err := clusterConfig(cfg, clusterrelay.Ports{})
+		require.NoError(t, err)
+
+		doc := parseClusterConfig(t, text)
+		require.Len(t, doc.Nodes, 3)
+		for _, node := range doc.Nodes {
+			assert.Equal(t, []kindMountYAML{
+				{HostPath: "/src", ContainerPath: "/workspace"},
+				{HostPath: "/data", ContainerPath: "/data", ReadOnly: true},
+			}, node.ExtraMounts, "node %s", node.Role)
+		}
+	})
+
+	t.Run("mounts come before the extraMounts of a node config", func(t *testing.T) {
+		cfg := config{
+			Mounts: []mount{{Host: "/src", Container: "/workspace"}},
+			Kind: kindConfig{ControlPlane: map[string]any{
+				"extraMounts": []any{map[string]any{"hostPath": "/extra", "containerPath": "/extra"}},
+			}},
+		}
+
+		text, err := clusterConfig(cfg, clusterrelay.Ports{})
+		require.NoError(t, err)
+
+		doc := parseClusterConfig(t, text)
+		assert.Equal(t, []kindMountYAML{
+			{HostPath: "/src", ContainerPath: "/workspace"},
+			{HostPath: "/extra", ContainerPath: "/extra"},
+		}, doc.Nodes[0].ExtraMounts)
+	})
+
+	t.Run("an extraMounts value shaped unlike a list is an error", func(t *testing.T) {
+		cfg := config{
+			Mounts: []mount{{Host: "/src", Container: "/workspace"}},
+			Kind:   kindConfig{ControlPlane: map[string]any{"extraMounts": "not-a-list"}},
+		}
+
+		_, err := clusterConfig(cfg, clusterrelay.Ports{})
+		require.ErrorIs(t, err, ErrInvalidNodeField)
 	})
 
 	t.Run("prefers an explicit config", func(t *testing.T) {

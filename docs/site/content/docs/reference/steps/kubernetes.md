@@ -33,6 +33,7 @@ cluster: {
 | `trust_ca` | `bool` | `true` | Installs the kevin root certificate in every node, so that image pulls through the kevin proxy succeed. |
 | `expose` | `[string]: #Expose` | - | Makes an address inside the cluster, such as a Service DNS name and port, reachable from the host through a relay pod. The key names the entry in the console. The step does not wait for the address to accept connections: use a builtin:wait step with the `"expose_<name>"` system value. |
 | `relay` | `bool` | `false` | Deploys the relay pod even when expose is empty, and sets the relay_addr output. Use it with builtin:route to give a Service in the cluster a name on the environment domain. |
+| `mounts` | `[...#Mount]` | - | Makes host paths visible in every node of the cluster. |
 | `kind` | `#Kind` | - | Holds the settings that only the `"kind"` driver has. |
 | `k3d` | `#K3d` | - | Holds the settings that only the `"k3d"` driver has. |
 
@@ -56,6 +57,14 @@ cluster: {
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
 | `image` | `string` | - | The k3s image, such as `"rancher/k3s:v1.34.1-k3s1"`. Unset uses the default of the installed k3d version. |
+
+## `#Mount`
+
+| Field | Type | Default | Description |
+|:------|:----:|:-------:|:------------|
+| `host` | `string` | - | **Required.** The path on your machine. A relative path is relative to the project directory. |
+| `container` | `string` | - | **Required.** The path inside each node. |
+| `readonly` | `bool` | - | Mounts the path read-only. |
 
 ## `#NodeConfig`
 
@@ -116,5 +125,6 @@ For each `expose` entry:
 - The `k3d` driver runs on the `docker` and `podman` engines.
 - The `k3d` driver publishes the API server and relay ports on `127.0.0.1` only.
 - The `k3d` nodes pull the k3s system images, such as `rancher/mirrored-pause`, while the cluster starts. This step's `egress` applies later, so `proxy.egress.allow` must cover those registries when `proxy.egress.deny` is `true`.
+- `mounts` applies to every node. With the `kind` driver, `kind.config` replaces the generated configuration, so `mounts` has no effect.
 - With the `k3d` driver, `trust_ca` mounts the kevin root certificate into each node at cluster creation. The step replaces a cluster whose certificate no longer matches.
 - Each node also joins the project network. See [The project network]({{< relref "/docs/concepts/container-engine" >}}#the-project-network).

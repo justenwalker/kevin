@@ -329,6 +329,9 @@ Add `kind: control_plane: extraMounts: [{hostPath: "/tmp/some-dir", containerPat
       directory's contents - a bind mount into the node, generated
       alongside the relay's `extraPortMappings` in the same config, not a
       replacement for it.
+- [ ] `mounts: [{host: "/tmp/some-dir", container: "/host-src"}]` in the same
+      `with` block shows the same directory in every node, workers included,
+      with any `control_plane` `extraMounts` kept after it.
 - [ ] Setting `kind: config:` (a raw kind config) at the same time makes
       `kind: control_plane` and `workers` both a no-op, the same way it already
       is for the generated node list - write the mount into the raw config

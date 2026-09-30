@@ -9,6 +9,18 @@ import (
 	"github.com/justenwalker/kevin/plugin"
 )
 
+func TestResolveMounts(t *testing.T) {
+	in := []mount{{Host: "src", Container: "/workspace"}, {Host: "/abs", Container: "/abs", ReadOnly: true}}
+
+	got := resolveMounts(in, "/proj")
+
+	assert.Equal(t, []mount{
+		{Host: "/proj/src", Container: "/workspace"},
+		{Host: "/abs", Container: "/abs", ReadOnly: true},
+	}, got)
+	assert.Equal(t, "src", in[0].Host, "the input is left alone")
+}
+
 func TestDecode(t *testing.T) {
 	t.Run("defaults", func(t *testing.T) {
 		cfg, err := decode(nil)
@@ -67,6 +79,16 @@ func TestDecode(t *testing.T) {
 
 		assert.Equal(t, "k3d", cfg.Driver)
 		assert.Equal(t, "rancher/k3s:v1.34.1-k3s1", cfg.K3d.Image)
+	})
+
+	t.Run("reads mounts", func(t *testing.T) {
+		cfg, err := decode([]byte(`{"mounts":[{"host":"src","container":"/workspace"},{"host":"/d","container":"/d","readonly":true}]}`))
+		require.NoError(t, err)
+
+		assert.Equal(t, []mount{
+			{Host: "src", Container: "/workspace"},
+			{Host: "/d", Container: "/d", ReadOnly: true},
+		}, cfg.Mounts)
 	})
 
 	t.Run("reads workers", func(t *testing.T) {

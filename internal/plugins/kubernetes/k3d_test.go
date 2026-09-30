@@ -83,6 +83,20 @@ func TestK3dDriverCreateSpec(t *testing.T) {
 		d.cfg.TrustCA = false
 		assert.Nil(t, d.createSpec(createSpec{}).Volumes)
 	})
+
+	t.Run("mounts reach every node, with relative paths resolved", func(t *testing.T) {
+		d.cfg.TrustCA = false
+		d.env.ProjectDir = "/proj"
+		d.cfg.Mounts = []mount{
+			{Host: "src", Container: "/workspace"},
+			{Host: "/data", Container: "/data", ReadOnly: true},
+		}
+
+		assert.Equal(t, []string{
+			"/proj/src:/workspace@server:*;agent:*",
+			"/data:/data:ro@server:*;agent:*",
+		}, d.createSpec(createSpec{}).Volumes)
+	})
 }
 
 func TestK3dPortFlags(t *testing.T) {

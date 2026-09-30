@@ -123,6 +123,13 @@ func (d *k3dDriver) createSpec(spec createSpec) k3dcmd.CreateSpec {
 	if d.mountsCA() {
 		create.Volumes = []string{d.env.CAPath + ":" + k3dCAPath + "@server:*;agent:*"}
 	}
+	for _, m := range resolveMounts(d.cfg.Mounts, d.env.ProjectDir) {
+		volume := m.Host + ":" + m.Container
+		if m.ReadOnly {
+			volume += ":ro"
+		}
+		create.Volumes = append(create.Volumes, volume+"@server:*;agent:*")
+	}
 	for i, worker := range d.workers() {
 		create.NodeLabels = append(create.NodeLabels, fmt.Sprintf("%s=%s@agent:%d", nodeLabelKey, worker, i))
 	}

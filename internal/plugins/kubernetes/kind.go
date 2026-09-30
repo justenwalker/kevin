@@ -41,6 +41,7 @@ func newKindDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.R
 	for _, w := range cfg.Workers {
 		resolveMountPaths(w, env.ProjectDir)
 	}
+	cfg.Mounts = resolveMounts(cfg.Mounts, env.ProjectDir)
 	return &kindDriver{cfg: cfg, env: env, name: name, kubeconfig: kubeconfig, rt: rt}
 }
 
@@ -246,9 +247,9 @@ func kubectlArgs(args []string) []string {
 // passthrough (ErrReservedNodeField if passthrough sets it - it's
 // structural, not configurable); labels combine, with nodeLabelKey reserved
 // the same way (ErrReservedNodeField if passthrough's own labels sets it);
-// extraPortMappings combine by concatenation, kevin's own entries first;
-// every other passthrough key copies through unchanged.
-func buildNode(role string, kevinLabels map[string]string, kevinPortMappings []map[string]any, passthrough map[string]any) (map[string]any, error) {
+// extraPortMappings and extraMounts combine by concatenation, kevin's own
+// entries first; every other passthrough key copies through unchanged.
+func buildNode(role string, kevinLabels map[string]string, kevinPortMappings, kevinMounts []map[string]any, passthrough map[string]any) (map[string]any, error) {
 	if _, ok := passthrough["role"]; ok {
 		return nil, fmt.Errorf("kubernetes: kind: node config: %w: %q", ErrReservedNodeField, "role")
 	}
@@ -290,12 +291,43 @@ func buildNode(role string, kevinLabels map[string]string, kevinPortMappings []m
 		node["extraPortMappings"] = merged
 	}
 
+	if len(kevinMounts) > 0 {
+		merged := make([]any, 0, len(kevinMounts))
+		for _, m := range kevinMounts {
+			merged = append(merged, m)
+		}
+		if raw, ok := passthrough["extraMounts"]; ok {
+			userMounts, ok := raw.([]any)
+			if !ok {
+				return nil, fmt.Errorf("kubernetes: kind: node config: extraMounts: %w", ErrInvalidNodeField)
+			}
+			merged = append(merged, userMounts...)
+		}
+		node["extraMounts"] = merged
+	}
+
 	return node, nil
+}
+
+// kindMounts renders mounts as kind extraMounts entries.
+func kindMounts(mounts []mount) []map[string]any {
+	entries := make([]map[string]any, 0, len(mounts))
+	for _, m := range mounts {
+		entries = append(entries, map[string]any{
+			"hostPath":      m.Host,
+			"containerPath": m.Container,
+			"readOnly":      m.ReadOnly,
+		})
+	}
+	return entries
 }
 
 // clusterConfig returns the kind configuration for a step. An explicit
 // config wins over the generated one, thus a hand-written config is on its
-// own for extraPortMappings too, the same as it already is for workers.
+// own for extraPortMappings and mounts too, the same as it already is for
+// workers.
+//
+// cfg.Mounts adds an extraMounts entry to every node.
 //
 // ports, when set, adds an extraPortMappings entry per reserved port to
 // the control-plane node - one for the TCP relay gateway, one per UDP
@@ -326,7 +358,8 @@ func clusterConfig(cfg config, ports clusterrelay.Ports) (string, error) {
 		})
 	}
 
-	controlPlane, err := buildNode("control-plane", map[string]string{nodeLabelKey: controlPlaneNodeName}, relayMappings, cfg.Kind.ControlPlane)
+	mounts := kindMounts(cfg.Mounts)
+	controlPlane, err := buildNode("control-plane", map[string]string{nodeLabelKey: controlPlaneNodeName}, relayMappings, mounts, cfg.Kind.ControlPlane)
 	if err != nil {
 		return "", err
 	}
@@ -334,7 +367,7 @@ func clusterConfig(cfg config, ports clusterrelay.Ports) (string, error) {
 
 	for _, name := range slices.Sorted(maps.Keys(cfg.Workers)) {
 		var worker map[string]any
-		worker, err = buildNode("worker", map[string]string{nodeLabelKey: name}, nil, cfg.Workers[name])
+		worker, err = buildNode("worker", map[string]string{nodeLabelKey: name}, nil, mounts, cfg.Workers[name])
 		if err != nil {
 			return "", err
 		}
