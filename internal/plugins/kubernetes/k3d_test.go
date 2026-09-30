@@ -28,11 +28,6 @@ func TestNewK3dDriver(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("the podman engine is an error", func(t *testing.T) {
-		_, err := newK3dDriver(config{}, plugin.Env{Engine: "podman"}, "demo-cluster", "/kubeconfig", nil)
-		require.ErrorIs(t, err, ErrK3dPodman)
-	})
-
 	t.Run("a worker with node settings is an error", func(t *testing.T) {
 		_, err := newDrv(config{Workers: map[string]map[string]any{"worker": {"image": "x"}}})
 		require.ErrorIs(t, err, ErrK3dWorkerSettings)
@@ -146,6 +141,64 @@ func TestK3dDriverFingerprint(t *testing.T) {
 	})
 }
 
+func TestK3dDriverDockerEnv(t *testing.T) {
+	t.Run("docker needs no variables", func(t *testing.T) {
+		d := &k3dDriver{env: plugin.Env{Engine: "docker"}}
+		got, err := d.dockerEnv(t.Context())
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("podman points DOCKER_HOST at the podman socket", func(t *testing.T) {
+		d := &k3dDriver{env: plugin.Env{Engine: "podman"}}
+		d.socket = func(context.Context) (string, error) { return "/run/podman/podman.sock", nil }
+
+		got, err := d.dockerEnv(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"DOCKER_HOST": "unix:///run/podman/podman.sock"}, got)
+	})
+
+	t.Run("a missing socket is an error", func(t *testing.T) {
+		d := &k3dDriver{env: plugin.Env{Engine: "podman"}}
+		d.socket = func(context.Context) (string, error) { return "", errors.New("no socket") }
+
+		_, err := d.dockerEnv(t.Context())
+		require.Error(t, err)
+	})
+
+	t.Run("every k3d call gets the variables", func(t *testing.T) {
+		want := map[string]string{"DOCKER_HOST": "unix:///run/podman/podman.sock"}
+		d := &k3dDriver{env: plugin.Env{Engine: "podman"}, name: "demo", kubeconfig: "/kubeconfig"}
+		d.socket = func(context.Context) (string, error) { return "/run/podman/podman.sock", nil }
+		d.freePort = func(context.Context) (int, error) { return 6550, nil }
+		d.create = func(_ context.Context, spec k3dcmd.CreateSpec, _, _ io.Writer) error {
+			assert.Equal(t, want, spec.CommandEnv)
+			return nil
+		}
+		d.writeKubeconfig = func(_ context.Context, _, _ string, env map[string]string) error {
+			assert.Equal(t, want, env)
+			return nil
+		}
+		d.listNodes = func(_ context.Context, _ string, env map[string]string) ([]string, error) {
+			assert.Equal(t, want, env)
+			return []string{"k3d-demo-server-0"}, nil
+		}
+		d.deleteCluster = func(_ context.Context, _ string, env map[string]string, _ io.Writer) error {
+			assert.Equal(t, want, env)
+			return nil
+		}
+		d.importImage = func(_ context.Context, spec k3dcmd.ImageImportSpec, _ io.Writer) error {
+			assert.Equal(t, want, spec.CommandEnv)
+			return nil
+		}
+
+		_, err := d.createNodes(t.Context(), createSpec{}, &capture{})
+		require.NoError(t, err)
+		require.NoError(t, d.Delete(t.Context(), &capture{}))
+		require.NoError(t, d.LoadImage(t.Context(), "/tmp/relay.tar", &capture{}))
+	})
+}
+
 func TestK3dDriverNames(t *testing.T) {
 	d := &k3dDriver{name: "demo"}
 
@@ -158,7 +211,7 @@ func TestK3dDriverCreate(t *testing.T) {
 	stubbed := func(rt cri.Runtime) (*k3dDriver, *[]string) {
 		var calls []string
 		d := &k3dDriver{name: "demo", kubeconfig: "/kubeconfig", rt: rt}
-		d.deleteCluster = func(context.Context, string, io.Writer) error {
+		d.deleteCluster = func(context.Context, string, map[string]string, io.Writer) error {
 			calls = append(calls, "delete")
 			return nil
 		}
@@ -168,13 +221,13 @@ func TestK3dDriverCreate(t *testing.T) {
 			calls = append(calls, "create")
 			return nil
 		}
-		d.writeKubeconfig = func(_ context.Context, name, path string) error {
+		d.writeKubeconfig = func(_ context.Context, name, path string, _ map[string]string) error {
 			assert.Equal(t, "demo", name)
 			assert.Equal(t, "/kubeconfig", path)
 			calls = append(calls, "kubeconfig")
 			return nil
 		}
-		d.listNodes = func(context.Context, string) ([]string, error) {
+		d.listNodes = func(context.Context, string, map[string]string) ([]string, error) {
 			return []string{"k3d-demo-server-0"}, nil
 		}
 		return d, &calls
@@ -232,7 +285,7 @@ func TestK3dDriverCreate(t *testing.T) {
 
 	t.Run("a cluster with no nodes is an error", func(t *testing.T) {
 		d, _ := stubbed(fakeRuntime{})
-		d.listNodes = func(context.Context, string) ([]string, error) { return nil, nil }
+		d.listNodes = func(context.Context, string, map[string]string) ([]string, error) { return nil, nil }
 
 		_, err := d.Create(t.Context(), createSpec{}, &capture{})
 		require.ErrorIs(t, err, ErrNoNodes)
@@ -247,7 +300,7 @@ func TestK3dDriverDelete(t *testing.T) {
 			return nil
 		}}
 		d := &k3dDriver{name: "demo", rt: rt}
-		d.deleteCluster = func(context.Context, string, io.Writer) error { return nil }
+		d.deleteCluster = func(context.Context, string, map[string]string, io.Writer) error { return nil }
 
 		require.NoError(t, d.Delete(t.Context(), &capture{}))
 		assert.Equal(t, "kevin-k3d-demo", network)
@@ -255,14 +308,14 @@ func TestK3dDriverDelete(t *testing.T) {
 
 	t.Run("without a runtime it leaves the network", func(t *testing.T) {
 		d := &k3dDriver{name: "demo"}
-		d.deleteCluster = func(context.Context, string, io.Writer) error { return nil }
+		d.deleteCluster = func(context.Context, string, map[string]string, io.Writer) error { return nil }
 
 		require.NoError(t, d.Delete(t.Context(), &capture{}))
 	})
 
 	t.Run("a failing delete is an error", func(t *testing.T) {
 		d := &k3dDriver{name: "demo"}
-		d.deleteCluster = func(context.Context, string, io.Writer) error { return errors.New("delete failed") }
+		d.deleteCluster = func(context.Context, string, map[string]string, io.Writer) error { return errors.New("delete failed") }
 
 		require.Error(t, d.Delete(t.Context(), &capture{}))
 	})
@@ -316,7 +369,7 @@ func TestK3dDriverLoadImage(t *testing.T) {
 		}
 
 		require.NoError(t, d.LoadImage(t.Context(), "/tmp/relay.tar", &capture{}))
-		assert.Equal(t, k3dcmd.ImageImportSpec{Name: "demo", Path: "/tmp/relay.tar"}, got)
+		assert.Equal(t, k3dcmd.ImageImportSpec{Name: "demo", Path: "/tmp/relay.tar", CommandEnv: map[string]string{}}, got)
 	})
 
 	t.Run("a failing import is an error", func(t *testing.T) {
@@ -330,7 +383,9 @@ func TestK3dDriverLoadImage(t *testing.T) {
 func TestK3dDriverNodes(t *testing.T) {
 	t.Run("a failing list is an error", func(t *testing.T) {
 		d := &k3dDriver{name: "demo"}
-		d.listNodes = func(context.Context, string) ([]string, error) { return nil, errors.New("list failed") }
+		d.listNodes = func(context.Context, string, map[string]string) ([]string, error) {
+			return nil, errors.New("list failed")
+		}
 
 		_, err := d.Nodes(t.Context())
 		require.Error(t, err)

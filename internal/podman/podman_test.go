@@ -18,6 +18,27 @@ import (
 	"github.com/justenwalker/kevin/protos/pb"
 )
 
+func TestSocketPath(t *testing.T) {
+	t.Run("a plain path", func(t *testing.T) {
+		got, err := socketPath("/run/user/1000/podman/podman.sock\n")
+		require.NoError(t, err)
+		assert.Equal(t, "/run/user/1000/podman/podman.sock", got)
+	})
+
+	t.Run("a unix URI", func(t *testing.T) {
+		got, err := socketPath("unix:///run/podman/podman.sock\n")
+		require.NoError(t, err)
+		assert.Equal(t, "/run/podman/podman.sock", got)
+	})
+
+	t.Run("no socket", func(t *testing.T) {
+		for _, out := range []string{"", "\n", "<no value>\n"} {
+			_, err := socketPath(out)
+			require.ErrorIs(t, err, ErrNoSocket, "output %q", out)
+		}
+	})
+}
+
 func TestFriendlyRunErr(t *testing.T) {
 	spec := cri.RunSpec{Name: "web", Image: "acme/widget:latest"}
 	tests := []struct {

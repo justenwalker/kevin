@@ -4,6 +4,7 @@ package kubernetes
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"os"
 	"os/exec"
@@ -16,6 +17,7 @@ import (
 	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/k3dcmd"
+	"github.com/justenwalker/kevin/internal/podman"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/plugin"
@@ -126,9 +128,9 @@ func (s *K3dSuite) TearDownSuite() {
 		}, &capture{})
 		s.NoError(downErr, "Down must remove the cluster without error")
 		if downErr != nil {
-			_ = k3dcmd.Delete(ctx, s.clusterName, os.Stderr)
+			_ = k3dcmd.Delete(ctx, s.clusterName, nil, os.Stderr)
 		}
-		nodes, err := k3dcmd.GetNodes(ctx, s.clusterName)
+		nodes, err := k3dcmd.GetNodes(ctx, s.clusterName, nil)
 		s.NoError(err)
 		s.Empty(nodes, "Down must remove every node")
 		_, gwErr := dockerClient.NetworkGateway(ctx, "kevin-k3d-"+s.clusterName)
@@ -290,7 +292,7 @@ func (s *K3dSuite) TestExposeReachesTheAPIServerThroughSOCKS5() {
 // against an unchanged with block reuses the live cluster.
 func (s *K3dSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 	t := s.T()
-	before, err := k3dcmd.GetNodes(t.Context(), s.clusterName)
+	before, err := k3dcmd.GetNodes(t.Context(), s.clusterName, nil)
 	s.Require().NoError(err)
 	beforeInfo, err := dockerClient.Inspect(t.Context(), before[0])
 	s.Require().NoError(err)
@@ -303,13 +305,56 @@ func (s *K3dSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 	}, out)
 	s.Require().NoError(err)
 
-	after, err := k3dcmd.GetNodes(t.Context(), s.clusterName)
+	after, err := k3dcmd.GetNodes(t.Context(), s.clusterName, nil)
 	s.Require().NoError(err)
 	s.Equal(before, after)
 	afterInfo, err := dockerClient.Inspect(t.Context(), after[0])
 	s.Require().NoError(err)
 	s.Equal(beforeInfo.ID, afterInfo.ID, "reusing the cluster must not recreate its nodes")
 	s.Contains(strings.Join(out.stdout, "\n"), "reusing cluster")
+}
+
+// TestK3dOnPodman proves that the k3d driver runs the nodes on the podman
+// service under the podman engine, and that Down removes them.
+func TestK3dOnPodman(t *testing.T) {
+	requireK3d(t)
+	client := podman.Client{}
+	if err := client.Available(t.Context()); err != nil {
+		t.Skip("podman is unavailable:", err)
+	}
+
+	env := plugin.Env{Project: "k3d-podman-it", Workspace: t.TempDir(), Engine: "podman"}
+	config := []byte(`{"driver":"k3d","coredns":false,"trust_ca":false}`)
+	down := func() error {
+		return Step{}.Down(context.WithoutCancel(t.Context()),
+			&plugin.DownRequest{Step: k3dStepName, Env: env, Config: config}, &capture{})
+	}
+	t.Cleanup(func() { _ = down() })
+
+	res, err := Step{}.Up(t.Context(), &plugin.UpRequest{Step: k3dStepName, Env: env, Config: config}, &capture{})
+	if err != nil {
+		t.Fatalf("Up under podman: %v", err)
+	}
+
+	nodes := strings.Split(res.Outputs["nodes"].Reveal(), ",")
+	for _, node := range nodes {
+		info, inspectErr := client.Inspect(t.Context(), node)
+		if inspectErr != nil {
+			t.Fatalf("podman does not hold node %s: %v", node, inspectErr)
+		}
+		if !info.Running {
+			t.Errorf("node %s is not running", node)
+		}
+	}
+
+	if err = down(); err != nil {
+		t.Fatalf("Down under podman: %v", err)
+	}
+	for _, node := range nodes {
+		if _, inspectErr := client.Inspect(t.Context(), node); !errors.Is(inspectErr, cri.ErrNotFound) {
+			t.Errorf("node %s survived Down: %v", node, inspectErr)
+		}
+	}
 }
 
 func TestK3dDownIsIdempotent(t *testing.T) {

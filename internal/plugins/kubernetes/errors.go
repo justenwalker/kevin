@@ -46,10 +46,6 @@ const ErrInvalidNodeField = Error("kubernetes: kind: a node config passthrough f
 // which k3d has no create-time flag for.
 const ErrK3dWorkerSettings = Error("kubernetes: k3d: a worker takes no node settings")
 
-// ErrK3dPodman reports that the project's container engine is podman, which
-// the k3d driver does not support.
-const ErrK3dPodman = Error("kubernetes: k3d: the podman engine is not supported")
-
 // ErrNotTCPAddr reports that a TCP listener did not report a TCP address.
 const ErrNotTCPAddr = Error("kubernetes: the listener has no TCP address")
 

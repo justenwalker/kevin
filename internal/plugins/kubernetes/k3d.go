@@ -15,6 +15,7 @@ import (
 	"github.com/justenwalker/kevin/internal/clusterrelay"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/k3dcmd"
+	"github.com/justenwalker/kevin/internal/podman"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -45,23 +46,20 @@ type k3dDriver struct {
 	// The k3dcmd calls that Create, Delete and the reads make, held as values
 	// so that a test can stub them.
 	create          func(ctx context.Context, spec k3dcmd.CreateSpec, stdout, stderr io.Writer) error
-	deleteCluster   func(ctx context.Context, name string, stderr io.Writer) error
-	listNodes       func(ctx context.Context, name string) ([]string, error)
-	writeKubeconfig func(ctx context.Context, name, path string) error
+	deleteCluster   func(ctx context.Context, name string, env map[string]string, stderr io.Writer) error
+	listNodes       func(ctx context.Context, name string, env map[string]string) ([]string, error)
+	writeKubeconfig func(ctx context.Context, name, path string, env map[string]string) error
 	importImage     func(ctx context.Context, spec k3dcmd.ImageImportSpec, stderr io.Writer) error
 	freePort        func(ctx context.Context) (int, error)
+	socket          func(ctx context.Context) (string, error)
 }
 
 var _ driver = (*k3dDriver)(nil)
 
 // newK3dDriver returns the k3d driver for one cluster. It returns
-// [ErrK3dWorkerSettings] when a worker carries node settings, and
-// [ErrK3dPodman] under the podman engine. rt may be nil, and then Delete
-// leaves the network of the cluster in place.
+// [ErrK3dWorkerSettings] when a worker carries node settings. rt may be nil,
+// and then Delete leaves the network of the cluster in place.
 func newK3dDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.Runtime) (*k3dDriver, error) {
-	if env.Engine == enginePodman {
-		return nil, ErrK3dPodman
-	}
 	for worker, settings := range cfg.Workers {
 		if len(settings) > 0 {
 			return nil, fmt.Errorf("worker %q: %w", worker, ErrK3dWorkerSettings)
@@ -75,7 +73,21 @@ func newK3dDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.Ru
 		writeKubeconfig: k3dcmd.KubeconfigWrite,
 		importImage:     k3dcmd.ImageImport,
 		freePort:        freeLoopbackPort,
+		socket:          podman.Socket,
 	}, nil
+}
+
+// dockerEnv reports the DOCKER_HOST variable that points a k3d call at the
+// podman service, or nothing under docker.
+func (d *k3dDriver) dockerEnv(ctx context.Context) (map[string]string, error) {
+	if d.env.Engine != enginePodman {
+		return map[string]string{}, nil
+	}
+	socket, err := d.socket(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("kubernetes: k3d: %w", err)
+	}
+	return map[string]string{"DOCKER_HOST": "unix://" + socket}, nil
 }
 
 // network is the name of the docker network that the nodes of the cluster
@@ -152,7 +164,11 @@ func freeLoopbackPort(ctx context.Context) (int, error) {
 // Nodes lists the node containers of the cluster: the server, then the
 // agents.
 func (d *k3dDriver) Nodes(ctx context.Context) ([]string, error) {
-	nodes, err := d.listNodes(ctx, d.name)
+	env, err := d.dockerEnv(ctx)
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := d.listNodes(ctx, d.name, env)
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: k3d: list the nodes of %q: %w", d.name, err)
 	}
@@ -223,11 +239,14 @@ func (d *k3dDriver) createNodes(ctx context.Context, spec createSpec, out plugin
 		return nil, fmt.Errorf("kubernetes: k3d: pick a port for the API server of %q: %w", d.name, err)
 	}
 	create.APIPort = port
+	if create.CommandEnv, err = d.dockerEnv(ctx); err != nil {
+		return nil, err
+	}
 
 	if err = d.create(ctx, create, plugin.NewLineWriter(out, "stdout"), plugin.NewLineWriter(out, "stderr")); err != nil {
 		return nil, fmt.Errorf("kubernetes: k3d: create the cluster %q: %w", d.name, err)
 	}
-	if err = d.writeKubeconfig(ctx, d.name, d.kubeconfig); err != nil {
+	if err = d.writeKubeconfig(ctx, d.name, d.kubeconfig, create.CommandEnv); err != nil {
 		return nil, fmt.Errorf("kubernetes: k3d: write the kubeconfig of %q: %w", d.name, err)
 	}
 
@@ -243,7 +262,11 @@ func (d *k3dDriver) createNodes(ctx context.Context, spec createSpec, out plugin
 
 // Delete removes the cluster, and the network that Create made for it.
 func (d *k3dDriver) Delete(ctx context.Context, out plugin.Emitter) error {
-	if err := d.deleteCluster(ctx, d.name, plugin.NewLineWriter(out, "stderr")); err != nil {
+	env, err := d.dockerEnv(ctx)
+	if err != nil {
+		return err
+	}
+	if err = d.deleteCluster(ctx, d.name, env, plugin.NewLineWriter(out, "stderr")); err != nil {
 		return fmt.Errorf("kubernetes: k3d: delete the cluster %q: %w", d.name, err)
 	}
 	if d.rt == nil {
@@ -313,8 +336,12 @@ func k3dKubectlArgs(args []string) []string {
 
 // LoadImage loads the image archive at path into the nodes.
 func (d *k3dDriver) LoadImage(ctx context.Context, path string, out plugin.Emitter) error {
-	spec := k3dcmd.ImageImportSpec{Name: d.name, Path: path}
-	if err := d.importImage(ctx, spec, plugin.NewLineWriter(out, "stderr")); err != nil {
+	env, err := d.dockerEnv(ctx)
+	if err != nil {
+		return err
+	}
+	spec := k3dcmd.ImageImportSpec{Name: d.name, Path: path, CommandEnv: env}
+	if err = d.importImage(ctx, spec, plugin.NewLineWriter(out, "stderr")); err != nil {
 		return fmt.Errorf("kubernetes: k3d: load the image archive: %w", err)
 	}
 	return nil

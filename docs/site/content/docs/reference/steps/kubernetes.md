@@ -113,7 +113,8 @@ For each `expose` entry:
 - The step deletes the cluster on teardown.
 - The step supports export: a `setup.<step>` need or a command can read `name`, `kubeconfig`, `context`, and `relay_addr`.
 - Each node is a container that [`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}}) can target by its `workers` key, or by `control-plane` for the control-plane node.
-- The `k3d` driver needs Docker: it does not support the `podman` engine. It publishes the API server and relay ports on `127.0.0.1` only.
+- The `k3d` driver runs on the `docker` and `podman` engines.
+- The `k3d` driver publishes the API server and relay ports on `127.0.0.1` only.
 - The `k3d` nodes pull the k3s system images, such as `rancher/mirrored-pause`, while the cluster starts. This step's `egress` applies later, so `proxy.egress.allow` must cover those registries when `proxy.egress.deny` is `true`.
 - With the `k3d` driver, `trust_ca` mounts the kevin root certificate into each node at cluster creation. The step replaces a cluster whose certificate no longer matches.
 - Each node also joins the project network. See [The project network]({{< relref "/docs/concepts/container-engine" >}}#the-project-network).

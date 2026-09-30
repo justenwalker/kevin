@@ -111,7 +111,7 @@ The Service is now `myapp.kevin.home` through the proxy. Pods can also resolve i
 
 ## Use Podman
 
-With `--engine podman`, kind runs the nodes on Podman. See [Container engine]({{< relref "/docs/concepts/container-engine" >}}) for the limits.
+With `--engine podman`, the `kind` and `k3d` drivers run the nodes on Podman. See [Container engine]({{< relref "/docs/concepts/container-engine" >}}) for the limits.
 
 ## Use k3d instead
 

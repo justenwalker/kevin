@@ -28,6 +28,21 @@ func TestNotInstalled(t *testing.T) {
 	})
 }
 
+func TestEnvWith(t *testing.T) {
+	t.Run("no extra variables inherits the environment", func(t *testing.T) {
+		assert.Nil(t, envWith(nil))
+	})
+
+	t.Run("adds the variables to the process environment", func(t *testing.T) {
+		t.Setenv("K3DCMD_TEST_KEEP", "yes")
+
+		got := envWith(map[string]string{"DOCKER_HOST": "unix:///run/podman.sock"})
+
+		assert.Contains(t, got, "DOCKER_HOST=unix:///run/podman.sock")
+		assert.Contains(t, got, "K3DCMD_TEST_KEEP=yes")
+	})
+}
+
 func TestCreateArgs(t *testing.T) {
 	t.Run("minimal", func(t *testing.T) {
 		args := CreateArgs(CreateSpec{Name: "demo", Network: "demo-net"})

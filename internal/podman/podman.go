@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/netip"
 	"os/exec"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -53,6 +54,31 @@ func (Client) Available(ctx context.Context) error {
 			"podman isn't running - start it (podman machine start on macOS), then retry")
 	}
 	return nil
+}
+
+// Socket returns the path of the Docker-compatible API socket of the podman
+// service. It asks podman info on Linux and the default podman machine
+// elsewhere, and returns [ErrNoSocket] when podman names none.
+func Socket(ctx context.Context) (string, error) {
+	args := []string{"info", "--format", "{{.Host.RemoteSocket.Path}}"}
+	if runtime.GOOS != "linux" {
+		args = []string{"machine", "inspect", "--format", "{{.ConnectionInfo.PodmanSocket.Path}}"}
+	}
+	out, err := run(ctx, nil, args...)
+	if err != nil {
+		return "", fmt.Errorf("podman: find the API socket: %w", err)
+	}
+	return socketPath(out)
+}
+
+// socketPath extracts the socket path from the output of the podman command
+// that Socket runs.
+func socketPath(out string) (string, error) {
+	path := strings.TrimPrefix(strings.TrimSpace(out), "unix://")
+	if path == "" || path == "<no value>" {
+		return "", ErrNoSocket
+	}
+	return path, nil
 }
 
 // NetworkCreate implements [cri.Runtime] for podman.
