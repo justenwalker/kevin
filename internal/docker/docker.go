@@ -63,19 +63,7 @@ func (Client) NetworkCreate(ctx context.Context, name string, opts cri.NetworkOp
 		return nil
 	}
 
-	labels2 := labelArgs(opts.Labels)
-	args := make([]string, 0, len(labels2)+4)
-	args = append(args, "network", "create")
-	if opts.IPv6 {
-		// Docker >= 26 auto-assigns a ULA subnet for --ipv6 with no
-		// --subnet given. An older daemon needs an explicit subnet or this
-		// fails - surfaced as a plain docker error below, not guessed at.
-		args = append(args, "--ipv6")
-	}
-	args = append(args, labels2...)
-	args = append(args, name)
-
-	if _, err := run(ctx, nil, args...); err != nil {
+	if _, err := run(ctx, nil, networkCreateArgs(name, opts)...); err != nil {
 		// Another caller can create the network between the check above and
 		// this call. Check again before the error is reported.
 		if ok, existsErr := networkExists(ctx, name); existsErr == nil && ok {
@@ -84,6 +72,25 @@ func (Client) NetworkCreate(ctx context.Context, name string, opts cri.NetworkOp
 		return fmt.Errorf("docker: create network %q: %w", name, err)
 	}
 	return nil
+}
+
+// networkCreateArgs builds the docker arguments that create the network name.
+func networkCreateArgs(name string, opts cri.NetworkOptions) []string {
+	labels := labelArgs(opts.Labels)
+	args := make([]string, 0, len(labels)+4)
+	args = append(args, "network", "create")
+	if opts.IPv6 {
+		// Docker >= 26 auto-assigns a ULA subnet for --ipv6 with no
+		// --subnet given. An older daemon needs an explicit subnet or this
+		// fails - surfaced as a plain docker error, not guessed at.
+		args = append(args, "--ipv6")
+	} else {
+		// A daemon can default to dual-stack networks, which a cluster tool
+		// may not handle.
+		args = append(args, "--ipv6=false")
+	}
+	args = append(args, labels...)
+	return append(args, name)
 }
 
 // NetworkRemove implements [cri.Runtime] for docker. A network that still
@@ -174,15 +181,38 @@ func gatewayFromInspect(out string) (cri.Gateway, error) {
 	return gw, nil
 }
 
-// NetworkConnect joins a container to a network. A container that is on the network already is not an error.
-func (Client) NetworkConnect(ctx context.Context, network, container string) error {
+// NetworkConnect joins a container to a network, and points the default route
+// of the container at the gateway of that network with ip inside the
+// container, which must be privileged and carry iproute2. A container that is
+// on the network already is not an error.
+func (c Client) NetworkConnect(ctx context.Context, network, container string) error {
 	if _, err := run(ctx, nil, "network", "connect", network, container); err != nil {
-		if ok, checkErr := containerOnNetwork(ctx, container, network); checkErr == nil && ok {
-			return nil
+		if ok, checkErr := containerOnNetwork(ctx, container, network); checkErr != nil || !ok {
+			return fmt.Errorf("docker: connect %q to %q: %w", container, network, err)
 		}
-		return fmt.Errorf("docker: connect %q to %q: %w", container, network, err)
+	}
+
+	gw, err := c.NetworkGateway(ctx, network)
+	if err != nil {
+		return fmt.Errorf("docker: gateway of %q: %w", network, err)
+	}
+	route := defaultRouteArgs(gw)
+	if route == nil {
+		return nil // an IPv6-only network has no IPv4 default route to set
+	}
+	if _, err = c.Exec(ctx, container, route...); err != nil {
+		return fmt.Errorf("docker: route %q through %q: %w", container, network, err)
 	}
 	return nil
+}
+
+// defaultRouteArgs builds the ip command that points the default route of a
+// container at gw. It returns nil when gw has no IPv4 address.
+func defaultRouteArgs(gw cri.Gateway) []string {
+	if !gw.V4.IsValid() {
+		return nil
+	}
+	return []string{"ip", "route", "replace", "default", "via", gw.V4.String()}
 }
 
 // containerOnNetwork reports if the container is already connected to the network.

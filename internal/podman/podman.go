@@ -171,15 +171,38 @@ func gatewayFromInspect(out string) (cri.Gateway, error) {
 	return gw, nil
 }
 
-// NetworkConnect joins a container to a network. A container that is on the network already is not an error.
-func (Client) NetworkConnect(ctx context.Context, network, container string) error {
+// NetworkConnect joins a container to a network, and points the default route
+// of the container at the gateway of that network with ip inside the
+// container, which must be privileged and carry iproute2. A container that is
+// on the network already is not an error.
+func (c Client) NetworkConnect(ctx context.Context, network, container string) error {
 	if _, err := run(ctx, nil, "network", "connect", network, container); err != nil {
-		if ok, checkErr := containerOnNetwork(ctx, container, network); checkErr == nil && ok {
-			return nil
+		if ok, checkErr := containerOnNetwork(ctx, container, network); checkErr != nil || !ok {
+			return fmt.Errorf("podman: connect %q to %q: %w", container, network, err)
 		}
-		return fmt.Errorf("podman: connect %q to %q: %w", container, network, err)
+	}
+
+	gw, err := c.NetworkGateway(ctx, network)
+	if err != nil {
+		return fmt.Errorf("podman: gateway of %q: %w", network, err)
+	}
+	route := defaultRouteArgs(gw)
+	if route == nil {
+		return nil // an IPv6-only network has no IPv4 default route to set
+	}
+	if _, err = c.Exec(ctx, container, route...); err != nil {
+		return fmt.Errorf("podman: route %q through %q: %w", container, network, err)
 	}
 	return nil
+}
+
+// defaultRouteArgs builds the ip command that points the default route of a
+// container at gw. It returns nil when gw has no IPv4 address.
+func defaultRouteArgs(gw cri.Gateway) []string {
+	if !gw.V4.IsValid() {
+		return nil
+	}
+	return []string{"ip", "route", "replace", "default", "via", gw.V4.String()}
 }
 
 // containerOnNetwork reports if the container is already connected to the network.

@@ -312,9 +312,10 @@ func TestNetworkConnect(t *testing.T) {
 
 	name := "kevin-podman-network-connect-test-container"
 	_, err := c.Run(t.Context(), cri.RunSpec{
-		Image: "busybox:stable",
-		Name:  name,
-		Cmd:   []string{"sh", "-c", "sleep 300"},
+		Image:  "busybox:stable",
+		Name:   name,
+		Cmd:    []string{"sh", "-c", "sleep 300"},
+		CapAdd: []string{"NET_ADMIN"},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Remove(context.WithoutCancel(t.Context()), name) })
@@ -325,6 +326,12 @@ func TestNetworkConnect(t *testing.T) {
 	info, err := c.Inspect(t.Context(), name)
 	require.NoError(t, err)
 	assert.Contains(t, info.IPs, network, "the container must carry an address on the connected network")
+
+	gw, err := c.NetworkGateway(t.Context(), network)
+	require.NoError(t, err)
+	routes, err := c.Exec(t.Context(), name, "ip", "route")
+	require.NoError(t, err)
+	assert.Contains(t, routes, "default via "+gw.V4.String(), "the connected network must carry the default route")
 }
 
 // TestNetworkRemoveToleratesActiveEndpoints proves NetworkRemove leaves a
@@ -394,6 +401,7 @@ func TestNetworkGateway(t *testing.T) {
 		gw, err := c.NetworkGateway(t.Context(), network)
 		require.NoError(t, err)
 		assert.True(t, gw.V4.IsValid(), "the gateway must carry an ipv4 address")
+		assert.False(t, gw.V6.IsValid(), "a network without IPv6 must be ipv4-only")
 	})
 
 	t.Run("returns both gateways for a dual-stack network", func(t *testing.T) {
@@ -447,4 +455,20 @@ func TestSave(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, data, "Save must stream a non-empty tar archive")
 	require.NoError(t, rc.Close())
+}
+
+func TestDefaultRouteArgs(t *testing.T) {
+	t.Run("routes through the ipv4 gateway", func(t *testing.T) {
+		gw := cri.Gateway{V4: netip.MustParseAddr("192.168.1.1"), V6: netip.MustParseAddr("fd00::1")}
+
+		assert.Equal(t, []string{"ip", "route", "replace", "default", "via", "192.168.1.1"}, defaultRouteArgs(gw))
+	})
+
+	t.Run("an ipv6-only gateway has no route to set", func(t *testing.T) {
+		assert.Nil(t, defaultRouteArgs(cri.Gateway{V6: netip.MustParseAddr("fd00::1")}))
+	})
+
+	t.Run("no gateway has no route to set", func(t *testing.T) {
+		assert.Nil(t, defaultRouteArgs(cri.Gateway{}))
+	})
 }

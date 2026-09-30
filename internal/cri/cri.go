@@ -181,7 +181,10 @@ type Runtime interface {
 	NetworkRemove(ctx context.Context, name string) error
 
 	// NetworkConnect joins an existing container, such as a kind node, to
-	// a network it was not created on.
+	// a network it was not created on, and makes the gateway of that network
+	// the default route of the container. The container must be privileged and
+	// carry iproute2. A container that is on the network already is not an
+	// error.
 	NetworkConnect(ctx context.Context, network, container string) error
 
 	// NetworkGateway returns a network's gateway addresses. NetworkGateway
