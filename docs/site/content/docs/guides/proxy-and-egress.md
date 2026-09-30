@@ -77,6 +77,14 @@ A wildcard such as `*.docker.io` does not match `docker.io`, so list both if you
 
 To allow a host for one step only, use the `egress` field of that step, such as on [`builtin:container`]({{< relref "/docs/reference/steps/container" >}}) or [`builtin:kubernetes`]({{< relref "/docs/reference/steps/kubernetes" >}}).
 
+If a step fails to start because the proxy blocked a host it needs, kevin prints a warning that names the hosts:
+
+```text
+cluster          warning: the proxy denied requests to registry-1.docker.io while cluster was starting; to allow them, add the hosts to proxy.egress.allow in kevin.cue
+```
+
+Add those hosts to `proxy.egress.allow`, not to the `egress` field of the step, then start the environment again.
+
 A blocked request gets a `403` page that names the host and the CUE to add. The console shows the blocked request.
 
 To allow all outbound traffic, set `deny: false`.

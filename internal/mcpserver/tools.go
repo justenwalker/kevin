@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"sort"
 	"time"
 
@@ -192,11 +191,9 @@ func (s *Server) rerunStep(ctx context.Context, _ *mcp.CallToolRequest, in Rerun
 // deniedSince returns the requests the proxy denied at or after start,
 // oldest first - v.Requests itself is newest-first.
 func deniedSince(requests []session.Request, start time.Time) []DeniedRequest {
-	var out []DeniedRequest
-	for _, r := range slices.Backward(requests) {
-		if !r.Denied || r.Time.Before(start) {
-			continue
-		}
+	denied := session.DeniedSince(requests, start)
+	out := make([]DeniedRequest, 0, len(denied))
+	for _, r := range denied {
 		out = append(out, DeniedRequest{Time: r.Time, Method: r.Method, Host: r.Host, Path: r.Path})
 	}
 	return out

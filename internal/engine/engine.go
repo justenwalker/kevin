@@ -1455,6 +1455,26 @@ func (r *run) failUp(ctx context.Context, name string, err error) {
 	}
 }
 
+// warnDenied names the hosts that the proxy denied since start, after the Up
+// of step name failed, unless a canceled run caused the failure. Another step
+// can have made some of the requests.
+func (r *run) warnDenied(ctx context.Context, name string, start time.Time) {
+	if ctx.Err() != nil {
+		return
+	}
+	var hosts []string
+	for _, req := range session.DeniedSince(r.store.Snapshot().Requests, start) {
+		if !slices.Contains(hosts, req.Host) {
+			hosts = append(hosts, req.Host)
+		}
+	}
+	if len(hosts) == 0 {
+		return
+	}
+	r.emit(name, fmt.Sprintf("warning: the proxy denied requests to %s while %s was starting; to allow them, add the hosts to proxy.egress.allow in kevin.cue",
+		strings.Join(hosts, ", "), name))
+}
+
 // upStep calls Up on one step. It is the dag.NodeFunc both the initial
 // bring-up and a console-triggered rerun run through, so a rerun gets route
 // registration, egress allow, detail/progress reporting, and timing history
@@ -1536,6 +1556,7 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	result, upErr := client.Up(ctx, req, r.onEvent(name))
 	if upErr != nil {
 		r.failUp(ctx, name, upErr)
+		r.warnDenied(ctx, name, start)
 		return nil, upErr
 	}
 

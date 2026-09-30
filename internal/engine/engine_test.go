@@ -668,6 +668,53 @@ env: {
 	assert.Contains(t, string(logs), "removing slow")
 }
 
+func TestWarnDenied(t *testing.T) {
+	start := time.Now()
+	newRun := func(requests ...session.Request) (*run, *bytes.Buffer) {
+		var events bytes.Buffer
+		store := session.NewStore()
+		for _, req := range requests {
+			store.Record(req)
+		}
+		return &run{store: store, events: &events}, &events
+	}
+
+	t.Run("names each denied host once", func(t *testing.T) {
+		r, events := newRun(
+			session.Request{Time: start.Add(time.Second), Denied: true, Host: "registry-1.docker.io"},
+			session.Request{Time: start.Add(2 * time.Second), Denied: true, Host: "registry-1.docker.io"},
+			session.Request{Time: start.Add(3 * time.Second), Denied: true, Host: "auth.docker.io"},
+		)
+
+		r.warnDenied(t.Context(), "cluster", start)
+
+		out := events.String()
+		assert.Contains(t, out, "the proxy denied requests to registry-1.docker.io, auth.docker.io while cluster was starting")
+		assert.Contains(t, out, "proxy.egress.allow")
+	})
+
+	t.Run("ignores requests that were allowed or came before start", func(t *testing.T) {
+		r, events := newRun(
+			session.Request{Time: start.Add(-time.Second), Denied: true, Host: "stale.example.com"},
+			session.Request{Time: start.Add(time.Second), Host: "allowed.example.com"},
+		)
+
+		r.warnDenied(t.Context(), "cluster", start)
+
+		assert.Empty(t, events.String())
+	})
+
+	t.Run("a canceled run is not a denial problem", func(t *testing.T) {
+		r, events := newRun(session.Request{Time: start.Add(time.Second), Denied: true, Host: "registry-1.docker.io"})
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		r.warnDenied(ctx, "cluster", start)
+
+		assert.Empty(t, events.String())
+	})
+}
+
 func TestInterruptedSteps(t *testing.T) {
 	t.Run("a step that started and never completed", func(t *testing.T) {
 		r := &run{}

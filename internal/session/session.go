@@ -3,7 +3,10 @@
 // reads.
 package session
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // SetupPrefix marks a Step.Needs entry as naming a setup-scope step instead
 // of one in the running scope - the engine resolves it via that step's
@@ -157,6 +160,18 @@ type Request struct {
 	// Denied is true when the proxy blocked the request instead of forwarding
 	// it.
 	Denied bool `json:"denied"`
+}
+
+// DeniedSince returns the requests that the proxy denied at or after start,
+// oldest first. requests is newest first, as View.Requests is.
+func DeniedSince(requests []Request, start time.Time) []Request {
+	var denied []Request
+	for _, r := range slices.Backward(requests) {
+		if r.Denied && !r.Time.Before(start) {
+			denied = append(denied, r)
+		}
+	}
+	return denied
 }
 
 // View is a snapshot of one session's step state.
