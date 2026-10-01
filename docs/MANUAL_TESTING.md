@@ -326,9 +326,8 @@ Add `kind: control_plane: extraMounts: [{hostPath: "/tmp/some-dir", containerPat
 `expose` entry:
 
 - [ ] `docker exec <cluster>-control-plane ls /host-src` shows the host
-      directory's contents - a bind mount into the node, generated
-      alongside the relay's `extraPortMappings` in the same config, not a
-      replacement for it.
+      directory's contents - a bind mount into the node, from the
+      generated kind config.
 - [ ] `mounts: [{host: "/tmp/some-dir", container: "/host-src"}]` in the same
       `with` block shows the same directory in every node, workers included,
       with any `control_plane` `extraMounts` kept after it.

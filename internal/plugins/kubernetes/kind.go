@@ -11,7 +11,6 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/justenwalker/kevin/internal/clusterrelay"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/kindcmd"
 	"github.com/justenwalker/kevin/plugin"
@@ -58,7 +57,7 @@ func (d *kindDriver) Nodes(ctx context.Context) ([]string, error) {
 // endpoint, as a single comparable string. kind bakes the proxy env into
 // containerd once, at creation, and nothing updates it afterward.
 func (d *kindDriver) Fingerprint(spec createSpec) (string, error) {
-	generated, err := clusterConfig(d.cfg, spec.Ports)
+	generated, err := clusterConfig(d.cfg)
 	if err != nil {
 		return "", err
 	}
@@ -81,7 +80,7 @@ func (d *kindDriver) Create(ctx context.Context, spec createSpec, out plugin.Emi
 	out.Log("stdout", "creating cluster "+d.name)
 	out.Progress("creating "+d.name, 0, 0)
 
-	generatedConfig, err := clusterConfig(d.cfg, spec.Ports)
+	generatedConfig, err := clusterConfig(d.cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -247,9 +246,9 @@ func kubectlArgs(args []string) []string {
 // passthrough (ErrReservedNodeField if passthrough sets it - it's
 // structural, not configurable); labels combine, with nodeLabelKey reserved
 // the same way (ErrReservedNodeField if passthrough's own labels sets it);
-// extraPortMappings and extraMounts combine by concatenation, kevin's own
-// entries first; every other passthrough key copies through unchanged.
-func buildNode(role string, kevinLabels map[string]string, kevinPortMappings, kevinMounts []map[string]any, passthrough map[string]any) (map[string]any, error) {
+// extraMounts combines by concatenation, kevin's own entries first; every
+// other passthrough key copies through unchanged.
+func buildNode(role string, kevinLabels map[string]string, kevinMounts []map[string]any, passthrough map[string]any) (map[string]any, error) {
 	if _, ok := passthrough["role"]; ok {
 		return nil, fmt.Errorf("kubernetes: kind: node config: %w: %q", ErrReservedNodeField, "role")
 	}
@@ -275,21 +274,6 @@ func buildNode(role string, kevinLabels map[string]string, kevinPortMappings, ke
 		}
 	}
 	node["labels"] = labels
-
-	if len(kevinPortMappings) > 0 {
-		merged := make([]any, 0, len(kevinPortMappings))
-		for _, m := range kevinPortMappings {
-			merged = append(merged, m)
-		}
-		if raw, ok := passthrough["extraPortMappings"]; ok {
-			userMappings, ok := raw.([]any)
-			if !ok {
-				return nil, fmt.Errorf("kubernetes: kind: node config: extraPortMappings: %w", ErrInvalidNodeField)
-			}
-			merged = append(merged, userMappings...)
-		}
-		node["extraPortMappings"] = merged
-	}
 
 	if len(kevinMounts) > 0 {
 		merged := make([]any, 0, len(kevinMounts))
@@ -324,42 +308,17 @@ func kindMounts(mounts []mount) []map[string]any {
 
 // clusterConfig returns the kind configuration for a step. An explicit
 // config wins over the generated one, thus a hand-written config is on its
-// own for extraPortMappings and mounts too, the same as it already is for
+// own for mounts too, the same as it already is for
 // workers.
 //
 // cfg.Mounts adds an extraMounts entry to every node.
-//
-// ports, when set, adds an extraPortMappings entry per reserved port to
-// the control-plane node - one for the TCP relay gateway, one per UDP
-// ASSOCIATE pool port - for the SOCKS5 relay deployRelay starts after the
-// cluster comes up. These must be baked in here, before creation - unlike
-// a container's port publish, kind's node port mappings are fixed at
-// cluster creation and cannot be added later.
-func clusterConfig(cfg config, ports clusterrelay.Ports) (string, error) {
+func clusterConfig(cfg config) (string, error) {
 	if strings.TrimSpace(cfg.Kind.Config) != "" {
 		return cfg.Kind.Config, nil
 	}
 
-	var relayMappings []map[string]any
-	if ports.TCP > 0 {
-		relayMappings = append(relayMappings, map[string]any{
-			"containerPort": clusterrelay.NodePort,
-			"hostPort":      ports.TCP,
-			"listenAddress": "127.0.0.1",
-			"protocol":      "TCP",
-		})
-	}
-	for i, hostPort := range ports.UDP {
-		relayMappings = append(relayMappings, map[string]any{
-			"containerPort": clusterrelay.UDPNodePortBase + i,
-			"hostPort":      hostPort,
-			"listenAddress": "127.0.0.1",
-			"protocol":      "UDP",
-		})
-	}
-
 	mounts := kindMounts(cfg.Mounts)
-	controlPlane, err := buildNode("control-plane", map[string]string{nodeLabelKey: controlPlaneNodeName}, relayMappings, mounts, cfg.Kind.ControlPlane)
+	controlPlane, err := buildNode("control-plane", map[string]string{nodeLabelKey: controlPlaneNodeName}, mounts, cfg.Kind.ControlPlane)
 	if err != nil {
 		return "", err
 	}
@@ -367,7 +326,7 @@ func clusterConfig(cfg config, ports clusterrelay.Ports) (string, error) {
 
 	for _, name := range slices.Sorted(maps.Keys(cfg.Workers)) {
 		var worker map[string]any
-		worker, err = buildNode("worker", map[string]string{nodeLabelKey: name}, nil, mounts, cfg.Workers[name])
+		worker, err = buildNode("worker", map[string]string{nodeLabelKey: name}, mounts, cfg.Workers[name])
 		if err != nil {
 			return "", err
 		}

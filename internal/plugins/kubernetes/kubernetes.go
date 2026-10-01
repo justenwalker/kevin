@@ -74,14 +74,12 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 		return nil, err
 	}
 
-	useRelay := wantsRelay(cfg)
-
-	cluster, err := reuseOrCreateCluster(ctx, drv, name, kubeconfig, wait, useRelay, out)
+	nodes, err := reuseOrCreateCluster(ctx, drv, name, kubeconfig, wait, out)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = joinProjectNetwork(ctx, rt, cluster.Nodes, req.Env.Network); err != nil {
+	if err = joinProjectNetwork(ctx, rt, nodes, req.Env.Network); err != nil {
 		return nil, err
 	}
 
@@ -93,17 +91,20 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 		return nil, err
 	}
 
-	setup, err := finishClusterSetup(ctx, rt, drv, cfg, req.Env, cluster, out)
+	fwd := clusterrelay.ForwarderSpec{
+		Name: clusterrelay.ForwarderName(name), Network: req.Env.Network,
+		Project: req.Env.Project, Scope: req.Env.Scope, Step: req.Step,
+	}
+	setup, err := finishClusterSetup(ctx, rt, drv, cfg, req.Env, nodes, fwd, out)
 	if err != nil {
 		return nil, err
 	}
 
-	outputs := clusterOutputs(drv, name, kubeconfig, cluster.Nodes)
-	if useRelay {
-		outputs["relay_addr"] = cluster.relayAddr()
-	}
-	if err = persistRelayPorts(kubeconfig, name, cluster.relayAddr(), cluster.Ports.UDP, useRelay); err != nil {
-		return nil, err
+	outputs := clusterOutputs(drv, name, kubeconfig, nodes)
+	if wantsRelay(cfg) {
+		outputs["relay_addr"] = setup.RelayAddr
+	} else if err = rt.Remove(ctx, fwd.Name); err != nil {
+		return nil, fmt.Errorf("kubernetes: remove the stale relay forwarder for %q: %w", name, err)
 	}
 
 	return &plugin.Result{
@@ -120,85 +121,59 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 // persistent cluster can be reused as-is.
 func configMarkerFile(kubeconfig string) string { return kubeconfig + ".config" }
 
-// clusterState is the cluster that Up found or created: its nodes, and the
-// relay ports (the zero value when no relay is wanted).
-type clusterState struct {
-	Nodes []string
-	Ports clusterrelay.Ports
-}
-
-// relayAddr is the host address of the relay, or empty when there is none.
-func (c clusterState) relayAddr() string {
-	if c.Ports.TCP == 0 {
-		return ""
-	}
-	return clusterrelay.Addr(c.Ports.TCP)
-}
-
 // reuseOrCreateCluster reuses a running cluster of that name whose
 // fingerprint is unchanged, and otherwise creates a fresh one.
-func reuseOrCreateCluster(ctx context.Context, drv driver, name, kubeconfig string, wait time.Duration, useRelay bool, out plugin.Emitter) (clusterState, error) {
+func reuseOrCreateCluster(ctx context.Context, drv driver, name, kubeconfig string, wait time.Duration, out plugin.Emitter) ([]string, error) {
 	existingNodes, err := drv.Nodes(ctx)
 	if err != nil {
-		return clusterState{}, fmt.Errorf("kubernetes: check for an existing cluster %q: %w", name, err)
+		return nil, fmt.Errorf("kubernetes: check for an existing cluster %q: %w", name, err)
 	}
 
-	// Relay ports can only be reused, never freshly picked, without also
-	// invalidating the comparison below - the fingerprint embeds whichever
-	// ports the variable holds, so fresh, different ones would never match
-	// a marker file written by the run that actually created the live
-	// cluster.
-	ports, reusablePorts := reusableRelayPorts(kubeconfig, useRelay)
-
-	if len(existingNodes) > 0 && reusablePorts {
+	if len(existingNodes) > 0 {
 		// A cluster created against one proxy address must not be reused
 		// against another: the proxy env is baked into the nodes once, at
 		// creation, and nothing updates it afterward. The fingerprint
 		// covers it.
-		wantConfig, fingerprintErr := drv.Fingerprint(createSpec{Ports: ports, Wait: wait})
+		wantConfig, fingerprintErr := drv.Fingerprint(createSpec{Wait: wait})
 		if fingerprintErr != nil {
-			return clusterState{}, fingerprintErr
+			return nil, fingerprintErr
 		}
 		if marker, readErr := os.ReadFile(configMarkerFile(kubeconfig)); readErr == nil && string(marker) == wantConfig {
 			out.Log("stdout", fmt.Sprintf("reusing cluster %s with %d node(s)", name, len(existingNodes)))
-			return clusterState{Nodes: existingNodes, Ports: ports}, nil
+			return existingNodes, nil
 		}
 	}
 
-	if useRelay {
-		if ports, err = clusterrelay.PickPorts(ctx); err != nil {
-			return clusterState{}, err
-		}
-	}
-	spec := createSpec{Ports: ports, Wait: wait}
+	spec := createSpec{Wait: wait}
 	nodeList, err := drv.Create(ctx, spec, out)
 	if err != nil {
-		return clusterState{}, err
+		return nil, err
 	}
 	marker, err := drv.Fingerprint(spec)
 	if err != nil {
-		return clusterState{}, err
+		return nil, err
 	}
 	if err = os.WriteFile(configMarkerFile(kubeconfig), []byte(marker), 0o600); err != nil {
-		return clusterState{}, fmt.Errorf("kubernetes: write the cluster config marker for %q: %w", name, err)
+		return nil, fmt.Errorf("kubernetes: write the cluster config marker for %q: %w", name, err)
 	}
-	return clusterState{Nodes: nodeList, Ports: ports}, nil
+	return nodeList, nil
 }
 
 // clusterSetup is what finishClusterSetup adds to the result of Up.
 type clusterSetup struct {
 	Exposed    []plugin.ExposedPort
 	Containers []plugin.ContainerInfo
+	RelayAddr  string
 }
 
 // finishClusterSetup installs the trust CA, patches CoreDNS, registers
 // egress capture, and finishes the relay, each only when the config wants
 // it.
-func finishClusterSetup(ctx context.Context, rt cri.Runtime, drv driver, cfg config, env plugin.Env, cluster clusterState, out plugin.Emitter) (clusterSetup, error) {
+func finishClusterSetup(ctx context.Context, rt cri.Runtime, drv driver, cfg config, env plugin.Env, nodes []string, fwd clusterrelay.ForwarderSpec, out plugin.Emitter) (clusterSetup, error) {
 	// The proxy intercepts TLS for a pull. A node trusts the kevin root
 	// certificate, so the pull verifies.
 	if wantsTrustCA(cfg, env) {
-		if err := trustCAFromPath(ctx, drv, cluster.Nodes, env.CAPath, out); err != nil {
+		if err := trustCAFromPath(ctx, drv, nodes, env.CAPath, out); err != nil {
 			return clusterSetup{}, err
 		}
 	}
@@ -206,7 +181,7 @@ func finishClusterSetup(ctx context.Context, rt cri.Runtime, drv driver, cfg con
 	// A relay that is off, or an environment with no domain, needs no patch. A
 	// cluster must still come up in that case.
 	if wantsCoreDNSPatch(cfg, env) {
-		if err := patchCoreDNS(ctx, drv, cluster.Nodes, env.Domain, env.Relay, out); err != nil {
+		if err := patchCoreDNS(ctx, drv, nodes, env.Domain, env.Relay, out); err != nil {
 			return clusterSetup{}, err
 		}
 	}
@@ -214,7 +189,7 @@ func finishClusterSetup(ctx context.Context, rt cri.Runtime, drv driver, cfg con
 	var setup clusterSetup
 	if wantsCapture(env) {
 		var err error
-		if setup.Containers, err = nodeContainers(ctx, rt, drv, cluster.Nodes, out); err != nil {
+		if setup.Containers, err = nodeContainers(ctx, rt, drv, nodes, out); err != nil {
 			return clusterSetup{}, err
 		}
 	}
@@ -222,10 +197,11 @@ func finishClusterSetup(ctx context.Context, rt cri.Runtime, drv driver, cfg con
 	if !wantsRelay(cfg) {
 		return setup, nil
 	}
-	var err error
-	if setup.Exposed, err = finishRelay(ctx, rt, drv, cfg, cluster.relayAddr(), cluster.Ports.UDP, out); err != nil {
+	relayed, err := finishRelay(ctx, rt, drv, cfg, fwd, out)
+	if err != nil {
 		return clusterSetup{}, err
 	}
+	setup.Exposed, setup.RelayAddr = relayed.Exposed, relayed.Addr
 	return setup, nil
 }
 
@@ -258,6 +234,12 @@ func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitte
 
 	out.Log("stdout", "removing cluster "+name)
 
+	if rt != nil {
+		if err = rt.Remove(ctx, clusterrelay.ForwarderName(name)); err != nil {
+			return fmt.Errorf("kubernetes: remove the relay forwarder for %q: %w", name, err)
+		}
+	}
+
 	if err = drv.Delete(ctx, out); err != nil {
 		return err
 	}
@@ -265,9 +247,6 @@ func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitte
 	// The kubeconfig of a cluster that is gone points at nothing.
 	if err = os.Remove(kubeconfig); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("kubernetes: remove %s: %w", kubeconfig, err)
-	}
-	if err = os.Remove(relayAddrFile(kubeconfig)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("kubernetes: remove %s: %w", relayAddrFile(kubeconfig), err)
 	}
 	if err = os.Remove(configMarkerFile(kubeconfig)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("kubernetes: remove %s: %w", configMarkerFile(kubeconfig), err)
@@ -303,10 +282,14 @@ func (Step) Export(ctx context.Context, req *plugin.ExportRequest) (*plugin.Expo
 		"kubeconfig": kubeconfig,
 		"context":    drv.Context(),
 	}
-	if relayAddress, readErr := os.ReadFile(relayAddrFile(kubeconfig)); readErr == nil {
-		out["relay_addr"] = string(relayAddress)
-	} else if !os.IsNotExist(readErr) {
-		return nil, fmt.Errorf("kubernetes: read the relay address for %q: %w", name, readErr)
+	if rt != nil {
+		fwd, ok, lookupErr := clusterrelay.LookupForwarder(ctx, rt, clusterrelay.ForwarderName(name))
+		if lookupErr != nil {
+			return nil, fmt.Errorf("kubernetes: look up the relay forwarder for %q: %w", name, lookupErr)
+		}
+		if ok {
+			out["relay_addr"] = fwd.Addr
+		}
 	}
 
 	return &plugin.ExportResult{

@@ -388,7 +388,7 @@ func relayFromInfo(rt cri.Runtime, name, network string, info cri.Container) (*R
 	}
 	return &Relay{
 		name: name, addr: addr, socks5Addr: socks5Addr, controlAddr: controlAddr,
-		socks5UDPAddrs: udpAddrsFromInfo(info), runtime: rt,
+		socks5UDPAddrs: UDPAddrsFromInfo(info), runtime: rt,
 	}, nil
 }
 

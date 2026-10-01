@@ -6,17 +6,14 @@ import (
 	"io"
 	"time"
 
-	"github.com/justenwalker/kevin/internal/clusterrelay"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/plugin"
 )
 
 // createSpec is what a driver needs at cluster creation beyond its own
-// config: the relay ports to publish on the control-plane node, which must
-// be baked in before creation, and how long to wait for the cluster.
+// config: how long to wait for the cluster.
 type createSpec struct {
-	Ports clusterrelay.Ports
-	Wait  time.Duration
+	Wait time.Duration
 }
 
 // driver creates and inspects one cluster with a cluster tool. The rest of

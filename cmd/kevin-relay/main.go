@@ -1,4 +1,4 @@
-// Command kevin-relay has two subcommands, one binary either way.
+// Command kevin-relay has three subcommands, one binary either way.
 //
 // forward answers DNS for the environment domain, forwards HTTP and HTTPS
 // traffic to the host proxy, and runs a SOCKS5 gateway. It runs inside a
@@ -15,11 +15,16 @@
 // DNS/HTTP/HTTPS listeners - run as a Pod inside a kind cluster so a client
 // outside the cluster can reach an arbitrary in-cluster address.
 //
+// port-forward forwards a TCP port and a UDP port range to the same ports on
+// another host, so one container on the project network can publish a
+// cluster node's relay ports on the host.
+//
 // Flags configure the relay, because the container or pod that runs it
 // carries no config file:
 //
 //	kevin-relay forward --domain kevin.home --proxy host.docker.internal:18080 --socks5-listen :1080
 //	kevin-relay socks5-gateway --listen :1080
+//	kevin-relay port-forward --target <host> --tcp 1080 --udp-relay-ports 40000-40015
 package main
 
 import (
@@ -96,8 +101,8 @@ func run(args []string) int {
 	return 0
 }
 
-// rootCommand builds the kevin-relay command tree: forward and
-// socks5-gateway, kevin-relay's two mutually exclusive modes.
+// rootCommand builds the kevin-relay command tree: forward,
+// socks5-gateway, and port-forward, kevin-relay's mutually exclusive modes.
 func rootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "kevin-relay",
@@ -105,7 +110,7 @@ func rootCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(forwardCommand(), socks5GatewayCommand())
+	root.AddCommand(forwardCommand(), socks5GatewayCommand(), portForwardCommand())
 	return root
 }
 

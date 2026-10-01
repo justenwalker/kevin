@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/justenwalker/kevin/internal/clusterrelay"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/k3dcmd"
 	"github.com/justenwalker/kevin/internal/podman"
@@ -124,7 +123,6 @@ func (d *k3dDriver) createSpec(spec createSpec) k3dcmd.CreateSpec {
 		Wait:       spec.Wait,
 		Memory:     d.cfg.K3d.Memory,
 		Env:        mergeEnv(d.cfg.K3d.Env, proxyEnv(d.cfg, d.env.ProxyEnv)),
-		Ports:      k3dPortFlags(spec.Ports),
 		NodeLabels: []string{nodeLabelKey + "=" + controlPlaneNodeName + "@server:0"},
 		K3sArgs: []string{
 			"--cluster-cidr=" + k3sPodCIDR + "@server:*",
@@ -151,21 +149,6 @@ func (d *k3dDriver) createSpec(spec createSpec) k3dcmd.CreateSpec {
 		create.NodeLabels = append(create.NodeLabels, fmt.Sprintf("%s=%s@agent:%d", nodeLabelKey, worker, i))
 	}
 	return create
-}
-
-// k3dPortFlags renders ports as k3d cluster create --port values on the
-// loopback interface: one "127.0.0.1:hostPort:1080/tcp" entry for the SOCKS5
-// gateway, one "127.0.0.1:hostPort:40000+i/udp" per reserved UDP ASSOCIATE
-// pool port, each for the control-plane node.
-func k3dPortFlags(ports clusterrelay.Ports) []string {
-	if ports.TCP == 0 {
-		return nil
-	}
-	flags := []string{fmt.Sprintf("127.0.0.1:%d:%d/tcp@server:0", ports.TCP, clusterrelay.NodePort)}
-	for i, hostPort := range ports.UDP {
-		flags = append(flags, fmt.Sprintf("127.0.0.1:%d:%d/udp@server:0", hostPort, clusterrelay.UDPNodePortBase+i))
-	}
-	return flags
 }
 
 // freeLoopbackPort asks the OS for a free TCP port on the loopback interface.

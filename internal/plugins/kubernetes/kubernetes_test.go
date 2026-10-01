@@ -17,7 +17,6 @@ import (
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/docker"
 	"github.com/justenwalker/kevin/internal/kindcmd"
-	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -48,6 +47,7 @@ type fakeRuntime struct {
 	exec      func(ctx context.Context, container string, args ...string) (string, error)
 	execInput func(ctx context.Context, container string, stdin io.Reader, args ...string) (string, error)
 	inspect   func(ctx context.Context, container string) (cri.Container, error)
+	run       func(ctx context.Context, spec cri.RunSpec) (string, error)
 	save      func(ctx context.Context, image string) (io.ReadCloser, error)
 
 	networkConnect func(ctx context.Context, network, container string) error
@@ -80,7 +80,12 @@ func (f fakeRuntime) Inspect(ctx context.Context, name string) (cri.Container, e
 
 func (fakeRuntime) Available(context.Context) error { return nil }
 
-func (fakeRuntime) Run(context.Context, cri.RunSpec) (string, error) { return "", nil }
+func (f fakeRuntime) Run(ctx context.Context, spec cri.RunSpec) (string, error) {
+	if f.run == nil {
+		return "", nil
+	}
+	return f.run(ctx, spec)
+}
 
 func (fakeRuntime) Remove(context.Context, string) error { return nil }
 
@@ -263,7 +268,7 @@ func TestFinishClusterSetup(t *testing.T) {
 
 	t.Run("with every opt-out set, does nothing", func(t *testing.T) {
 		got, err := finishClusterSetup(t.Context(), fakeRuntime{}, fakeDriver{}, config{},
-			plugin.Env{}, clusterState{Nodes: nodes}, &capture{})
+			plugin.Env{}, nodes, clusterrelay.ForwarderSpec{}, &capture{})
 		require.NoError(t, err)
 		assert.Nil(t, got.Exposed)
 		assert.Nil(t, got.Containers)
@@ -271,7 +276,7 @@ func TestFinishClusterSetup(t *testing.T) {
 
 	t.Run("propagates a trust CA failure", func(t *testing.T) {
 		env := plugin.Env{CAPath: filepath.Join(t.TempDir(), "missing.pem")}
-		_, err := finishClusterSetup(t.Context(), happyRT, happyDriver, config{TrustCA: true}, env, clusterState{Nodes: nodes}, &capture{})
+		_, err := finishClusterSetup(t.Context(), happyRT, happyDriver, config{TrustCA: true}, env, nodes, clusterrelay.ForwarderSpec{}, &capture{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read the kevin root certificate")
 	})
@@ -281,7 +286,7 @@ func TestFinishClusterSetup(t *testing.T) {
 		drv := fakeDriver{kubectl: func(context.Context, ...string) (string, error) {
 			return "", errors.New("exec failed")
 		}}
-		_, err := finishClusterSetup(t.Context(), fakeRuntime{}, drv, config{CoreDNS: true}, env, clusterState{Nodes: nodes}, &capture{})
+		_, err := finishClusterSetup(t.Context(), fakeRuntime{}, drv, config{CoreDNS: true}, env, nodes, clusterrelay.ForwarderSpec{}, &capture{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read the coredns Corefile")
 	})
@@ -291,22 +296,21 @@ func TestFinishClusterSetup(t *testing.T) {
 		rt := fakeRuntime{inspect: func(context.Context, string) (cri.Container, error) {
 			return cri.Container{}, errors.New("no such container")
 		}}
-		_, err := finishClusterSetup(t.Context(), rt, happyDriver, config{}, env, clusterState{Nodes: nodes}, &capture{})
+		_, err := finishClusterSetup(t.Context(), rt, happyDriver, config{}, env, nodes, clusterrelay.ForwarderSpec{}, &capture{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "inspect")
 	})
 
 	t.Run("propagates a relay failure", func(t *testing.T) {
 		drv := fakeDriver{loadImage: func(context.Context, string) error { return errors.New("load failed") }}
-		cluster := clusterState{Nodes: nodes, Ports: clusterrelay.Ports{TCP: 54321}}
-		_, err := finishClusterSetup(t.Context(), fakeRuntime{}, drv, config{Relay: true}, plugin.Env{}, cluster, &capture{})
+		_, err := finishClusterSetup(t.Context(), fakeRuntime{}, drv, config{Relay: true}, plugin.Env{}, nodes, clusterrelay.ForwarderSpec{}, &capture{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "load the relay image")
 	})
 
 	t.Run("assembles containers when capture is on and no relay is wanted", func(t *testing.T) {
 		env := plugin.Env{Relay: "10.244.0.5:53"}
-		got, err := finishClusterSetup(t.Context(), happyRT, happyDriver, config{}, env, clusterState{Nodes: nodes}, &capture{})
+		got, err := finishClusterSetup(t.Context(), happyRT, happyDriver, config{}, env, nodes, clusterrelay.ForwarderSpec{}, &capture{})
 		require.NoError(t, err)
 		assert.Nil(t, got.Exposed)
 		require.Len(t, got.Containers, 1)
@@ -358,23 +362,6 @@ func TestExport(t *testing.T) {
 			"context":    "kind-" + name,
 		}), got.Out)
 		assert.Nil(t, got.Containers)
-	})
-
-	t.Run("reads the relay address back when Up left one", func(t *testing.T) {
-		workspace := t.TempDir()
-		name := "demo-cluster"
-		kubeconfig := filepath.Join(workspace, "kubeconfig", name)
-		require.NoError(t, os.MkdirAll(filepath.Dir(kubeconfig), 0o700))
-		require.NoError(t, os.WriteFile(kubeconfig, []byte("apiVersion: v1\n"), 0o600))
-		require.NoError(t, os.WriteFile(relayAddrFile(kubeconfig), []byte("127.0.0.1:54321"), 0o600))
-
-		got, err := Step{}.Export(t.Context(), &plugin.ExportRequest{
-			Step:   "cluster",
-			Config: []byte(`{"driver":"kind"}`),
-			Env:    plugin.Env{Project: "demo", Workspace: workspace, Engine: "bogus"},
-		})
-		require.NoError(t, err)
-		assert.Equal(t, "127.0.0.1:54321", got.Out["relay_addr"].Reveal())
 	})
 }
 
@@ -481,9 +468,9 @@ func TestReuseOrCreateCluster(t *testing.T) {
 		var ran bool
 		out := &capture{}
 
-		got, err := reuseOrCreateCluster(t.Context(), driverWith(existing, &ran), "demo-cluster", kubeconfig, 0, false, out)
+		got, err := reuseOrCreateCluster(t.Context(), driverWith(existing, &ran), "demo-cluster", kubeconfig, 0, out)
 		require.NoError(t, err)
-		assert.Equal(t, existing, got.Nodes)
+		assert.Equal(t, existing, got)
 		assert.False(t, ran, "an unchanged cluster must not be recreated")
 		assert.Contains(t, strings.Join(out.stdout, "\n"), "reusing cluster demo-cluster")
 	})
@@ -493,9 +480,9 @@ func TestReuseOrCreateCluster(t *testing.T) {
 		require.NoError(t, os.WriteFile(configMarkerFile(kubeconfig), []byte("stale"), 0o600))
 		var ran bool
 
-		got, err := reuseOrCreateCluster(t.Context(), driverWith(existing, &ran), "demo-cluster", kubeconfig, 0, false, &capture{})
+		got, err := reuseOrCreateCluster(t.Context(), driverWith(existing, &ran), "demo-cluster", kubeconfig, 0, &capture{})
 		require.NoError(t, err)
-		assert.Equal(t, created, got.Nodes)
+		assert.Equal(t, created, got)
 		assert.True(t, ran)
 		marker, err := os.ReadFile(configMarkerFile(kubeconfig))
 		require.NoError(t, err)
@@ -506,29 +493,16 @@ func TestReuseOrCreateCluster(t *testing.T) {
 		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
 		var ran bool
 
-		got, err := reuseOrCreateCluster(t.Context(), driverWith(nil, &ran), "demo-cluster", kubeconfig, 0, false, &capture{})
+		got, err := reuseOrCreateCluster(t.Context(), driverWith(nil, &ran), "demo-cluster", kubeconfig, 0, &capture{})
 		require.NoError(t, err)
-		assert.Equal(t, created, got.Nodes)
+		assert.Equal(t, created, got)
 		assert.True(t, ran)
-	})
-
-	t.Run("recreates when the relay ports cannot be read back", func(t *testing.T) {
-		t.Setenv(relay.UDPPoolSizeEnvVar, "0")
-		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-		require.NoError(t, os.WriteFile(configMarkerFile(kubeconfig), []byte("fake"), 0o600))
-		var ran bool
-
-		got, err := reuseOrCreateCluster(t.Context(), driverWith(existing, &ran), "demo-cluster", kubeconfig, 0, true, &capture{})
-		require.NoError(t, err)
-		assert.True(t, ran, "a cluster with no recorded relay port cannot be reused")
-		assert.Positive(t, got.Ports.TCP)
-		assert.NotEmpty(t, got.relayAddr())
 	})
 
 	t.Run("a failing node listing is an error", func(t *testing.T) {
 		drv := fakeDriver{nodes: func(context.Context) ([]string, error) { return nil, errors.New("list failed") }}
 
-		_, err := reuseOrCreateCluster(t.Context(), drv, "demo-cluster", filepath.Join(t.TempDir(), "kubeconfig"), 0, false, &capture{})
+		_, err := reuseOrCreateCluster(t.Context(), drv, "demo-cluster", filepath.Join(t.TempDir(), "kubeconfig"), 0, &capture{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "check for an existing cluster")
 	})
@@ -537,14 +511,9 @@ func TestReuseOrCreateCluster(t *testing.T) {
 		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
 		drv := fakeDriver{create: func(context.Context, createSpec) ([]string, error) { return nil, errors.New("create failed") }}
 
-		_, err := reuseOrCreateCluster(t.Context(), drv, "demo-cluster", kubeconfig, 0, false, &capture{})
+		_, err := reuseOrCreateCluster(t.Context(), drv, "demo-cluster", kubeconfig, 0, &capture{})
 		require.Error(t, err)
 		_, statErr := os.Stat(configMarkerFile(kubeconfig))
 		assert.True(t, os.IsNotExist(statErr))
 	})
-}
-
-func TestClusterStateRelayAddr(t *testing.T) {
-	assert.Empty(t, clusterState{}.relayAddr(), "no relay port means no relay")
-	assert.Equal(t, "127.0.0.1:54321", clusterState{Ports: clusterrelay.Ports{TCP: 54321}}.relayAddr())
 }

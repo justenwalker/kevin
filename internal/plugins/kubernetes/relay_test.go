@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -13,6 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/clusterrelay"
+	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -21,69 +23,6 @@ func TestWantsRelay(t *testing.T) {
 	assert.True(t, wantsRelay(config{Expose: map[string]expose{"a": {Address: "x:1"}}}))
 	assert.True(t, wantsRelay(config{Relay: true}), "relay:true stands up the pod even with no expose entries")
 	assert.False(t, wantsRelay(config{Relay: false}))
-}
-
-func TestReadRelayPort(t *testing.T) {
-	t.Run("no relay address file yet", func(t *testing.T) {
-		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-		port, ok := readRelayPort(kubeconfig)
-		assert.False(t, ok)
-		assert.Zero(t, port)
-	})
-
-	t.Run("a valid relay address", func(t *testing.T) {
-		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-		require.NoError(t, os.WriteFile(relayAddrFile(kubeconfig), []byte("127.0.0.1:54321"), 0o600))
-
-		port, ok := readRelayPort(kubeconfig)
-		require.True(t, ok)
-		assert.Equal(t, 54321, port)
-	})
-
-	t.Run("a malformed relay address", func(t *testing.T) {
-		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-		require.NoError(t, os.WriteFile(relayAddrFile(kubeconfig), []byte("not-a-host-port"), 0o600))
-
-		port, ok := readRelayPort(kubeconfig)
-		assert.False(t, ok)
-		assert.Zero(t, port)
-	})
-}
-
-func TestRelayUDPPorts(t *testing.T) {
-	t.Run("no file yet is not reusable", func(t *testing.T) {
-		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-		ports, ok := readRelayUDPPorts(kubeconfig)
-		assert.False(t, ok)
-		assert.Nil(t, ports)
-	})
-
-	t.Run("round trips a pool through write and read", func(t *testing.T) {
-		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-		require.NoError(t, writeRelayUDPPorts(kubeconfig, []int{40000, 40001, 40002}))
-
-		ports, ok := readRelayUDPPorts(kubeconfig)
-		require.True(t, ok)
-		assert.Equal(t, []int{40000, 40001, 40002}, ports)
-	})
-
-	t.Run("an empty pool is a valid, reusable state", func(t *testing.T) {
-		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-		require.NoError(t, writeRelayUDPPorts(kubeconfig, nil))
-
-		ports, ok := readRelayUDPPorts(kubeconfig)
-		require.True(t, ok)
-		assert.Empty(t, ports)
-	})
-
-	t.Run("a malformed file is not reusable", func(t *testing.T) {
-		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-		require.NoError(t, os.WriteFile(relayUDPAddrFile(kubeconfig), []byte("not,a,port,list"), 0o600))
-
-		ports, ok := readRelayUDPPorts(kubeconfig)
-		assert.False(t, ok)
-		assert.Nil(t, ports)
-	})
 }
 
 func TestExposedViaRelay(t *testing.T) {
@@ -229,7 +168,34 @@ func TestFinishRelay(t *testing.T) {
 	t.Run("propagates a deployRelay failure instead of reporting exposed ports", func(t *testing.T) {
 		drv := fakeDriver{loadImage: func(context.Context, string) error { return errors.New("load failed") }}
 
-		_, err := finishRelay(t.Context(), fakeRuntime{}, drv, config{}, "127.0.0.1:54321", nil, &capture{})
+		_, err := finishRelay(t.Context(), fakeRuntime{}, drv, config{}, clusterrelay.ForwarderSpec{}, &capture{})
 		require.Error(t, err)
+	})
+
+	t.Run("starts the forwarder against the control-plane node and reports its address", func(t *testing.T) {
+		t.Setenv(relay.UDPPoolSizeEnvVar, "0")
+		var spec cri.RunSpec
+		rt := fakeRuntime{
+			run: func(_ context.Context, s cri.RunSpec) (string, error) {
+				spec = s
+				return "id", nil
+			},
+			inspect: func(context.Context, string) (cri.Container, error) {
+				if spec.Name == "" {
+					return cri.Container{}, cri.ErrNotFound
+				}
+				return cri.Container{Running: true, Ports: map[string]string{"1080/tcp": "127.0.0.1:54321"}}, nil
+			},
+		}
+		fwd := clusterrelay.ForwarderSpec{Name: "kevin-demo-relay-fwd", Network: "net"}
+
+		got, err := finishRelay(t.Context(), rt, fakeDriver{}, config{Expose: map[string]expose{"a": {Address: "svc:80", Protocol: "tcp"}}}, fwd, &capture{})
+		require.NoError(t, err)
+
+		assert.Equal(t, "127.0.0.1:54321", got.Addr)
+		assert.Equal(t, "kevin-demo-relay-fwd", spec.Name)
+		assert.Contains(t, spec.Cmd, "--target")
+		require.Len(t, got.Exposed, 1)
+		assert.Equal(t, "socks5://127.0.0.1:54321/svc:80", got.Exposed[0].Upstream)
 	})
 }

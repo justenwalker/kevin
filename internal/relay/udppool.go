@@ -28,9 +28,9 @@ const udpRelayPortBase = 40000
 
 // UDPPoolSize reads UDPPoolSizeEnvVar, falling back to defaultUDPPoolSize
 // when unset - shared by this package and internal/plugins/kubernetes so both
-// sides of the pool (the relay container's published ports and, for kind,
-// the cluster's own extraPortMappings/Pod hostPorts) agree on its size
-// without either learning it from the other.
+// sides of the pool (the relay container's published ports and the
+// cluster relay forwarder's) agree on its size without either learning it
+// from the other.
 func UDPPoolSize() (int, error) {
 	v := os.Getenv(UDPPoolSizeEnvVar)
 	if v == "" {
@@ -63,12 +63,12 @@ func udpRelayPortsArg(n int, args []string) []string {
 	return append(args, "--udp-relay-ports", fmt.Sprintf("%d-%d", udpRelayPortBase, udpRelayPortBase+n-1))
 }
 
-// udpAddrsFromInfo builds a container-port -> host-address map from every
+// UDPAddrsFromInfo builds a container-port -> host-address map from every
 // UDP port info publishes - whatever the relay's UDP pool actually
 // published when it was created, regardless of the caller's own current
 // UDPPoolSizeEnvVar (a container reused across a pool-size change keeps
 // its original pool; see docs/site/content/docs/concepts/relay.md).
-func udpAddrsFromInfo(info cri.Container) map[string]string {
+func UDPAddrsFromInfo(info cri.Container) map[string]string {
 	var addrs map[string]string
 	for port, addr := range info.Ports {
 		containerPort, ok := strings.CutSuffix(port, "/udp")

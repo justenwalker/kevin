@@ -67,10 +67,6 @@ type CreateSpec struct {
 	// process only.
 	CommandEnv map[string]string
 
-	// Ports names one "host:hostPort:nodePort/protocol@nodefilter" entry per
-	// --port flag.
-	Ports []string
-
 	// Volumes names one "source:destination@nodefilter" entry per --volume
 	// flag.
 	Volumes []string
@@ -121,9 +117,6 @@ func CreateArgs(spec CreateSpec) []string {
 	}
 	for _, key := range slices.Sorted(maps.Keys(spec.Env)) {
 		args = append(args, "--env", key+"="+spec.Env[key]+"@all")
-	}
-	for _, port := range spec.Ports {
-		args = append(args, "--port", port)
 	}
 	for _, volume := range spec.Volumes {
 		args = append(args, "--volume", volume)

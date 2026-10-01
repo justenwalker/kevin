@@ -61,7 +61,7 @@ cluster: {
 kevin merges these with its own node settings:
 
 - `labels` adds to the `kevin.node` label. You cannot set `kevin.node`.
-- `extraPortMappings` adds to the relay port mapping.
+- `extraMounts` adds to the entries from `mounts`.
 - You cannot set `role`.
 
 The control-plane node has the label `kevin.node: control-plane`.
@@ -96,7 +96,7 @@ For each `expose` entry:
 - The step supports export: a `setup.<step>` need or a command can read `name`, `kubeconfig`, `context`, and `relay_addr`.
 - Each node is a container that [`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}}) can target by its `workers` key, or by `control-plane` for the control-plane node.
 - The `k3d` driver runs on the `docker` and `podman` engines.
-- The `k3d` driver publishes the API server and relay ports on `127.0.0.1` only.
+- The `k3d` driver publishes the API server on `127.0.0.1` only.
 - The `k3d` nodes pull the k3s system images, such as `rancher/mirrored-pause`, while the cluster starts. This step's `egress` applies later, so `proxy.egress.allow` must cover those registries when `proxy.egress.deny` is `true`.
 - `mounts` applies to every node. With the `kind` driver, `kind.config` replaces the generated configuration, so `mounts` has no effect.
 - With the `k3d` driver, `trust_ca` mounts the kevin root certificate into each node at cluster creation. The step replaces a cluster whose certificate no longer matches.

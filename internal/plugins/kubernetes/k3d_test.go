@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/clusterrelay"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/k3dcmd"
 	"github.com/justenwalker/kevin/plugin"
@@ -100,7 +99,7 @@ func TestK3dDriverCreateSpec(t *testing.T) {
 	}
 	d := &k3dDriver{cfg: cfg, env: env, name: "demo"}
 
-	got := d.createSpec(createSpec{Ports: clusterrelay.Ports{TCP: 54321}, Wait: 3})
+	got := d.createSpec(createSpec{Wait: 3})
 
 	assert.Equal(t, k3dcmd.CreateSpec{
 		Name:    "demo",
@@ -109,7 +108,6 @@ func TestK3dDriverCreateSpec(t *testing.T) {
 		Agents:  2,
 		Wait:    3,
 		Env:     map[string]string{"HTTP_PROXY": "http://kevin:8080"},
-		Ports:   []string{"127.0.0.1:54321:1080/tcp@server:0"},
 		Volumes: []string{"/ws/ca.pem:/etc/ssl/certs/kevin-root.crt@server:*;agent:*"},
 		NodeLabels: []string{
 			"kevin.node=control-plane@server:0",
@@ -149,21 +147,6 @@ func TestK3dDriverCreateSpec(t *testing.T) {
 			"/proj/src:/workspace@server:*;agent:*",
 			"/data:/data:ro@server:*;agent:*",
 		}, d.createSpec(createSpec{}).Volumes)
-	})
-}
-
-func TestK3dPortFlags(t *testing.T) {
-	t.Run("no relay wanted adds no flags", func(t *testing.T) {
-		assert.Nil(t, k3dPortFlags(clusterrelay.Ports{}))
-	})
-
-	t.Run("tcp plus a udp pool", func(t *testing.T) {
-		got := k3dPortFlags(clusterrelay.Ports{TCP: 54321, UDP: []int{41000, 41001}})
-		assert.Equal(t, []string{
-			"127.0.0.1:54321:1080/tcp@server:0",
-			"127.0.0.1:41000:40000/udp@server:0",
-			"127.0.0.1:41001:40001/udp@server:0",
-		}, got)
 	})
 }
 

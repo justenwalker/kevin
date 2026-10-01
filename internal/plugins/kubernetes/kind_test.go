@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
 
-	"github.com/justenwalker/kevin/internal/clusterrelay"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -133,7 +132,7 @@ func TestClusterConfig(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				got, err := clusterConfig(config{Workers: tt.workers}, clusterrelay.Ports{})
+				got, err := clusterConfig(config{Workers: tt.workers})
 				require.NoError(t, err)
 
 				doc := parseClusterConfig(t, got)
@@ -156,7 +155,7 @@ func TestClusterConfig(t *testing.T) {
 	})
 
 	t.Run("labels the control plane and each worker by name", func(t *testing.T) {
-		got, err := clusterConfig(config{Workers: map[string]map[string]any{"worker_a": {}, "worker_b": {}}}, clusterrelay.Ports{})
+		got, err := clusterConfig(config{Workers: map[string]map[string]any{"worker_a": {}, "worker_b": {}}})
 		require.NoError(t, err)
 
 		doc := parseClusterConfig(t, got)
@@ -173,7 +172,7 @@ func TestClusterConfig(t *testing.T) {
 			Mounts:  []mount{{Host: "/src", Container: "/workspace"}, {Host: "/data", Container: "/data", ReadOnly: true}},
 		}
 
-		text, err := clusterConfig(cfg, clusterrelay.Ports{})
+		text, err := clusterConfig(cfg)
 		require.NoError(t, err)
 
 		doc := parseClusterConfig(t, text)
@@ -194,7 +193,7 @@ func TestClusterConfig(t *testing.T) {
 			}},
 		}
 
-		text, err := clusterConfig(cfg, clusterrelay.Ports{})
+		text, err := clusterConfig(cfg)
 		require.NoError(t, err)
 
 		doc := parseClusterConfig(t, text)
@@ -210,30 +209,18 @@ func TestClusterConfig(t *testing.T) {
 			Kind:   kindConfig{ControlPlane: map[string]any{"extraMounts": "not-a-list"}},
 		}
 
-		_, err := clusterConfig(cfg, clusterrelay.Ports{})
+		_, err := clusterConfig(cfg)
 		require.ErrorIs(t, err, ErrInvalidNodeField)
 	})
 
 	t.Run("prefers an explicit config", func(t *testing.T) {
 		raw := "kind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nnetworking:\n  apiServerPort: 6443\n"
 
-		got, err := clusterConfig(config{Kind: kindConfig{Config: raw}, Workers: map[string]map[string]any{"a": {}, "b": {}}}, clusterrelay.Ports{})
+		got, err := clusterConfig(config{Kind: kindConfig{Config: raw}, Workers: map[string]map[string]any{"a": {}, "b": {}}})
 		require.NoError(t, err)
 
 		assert.Equal(t, raw, got)
 		assert.NotContains(t, got, "role: worker", "workers is ignored when config is set")
-	})
-
-	t.Run("adds extra port mappings for the relay", func(t *testing.T) {
-		without, err := clusterConfig(config{}, clusterrelay.Ports{})
-		require.NoError(t, err)
-		assert.Empty(t, parseClusterConfig(t, without).Nodes[0].ExtraPortMappings, "no relay means no port mapping")
-
-		with, err := clusterConfig(config{}, clusterrelay.Ports{TCP: 54321})
-		require.NoError(t, err)
-		mappings := parseClusterConfig(t, with).Nodes[0].ExtraPortMappings
-		require.Len(t, mappings, 1)
-		assert.Equal(t, kindPortMapYAML{ContainerPort: 1080, HostPort: 54321, ListenAddress: "127.0.0.1", Protocol: "TCP"}, mappings[0])
 	})
 
 	t.Run("control_plane passthrough merges image and extraMounts", func(t *testing.T) {
@@ -242,7 +229,7 @@ func TestClusterConfig(t *testing.T) {
 			"extraMounts": []any{
 				map[string]any{"hostPath": "/src", "containerPath": "/workspace"},
 			},
-		}}}, clusterrelay.Ports{})
+		}}})
 		require.NoError(t, err)
 
 		node := parseClusterConfig(t, got).Nodes[0]
@@ -254,7 +241,7 @@ func TestClusterConfig(t *testing.T) {
 	t.Run("a worker's own passthrough merges its own image", func(t *testing.T) {
 		got, err := clusterConfig(config{Workers: map[string]map[string]any{
 			"worker_a": {"image": "kindest/node:worker-only"},
-		}}, clusterrelay.Ports{})
+		}})
 		require.NoError(t, err)
 
 		doc := parseClusterConfig(t, got)
@@ -270,7 +257,7 @@ func TestClusterConfig(t *testing.T) {
 	t.Run("a passthrough labels entry merges alongside kevin's own", func(t *testing.T) {
 		got, err := clusterConfig(config{Kind: kindConfig{ControlPlane: map[string]any{
 			"labels": map[string]any{"custom-label": "yes"},
-		}}}, clusterrelay.Ports{})
+		}}})
 		require.NoError(t, err)
 
 		node := parseClusterConfig(t, got).Nodes[0]
@@ -278,43 +265,36 @@ func TestClusterConfig(t *testing.T) {
 		assert.Equal(t, "yes", node.Labels["custom-label"])
 	})
 
-	t.Run("a passthrough extraPortMappings combines with the relay's own mapping", func(t *testing.T) {
+	t.Run("a passthrough extraPortMappings is kept", func(t *testing.T) {
 		got, err := clusterConfig(config{Kind: kindConfig{ControlPlane: map[string]any{
 			"extraPortMappings": []any{
 				map[string]any{"containerPort": 8080, "hostPort": 18080, "listenAddress": "0.0.0.0", "protocol": "TCP"},
 			},
-		}}}, clusterrelay.Ports{TCP: 54321})
+		}}})
 		require.NoError(t, err)
 
 		mappings := parseClusterConfig(t, got).Nodes[0].ExtraPortMappings
-		require.Len(t, mappings, 2)
-		assert.Equal(t, kindPortMapYAML{ContainerPort: 1080, HostPort: 54321, ListenAddress: "127.0.0.1", Protocol: "TCP"}, mappings[0],
-			"the relay's own mapping stays alongside a passthrough one, not replaced by it")
-		assert.Equal(t, kindPortMapYAML{ContainerPort: 8080, HostPort: 18080, ListenAddress: "0.0.0.0", Protocol: "TCP"}, mappings[1])
+		require.Len(t, mappings, 1)
+		assert.Equal(t, kindPortMapYAML{ContainerPort: 8080, HostPort: 18080, ListenAddress: "0.0.0.0", Protocol: "TCP"}, mappings[0])
 	})
 
 	t.Run("role in a passthrough errors", func(t *testing.T) {
-		_, err := clusterConfig(config{Kind: kindConfig{ControlPlane: map[string]any{"role": "worker"}}}, clusterrelay.Ports{})
+		_, err := clusterConfig(config{Kind: kindConfig{ControlPlane: map[string]any{"role": "worker"}}})
 		require.ErrorIs(t, err, ErrReservedNodeField)
 
-		_, err = clusterConfig(config{Workers: map[string]map[string]any{"a": {"role": "control-plane"}}}, clusterrelay.Ports{})
+		_, err = clusterConfig(config{Workers: map[string]map[string]any{"a": {"role": "control-plane"}}})
 		require.ErrorIs(t, err, ErrReservedNodeField)
 	})
 
 	t.Run("a kevin.node label in a passthrough errors", func(t *testing.T) {
 		_, err := clusterConfig(config{Kind: kindConfig{ControlPlane: map[string]any{
 			"labels": map[string]any{nodeLabelKey: "not-allowed"},
-		}}}, clusterrelay.Ports{})
+		}}})
 		require.ErrorIs(t, err, ErrReservedNodeField)
 	})
 
 	t.Run("a labels passthrough shaped unlike a map errors", func(t *testing.T) {
-		_, err := clusterConfig(config{Kind: kindConfig{ControlPlane: map[string]any{"labels": "not-a-map"}}}, clusterrelay.Ports{})
-		require.ErrorIs(t, err, ErrInvalidNodeField)
-	})
-
-	t.Run("an extraPortMappings passthrough shaped unlike a list errors when kevin also contributes one", func(t *testing.T) {
-		_, err := clusterConfig(config{Kind: kindConfig{ControlPlane: map[string]any{"extraPortMappings": "not-a-list"}}}, clusterrelay.Ports{TCP: 54321})
+		_, err := clusterConfig(config{Kind: kindConfig{ControlPlane: map[string]any{"labels": "not-a-map"}}})
 		require.ErrorIs(t, err, ErrInvalidNodeField)
 	})
 
@@ -322,7 +302,7 @@ func TestClusterConfig(t *testing.T) {
 		raw := "kind: Cluster\n"
 		got, err := clusterConfig(config{Kind: kindConfig{Config: raw, ControlPlane: map[string]any{
 			"extraMounts": []any{map[string]any{"hostPath": "/src", "containerPath": "/workspace"}},
-		}}}, clusterrelay.Ports{})
+		}}})
 		require.NoError(t, err)
 		assert.Equal(t, raw, got)
 	})
@@ -331,42 +311,42 @@ func TestClusterConfig(t *testing.T) {
 func TestKindDriverFingerprint(t *testing.T) {
 	cfg := config{Workers: map[string]map[string]any{"worker": {}}}
 
-	reuseFingerprint := func(cfg config, ports clusterrelay.Ports, proxy map[string]string) (string, error) {
+	reuseFingerprint := func(cfg config, proxy map[string]string) (string, error) {
 		cfg.Proxy = true
-		return (&kindDriver{cfg: cfg, env: plugin.Env{ProxyEnv: proxy}}).Fingerprint(createSpec{Ports: ports})
+		return (&kindDriver{cfg: cfg, env: plugin.Env{ProxyEnv: proxy}}).Fingerprint(createSpec{})
 	}
 
 	t.Run("no proxy env yields the same fingerprint regardless of the map", func(t *testing.T) {
-		without, err := reuseFingerprint(cfg, clusterrelay.Ports{}, nil)
+		without, err := reuseFingerprint(cfg, nil)
 		require.NoError(t, err)
-		empty, err := reuseFingerprint(cfg, clusterrelay.Ports{}, map[string]string{})
+		empty, err := reuseFingerprint(cfg, map[string]string{})
 		require.NoError(t, err)
 		assert.Equal(t, without, empty)
 	})
 
 	t.Run("carries the resolved proxy endpoint", func(t *testing.T) {
-		got, err := reuseFingerprint(cfg, clusterrelay.Ports{}, map[string]string{"HTTP_PROXY": "http://host.docker.internal:54321"})
+		got, err := reuseFingerprint(cfg, map[string]string{"HTTP_PROXY": "http://host.docker.internal:54321"})
 		require.NoError(t, err)
 		assert.Contains(t, got, "http://host.docker.internal:54321")
 	})
 
 	t.Run("a different proxy endpoint changes the fingerprint", func(t *testing.T) {
-		a, err := reuseFingerprint(cfg, clusterrelay.Ports{}, map[string]string{"HTTP_PROXY": "http://host.docker.internal:1"})
+		a, err := reuseFingerprint(cfg, map[string]string{"HTTP_PROXY": "http://host.docker.internal:1"})
 		require.NoError(t, err)
-		b, err := reuseFingerprint(cfg, clusterrelay.Ports{}, map[string]string{"HTTP_PROXY": "http://host.docker.internal:2"})
+		b, err := reuseFingerprint(cfg, map[string]string{"HTTP_PROXY": "http://host.docker.internal:2"})
 		require.NoError(t, err)
 		assert.NotEqual(t, a, b, "a cluster created against one proxy address must not fingerprint as reusable against another")
 	})
 
 	t.Run("propagates a clusterConfig failure", func(t *testing.T) {
-		_, err := reuseFingerprint(config{Kind: kindConfig{ControlPlane: map[string]any{"role": "worker"}}}, clusterrelay.Ports{}, nil)
+		_, err := reuseFingerprint(config{Kind: kindConfig{ControlPlane: map[string]any{"role": "worker"}}}, nil)
 		require.ErrorIs(t, err, ErrReservedNodeField)
 	})
 
 	t.Run("the cluster config prefix is unchanged", func(t *testing.T) {
-		got, err := reuseFingerprint(cfg, clusterrelay.Ports{}, map[string]string{"HTTP_PROXY": "http://host.docker.internal:54321"})
+		got, err := reuseFingerprint(cfg, map[string]string{"HTTP_PROXY": "http://host.docker.internal:54321"})
 		require.NoError(t, err)
-		generated, err := clusterConfig(cfg, clusterrelay.Ports{})
+		generated, err := clusterConfig(cfg)
 		require.NoError(t, err)
 		assert.True(t, strings.HasPrefix(got, generated),
 			"the fingerprint must extend clusterConfig's own text, not replace it - configMarkerFile's content is never fed back into kind create")

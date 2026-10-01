@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"net"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/justenwalker/kevin/internal/clusterrelay"
@@ -20,121 +18,42 @@ import (
 // wantsRelay reports whether Up must stand up the SOCKS5 relay.
 func wantsRelay(cfg config) bool { return cfg.Relay || len(cfg.Expose) > 0 }
 
-// relayAddrFile is where Up persists the relay's host:port, alongside
-// kubeconfig.
-func relayAddrFile(kubeconfig string) string { return kubeconfig + ".relay-addr" }
+// relayResult is what finishRelay adds to the result of Up.
+type relayResult struct {
+	Exposed []plugin.ExposedPort
+	Addr    string
+}
 
-// readRelayPort reads back the host port that a previous Up picked for the
-// relay, from the relay address Up persists at relayAddrFile. It reports ok
-// false when no relay was set up last time, or the file does not parse -
-// either way, the caller must treat that as "no reusable port", not an
-// error: a node's port mappings are fixed at cluster creation, so a
-// mismatched or missing port means the cluster cannot be reused unchanged.
-func readRelayPort(kubeconfig string) (int, bool) {
-	addr, err := os.ReadFile(relayAddrFile(kubeconfig))
+// finishRelay deploys the SOCKS5 relay pod, starts the forwarder container
+// that publishes its ports on the host, and reports each expose entry as a
+// routed endpoint, once the cluster is up. fwd names the forwarder; its
+// Target is the control-plane node. Callers must only call this when
+// wantsRelay(cfg) holds.
+func finishRelay(ctx context.Context, rt cri.Runtime, drv driver, cfg config, fwd clusterrelay.ForwarderSpec, out plugin.Emitter) (relayResult, error) {
+	poolSize, err := relay.UDPPoolSize()
 	if err != nil {
-		return 0, false
+		return relayResult{}, fmt.Errorf("kubernetes: %w", err)
 	}
-	_, portStr, err := net.SplitHostPort(strings.TrimSpace(string(addr)))
-	if err != nil {
-		return 0, false
-	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return 0, false
-	}
-	return port, true
-}
-
-// relayUDPAddrFile is where Up persists the relay's UDP pool host ports,
-// alongside kubeconfig - readRelayUDPPorts's counterpart to
-// readRelayPort/relayAddrFile for the TCP port.
-func relayUDPAddrFile(kubeconfig string) string { return kubeconfig + ".relay-udp-ports" }
-
-// writeRelayUDPPorts persists ports as a comma-separated list (empty when
-// the pool is disabled) for readRelayUDPPorts to read back on a later Up.
-func writeRelayUDPPorts(kubeconfig string, ports []int) error {
-	strs := make([]string, len(ports))
-	for i, p := range ports {
-		strs[i] = strconv.Itoa(p)
-	}
-	return os.WriteFile(relayUDPAddrFile(kubeconfig), []byte(strings.Join(strs, ",")), 0o600) //nolint:wrapcheck // caller wraps with the cluster name
-}
-
-// readRelayUDPPorts reads back the UDP pool host ports a previous Up
-// reserved, from relayUDPAddrFile. It reports ok false when the file is
-// missing or does not parse, the same "not reusable" signal
-// readRelayPort's own ok reports - an empty-but-present file is a valid,
-// reusable "pool disabled" state, not a failure to read.
-func readRelayUDPPorts(kubeconfig string) ([]int, bool) {
-	data, err := os.ReadFile(relayUDPAddrFile(kubeconfig))
-	if err != nil {
-		return nil, false
-	}
-	text := strings.TrimSpace(string(data))
-	if text == "" {
-		return nil, true
-	}
-	parts := strings.Split(text, ",")
-	ports := make([]int, len(parts))
-	for i, p := range parts {
-		port, convErr := strconv.Atoi(p)
-		if convErr != nil {
-			return nil, false
-		}
-		ports[i] = port
-	}
-	return ports, true
-}
-
-// reusableRelayPorts reads back the relay ports a previous Up reserved for
-// kubeconfig, when useRelay - reusablePorts is false when useRelay is true
-// but either the TCP port or the UDP pool can't be read back, meaning the
-// caller must pick fresh ones and cannot reuse an existing cluster as-is.
-func reusableRelayPorts(kubeconfig string, useRelay bool) (clusterrelay.Ports, bool) {
-	if !useRelay {
-		return clusterrelay.Ports{}, true
-	}
-	tcp, tcpOK := readRelayPort(kubeconfig)
-	udp, udpOK := readRelayUDPPorts(kubeconfig)
-	return clusterrelay.Ports{TCP: tcp, UDP: udp}, tcpOK && udpOK
-}
-
-// persistRelayPorts writes relayAddress and udpHostPorts to their marker
-// files when useRelay, or removes any stale ones from a previous Up
-// otherwise - readRelayPort/readRelayUDPPorts's counterpart, called once
-// Up knows the final result.
-func persistRelayPorts(kubeconfig, name, relayAddress string, udpHostPorts []int, useRelay bool) error {
-	if !useRelay {
-		if err := os.Remove(relayAddrFile(kubeconfig)); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("kubernetes: remove the stale relay address for %q: %w", name, err)
-		}
-		if err := os.Remove(relayUDPAddrFile(kubeconfig)); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("kubernetes: remove the stale relay udp pool for %q: %w", name, err)
-		}
-		return nil
-	}
-	if err := os.WriteFile(relayAddrFile(kubeconfig), []byte(relayAddress), 0o600); err != nil {
-		return fmt.Errorf("kubernetes: write the relay address for %q: %w", name, err)
-	}
-	if err := writeRelayUDPPorts(kubeconfig, udpHostPorts); err != nil {
-		return fmt.Errorf("kubernetes: write the relay udp pool for %q: %w", name, err)
-	}
-	return nil
-}
-
-// finishRelay deploys the SOCKS5 relay pod and reports each expose entry as
-// a routed endpoint, once the cluster is up. Callers must only call this
-// when wantsRelay(cfg) holds.
-func finishRelay(ctx context.Context, rt cri.Runtime, drv driver, cfg config, relayAddress string, udpHostPorts []int, out plugin.Emitter) ([]plugin.ExposedPort, error) {
 	// The kevin.cue-configured relay image (cfg.Relay.Image) lives at the
 	// supervisor level, not in plugin.Env - relay.Ref("") is exactly what
 	// the integration suite already uses to resolve the same image for the
 	// same reason: KEVIN_RELAY_IMAGE wins, else the built-in tag.
-	if err := deployRelay(ctx, rt, drv, relay.Ref(""), len(udpHostPorts), out); err != nil {
-		return nil, err
+	fwd.Image = relay.Ref("")
+	if err = deployRelay(ctx, rt, drv, fwd.Image, poolSize, out); err != nil {
+		return relayResult{}, err
 	}
-	return exposedViaRelay(cfg.Expose, relayAddress, clusterrelay.UDPAddrs(udpHostPorts))
+
+	fwd.Target = drv.ControlPlane()
+	out.Log("stdout", "starting the relay forwarder")
+	forwarder, err := clusterrelay.StartForwarder(ctx, rt, fwd)
+	if err != nil {
+		return relayResult{}, fmt.Errorf("kubernetes: %w", err)
+	}
+	exposed, err := exposedViaRelay(cfg.Expose, forwarder.Addr, forwarder.UDPAddrs)
+	if err != nil {
+		return relayResult{}, err
+	}
+	return relayResult{Exposed: exposed, Addr: forwarder.Addr}, nil
 }
 
 // saveImageToTempFile saves image to a temporary tar file and returns its

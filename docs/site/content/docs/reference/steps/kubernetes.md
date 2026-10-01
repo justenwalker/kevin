@@ -49,7 +49,7 @@ cluster: {
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
 | `image` | `string` | - | The node image, such as `"kindest/node:v1.34.0"`. Unset uses the default of the installed kind version. |
-| `control_plane` | `#NodeConfig` | - | Adds kind node settings to the control-plane node, with kind's field names, such as extraMounts or kubeadmConfigPatches (see https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options). labels and extraPortMappings add to the values kevin sets. The `"kevin.node"` label and role cannot be set. |
+| `control_plane` | `#NodeConfig` | - | Adds kind node settings to the control-plane node, with kind's field names, such as extraMounts or kubeadmConfigPatches (see https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options). labels and extraMounts add to the values kevin sets. The `"kevin.node"` label and role cannot be set. |
 | `config` | `string` | - | A complete kind cluster configuration in YAML. It replaces the configuration kevin generates: control_plane and workers have no effect. |
 
 ## `#K3d`
@@ -90,7 +90,7 @@ cluster: {
 kevin merges these with its own node settings:
 
 - `labels` adds to the `kevin.node` label. You cannot set `kevin.node`.
-- `extraPortMappings` adds to the relay port mapping.
+- `extraMounts` adds to the entries from `mounts`.
 - You cannot set `role`.
 
 The control-plane node has the label `kevin.node: control-plane`.
@@ -129,7 +129,7 @@ For each `expose` entry:
 - The step supports export: a `setup.<step>` need or a command can read `name`, `kubeconfig`, `context`, and `relay_addr`.
 - Each node is a container that [`builtin:fault`]({{< relref "/docs/reference/steps/fault" >}}) can target by its `workers` key, or by `control-plane` for the control-plane node.
 - The `k3d` driver runs on the `docker` and `podman` engines.
-- The `k3d` driver publishes the API server and relay ports on `127.0.0.1` only.
+- The `k3d` driver publishes the API server on `127.0.0.1` only.
 - The `k3d` nodes pull the k3s system images, such as `rancher/mirrored-pause`, while the cluster starts. This step's `egress` applies later, so `proxy.egress.allow` must cover those registries when `proxy.egress.deny` is `true`.
 - `mounts` applies to every node. With the `kind` driver, `kind.config` replaces the generated configuration, so `mounts` has no effect.
 - With the `k3d` driver, `trust_ca` mounts the kevin root certificate into each node at cluster creation. The step replaces a cluster whose certificate no longer matches.

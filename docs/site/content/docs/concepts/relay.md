@@ -69,7 +69,7 @@ Most clients do not speak SOCKS5. For each relay `ExposedPort`, from any plugin,
 
 ### Cluster relay pods
 
-A `builtin:kubernetes` step's `expose` entries run a SOCKS5 relay as a pod in the cluster, from the `kevin-relay socks5-gateway` command. The host port mapping is fixed when the cluster is created, before `Up` knows which services exist. The `kind` driver uses `extraPortMappings`. The `k3d` driver uses `--port` with a filter for the server node. Both bind the port to `127.0.0.1`. One relay pod needs one host port, whatever the number of services. `Up` chooses the port and adds the port mapping to the control-plane node. It then loads the relay image into the node and applies the pod with `kubectl` inside the node.
+A `builtin:kubernetes` step's `expose` entries run a SOCKS5 relay as a pod in the cluster, from the `kevin-relay socks5-gateway` command. A forwarder container on the project network publishes the pod's ports on `127.0.0.1`, and forwards them to the control-plane node. The forwarder runs `kevin-relay port-forward`. The cluster driver publishes no port itself, so every driver works the same way. One forwarder serves a cluster, whatever the number of services. `Up` loads the relay image into the node, applies the pod with `kubectl` inside the node, then starts the forwarder. Docker chooses the host ports, and `Up` reads them back. The step removes the forwarder when it removes the cluster.
 
 `Up` does not wait for an `expose` address to accept connections. The target usually comes from a manifest applied after the cluster starts. A [`builtin:wait`]({{< relref "/docs/reference/steps/wait" >}}) `tcp` check can dial the `expose_<name>` value to wait for it.
 
@@ -79,7 +79,7 @@ A `builtin:container` `expose` entry with `relay: true` uses the project relay's
 
 ### UDP
 
-SOCKS5 UDP `ASSOCIATE` (RFC 1928 section 7) normally binds a random port, which is known only after the relay container or pod exists, too late to publish it. `kevin-relay` binds a port from a fixed pool instead. The pool is `KEVIN_RELAY_UDP_POOL_SIZE` ports (default 16), published by the relay container, or reserved as host ports on a kind or k3d node. When the pool is full, a new session fails immediately. A size of `0` reserves no ports.
+SOCKS5 UDP `ASSOCIATE` (RFC 1928 section 7) normally binds a random port, which is known only after the relay container or pod exists, too late to publish it. `kevin-relay` binds a port from a fixed pool instead. The pool is `KEVIN_RELAY_UDP_POOL_SIZE` ports (default 16), published by the relay container, or by a cluster's forwarder container. When the pool is full, a new session fails immediately. A size of `0` reserves no ports.
 
 Each UDP `ExposedPort` carries `RelayUdpAddrs`, which maps each pool port to its address on the host. The `ASSOCIATE` reply names a pool port, and kevin's local forward looks up the address there. RFC 1928 ties a session to its TCP control connection, so if that connection drops, kevin closes the local listener.
 

@@ -85,7 +85,7 @@
 	// control_plane adds kind node settings to the control-plane node, with
 	// kind's field names, such as extraMounts or kubeadmConfigPatches (see
 	// https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options).
-	// labels and extraPortMappings add to the values kevin sets. The
+	// labels and extraMounts add to the values kevin sets. The
 	// "kevin.node" label and role cannot be set.
 	control_plane?: #NodeConfig
 

@@ -38,7 +38,7 @@ const ErrReservedNodeField = Error("kubernetes: kind: a node config passthrough 
 
 // ErrInvalidNodeField reports that a control_plane or workers passthrough
 // entry set a field kevin itself also populates - "labels" or
-// "extraPortMappings" - to a value shaped unlike what kind itself expects
+// "extraMounts" - to a value shaped unlike what kind itself expects
 // there, so kevin cannot merge its own contribution into it.
 const ErrInvalidNodeField = Error("kubernetes: kind: a node config passthrough field has the wrong shape")
 
