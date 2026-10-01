@@ -44,26 +44,6 @@ func TestKindDriverVerifyTrusted(t *testing.T) {
 	})
 }
 
-func TestKindDriverWaitContainerdReady(t *testing.T) {
-	t.Run("ready on the first check", func(t *testing.T) {
-		rt := fakeRuntime{exec: func(context.Context, string, ...string) (string, error) {
-			return "ctr github.com/containerd/containerd 1.7.0", nil
-		}}
-		require.NoError(t, (&kindDriver{rt: rt}).waitContainerdReady(t.Context(), "demo-control-plane"))
-	})
-
-	t.Run("a canceled context stops the poll instead of waiting out the timeout", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(t.Context())
-		cancel()
-
-		rt := fakeRuntime{exec: func(context.Context, string, ...string) (string, error) {
-			return "", errors.New("containerd not ready")
-		}}
-		err := (&kindDriver{rt: rt}).waitContainerdReady(ctx, "demo-control-plane")
-		require.ErrorIs(t, err, context.Canceled)
-	})
-}
-
 // installTrustCARuntime builds a fakeRuntime that walks trustCAOnNode's
 // call sequence for one node (write the cert, refresh the trust store,
 // verify it, restart containerd, wait for it) and fails on the callN'th

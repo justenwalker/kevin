@@ -29,7 +29,7 @@ const ErrNoRelayUDPPool = Error("kubernetes: expose relay: no udp relay pool ava
 
 // ErrContainerdNotReady reports that containerd did not answer within
 // containerdReadyTimeout after a restart.
-const ErrContainerdNotReady = Error("kubernetes: kind: containerd did not become ready after the restart")
+const ErrContainerdNotReady = Error("kubernetes: containerd did not become ready after the restart")
 
 // ErrReservedNodeField reports that a control_plane or workers passthrough
 // entry set a per-node kind config field kevin manages itself - "role", or
