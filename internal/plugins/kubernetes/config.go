@@ -16,20 +16,21 @@ const controlPlaneNodeName = "control-plane"
 
 // config is the decoded with block of one step.
 type config struct {
-	Driver  string                    `json:"driver"`
-	Name    string                    `json:"name"`
-	Workers map[string]map[string]any `json:"workers"`
-	Wait    string                    `json:"wait"`
-	Retain  bool                      `json:"retain"`
-	Proxy   bool                      `json:"proxy"`
-	Egress  []string                  `json:"egress"`
-	CoreDNS bool                      `json:"coredns"`
-	TrustCA bool                      `json:"trust_ca"`
-	Expose  map[string]expose         `json:"expose"`
-	Relay   bool                      `json:"relay"`
-	Kind    kindConfig                `json:"kind"`
-	K3d     k3dConfig                 `json:"k3d"`
-	Mounts  []mount                   `json:"mounts"`
+	Driver   string                    `json:"driver"`
+	Name     string                    `json:"name"`
+	Workers  map[string]map[string]any `json:"workers"`
+	Wait     string                    `json:"wait"`
+	Retain   bool                      `json:"retain"`
+	Proxy    bool                      `json:"proxy"`
+	Egress   []string                  `json:"egress"`
+	CoreDNS  bool                      `json:"coredns"`
+	TrustCA  bool                      `json:"trust_ca"`
+	Expose   map[string]expose         `json:"expose"`
+	Relay    bool                      `json:"relay"`
+	Kind     kindConfig                `json:"kind"`
+	K3d      k3dConfig                 `json:"k3d"`
+	Minikube minikubeConfig            `json:"minikube"`
+	Mounts   []mount                   `json:"mounts"`
 }
 
 // mount is one entry of the with block's mounts list: a host path that
@@ -67,6 +68,15 @@ type k3dConfig struct {
 	Env     map[string]string `json:"env"`
 	Memory  string            `json:"memory"`
 	Labels  map[string]string `json:"labels"`
+}
+
+// minikubeConfig is the with block's minikube field: the settings that only
+// the minikube driver has.
+type minikubeConfig struct {
+	KubernetesVersion string `json:"kubernetes_version"`
+	BaseImage         string `json:"base_image"`
+	Memory            string `json:"memory"`
+	CPUs              int    `json:"cpus"`
 }
 
 // expose is one entry of the with block's expose map: an in-cluster

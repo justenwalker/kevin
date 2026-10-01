@@ -22,7 +22,7 @@ cluster: {
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `driver` | `"kind"` \| `"k3d"` | - | **Required.** The tool that creates the cluster: `"kind"` or `"k3d"`. |
+| `driver` | `"kind"` \| `"k3d"` \| `"minikube"` | - | **Required.** The tool that creates the cluster: `"kind"`, `"k3d"`, or `"minikube"`. |
 | `name` | `string` | - | The cluster name. Defaults to `"<project>-<step>"`. |
 | `workers` | `[string]: #NodeConfig` | - | Creates one worker node for each key, in addition to the control-plane node. The key names the node: kevin sets it as the `"kevin.node"` node label, and builtin:fault accepts it in containers. Each value takes the node settings described for `"#NodeConfig"`. |
 | `wait` | `string` | `"5m"` | How long to wait for the control plane to become ready, such as `"5m"`. |
@@ -36,6 +36,7 @@ cluster: {
 | `mounts` | `[...#Mount]` | - | Makes host paths visible in every node of the cluster. |
 | `kind` | `#Kind` | - | Holds the settings that only the `"kind"` driver has. |
 | `k3d` | `#K3d` | - | Holds the settings that only the `"k3d"` driver has. |
+| `minikube` | `#Minikube` | - | Holds the settings that only the `"minikube"` driver has. |
 
 ## Drivers
 
@@ -43,6 +44,7 @@ cluster: {
 |:-------|:--------------------|
 | `kind` | [`kind`](https://kind.sigs.k8s.io/) |
 | `k3d` | [`k3d`](https://k3d.io/) |
+| `minikube` | [`minikube`](https://minikube.sigs.k8s.io/) |
 
 ## `#Kind`
 
@@ -64,6 +66,15 @@ cluster: {
 
 `#K3sComponent` is one of `"traefik"`, `"servicelb"`, `"metrics-server"`, or `"local-storage"`. `#MemoryLimit` is a number with an optional unit of `b`, `k`, `m`, or `g`, in either case, such as `"512m"` or `"2g"`.
 
+## `#Minikube`
+
+| Field | Type | Default | Description |
+|:------|:----:|:-------:|:------------|
+| `kubernetes_version` | `string` | - | The Kubernetes version of the cluster, such as `"v1.33.1"`. When unset, kevin uses the default of the installed minikube version. |
+| `base_image` | `string` | - | The node image. When unset, kevin uses the default of the installed minikube version. |
+| `memory` | `#MemoryLimit` | - | Limits the memory of each node, such as `"2g"`. |
+| `cpus` | `int & >0` | - | Limits the CPUs of each node. |
+
 ## `#Mount`
 
 | Field | Type | Default | Description |
@@ -74,7 +85,7 @@ cluster: {
 
 ## `#NodeConfig`
 
-`kind.control_plane` and each `workers` value take node settings. The `kind` driver accepts kind's [per-node options](https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options), with kind's field names. The `k3d` driver accepts none, so write each `workers` value as `{}`. For example, with `kind`:
+`kind.control_plane` and each `workers` value take node settings. The `kind` driver accepts kind's [per-node options](https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options), with kind's field names. The `k3d` and `minikube` drivers accept none, so write each `workers` value as `{}`. For example, with `kind`:
 
 ```cue
 cluster: {
@@ -109,7 +120,7 @@ The control-plane node has the label `kevin.node: control-plane`.
 |:----|:------|
 | `name` | Cluster name. |
 | `kubeconfig` | Absolute path of the kubeconfig file. |
-| `context` | kubeconfig context. `kind-<name>` for the `kind` driver, `k3d-<name>` for the `k3d` driver. |
+| `context` | kubeconfig context. `kind-<name>` for the `kind` driver, `k3d-<name>` for the `k3d` driver, `<name>` for the `minikube` driver. |
 | `nodes` | Comma-separated node names. |
 | `relay_addr` | Host address of the relay pod, when `relay` is `true` or `expose` has entries. Use it with a [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step. |
 
@@ -131,6 +142,8 @@ For each `expose` entry:
 - The `k3d` driver runs on the `docker` and `podman` engines.
 - The `k3d` driver publishes the API server on `127.0.0.1` only.
 - The `k3d` nodes pull the k3s system images, such as `rancher/mirrored-pause`, while the cluster starts. This step's `egress` applies later, so `proxy.egress.allow` must cover those registries when `proxy.egress.deny` is `true`.
-- `mounts` applies to every node. With the `kind` driver, `kind.config` replaces the generated configuration, so `mounts` has no effect.
-- With the `k3d` driver, `trust_ca` mounts the kevin root certificate into each node at cluster creation. The step replaces a cluster whose certificate no longer matches.
+- The `minikube` driver runs on the `docker` and `podman` engines. Under `podman`, minikube needs a rootful Podman.
+- The `minikube` driver publishes the API server on `127.0.0.1` only.
+- `mounts` applies to every node. With the `kind` driver, `kind.config` replaces the generated configuration, so `mounts` has no effect. The `minikube` driver accepts at most one `mounts` entry.
+- With the `k3d` driver, `trust_ca` mounts the kevin root certificate into each node at cluster creation. With the `minikube` driver, it installs the certificate in each node at cluster creation. The step replaces a cluster whose certificate no longer matches.
 - Each node also joins the project network. See [The project network]({{< relref "/docs/concepts/container-engine" >}}#the-project-network).

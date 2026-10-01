@@ -81,6 +81,14 @@ func TestDecode(t *testing.T) {
 		assert.Equal(t, "rancher/k3s:v1.34.1-k3s1", cfg.K3d.Image)
 	})
 
+	t.Run("reads the minikube options", func(t *testing.T) {
+		cfg, err := decode([]byte(`{"driver":"minikube","minikube":{"kubernetes_version":"v1.33.1","base_image":"kicbase:v1","memory":"2g","cpus":2}}`))
+		require.NoError(t, err)
+
+		assert.Equal(t, "minikube", cfg.Driver)
+		assert.Equal(t, minikubeConfig{KubernetesVersion: "v1.33.1", BaseImage: "kicbase:v1", Memory: "2g", CPUs: 2}, cfg.Minikube)
+	})
+
 	t.Run("reads the k3d options", func(t *testing.T) {
 		cfg, err := decode([]byte(`{"driver":"k3d","k3d":{"disable":["traefik","servicelb"],"env":{"A":"1"},"memory":"2g","labels":{"team":"x"}}}`))
 		require.NoError(t, err)

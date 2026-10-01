@@ -28,6 +28,7 @@ cluster: {
 |:-------|:--------------------|
 | `kind` | [`kind`](https://kind.sigs.k8s.io/) |
 | `k3d` | [`k3d`](https://k3d.io/) |
+| `minikube` | [`minikube`](https://minikube.sigs.k8s.io/) |
 
 ## `#Kind`
 
@@ -39,13 +40,17 @@ cluster: {
 
 `#K3sComponent` is one of `"traefik"`, `"servicelb"`, `"metrics-server"`, or `"local-storage"`. `#MemoryLimit` is a number with an optional unit of `b`, `k`, `m`, or `g`, in either case, such as `"512m"` or `"2g"`.
 
+## `#Minikube`
+
+[[template "table" .Definitions.Minikube]]
+
 ## `#Mount`
 
 [[template "table" .Definitions.Mount]]
 
 ## `#NodeConfig`
 
-`kind.control_plane` and each `workers` value take node settings. The `kind` driver accepts kind's [per-node options](https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options), with kind's field names. The `k3d` driver accepts none, so write each `workers` value as `{}`. For example, with `kind`:
+`kind.control_plane` and each `workers` value take node settings. The `kind` driver accepts kind's [per-node options](https://kind.sigs.k8s.io/docs/user/configuration/#per-node-options), with kind's field names. The `k3d` and `minikube` drivers accept none, so write each `workers` value as `{}`. For example, with `kind`:
 
 ```cue
 cluster: {
@@ -76,7 +81,7 @@ The control-plane node has the label `kevin.node: control-plane`.
 |:----|:------|
 | `name` | Cluster name. |
 | `kubeconfig` | Absolute path of the kubeconfig file. |
-| `context` | kubeconfig context. `kind-<name>` for the `kind` driver, `k3d-<name>` for the `k3d` driver. |
+| `context` | kubeconfig context. `kind-<name>` for the `kind` driver, `k3d-<name>` for the `k3d` driver, `<name>` for the `minikube` driver. |
 | `nodes` | Comma-separated node names. |
 | `relay_addr` | Host address of the relay pod, when `relay` is `true` or `expose` has entries. Use it with a [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step. |
 
@@ -98,6 +103,8 @@ For each `expose` entry:
 - The `k3d` driver runs on the `docker` and `podman` engines.
 - The `k3d` driver publishes the API server on `127.0.0.1` only.
 - The `k3d` nodes pull the k3s system images, such as `rancher/mirrored-pause`, while the cluster starts. This step's `egress` applies later, so `proxy.egress.allow` must cover those registries when `proxy.egress.deny` is `true`.
-- `mounts` applies to every node. With the `kind` driver, `kind.config` replaces the generated configuration, so `mounts` has no effect.
-- With the `k3d` driver, `trust_ca` mounts the kevin root certificate into each node at cluster creation. The step replaces a cluster whose certificate no longer matches.
+- The `minikube` driver runs on the `docker` and `podman` engines. Under `podman`, minikube needs a rootful Podman.
+- The `minikube` driver publishes the API server on `127.0.0.1` only.
+- `mounts` applies to every node. With the `kind` driver, `kind.config` replaces the generated configuration, so `mounts` has no effect. The `minikube` driver accepts at most one `mounts` entry.
+- With the `k3d` driver, `trust_ca` mounts the kevin root certificate into each node at cluster creation. With the `minikube` driver, it installs the certificate in each node at cluster creation. The step replaces a cluster whose certificate no longer matches.
 - Each node also joins the project network. See [The project network]({{< relref "/docs/concepts/container-engine" >}}#the-project-network).

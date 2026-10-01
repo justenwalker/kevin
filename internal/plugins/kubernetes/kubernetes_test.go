@@ -50,6 +50,8 @@ type fakeRuntime struct {
 	run       func(ctx context.Context, spec cri.RunSpec) (string, error)
 	save      func(ctx context.Context, image string) (io.ReadCloser, error)
 
+	listByLabel func(ctx context.Context, key, value string) ([]string, error)
+
 	networkConnect func(ctx context.Context, network, container string) error
 	networkCreate  func(ctx context.Context, name string, opts cri.NetworkOptions) error
 	networkRemove  func(ctx context.Context, name string) error
@@ -121,7 +123,12 @@ func (fakeRuntime) NetworkGateway(context.Context, string) (cri.Gateway, error) 
 	return cri.Gateway{}, nil
 }
 
-func (fakeRuntime) ListByLabel(context.Context, string, string) ([]string, error) { return nil, nil }
+func (f fakeRuntime) ListByLabel(ctx context.Context, key, value string) ([]string, error) {
+	if f.listByLabel == nil {
+		return nil, nil
+	}
+	return f.listByLabel(ctx, key, value)
+}
 
 // fakeDriver is a hand-written driver double. Each nil func field does
 // nothing and succeeds.
@@ -411,6 +418,12 @@ func TestNewDriver(t *testing.T) {
 		drv, err := newDriver(config{Driver: "k3d"}, plugin.Env{}, "demo-cluster", "/kubeconfig", nil)
 		require.NoError(t, err)
 		assert.IsType(t, &k3dDriver{}, drv)
+	})
+
+	t.Run("minikube", func(t *testing.T) {
+		drv, err := newDriver(config{Driver: "minikube"}, plugin.Env{}, "demo-cluster", "/kubeconfig", nil)
+		require.NoError(t, err)
+		assert.IsType(t, &minikubeDriver{}, drv)
 	})
 
 	t.Run("a k3d driver that is misconfigured is an error", func(t *testing.T) {

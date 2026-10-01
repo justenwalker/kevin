@@ -54,6 +54,18 @@ const ErrK3dReservedEnv = Error("kubernetes: k3d: env may not set a proxy variab
 // kevin sets on every node.
 const ErrK3dReservedLabel = Error("kubernetes: k3d: labels may not set the kevin.node label")
 
+// ErrMinikubeWorkerSettings reports that a workers entry carries node
+// settings, which minikube has no create-time flag for.
+const ErrMinikubeWorkerSettings = Error("kubernetes: minikube: a worker takes no node settings")
+
+// ErrMinikubeMounts reports that mounts has more than one entry, which
+// minikube cannot make: a second mount replaces the first.
+const ErrMinikubeMounts = Error("kubernetes: minikube: mounts takes at most one entry")
+
+// ErrNoAPIPort reports that the control-plane node of a minikube cluster does
+// not publish the API server port on the host.
+const ErrNoAPIPort = Error("kubernetes: minikube: the control plane publishes no API server port")
+
 // ErrNotTCPAddr reports that a TCP listener did not report a TCP address.
 const ErrNotTCPAddr = Error("kubernetes: the listener has no TCP address")
 

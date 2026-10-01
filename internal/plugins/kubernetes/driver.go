@@ -104,6 +104,8 @@ func newDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.Runti
 		return newKindDriver(cfg, env, name, kubeconfig, rt), nil
 	case "k3d":
 		return newK3dDriver(cfg, env, name, kubeconfig, rt)
+	case "minikube":
+		return newMinikubeDriver(cfg, env, name, kubeconfig, rt)
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnknownDriver, cfg.Driver)
 	}

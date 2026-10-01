@@ -1,6 +1,7 @@
 #Config: {
-	// driver is the tool that creates the cluster: "kind" or "k3d".
-	driver!: "kind" | "k3d"
+	// driver is the tool that creates the cluster: "kind", "k3d", or
+	// "minikube".
+	driver!: "kind" | "k3d" | "minikube"
 
 	// name is the cluster name. Defaults to "<project>-<step>".
 	name?: string
@@ -55,11 +56,20 @@
 	// k3d holds the settings that only the "k3d" driver has.
 	k3d?: #K3d
 
+	// minikube holds the settings that only the "minikube" driver has.
+	minikube?: #Minikube
+
 	if driver == "kind" {
-		k3d?: _|_
+		k3d?:      _|_
+		minikube?: _|_
 	}
 	if driver == "k3d" {
+		kind?:     _|_
+		minikube?: _|_
+	}
+	if driver == "minikube" {
 		kind?: _|_
+		k3d?:  _|_
 	}
 }
 
@@ -115,6 +125,23 @@
 	labels?: [string]: string
 }
 
+// #Minikube holds the settings that only the minikube driver has.
+#Minikube: {
+	// kubernetes_version is the Kubernetes version of the cluster, such as
+	// "v1.33.1". When unset, kevin uses the default of the installed minikube version.
+	kubernetes_version?: string
+
+	// base_image is the node image. When unset, kevin uses the default of the installed
+	// minikube version.
+	base_image?: string
+
+	// memory limits the memory of each node, such as "2g".
+	memory?: #MemoryLimit
+
+	// cpus limits the CPUs of each node.
+	cpus?: int & >0
+}
+
 // #K3sComponent is a component that k3s bundles and k3d.disable can turn off.
 #K3sComponent: "traefik" | "servicelb" | "metrics-server" | "local-storage"
 
@@ -123,7 +150,7 @@
 #MemoryLimit: =~"^[0-9]+[bBkKmMgG]?$"
 
 // #NodeConfig is the settings of one node. The "kind" driver accepts any
-// kind node field. The "k3d" driver takes none.
+// kind node field. The "k3d" and "minikube" drivers take none.
 #NodeConfig: {...}
 
 #Expose: {
