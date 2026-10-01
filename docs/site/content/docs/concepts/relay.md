@@ -29,7 +29,7 @@ Docker Desktop on macOS and Windows runs the daemon in a virtual machine, and th
 
 ## Name resolution in Kubernetes clusters
 
-The `kind` and `k3d` drivers each change the cluster's CoreDNS configuration to forward the environment domain to the relay, then restart CoreDNS.
+The `kind`, `k3d`, and `minikube` drivers each change the cluster's CoreDNS configuration to forward the environment domain to the relay, then restart CoreDNS.
 
 k3d clusters get the zone through the `coredns-custom` configmap, because k3s restores any edit to the `coredns` configmap. A pod resolves `<name>.<domain>` through the cluster DNS, with no proxy settings of its own.
 
@@ -109,7 +109,7 @@ Faults apply to the interface, so they affect all traffic, whether or not it goe
 
 To change another container's network namespace, the relay container has `CAP_NET_ADMIN` (to add rules), `CAP_SYS_ADMIN` (to enter the namespace), and `CAP_SYS_PTRACE`, and shares the host PID namespace (`--pid host`). It opens a target's namespace at `/proc/<pid>/ns/net`, from the PID that `docker inspect` reports.
 
-kevin does not use a bind mount of `/var/run/docker/netns`, because on OrbStack a namespace file created after the mount can be read, but entering it fails with `EINVAL`. `/proc/<pid>/ns/net` always shows the current host PID namespace, so start order does not matter. `CAP_SYS_PTRACE` is needed to open the namespace of a `--privileged` container, such as a kind or k3d node, because the kernel marks its processes non-dumpable.
+kevin does not use a bind mount of `/var/run/docker/netns`, because on OrbStack a namespace file created after the mount can be read, but entering it fails with `EINVAL`. `/proc/<pid>/ns/net` always shows the current host PID namespace, so start order does not matter. `CAP_SYS_PTRACE` is needed to open the namespace of a `--privileged` container, such as a kind, k3d, or minikube node, because the kernel marks its processes non-dumpable.
 
 These capabilities let a compromised relay enter the namespace of any process on the host. The relay acts only on paths that kevin sends over the mTLS control channel, which limits this in practice. kevin accepts this risk for its threat model: one local developer, whose kevin CA can already read the project's TLS traffic.
 

@@ -1,6 +1,6 @@
 ---
 title: "Kubernetes clusters"
-description: "Add a local Kubernetes cluster to an environment with the kind or k3d driver."
+description: "Add a local Kubernetes cluster to an environment with the kind, k3d, or minikube driver."
 weight: 3
 ---
 
@@ -11,7 +11,7 @@ This guide adds a local Kubernetes cluster to an environment with [`builtin:kube
 ## Prerequisites
 
 - `kubectl` on your `PATH`.
-- The command of your driver on your `PATH`: `kind` for the `kind` driver, `k3d` for the `k3d` driver.
+- The command of your driver on your `PATH`: `kind` for the `kind` driver, `k3d` for the `k3d` driver, `minikube` for the `minikube` driver.
 
 ## Add a cluster
 
@@ -128,7 +128,7 @@ The Service is now `myapp.kevin.home` through the proxy. Pods can also resolve i
 
 ## Use Podman
 
-With `--engine podman`, the `kind` and `k3d` drivers run the nodes on Podman. See [Container engine]({{< relref "/docs/concepts/container-engine" >}}) for the limits.
+With `--engine podman`, the `kind`, `k3d`, and `minikube` drivers run the nodes on Podman. The `minikube` driver needs a rootful Podman. See [Container engine]({{< relref "/docs/concepts/container-engine" >}}) for the limits.
 
 ## Use k3d instead
 
@@ -168,6 +168,44 @@ env: cluster: {
 ```
 
 Run `kubectl --kubeconfig <kubeconfig> get pods -A`, with the `kubeconfig` output of the `cluster` step. The list no longer shows `traefik`. The [`builtin:kubernetes` reference]({{< relref "/docs/reference/steps/kubernetes" >}}#k3d) lists the component names.
+
+## Use minikube instead
+
+Set `driver` to `"minikube"`:
+
+```cue
+env: cluster: {
+    uses: "builtin:kubernetes"
+    with: {
+        driver: "minikube"
+        workers: worker_a: {}
+    }
+}
+```
+
+Run `kevin run`: the `cluster` step reports `ready` once the nodes are up.
+
+`kubeconfig`, `expose`, `relay`, `workers`, and `builtin:route` work as they do with `kind`. The [`builtin:kubernetes` reference]({{< relref "/docs/reference/steps/kubernetes" >}}) lists the limits of the `minikube` driver, such as one `mounts` entry.
+
+## Set the Kubernetes version and node size
+
+Set the Kubernetes version and the node limits in the `minikube` block:
+
+```cue
+env: cluster: {
+    uses: "builtin:kubernetes"
+    with: {
+        driver: "minikube"
+        minikube: {
+            kubernetes_version: "v1.32.0"
+            memory:             "4g"
+            cpus:               2
+        }
+    }
+}
+```
+
+Run `kubectl --kubeconfig <kubeconfig> version`, with the `kubeconfig` output of the `cluster` step. The output has the line `Server Version: v1.32.0`. The `#Minikube` table in the [`builtin:kubernetes` reference]({{< relref "/docs/reference/steps/kubernetes" >}}#minikube) lists every option.
 
 ## Related
 

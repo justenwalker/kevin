@@ -116,8 +116,8 @@ leaves no tag or GitHub release behind.
 - Integration tests are gated behind the `integration` build tag (see files
   named `integration_test.go` or `*_integration_test.go` in `cmd/kevin-relay`,
   `internal/plugins/kubernetes`, `internal/plugins/container`, `internal/relay`,
-  `internal/engine`) and generally require Docker (the k3d driver suite also
-  needs a real `k3d` binary on `PATH`). Run with
+  `internal/engine`) and generally require Docker (the k3d and minikube
+  driver suites also need a real `k3d` or `minikube` binary on `PATH`). Run with
   `go test -tags integration ./...`.
 - Try a real environment end-to-end:
   ```sh
@@ -126,8 +126,8 @@ leaves no tag or GitHub release behind.
   ```
   Other example environments: `examples/echo` (provider with no real
   resource, demonstrates DAG fan-out/fan-in and failure propagation),
-  `examples/kind` (Kubernetes cluster; `examples/k3d` uses the other
-  driver), `examples/intercept` (a `route`
+  `examples/kind` (Kubernetes cluster; `examples/k3d` and
+  `examples/minikube` use the other drivers), `examples/intercept` (a `route`
   step's `intercept: true` fakes out a real-world hostname with a local
   container). `kevin ca install`/`uninstall` manages the CA trust store;
   it needs no project (see the quickstart's "Trust the CA" section).
@@ -332,6 +332,10 @@ Key model to hold in your head when changing any of this:
   The `k3d` driver (shelling out via `internal/k3dcmd`) follows the same
   rule - unlike kind, k3d creates its containers through the Docker API, so
   the proxy env goes in as `--env` flags on `k3d cluster create`.
+  The `minikube` driver (`internal/minikubecmd`) follows it too. minikube
+  reads proxy variables from its own process environment and sends its host
+  downloads through them, so `minikubecmd` strips them from every child, and
+  the proxy reaches containerd as a systemd drop-in instead.
   OCI registry access (`internal/ocipkg`) is the exception that proves the
   rule: it imports `cuelabs.dev/go/oci/ociregistry` rather than shelling out
   to `docker pull`, but that costs no new dependency tree - the module is
