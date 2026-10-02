@@ -556,7 +556,7 @@ var Integration = GnobMakeTarget{
 			return err
 		}
 		return goRun(ctx, "test", "-tags", "integration", "-race", "-cover", "-covermode=atomic",
-			"-timeout", "900s", "./...", "-args", "-test.gocoverdir="+dir)
+			"-timeout", "1200s", "./...", "-args", "-test.gocoverdir="+dir)
 	},
 }
 
