@@ -454,3 +454,18 @@ func TestFreeLoopbackPort(t *testing.T) {
 	require.NoError(t, err)
 	assert.Positive(t, port)
 }
+
+func TestK3dDriverNodeProxyEnv(t *testing.T) {
+	d := &k3dDriver{
+		cfg: config{Proxy: true},
+		env: plugin.Env{ProxyEnv: map[string]string{"HTTP_PROXY": "http://kevin:8080", "NO_PROXY": "localhost", "no_proxy": "localhost"}},
+	}
+
+	got := d.nodeProxyEnv()
+
+	assert.Equal(t, "http://kevin:8080", got["HTTP_PROXY"])
+	for _, key := range []string{"NO_PROXY", "no_proxy"} {
+		assert.Equal(t, "localhost,"+k3dNodeNoProxy, got[key], key)
+	}
+	assert.Equal(t, "localhost", d.env.ProxyEnv["NO_PROXY"], "the shared proxy env must not change")
+}

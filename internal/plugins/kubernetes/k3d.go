@@ -122,7 +122,7 @@ func (d *k3dDriver) createSpec(spec createSpec) k3dcmd.CreateSpec {
 		Agents:     len(d.cfg.Workers),
 		Wait:       spec.Wait,
 		Memory:     d.cfg.K3d.Memory,
-		Env:        mergeEnv(d.cfg.K3d.Env, proxyEnv(d.cfg, d.env.ProxyEnv)),
+		Env:        mergeEnv(d.cfg.K3d.Env, d.nodeProxyEnv()),
 		NodeLabels: []string{nodeLabelKey + "=" + controlPlaneNodeName + "@server:0"},
 		K3sArgs: []string{
 			"--cluster-cidr=" + k3sPodCIDR + "@server:*",
@@ -352,4 +352,21 @@ func (d *k3dDriver) LoadImage(ctx context.Context, path string, out plugin.Emitt
 		return fmt.Errorf("kubernetes: k3d: load the image archive: %w", err)
 	}
 	return nil
+}
+
+// k3dNodeNoProxy lists the private ranges a Docker network can draw its
+// subnet from.
+const k3dNodeNoProxy = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
+// nodeProxyEnv is the proxy environment of every node, with the private
+// address ranges appended to NO_PROXY.
+func (d *k3dDriver) nodeProxyEnv() map[string]string {
+	// The k3s server dials each kubelet by node address, which the host proxy cannot reach.
+	env := maps.Clone(proxyEnv(d.cfg, d.env.ProxyEnv))
+	for _, key := range []string{"NO_PROXY", "no_proxy"} {
+		if v, ok := env[key]; ok {
+			env[key] = v + "," + k3dNodeNoProxy
+		}
+	}
+	return env
 }
