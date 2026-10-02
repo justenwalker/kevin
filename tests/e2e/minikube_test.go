@@ -234,3 +234,118 @@ func (s *MinikubeSuite) TestAppRouteReachesTheServiceThroughTheRelay() {
 func (s *MinikubeSuite) kubeconfig() string {
 	return filepath.Join(s.dir, ".kevin", "kubeconfig", s.project+"-cluster")
 }
+
+// minikubeKeepCUE puts the cluster in the setup scope and a kubectl step
+// with keep: true in the env scope, like keepCUE for kind.
+const minikubeKeepCUE = `project: "%s"
+
+setup: cluster: {
+	uses:  "builtin:kubernetes"
+	label: "minikube Cluster"
+	with: {
+		driver: "minikube"
+		workers: {}
+		wait: "5m"
+	}
+}
+env: keeper: {
+	uses:  "builtin:kubectl"
+	label: "Keeper"
+	needs: ["setup.cluster"]
+	with: {
+		kubeconfig: "${setup.cluster.out.kubeconfig}"
+		context:    "${setup.cluster.out.context}"
+		manifest:   "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: keepme\ndata: {x: \"1\"}\n"
+		keep:       true
+	}
+}
+`
+
+// MinikubeKeepSuite covers a minikube cluster in the setup scope: keep: true
+// surviving a run, reuse by a second setup, and recreation when the proxy
+// address changes.
+type MinikubeKeepSuite struct {
+	e2eSuite
+
+	dir     string
+	project string
+}
+
+func TestMinikubeKeepSuite(t *testing.T) {
+	suite.Run(t, new(MinikubeKeepSuite))
+}
+
+func (s *MinikubeKeepSuite) SetupSuite() {
+	s.requireDocker()
+	for _, bin := range []string{"minikube", "kubectl"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			s.T().Skip(bin + " not found on PATH")
+		}
+	}
+
+	s.project = "kevin-e2e-minikube-keep"
+	s.dir = s.T().TempDir()
+	s.writeCUE(s.dir, proxyBlock(s.T())+fmt.Sprintf(minikubeKeepCUE, s.project))
+	s.cleanupProject(s.project)
+
+	out, code := s.setup()
+	s.Require().Equal(0, code, "kevin setup output:\n%s", out)
+	s.Require().Contains(out, stepLine("cluster", "ready"))
+}
+
+func (s *MinikubeKeepSuite) TearDownSuite() {
+	if s.dir == "" {
+		return
+	}
+	out, code := s.runToCompletionWithTimeout(minikubeTimeout, "teardown")
+	s.Equal(0, code, "kevin teardown output:\n%s", out)
+	s.Empty(s.containerIDsForProject(s.project), "teardown must remove the control plane")
+}
+
+// TestSetupScopeLifecycle runs in order on one cluster: keep: true leaves
+// the manifest after run, an unchanged setup reuses the cluster and the
+// manifest, and a changed proxy address recreates it without the manifest.
+func (s *MinikubeKeepSuite) TestSetupScopeLifecycle() {
+	s.Run("keep leaves the manifest on teardown", func() {
+		out, code := s.runUntil(s.dir, stepLine("keeper", "ready"), "-C", s.dir, "run")
+		s.Require().Equal(0, code, "kevin run output:\n%s", out)
+		s.Contains(out, stepLine("keeper", "removed"), "Down must still run for a keep:true step")
+		s.Require().True(s.hasKeepme(), "keep: true must leave the manifest in place")
+	})
+
+	s.Run("setup again reuses the cluster", func() {
+		out, code := s.setup()
+		s.Require().Equal(0, code, "kevin setup output:\n%s", out)
+		s.NotContains(out, s.creating(), "an unchanged setup must not create a cluster")
+		s.True(s.hasKeepme(), "reuse must not destroy the cluster")
+	})
+
+	s.Run("a new proxy address recreates the cluster", func() {
+		s.writeCUE(s.dir, proxyBlock(s.T())+fmt.Sprintf(minikubeKeepCUE, s.project))
+		out, code := s.setup()
+		s.Require().Equal(0, code, "kevin setup output:\n%s", out)
+		s.Contains(out, s.creating(), "a changed proxy address must create a new cluster")
+		s.False(s.hasKeepme(), "a recreated cluster must not carry the old manifest")
+	})
+}
+
+func (s *MinikubeKeepSuite) setup() (string, int) {
+	return s.runToCompletionWithTimeout(minikubeTimeout, "setup")
+}
+
+func (s *MinikubeKeepSuite) runToCompletionWithTimeout(timeout time.Duration, args ...string) (string, int) {
+	p := s.startKevin(s.dir, append([]string{"-C", s.dir}, args...)...)
+	code := s.waitExit(p, timeout)
+	return p.buf.String(), code
+}
+
+func (s *MinikubeKeepSuite) hasKeepme() bool {
+	kubeconfig := filepath.Join(s.dir, ".kevin", "kubeconfig", s.project+"-cluster")
+	return exec.CommandContext(s.T().Context(), "kubectl", "--kubeconfig", kubeconfig, "get", "configmap", "keepme").Run() == nil
+}
+
+// creating is the progress line the minikube driver prints while it creates
+// the cluster, and only then.
+func (s *MinikubeKeepSuite) creating() string {
+	return "creating " + s.project + "-cluster"
+}
