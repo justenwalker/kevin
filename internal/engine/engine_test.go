@@ -18,7 +18,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,6 +41,7 @@ import (
 	"github.com/justenwalker/kevin/internal/pluginpkg"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/relay"
+	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/protos/pb"
 )
@@ -342,61 +342,25 @@ func runAsync(t *testing.T, ctx context.Context, dir string, w *watcher) <-chan 
 	return done
 }
 
-// relayImageTag matches RelayImageTag in build/main.go.
-const relayImageTag = "kevin-relay:dev"
-
-// TestMain points relay.Ref at relayImageTag for every test in this
+// TestMain points relay.Ref at relaytest.Tag for every test in this
 // package: Run always starts a relay, and internal/version.VERSION in this
 // checkout still names the last real release, so the unoverridden default
 // would resolve to that released image instead of the one a test builds
-// from source with ensureRelayImage - silently talking to a relay that
+// from source with relaytest.UseDevImage - silently talking to a relay that
 // predates whatever relay-side change is still unreleased on this branch.
 // Setting this here, once, covers every test that calls Run() even
 // indirectly, not just the ones that remember to call requireRelay first.
 func TestMain(m *testing.M) {
-	_ = os.Setenv("KEVIN_RELAY_IMAGE", relayImageTag)
+	_ = os.Setenv("KEVIN_RELAY_IMAGE", relaytest.Tag)
 	os.Exit(m.Run())
 }
 
-// requireRelay skips a test when Docker does not answer, then makes sure the
-// relay image exists - Run always starts the relay now.
+// requireRelay skips a test when Docker does not answer, then builds the
+// relay image from this checkout.
 func requireRelay(t *testing.T) {
 	t.Helper()
 	requireDocker(t)
-	ensureRelayImage(t)
-}
-
-// ensureRelayImage builds the relay image from source when it is absent, the
-// same way as the relay-image build target. It skips the test when it
-// cannot build the image.
-func ensureRelayImage(t *testing.T) {
-	t.Helper()
-
-	check := exec.CommandContext(t.Context(), "docker", "image", "inspect", relayImageTag)
-	if check.Run() == nil {
-		return
-	}
-
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Skip("cannot locate the repository root to build the relay image")
-	}
-	root := filepath.Join(filepath.Dir(file), "..", "..")
-
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "kevin-relay")
-	build := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "./cmd/kevin-relay")
-	build.Dir = root
-	build.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+runtime.GOARCH, "CGO_ENABLED=0")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Skip("cannot build kevin-relay for the image:", err, string(out))
-	}
-
-	dockerBuild := exec.CommandContext(t.Context(), "docker", "build",
-		"-f", filepath.Join(root, "build", "relay.Dockerfile"), "-t", relayImageTag, dir)
-	if out, err := dockerBuild.CombinedOutput(); err != nil {
-		t.Skip("cannot build the relay image:", err, string(out))
-	}
+	relaytest.UseDevImage(t)
 }
 
 func TestRun(t *testing.T) {

@@ -4,16 +4,13 @@ package relay_test
 
 import (
 	"context"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
 
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/relay"
+	"github.com/justenwalker/kevin/internal/relay/relaytest"
 )
 
 // relayProject names every docker resource that this suite creates. The name
@@ -22,9 +19,6 @@ const relayProject = "kevin-it-relay"
 
 // relayDomain is the environment domain that the relay answers for.
 const relayDomain = "kevin.home"
-
-// relayImageTag matches RelayImageTag in build/main.go.
-const relayImageTag = "kevin-relay:dev"
 
 // RelaySuite drives one relay container against a real docker daemon.
 type RelaySuite struct {
@@ -45,7 +39,7 @@ func (s *RelaySuite) SetupSuite() {
 	if err := dockerClient.Available(t.Context()); err != nil {
 		t.Skip("docker is unavailable:", err)
 	}
-	ensureRelayImage(t)
+	relaytest.UseDevImage(t)
 
 	s.network = "kevin-" + relayProject
 	s.Require().NoError(dockerClient.NetworkCreate(t.Context(), s.network, cri.NetworkOptions{
@@ -168,37 +162,4 @@ func (s *RelaySuite) TestRefPrecedenceAgainstARealEnvironment() {
 	t.Setenv(relay.ImageEnvVar, "from-real-env:dev")
 
 	s.Equal("from-real-env:dev", relay.Ref("from-config:dev"))
-}
-
-// ensureRelayImage builds the relay image from source when it is absent, the
-// same way as the relay-image build target. It skips the suite when it
-// cannot build the image.
-func ensureRelayImage(t *testing.T) {
-	t.Helper()
-
-	check := exec.CommandContext(t.Context(), "docker", "image", "inspect", relayImageTag)
-	if check.Run() == nil {
-		return
-	}
-
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Skip("cannot locate the repository root to build the relay image")
-	}
-	root := filepath.Join(filepath.Dir(file), "..", "..")
-
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "kevin-relay")
-	build := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "./cmd/kevin-relay")
-	build.Dir = root
-	build.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+runtime.GOARCH, "CGO_ENABLED=0")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Skip("cannot build kevin-relay for the image:", err, string(out))
-	}
-
-	dockerBuild := exec.CommandContext(t.Context(), "docker", "build",
-		"-f", filepath.Join(root, "build", "relay.Dockerfile"), "-t", relayImageTag, dir)
-	if out, err := dockerBuild.CombinedOutput(); err != nil {
-		t.Skip("cannot build the relay image:", err, string(out))
-	}
 }

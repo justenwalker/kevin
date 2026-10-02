@@ -24,6 +24,7 @@ import (
 	"github.com/justenwalker/kevin/internal/minikubecmd"
 	"github.com/justenwalker/kevin/internal/podman"
 	"github.com/justenwalker/kevin/internal/relay"
+	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -91,7 +92,7 @@ func (s *MinikubeSuite) SetupSuite() {
 	t := s.T()
 	requireDocker(t)
 	requireMinikube(t)
-	ensureRelayImage(t)
+	relaytest.UseDevImage(t)
 
 	s.network = "kevin-" + minikubeProject
 	s.Require().NoError(dockerClient.NetworkCreate(t.Context(), s.network, cri.NetworkOptions{
@@ -395,6 +396,7 @@ func TestMinikubeOnPodman(t *testing.T) {
 	if err := client.Available(t.Context()); err != nil {
 		t.Skip("podman is unavailable:", err)
 	}
+	relaytest.UseDevImage(t)
 
 	t.Setenv(state.UserStateDirEnv, t.TempDir())
 	t.Setenv(state.ProjectStateDirEnv, t.TempDir())

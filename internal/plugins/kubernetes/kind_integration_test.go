@@ -9,9 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -26,6 +24,7 @@ import (
 	"github.com/justenwalker/kevin/internal/plugins/route"
 	"github.com/justenwalker/kevin/internal/plugins/wait"
 	"github.com/justenwalker/kevin/internal/relay"
+	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -40,9 +39,6 @@ const kindDomain = "kevin.home"
 
 // kindStepName is the step name that the suite passes to Up and Down.
 const kindStepName = "cluster"
-
-// relayImageTag is the image that ensureRelayImage builds. It matches RelayImageTag in build/main.go.
-const relayImageTag = "kevin-relay:dev"
 
 // KindSuite drives one kind cluster against a real docker daemon. A cluster
 // takes minutes to create, so the suite creates exactly one and asserts
@@ -68,7 +64,7 @@ func TestKindSuite(t *testing.T) {
 func (s *KindSuite) SetupSuite() {
 	t := s.T()
 	requireDocker(t)
-	ensureRelayImage(t)
+	relaytest.UseDevImage(t)
 
 	s.network = "kevin-" + kindProject
 	s.Require().NoError(dockerClient.NetworkCreate(t.Context(), s.network, cri.NetworkOptions{
@@ -409,39 +405,6 @@ func (s *KindSuite) TestUpIsIdempotent() {
 		"-o", "jsonpath={.data.Corefile}")
 	s.Require().NoError(err)
 	s.Equal(1, strings.Count(out, kindDomain+":53 {"), "a second patch must replace the zone, not add a second one")
-}
-
-// ensureRelayImage builds the relay image from source when it is absent, the
-// same way as the relay-image build target. It skips the suite when it
-// cannot build the image.
-func ensureRelayImage(t *testing.T) {
-	t.Helper()
-
-	check := exec.CommandContext(t.Context(), "docker", "image", "inspect", relayImageTag)
-	if check.Run() == nil {
-		return
-	}
-
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Skip("cannot locate the repository root to build the relay image")
-	}
-	root := filepath.Join(filepath.Dir(file), "..", "..", "..")
-
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "kevin-relay")
-	build := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "./cmd/kevin-relay")
-	build.Dir = root
-	build.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+runtime.GOARCH, "CGO_ENABLED=0")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Skip("cannot build kevin-relay for the image:", err, string(out))
-	}
-
-	dockerBuild := exec.CommandContext(t.Context(), "docker", "build",
-		"-f", filepath.Join(root, "build", "relay.Dockerfile"), "-t", relayImageTag, dir)
-	if out, err := dockerBuild.CombinedOutput(); err != nil {
-		t.Skip("cannot build the relay image:", err, string(out))
-	}
 }
 
 // TestKindMounts proves that a mount reaches every node of a kind cluster,

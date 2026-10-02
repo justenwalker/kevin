@@ -21,6 +21,7 @@ import (
 	"github.com/justenwalker/kevin/internal/k3dcmd"
 	"github.com/justenwalker/kevin/internal/podman"
 	"github.com/justenwalker/kevin/internal/relay"
+	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -85,7 +86,7 @@ func (s *K3dSuite) SetupSuite() {
 	t := s.T()
 	requireDocker(t)
 	requireK3d(t)
-	ensureRelayImage(t)
+	relaytest.UseDevImage(t)
 
 	s.network = "kevin-" + k3dProject
 	s.Require().NoError(dockerClient.NetworkCreate(t.Context(), s.network, cri.NetworkOptions{
