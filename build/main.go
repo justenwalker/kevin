@@ -14,6 +14,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -628,7 +629,8 @@ var Coverage = GnobMakeTarget{
 	Desc: "merge coverage from test/integration/e2e into one report",
 	LongDesc: "Merges whatever raw coverage data exists under coverage/raw from\n" +
 		"prior test/integration/e2e runs into coverage/merged, then writes\n" +
-		"coverage/coverage.out and coverage/coverage.html.",
+		"coverage/coverage.out and coverage/coverage.html, leaving out files\n" +
+		"with a \"Code generated\" header.",
 	Body: func(ctx context.Context, _ *GnobMakefile) error {
 		var inputs []string
 		for _, tier := range []string{"unit", "integration", "e2e"} {
@@ -657,10 +659,67 @@ var Coverage = GnobMakeTarget{
 			return err
 		}
 
+		full := filepath.Join("coverage", "full.out")
+		if err := goRun(ctx, "tool", "covdata", "textfmt", "-i="+merged, "-o="+full); err != nil {
+			return err
+		}
 		profile := filepath.Join("coverage", "coverage.out")
-		if err := goRun(ctx, "tool", "covdata", "textfmt", "-i="+merged, "-o="+profile); err != nil {
+		if err := dropGeneratedCoverage(full, profile); err != nil {
 			return err
 		}
 		return goRun(ctx, "tool", "cover", "-html="+profile, "-o="+filepath.Join("coverage", "coverage.html"))
 	},
+}
+
+// dropGeneratedCoverage copies the coverage profile in to out without the
+// lines for files that carry the standard "Code generated ... DO NOT EDIT."
+// header.
+func dropGeneratedCoverage(in, out string) error {
+	data, err := os.ReadFile(in)
+	if err != nil {
+		return err
+	}
+	generated := make(map[string]bool)
+	var kept []string
+	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
+		file, _, _ := strings.Cut(line, ":")
+		isGen, seen := generated[file]
+		if !seen {
+			isGen = hasGeneratedHeader(strings.TrimPrefix(file, modulePath+"/"))
+			generated[file] = isGen
+		}
+		if !isGen {
+			kept = append(kept, line)
+		}
+	}
+	return os.WriteFile(out, []byte(strings.Join(kept, "\n")+"\n"), 0o644) //nolint:gosec // a coverage report is not secret
+}
+
+// modulePath is the Go module path that prefixes every file in a coverage
+// profile.
+const modulePath = "github.com/justenwalker/kevin"
+
+var generatedHeader = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
+
+// hasGeneratedHeader reports whether the Go file at path carries a
+// generated-code header before its package clause. A file that cannot be
+// read, such as the "mode:" line of a profile, is not generated.
+func hasGeneratedHeader(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close() //nolint:errcheck // read-only handle
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if generatedHeader.MatchString(line) {
+			return true
+		}
+		if strings.HasPrefix(line, "package ") {
+			return false
+		}
+	}
+	return false
 }
