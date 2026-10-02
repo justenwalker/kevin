@@ -2,6 +2,8 @@ package termui_test
 
 import (
 	"bytes"
+	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -144,5 +146,67 @@ func TestRender(t *testing.T) {
 
 		lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
 		require.Len(t, lines, 2, "no non-running steps means no summary line at all")
+	})
+
+	for _, tt := range []struct {
+		state session.State
+		icon  string
+	}{
+		{session.Failed, "✘"},
+		{session.Running, "⠋"},
+	} {
+		t.Run("marks a "+string(tt.state)+" step with its icon", func(t *testing.T) {
+			var buf bytes.Buffer
+			termui.New(&buf).Render([]session.Step{{Name: "a", Label: "a", State: tt.state}})
+
+			assert.Contains(t, buf.String(), tt.icon)
+		})
+	}
+
+	t.Run("draws into a file that is not a terminal at the default width", func(t *testing.T) {
+		f, err := os.CreateTemp(t.TempDir(), "out")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = f.Close() })
+
+		termui.New(f).Render([]session.Step{{Name: "a", Label: "a", State: session.Running}})
+
+		out, err := os.ReadFile(f.Name())
+		require.NoError(t, err)
+		assert.Contains(t, string(out), "running")
+	})
+
+	t.Run("fills the bar for a progress above one", func(t *testing.T) {
+		var buf bytes.Buffer
+		termui.New(&buf).Render([]session.Step{{Name: "a", Label: "a", State: session.Running, Progress: 1.5}})
+
+		assert.NotContains(t, buf.String(), "░")
+	})
+}
+
+type fakeViewer struct{ steps []session.Step }
+
+func (f fakeViewer) Snapshot() session.View { return session.View{Steps: f.steps} }
+
+func TestStart(t *testing.T) {
+	t.Run("stop draws one final frame", func(t *testing.T) {
+		var buf bytes.Buffer
+		r := termui.New(&buf)
+
+		stop := r.Start(t.Context(), fakeViewer{steps: []session.Step{{Name: "web", Label: "web", State: session.Ready}}})
+		stop()
+
+		assert.Contains(t, buf.String(), "1 ready")
+	})
+
+	t.Run("a canceled context draws a final frame", func(t *testing.T) {
+		var buf bytes.Buffer
+		r := termui.New(&buf)
+		ctx, cancel := context.WithCancel(t.Context())
+
+		stop := r.Start(ctx, fakeViewer{steps: []session.Step{{Name: "web", Label: "web", State: session.Failed, Message: "boom"}}})
+		cancel()
+		stop()
+
+		assert.Contains(t, buf.String(), "boom")
 	})
 }
