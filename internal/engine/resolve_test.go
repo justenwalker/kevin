@@ -16,13 +16,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/command/cosign"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/httppkg"
 	"github.com/justenwalker/kevin/internal/ocipkg"
 	"github.com/justenwalker/kevin/internal/pkgtrust"
 	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/internal/pluginpkg"
-	"github.com/justenwalker/kevin/internal/sigstorepkg"
 )
 
 // writePackage builds a fixture plugin package tar at dir/pkg.tar, with a
@@ -391,7 +391,7 @@ func testResolveSpecSigstoreFile(t *testing.T) {
 		require.NoError(t, pkgtrust.AddIdentity("ci@acme.example", "https://token.actions.githubusercontent.com"))
 
 		_, err := resolveSpec(t.Context(), "acme", dir, sigstoreSpec(pkgPath))
-		require.ErrorIs(t, err, sigstorepkg.ErrCosignNotFound)
+		require.ErrorIs(t, err, cosign.ErrCosignNotFound)
 	})
 }
 
@@ -463,9 +463,9 @@ func testResolveSpecSignedHTTP(t *testing.T) {
 			Issuer:   "https://token.actions.githubusercontent.com",
 		}}}
 		// The bundle fetches fine and the identity is trusted, so this
-		// reaches sigstorepkg.VerifyBlob - proving verifySigstoreBlobBytes'
+		// reaches cosign.VerifyBlob - proving verifySigstoreBlobBytes'
 		// temp-file plumbing works, not just the identity gate.
 		_, err = resolveSpec(t.Context(), "acme", t.TempDir(), specs)
-		require.ErrorIs(t, err, sigstorepkg.ErrCosignNotFound)
+		require.ErrorIs(t, err, cosign.ErrCosignNotFound)
 	})
 }

@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/command/cosign"
 	"github.com/justenwalker/kevin/internal/pkgtrust"
-	"github.com/justenwalker/kevin/internal/sigstorepkg"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
@@ -40,12 +40,12 @@ func TestFriendlySignatureErr(t *testing.T) {
 		},
 		{
 			name:    "sigstore verify failed",
-			err:     sigstorepkg.ErrVerifyFailed,
+			err:     cosign.ErrVerifyFailed,
 			wantMsg: "plugins.acme's sigstore signature doesn't verify against its package - it may be corrupted or tampered with",
 		},
 		{
 			name:    "cosign not found",
-			err:     sigstorepkg.ErrCosignNotFound,
+			err:     cosign.ErrCosignNotFound,
 			wantMsg: "plugins.acme needs cosign to verify its sigstore signature - install it: https://docs.sigstore.dev/cosign/system_config/installation/",
 		},
 		{

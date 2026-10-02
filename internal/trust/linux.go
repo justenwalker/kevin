@@ -73,7 +73,7 @@ func (a anchorDir) install(ctx context.Context, req Request) (Result, error) {
 	if err = os.WriteFile(target, pem, 0o644); err != nil { //nolint:gosec // a certificate is public
 		return result, fmt.Errorf("trust: write %s: %w", target, err)
 	}
-	if _, err = runCmd(ctx, l.rebuild); err != nil {
+	if _, err = runCmd(ctx, req, l.rebuild); err != nil {
 		return result, err
 	}
 
@@ -128,7 +128,7 @@ func (a anchorDir) remove(ctx context.Context, req Request) (Result, error) {
 	if err := os.Remove(target); err != nil {
 		return result, fmt.Errorf("trust: remove %s: %w", target, err)
 	}
-	if _, err := runCmd(ctx, l.rebuild); err != nil {
+	if _, err := runCmd(ctx, req, l.rebuild); err != nil {
 		return result, err
 	}
 	return result, nil

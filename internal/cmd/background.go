@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/engine"
 	"github.com/justenwalker/kevin/protos/pb"
@@ -181,7 +182,7 @@ const (
 // it to either report its console/proxy addresses or exit early. The
 // child's own invocation of runForeground does its pidfile bookkeeping,
 // the same as a plain foreground run.
-func runInBackground(ctx context.Context, stateDir string, a backgroundArgs) error {
+func runInBackground(ctx context.Context, starter command.Starter, stateDir string, a backgroundArgs) error {
 	if err := os.MkdirAll(stateDir, 0o750); err != nil {
 		return fmt.Errorf("cmd: run: create state dir: %w", err)
 	}
@@ -196,14 +197,15 @@ func runInBackground(ctx context.Context, stateDir string, a backgroundArgs) err
 	if err != nil {
 		return fmt.Errorf("cmd: run: find executable: %w", err)
 	}
-	// exec.Command, not exec.CommandContext: the child must outlive this
-	// process's own ctx (a short-lived CLI invocation) - tying it to ctx
-	// would kill the detached process the moment this command returns.
-	child := exec.Command(exe, a.argv()...) //nolint:noctx,gosec // deliberately detached, see comment above; exe is this same binary, args are typed/reconstructed above
+	// The child must outlive this process's own ctx (a short-lived CLI
+	// invocation) - tying it to ctx would kill the detached process the
+	// moment this command returns.
+	detached := context.WithoutCancel(ctx)
+	child := exec.CommandContext(detached, exe, a.argv()...) //nolint:gosec // exe is this same binary, args are typed/reconstructed above
 	child.Stdout = logFile
 	child.Stderr = logFile
 	detach(child)
-	if err := child.Start(); err != nil {
+	if err := starter.Start(detached, child); err != nil {
 		return fmt.Errorf("cmd: run: start background process: %w", err)
 	}
 

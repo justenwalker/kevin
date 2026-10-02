@@ -14,6 +14,7 @@ import (
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/engine"
 	"github.com/justenwalker/kevin/internal/engines"
@@ -216,7 +217,7 @@ func runCommand(opts *options) *cobra.Command {
 				return err
 			}
 			if detach {
-				return runInBackground(cmd.Context(), stateDir, backgroundArgs{
+				return runInBackground(cmd.Context(), command.DefaultStarter, stateDir, backgroundArgs{
 					dir:     opts.dir,
 					name:    opts.name,
 					tags:    opts.tags,

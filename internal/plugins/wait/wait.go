@@ -9,6 +9,7 @@
 package wait
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -73,6 +74,10 @@ type kubectlCLI interface {
 
 // Step is the wait step.
 type Step struct {
+	// runner runs the exec probe. Nil runs real processes with
+	// [command.Default].
+	runner command.Runner
+
 	kubectl kubectlCLI
 }
 
@@ -138,7 +143,7 @@ func (s Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter)
 		})
 	default:
 		err = retry(ctx, out, strings.Join(cfg.Exec.Command, " "), deadline, interval, func(ctx context.Context) error {
-			return runExec(ctx, cfg.Exec.Command)
+			return s.runExec(ctx, cfg.Exec.Command)
 		})
 	}
 	if err != nil {
@@ -295,18 +300,30 @@ func (s Step) checkKubectl(ctx context.Context, cfg kubectlConfig, timeout time.
 	return err
 }
 
-func runExec(ctx context.Context, command []string) error {
+func (s Step) runExec(ctx context.Context, argv []string) error {
 	//nolint:gosec // every argument comes from the environment definition
-	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(out))
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+
+	if err := s.run(ctx, cmd); err != nil {
+		msg := strings.TrimSpace(out.String())
 		if msg == "" {
-			return err //nolint:wrapcheck // the caller (retry) already prefixes the label
+			return err
 		}
 		return fmt.Errorf("%w: %s", err, msg)
 	}
 	return nil
+}
+
+// run runs cmd with the runner of s, or with command.Default when s has
+// none.
+func (s Step) run(ctx context.Context, cmd *exec.Cmd) error {
+	if s.runner == nil {
+		return command.Run(ctx, cmd)
+	}
+	return s.runner.Run(ctx, cmd)
 }
 
 // decode parses the with-block JSON into a config, applying schema.cue's

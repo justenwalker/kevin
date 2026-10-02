@@ -104,7 +104,7 @@ func (n nss) install(ctx context.Context, req Request) (Result, error) {
 	}
 
 	for _, profile := range dirs {
-		out, err := runCmd(ctx, CertutilBinary, nssInstallArgs(req, profile)...)
+		out, err := runCmd(ctx, req, CertutilBinary, nssInstallArgs(req, profile)...)
 		if err != nil && !alreadyInDatabase(out) {
 			result.Reason = "run: " + quote(CertutilBinary, nssInstallArgs(req, profile)...)
 			return result, err
@@ -136,7 +136,7 @@ func (n nss) status(ctx context.Context, req Request) (Result, error) {
 
 	missing := 0
 	for _, profile := range dirs {
-		if _, err := runCmd(ctx, CertutilBinary, "-L", "-d", "sql:"+profile, "-n", req.CommonName); err != nil {
+		if _, err := runCmd(ctx, req, CertutilBinary, "-L", "-d", "sql:"+profile, "-n", req.CommonName); err != nil {
 			missing++
 		}
 	}
@@ -162,7 +162,7 @@ func (n nss) remove(ctx context.Context, req Request) (Result, error) {
 
 	for _, profile := range dirs {
 		// A profile that does not hold the authority is not a failure.
-		_, _ = runCmd(ctx, CertutilBinary, nssRemoveArgs(req, profile)...)
+		_, _ = runCmd(ctx, req, CertutilBinary, nssRemoveArgs(req, profile)...)
 	}
 
 	result.Reason = plural(len(dirs))

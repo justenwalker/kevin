@@ -7,20 +7,23 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+
+	"github.com/justenwalker/kevin/internal/command"
 )
 
 // Open launches the system's default browser on url.
-func Open(ctx context.Context, url string) error {
-	name, args := command(runtime.GOOS, url)
-	if err := exec.CommandContext(ctx, name, args...).Start(); err != nil { //nolint:gosec // name/args are a fixed OS opener, url is the console's own address
+func Open(ctx context.Context, starter command.Starter, url string) error {
+	name, args := opener(runtime.GOOS, url)
+	//nolint:gosec // name/args are a fixed OS opener, url is the console's own address
+	if err := starter.Start(ctx, exec.CommandContext(ctx, name, args...)); err != nil {
 		return fmt.Errorf("browser: open %q: %w", url, err)
 	}
 	return nil
 }
 
-// command returns the OS opener command for url on goos (a runtime.GOOS
+// opener returns the OS opener command for url on goos (a runtime.GOOS
 // value).
-func command(goos, url string) (string, []string) {
+func opener(goos, url string) (string, []string) {
 	switch goos {
 	case "darwin":
 		return "open", []string{url}

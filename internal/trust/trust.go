@@ -19,6 +19,8 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+
+	"github.com/justenwalker/kevin/internal/command"
 )
 
 // Request describes the authority to install.
@@ -40,6 +42,10 @@ type Request struct {
 	// Firefox installs into the certificate database of every Firefox
 	// profile.
 	Firefox bool
+
+	// Runner runs the store tools, such as security and certutil. Nil runs
+	// real processes with [command.Default].
+	Runner command.Runner
 }
 
 // Result reports what happened for one store.
@@ -122,7 +128,7 @@ func FileNameFor(req Request) string {
 }
 
 // runCmd runs a command and returns its combined output.
-func runCmd(ctx context.Context, name string, args ...string) (string, error) {
+func runCmd(ctx context.Context, req Request, name string, args ...string) (string, error) {
 	//nolint:gosec // every argument comes from this package
 	cmd := exec.CommandContext(ctx, name, args...)
 
@@ -130,7 +136,7 @@ func runCmd(ctx context.Context, name string, args ...string) (string, error) {
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 
-	if err := cmd.Run(); err != nil {
+	if err := run(ctx, req.Runner, cmd); err != nil {
 		return buf.String(), fmt.Errorf("trust: %s: %s: %w", name, strings.TrimSpace(buf.String()), err)
 	}
 	return buf.String(), nil
@@ -150,4 +156,12 @@ func quote(name string, args ...string) string {
 		parts = append(parts, a)
 	}
 	return strings.Join(parts, " ")
+}
+
+// run runs cmd with runner, or with command.Default when runner is nil.
+func run(ctx context.Context, runner command.Runner, cmd *exec.Cmd) error {
+	if runner == nil {
+		return command.Run(ctx, cmd)
+	}
+	return runner.Run(ctx, cmd)
 }

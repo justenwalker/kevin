@@ -17,6 +17,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/uerr"
 	"github.com/justenwalker/kevin/protos/pb"
@@ -27,7 +28,10 @@ const Binary = "podman"
 
 // Client runs podman commands. The zero value is ready to use; use [New]
 // when the caller carries an engine_config blob.
-type Client struct{}
+type Client struct {
+	// Runner runs the binary. Nil runs real processes with [command.Default].
+	Runner command.Runner
+}
 
 var _ cri.Runtime = Client{}
 
@@ -44,12 +48,12 @@ func New(configBytes []byte) (Client, error) {
 }
 
 // Available reports whether the podman command runs and answers.
-func (Client) Available(ctx context.Context) error {
+func (c Client) Available(ctx context.Context) error {
 	if _, err := exec.LookPath(Binary); err != nil {
 		return uerr.Wrap(fmt.Errorf("podman: %w: %w", cri.ErrUnavailable, err),
 			"podman isn't installed, or isn't on PATH")
 	}
-	if _, err := run(ctx, nil, "info", "--format", "{{.Version.Version}}"); err != nil {
+	if _, err := c.run(ctx, nil, "info", "--format", "{{.Version.Version}}"); err != nil {
 		return uerr.Wrap(fmt.Errorf("podman: the daemon does not answer: %w", cri.ErrUnavailable),
 			"podman isn't running - start it (podman machine start on macOS), then retry")
 	}
@@ -59,12 +63,12 @@ func (Client) Available(ctx context.Context) error {
 // Socket returns the path of the Docker-compatible API socket of the podman
 // service. It asks podman info on Linux and the default podman machine
 // elsewhere, and returns [ErrNoSocket] when podman names none.
-func Socket(ctx context.Context) (string, error) {
+func (c Client) Socket(ctx context.Context) (string, error) {
 	args := []string{"info", "--format", "{{.Host.RemoteSocket.Path}}"}
 	if runtime.GOOS != "linux" {
 		args = []string{"machine", "inspect", "--format", "{{.ConnectionInfo.PodmanSocket.Path}}"}
 	}
-	out, err := run(ctx, nil, args...)
+	out, err := c.run(ctx, nil, args...)
 	if err != nil {
 		return "", fmt.Errorf("podman: find the API socket: %w", err)
 	}
@@ -82,8 +86,8 @@ func socketPath(out string) (string, error) {
 }
 
 // NetworkCreate implements [cri.Runtime] for podman.
-func (Client) NetworkCreate(ctx context.Context, name string, opts cri.NetworkOptions) error {
-	if ok, err := networkExists(ctx, name); err != nil {
+func (c Client) NetworkCreate(ctx context.Context, name string, opts cri.NetworkOptions) error {
+	if ok, err := c.networkExists(ctx, name); err != nil {
 		return err
 	} else if ok {
 		return nil
@@ -98,10 +102,10 @@ func (Client) NetworkCreate(ctx context.Context, name string, opts cri.NetworkOp
 	args = append(args, labels2...)
 	args = append(args, name)
 
-	if _, err := run(ctx, nil, args...); err != nil {
+	if _, err := c.run(ctx, nil, args...); err != nil {
 		// Another caller can create the network between the check above and
 		// this call. Check again before the error is reported.
-		if ok, existsErr := networkExists(ctx, name); existsErr == nil && ok {
+		if ok, existsErr := c.networkExists(ctx, name); existsErr == nil && ok {
 			return nil
 		}
 		return fmt.Errorf("podman: create network %q: %w", name, err)
@@ -111,15 +115,15 @@ func (Client) NetworkCreate(ctx context.Context, name string, opts cri.NetworkOp
 
 // NetworkRemove implements [cri.Runtime] for podman. A network that still
 // carries a live container is left in place rather than treated as an error.
-func (Client) NetworkRemove(ctx context.Context, name string) error {
-	if _, err := run(ctx, nil, "network", "rm", name); err != nil {
+func (c Client) NetworkRemove(ctx context.Context, name string) error {
+	if _, err := c.run(ctx, nil, "network", "rm", name); err != nil {
 		// podman's error text for a missing network, or one still in use, is
 		// not a stable API across versions. Ask podman directly instead of
 		// guessing from the message.
-		if ok, existsErr := networkExists(ctx, name); existsErr == nil && !ok {
+		if ok, existsErr := c.networkExists(ctx, name); existsErr == nil && !ok {
 			return nil
 		}
-		if inUse, inUseErr := networkInUse(ctx, name); inUseErr == nil && inUse {
+		if inUse, inUseErr := c.networkInUse(ctx, name); inUseErr == nil && inUse {
 			return nil
 		}
 		return fmt.Errorf("podman: remove network %q: %w", name, err)
@@ -128,8 +132,8 @@ func (Client) NetworkRemove(ctx context.Context, name string) error {
 }
 
 // networkInUse reports whether name still carries any attached container.
-func networkInUse(ctx context.Context, name string) (bool, error) {
-	out, err := run(ctx, nil, "network", "inspect", name, "--format", "{{len .Containers}}")
+func (c Client) networkInUse(ctx context.Context, name string) (bool, error) {
+	out, err := c.run(ctx, nil, "network", "inspect", name, "--format", "{{len .Containers}}")
 	if err != nil {
 		return false, fmt.Errorf("podman: inspect network %q: %w", name, err)
 	}
@@ -142,8 +146,8 @@ func networkInUse(ctx context.Context, name string) (bool, error) {
 
 // networkExists asks podman for the network by exact name, rather than
 // inferring absence from the wording of an error message.
-func networkExists(ctx context.Context, name string) (bool, error) {
-	out, err := run(ctx, nil, "network", "ls", "--format", "{{.Name}}",
+func (c Client) networkExists(ctx context.Context, name string) (bool, error) {
+	out, err := c.run(ctx, nil, "network", "ls", "--format", "{{.Name}}",
 		"--filter", "name=^"+name+"$")
 	if err != nil {
 		return false, fmt.Errorf("podman: list networks: %w", err)
@@ -155,11 +159,11 @@ func networkExists(ctx context.Context, name string) (bool, error) {
 // NetworkGateway returns [cri.ErrNotFound] when the network does not exist,
 // and [cri.ErrNoGateway] when the network carries no gateway in either
 // address family.
-func (Client) NetworkGateway(ctx context.Context, name string) (cri.Gateway, error) {
-	out, err := run(ctx, nil, "network", "inspect", name,
+func (c Client) NetworkGateway(ctx context.Context, name string) (cri.Gateway, error) {
+	out, err := c.run(ctx, nil, "network", "inspect", name,
 		"--format", "{{range .Subnets}}{{.Gateway}} {{end}}")
 	if err != nil {
-		if ok, existsErr := networkExists(ctx, name); existsErr == nil && !ok {
+		if ok, existsErr := c.networkExists(ctx, name); existsErr == nil && !ok {
 			return cri.Gateway{}, fmt.Errorf("podman: inspect network %q: %w", name, cri.ErrNotFound)
 		}
 		return cri.Gateway{}, fmt.Errorf("podman: inspect network %q: %w", name, err)
@@ -202,8 +206,8 @@ func gatewayFromInspect(out string) (cri.Gateway, error) {
 // container, which must be privileged and carry iproute2. A container that is
 // on the network already is not an error.
 func (c Client) NetworkConnect(ctx context.Context, network, container string) error {
-	if _, err := run(ctx, nil, "network", "connect", network, container); err != nil {
-		if ok, checkErr := containerOnNetwork(ctx, container, network); checkErr != nil || !ok {
+	if _, err := c.run(ctx, nil, "network", "connect", network, container); err != nil {
+		if ok, checkErr := c.containerOnNetwork(ctx, container, network); checkErr != nil || !ok {
 			return fmt.Errorf("podman: connect %q to %q: %w", container, network, err)
 		}
 	}
@@ -232,8 +236,8 @@ func defaultRouteArgs(gw cri.Gateway) []string {
 }
 
 // containerOnNetwork reports if the container is already connected to the network.
-func containerOnNetwork(ctx context.Context, container, network string) (bool, error) {
-	out, err := run(ctx, nil, "inspect", "--type", "container",
+func (c Client) containerOnNetwork(ctx context.Context, container, network string) (bool, error) {
+	out, err := c.run(ctx, nil, "inspect", "--type", "container",
 		"--format", "{{json .NetworkSettings.Networks}}", container)
 	if err != nil {
 		return false, fmt.Errorf("podman: inspect %q: %w", container, err)
@@ -316,8 +320,8 @@ func sortedKeys(m map[string]string) []string {
 }
 
 // Run implements [cri.Runtime] for podman.
-func (Client) Run(ctx context.Context, spec cri.RunSpec) (string, error) {
-	out, err := run(ctx, nil, runArgs(spec)...)
+func (c Client) Run(ctx context.Context, spec cri.RunSpec) (string, error) {
+	out, err := c.run(ctx, nil, runArgs(spec)...)
 	if err != nil {
 		return "", friendlyRunErr(fmt.Errorf("podman: run %q: %w", spec.Name, err), spec)
 	}
@@ -342,9 +346,9 @@ func friendlyRunErr(err error, spec cri.RunSpec) error {
 }
 
 // Remove implements [cri.Runtime] for podman.
-func (Client) Remove(ctx context.Context, name string) error {
-	if _, err := run(ctx, nil, "rm", "--force", "--volumes", name); err != nil {
-		if ok, existsErr := containerExists(ctx, name); existsErr == nil && !ok {
+func (c Client) Remove(ctx context.Context, name string) error {
+	if _, err := c.run(ctx, nil, "rm", "--force", "--volumes", name); err != nil {
+		if ok, existsErr := c.containerExists(ctx, name); existsErr == nil && !ok {
 			return nil
 		}
 		return fmt.Errorf("podman: remove %q: %w", name, err)
@@ -354,8 +358,8 @@ func (Client) Remove(ctx context.Context, name string) error {
 
 // containerExists asks podman for the container by exact name, rather than
 // inferring absence from the wording of an error message.
-func containerExists(ctx context.Context, name string) (bool, error) {
-	out, err := run(ctx, nil, "ps", "--all", "--format", "{{.Names}}",
+func (c Client) containerExists(ctx context.Context, name string) (bool, error) {
+	out, err := c.run(ctx, nil, "ps", "--all", "--format", "{{.Names}}",
 		"--filter", "name=^"+name+"$")
 	if err != nil {
 		return false, fmt.Errorf("podman: list containers: %w", err)
@@ -389,10 +393,10 @@ type inspectResult struct {
 }
 
 // Inspect implements [cri.Runtime] for podman.
-func (Client) Inspect(ctx context.Context, name string) (cri.Container, error) {
-	out, err := run(ctx, nil, "inspect", "--type", "container", "--format", "{{json .}}", name)
+func (c Client) Inspect(ctx context.Context, name string) (cri.Container, error) {
+	out, err := c.run(ctx, nil, "inspect", "--type", "container", "--format", "{{json .}}", name)
 	if err != nil {
-		if ok, existsErr := containerExists(ctx, name); existsErr == nil && !ok {
+		if ok, existsErr := c.containerExists(ctx, name); existsErr == nil && !ok {
 			return cri.Container{}, fmt.Errorf("podman: inspect %q: %w", name, cri.ErrNotFound)
 		}
 		return cri.Container{}, fmt.Errorf("podman: inspect %q: %w", name, err)
@@ -442,10 +446,10 @@ func fromInspect(raw inspectResult) cri.Container {
 }
 
 // ListByLabel returns the names of the containers that carry a label.
-func (Client) ListByLabel(ctx context.Context, key, value string) ([]string, error) {
+func (c Client) ListByLabel(ctx context.Context, key, value string) ([]string, error) {
 	// No --quiet here. The flag overrides --format, and the output becomes a
 	// list of IDs.
-	out, err := run(ctx, nil, "ps", "--all", "--no-trunc",
+	out, err := c.run(ctx, nil, "ps", "--all", "--no-trunc",
 		"--format", "{{.Names}}", "--filter", "label="+key+"="+value)
 	if err != nil {
 		return nil, fmt.Errorf("podman: list containers: %w", err)
@@ -465,7 +469,7 @@ func (c Client) Exec(ctx context.Context, container string, args ...string) (str
 
 // ExecInput runs a command inside a container, with stdin feeding the
 // command, and returns its standard output.
-func (Client) ExecInput(ctx context.Context, container string, stdin io.Reader, args ...string) (string, error) {
+func (c Client) ExecInput(ctx context.Context, container string, stdin io.Reader, args ...string) (string, error) {
 	full := make([]string, 0, len(args)+3)
 	full = append(full, "exec")
 	if stdin != nil {
@@ -474,9 +478,9 @@ func (Client) ExecInput(ctx context.Context, container string, stdin io.Reader, 
 	full = append(full, container)
 	full = append(full, args...)
 
-	out, err := run(ctx, stdin, full...)
+	out, err := c.run(ctx, stdin, full...)
 	if err != nil {
-		if ok, existsErr := containerExists(ctx, container); existsErr == nil && !ok {
+		if ok, existsErr := c.containerExists(ctx, container); existsErr == nil && !ok {
 			return "", fmt.Errorf("podman: exec %q: %w", container, cri.ErrNotFound)
 		}
 		return "", fmt.Errorf("podman: exec %q: %w", container, err)
@@ -490,34 +494,40 @@ func (Client) ExecInput(ctx context.Context, container string, stdin io.Reader, 
 //
 // This bypasses run/Exec deliberately: those buffer the whole output as a
 // string, and an image archive can be hundreds of megabytes.
-func (Client) Save(ctx context.Context, image string) (io.ReadCloser, error) {
-	cmd := exec.CommandContext(ctx, "podman", "save", image) //nolint:gosec // image is a locally-built tag, not user input
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("podman: save %s: %w", image, err)
-	}
-	if err = cmd.Start(); err != nil {
-		return nil, fmt.Errorf("podman: save %s: %w", image, err)
-	}
-	return &saveReader{ReadCloser: stdout, cmd: cmd}, nil
+func (c Client) Save(ctx context.Context, image string) (io.ReadCloser, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	//nolint:gosec // image is a locally-built tag, not user input
+	cmd := exec.CommandContext(ctx, Binary, "save", image)
+	pr, pw := io.Pipe()
+	cmd.Stdout = pw
+
+	done := make(chan error, 1)
+	go func() {
+		err := c.runCmd(ctx, cmd)
+		_ = pw.CloseWithError(err)
+		done <- err
+	}()
+	return &saveReader{ReadCloser: pr, cancel: cancel, done: done}, nil
 }
 
-// saveReader waits for the podman save process to exit when the caller
-// closes the stream, so the process is never left behind.
+// saveReader stops the podman save process and waits for it to exit when the
+// caller closes the stream, so the process is never left behind.
 type saveReader struct {
 	io.ReadCloser
 
-	cmd *exec.Cmd
+	cancel context.CancelFunc
+	done   <-chan error
 }
 
 func (r *saveReader) Close() error {
 	_ = r.ReadCloser.Close()
-	return r.cmd.Wait() //nolint:wrapcheck // Close implements io.Closer; the stdlib convention returns the raw error
+	r.cancel()
+	return <-r.done
 }
 
 // run calls the podman binary and returns the standard output.
 // A nil stdin gives the command no standard input.
-func run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
+func (c Client) run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
 	//nolint:gosec // every argument comes from the environment definition
 	cmd := exec.CommandContext(ctx, Binary, args...)
 	cmd.Stdin = stdin
@@ -526,7 +536,7 @@ func run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := c.runCmd(ctx, cmd); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			return "", fmt.Errorf("podman %s: %w", strings.Join(args, " "), err)
@@ -534,4 +544,13 @@ func run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
 		return "", fmt.Errorf("podman %s: %s: %w", strings.Join(args, " "), msg, err)
 	}
 	return stdout.String(), nil
+}
+
+// runCmd runs cmd with the Runner of c, or with command.Default when c has
+// none.
+func (c Client) runCmd(ctx context.Context, cmd *exec.Cmd) error {
+	if c.Runner == nil {
+		return command.Run(ctx, cmd)
+	}
+	return c.Runner.Run(ctx, cmd)
 }

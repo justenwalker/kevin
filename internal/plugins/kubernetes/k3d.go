@@ -84,7 +84,7 @@ func newK3dDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.Ru
 		writeKubeconfig: client.KubeconfigWrite,
 		importImage:     client.ImageImport,
 		freePort:        freeLoopbackPort,
-		socket:          podman.Socket,
+		socket:          podman.Client{}.Socket,
 	}, nil
 }
 

@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,8 +11,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/command/commandtest"
 	"github.com/justenwalker/kevin/protos/pb"
 )
 
@@ -196,5 +200,52 @@ func TestStopRun(t *testing.T) {
 		var buf bytes.Buffer
 		require.NoError(t, stopRun(t.Context(), &buf, dir))
 		assert.Equal(t, "stopped\n", buf.String())
+	})
+}
+
+func TestRunInBackground(t *testing.T) {
+	args := backgroundArgs{dir: "/proj", engine: "docker"}
+
+	t.Run("starts a detached child and reports its addresses", func(t *testing.T) {
+		stateDir := t.TempDir()
+		require.NoError(t, writeRunAddrs(stateDir, &pb.Environment{ConsoleAddr: "127.0.0.1:1", HttpProxyAddr: "127.0.0.1:2"}))
+
+		starter := commandtest.NewMockStarter(t)
+		starter.EXPECT().Start(mock.Anything, mock.Anything).RunAndReturn(
+			func(ctx context.Context, cmd *exec.Cmd) error {
+				require.NoError(t, ctx.Err())
+				assert.Equal(t, args.argv(), cmd.Args[1:])
+				assert.NotNil(t, cmd.Stdout, "the child logs to the state dir")
+				cmd.Process = &os.Process{Pid: os.Getpid()}
+				return nil
+			})
+
+		require.NoError(t, runInBackground(t.Context(), starter, stateDir, args))
+		assert.FileExists(t, filepath.Join(stateDir, logFileName))
+	})
+
+	t.Run("the child outlives the context of the caller", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		stateDir := t.TempDir()
+		require.NoError(t, writeRunAddrs(stateDir, &pb.Environment{ConsoleAddr: "127.0.0.1:1"}))
+
+		starter := commandtest.NewMockStarter(t)
+		starter.EXPECT().Start(mock.Anything, mock.Anything).RunAndReturn(
+			func(startCtx context.Context, cmd *exec.Cmd) error {
+				cancel()
+				require.NoError(t, startCtx.Err(), "cancelling the caller must not kill the child")
+				cmd.Process = &os.Process{Pid: os.Getpid()}
+				return nil
+			})
+
+		require.NoError(t, runInBackground(ctx, starter, stateDir, args))
+	})
+
+	t.Run("wraps a failure to start", func(t *testing.T) {
+		starter := commandtest.NewMockStarter(t)
+		starter.EXPECT().Start(mock.Anything, mock.Anything).Return(errors.New("no such file"))
+
+		err := runInBackground(t.Context(), starter, t.TempDir(), args)
+		require.ErrorContains(t, err, "start background process: no such file")
 	})
 }

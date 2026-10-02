@@ -1,7 +1,7 @@
-// Package sigstorepkg verifies a kevin plugin package's sigstore (cosign)
+// Package cosign verifies a kevin plugin package's sigstore (cosign)
 // keyless signature by shelling out to the cosign CLI - see ADR-0005 (shell
 // out to CLIs, never embed sigstore-go/cosign's own Go libraries).
-package sigstorepkg
+package cosign
 
 import (
 	"bytes"
@@ -10,10 +10,23 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/justenwalker/kevin/internal/command"
 )
 
 // Binary is the command this package runs.
 const Binary = "cosign"
+
+// Client runs cosign through a [command.Runner]. It is safe for concurrent
+// use when its runner is.
+type Client struct {
+	runner command.Runner
+}
+
+// New returns a Client that runs cosign with runner.
+func New(runner command.Runner) *Client {
+	return &Client{runner: runner}
+}
 
 // LookPath resolves the cosign binary on PATH.
 func LookPath() (string, error) {
@@ -29,7 +42,7 @@ func LookPath() (string, error) {
 // and issuer. The bundle carries its own Rekor inclusion proof, checked
 // offline: this call makes no live Rekor request, only (at most) a
 // Sigstore TUF trust-root refresh, cached under ~/.sigstore/root/.
-func VerifyBlob(ctx context.Context, pkgPath, bundlePath, identity, issuer string) error {
+func (c *Client) VerifyBlob(ctx context.Context, pkgPath, bundlePath, identity, issuer string) error {
 	if _, err := LookPath(); err != nil {
 		return err
 	}
@@ -41,7 +54,7 @@ func VerifyBlob(ctx context.Context, pkgPath, bundlePath, identity, issuer strin
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := c.runner.Run(ctx, cmd); err != nil {
 		return verifyErr(err, stderr.String())
 	}
 	return nil

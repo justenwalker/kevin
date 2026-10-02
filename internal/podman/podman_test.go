@@ -6,13 +6,16 @@ import (
 	"errors"
 	"io"
 	"net/netip"
+	"os/exec"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/justenwalker/kevin/internal/command/commandtest"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/uerr"
 	"github.com/justenwalker/kevin/protos/pb"
@@ -491,5 +494,129 @@ func TestDefaultRouteArgs(t *testing.T) {
 
 	t.Run("no gateway has no route to set", func(t *testing.T) {
 		assert.Nil(t, defaultRouteArgs(cri.Gateway{}))
+	})
+}
+
+// reply answers one Run call: it prints stdout, prints stderr, and returns
+// err. check, if set, sees the cmd first.
+func reply(stdout, stderr string, err error, check func(cmd *exec.Cmd)) func(context.Context, *exec.Cmd) error {
+	return func(_ context.Context, cmd *exec.Cmd) error {
+		if check != nil {
+			check(cmd)
+		}
+		if cmd.Stdout != nil {
+			_, _ = io.WriteString(cmd.Stdout, stdout)
+		}
+		if cmd.Stderr != nil {
+			_, _ = io.WriteString(cmd.Stderr, stderr)
+		}
+		return err
+	}
+}
+
+func TestClientRunner(t *testing.T) {
+	t.Run("Run returns the trimmed container id", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			reply("abc123\n", "", nil, func(cmd *exec.Cmd) {
+				assert.Equal(t, "podman", cmd.Args[0])
+				assert.Contains(t, cmd.Args, "busybox:stable")
+			}))
+
+		id, err := Client{Runner: runner}.Run(t.Context(), cri.RunSpec{Image: "busybox:stable", Name: "x"})
+		require.NoError(t, err)
+		assert.Equal(t, "abc123", id)
+	})
+
+	t.Run("Run explains a port that is already in use", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			reply("", "port is already allocated\n", errors.New("exit status 125"), nil))
+
+		_, err := Client{Runner: runner}.Run(t.Context(), cri.RunSpec{Image: "busybox:stable", Name: "x"})
+		require.Error(t, err)
+		assert.Contains(t, uerr.Display(err), "already in use")
+	})
+
+	t.Run("Remove ignores a container that is already gone", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			reply("", "No such container\n", errors.New("exit status 1"), nil)).Once()
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(reply("", "", nil, nil)).Once()
+
+		require.NoError(t, Client{Runner: runner}.Remove(t.Context(), "x"))
+	})
+
+	t.Run("Remove reports a failure while the container still exists", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			reply("", "", errors.New("exit status 1"), nil)).Once()
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(reply("x\n", "", nil, nil)).Once()
+
+		require.ErrorContains(t, Client{Runner: runner}.Remove(t.Context(), "x"), `podman: remove "x"`)
+	})
+
+	t.Run("Exec reports ErrNotFound for a missing container", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			reply("", "", errors.New("exit status 1"), nil)).Once()
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(reply("", "", nil, nil)).Once()
+
+		_, err := Client{Runner: runner}.Exec(t.Context(), "x", "echo")
+		require.ErrorIs(t, err, cri.ErrNotFound)
+	})
+
+	t.Run("ExecInput passes -i and feeds stdin", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			reply("hello\n", "", nil, func(cmd *exec.Cmd) {
+				assert.Equal(t, []string{"podman", "exec", "-i", "x", "cat"}, cmd.Args)
+				in, err := io.ReadAll(cmd.Stdin)
+				require.NoError(t, err)
+				assert.Equal(t, "hello", string(in))
+			}))
+
+		out, err := Client{Runner: runner}.ExecInput(t.Context(), "x", strings.NewReader("hello"), "cat")
+		require.NoError(t, err)
+		assert.Equal(t, "hello\n", out)
+	})
+
+	t.Run("ListByLabel splits the names", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			reply("a\nb\n", "", nil, func(cmd *exec.Cmd) {
+				assert.Contains(t, cmd.Args, "label=k=v")
+			}))
+
+		got, err := Client{Runner: runner}.ListByLabel(t.Context(), "k", "v")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"a", "b"}, got)
+	})
+
+	t.Run("Save streams the archive and Close waits for the process", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			reply("tar-bytes", "", nil, func(cmd *exec.Cmd) {
+				assert.Equal(t, []string{"podman", "save", "img:1"}, cmd.Args)
+			}))
+
+		rc, err := Client{Runner: runner}.Save(t.Context(), "img:1")
+		require.NoError(t, err)
+		data, err := io.ReadAll(rc)
+		require.NoError(t, err)
+		assert.Equal(t, "tar-bytes", string(data))
+		require.NoError(t, rc.Close())
+	})
+
+	t.Run("Save reports the process failure to the reader", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			reply("", "", errors.New("exit status 1"), nil))
+
+		rc, err := Client{Runner: runner}.Save(t.Context(), "img:1")
+		require.NoError(t, err)
+		_, err = io.ReadAll(rc)
+		require.ErrorContains(t, err, "exit status 1")
+		_ = rc.Close()
 	})
 }

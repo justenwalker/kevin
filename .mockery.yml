@@ -29,12 +29,13 @@ packages:
       Exporter:
       ToolProvider:
   github.com/justenwalker/kevin/internal/command:
+    config:
+      dir: internal/command/commandtest
+      filename: mocks.go
+      pkgname: commandtest
     interfaces:
       Runner:
-        config:
-          dir: internal/command/commandtest
-          filename: mocks.go
-          pkgname: commandtest
+      Starter:
   github.com/justenwalker/kevin/internal/plugins/helm:
     interfaces:
       cli:

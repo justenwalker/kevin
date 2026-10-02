@@ -7,9 +7,10 @@ import (
 
 	"github.com/jedisct1/go-minisign"
 
+	"github.com/justenwalker/kevin/internal/command"
+	"github.com/justenwalker/kevin/internal/command/cosign"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/pkgtrust"
-	"github.com/justenwalker/kevin/internal/sigstorepkg"
 )
 
 // verifyVersionFile checks path against whichever detached signature
@@ -69,7 +70,7 @@ func minisignKeyring(signers []Signer) pkgtrust.Keyring {
 }
 
 // verifySigstoreFile tries path against bundlePath for each of signers'
-// own sigstore identity/issuer pairs (sigstorepkg.VerifyBlob, the same
+// own sigstore identity/issuer pairs (cosign.Client.VerifyBlob, the same
 // call internal/engine/signature.go makes for package verification),
 // succeeding on the first match. path is already a real file on disk
 // (this plugin's own cloned version source), so unlike package
@@ -80,7 +81,7 @@ func verifySigstoreFile(ctx context.Context, path, bundlePath string, signers []
 		if s.Scheme != config.SigningSchemeSigstore {
 			continue
 		}
-		err := sigstorepkg.VerifyBlob(ctx, path, bundlePath, s.Identity, s.Issuer)
+		err := cosign.New(command.Default).VerifyBlob(ctx, path, bundlePath, s.Identity, s.Issuer)
 		if err == nil {
 			return nil
 		}

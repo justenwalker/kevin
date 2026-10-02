@@ -368,7 +368,7 @@ managed with `kevin plugin trust add`/`list`/`remove`.
 `signing: {scheme: "sigstore", identity:, issuer:}` requires a sigstore
 (cosign) keyless bundle the same way (a sibling `.sigstore.json`, or the
 same fallback-tag convention for `oci`), shelled out to `cosign
-verify-blob` (`internal/sigstorepkg`, see ADR-0007), gated by a second
+verify-blob` (`internal/command/cosign`, see ADR-0007), gated by a second
 local trust store (`~/.kevin/trusted-identities`, `kevin plugin trust
 add-identity`/`remove-identity`) since an inline `identity`/`issuer` in
 `kevin.cue` alone isn't a trust boundary. `kevin plugin pack` builds a

@@ -1,13 +1,20 @@
 package trust
 
 import (
+	"context"
+	"errors"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/justenwalker/kevin/internal/command/commandtest"
 )
 
 func TestFileNameFor(t *testing.T) {
@@ -404,13 +411,95 @@ func TestStatusReportsEveryStoreWithoutWriting(t *testing.T) {
 }
 
 func TestRunCmdReportsTheOutputOfAFailure(t *testing.T) {
-	out, err := runCmd(t.Context(), "/bin/echo", "hello")
-	require.NoError(t, err)
-	assert.Equal(t, "hello\n", out)
+	t.Run("returns the combined output", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				assert.Equal(t, []string{"echo", "hello"}, cmd.Args)
+				_, err := io.WriteString(cmd.Stdout, "hello\n")
+				return err
+			})
 
-	_, err = runCmd(t.Context(), "/bin/sh", "-c", "echo boom >&2; exit 1")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "boom", "the message of the tool must reach the user")
+		out, err := runCmd(t.Context(), Request{Runner: runner}, "echo", "hello")
+		require.NoError(t, err)
+		assert.Equal(t, "hello\n", out)
+	})
+
+	t.Run("puts the output of the tool in the error", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				_, _ = io.WriteString(cmd.Stderr, "boom\n")
+				return errors.New("exit status 1")
+			})
+
+		_, err := runCmd(t.Context(), Request{Runner: runner}, "sh")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "boom", "the message of the tool must reach the user")
+	})
+
+	t.Run("runs real processes without a Runner", func(t *testing.T) {
+		out, err := runCmd(t.Context(), Request{}, "/bin/echo", "hello")
+		require.NoError(t, err)
+		assert.Equal(t, "hello\n", out)
+	})
+}
+
+func TestKeychainRunsSecurity(t *testing.T) {
+	req := Request{CertPath: "/tmp/ca.crt", CommonName: "kevin demo CA"}
+
+	t.Run("install adds the certificate", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				assert.Equal(t, SecurityBinary, cmd.Args[0])
+				assert.Contains(t, cmd.Args, "add-trusted-cert")
+				return nil
+			})
+		req := req
+		req.Runner = runner
+
+		result, err := keychain{}.install(t.Context(), req)
+		require.NoError(t, err)
+		assert.True(t, result.Installed)
+	})
+
+	t.Run("install reports the command to run by hand", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).Return(errors.New("exit status 1"))
+		req := req
+		req.Runner = runner
+
+		result, err := keychain{}.install(t.Context(), req)
+		require.Error(t, err)
+		assert.Contains(t, result.Reason, "add-trusted-cert")
+	})
+
+	t.Run("remove skips a certificate the keychain does not hold", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				_, _ = io.WriteString(cmd.Stderr, "SecKeychainSearchCopyNext: The specified item could not be found in the keychain.")
+				return errors.New("exit status 44")
+			})
+		req := req
+		req.Runner = runner
+
+		result, err := keychain{}.remove(t.Context(), req)
+		require.NoError(t, err)
+		assert.True(t, result.Skipped)
+	})
+
+	t.Run("status reads the certificate as installed when security finds it", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).Return(nil)
+		req := req
+		req.Runner = runner
+
+		result, err := keychain{}.status(t.Context(), req)
+		require.NoError(t, err)
+		assert.True(t, result.Installed)
+	})
 }
 
 func TestProfilesReturnsDirectoriesThatHoldADatabase(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -36,7 +37,11 @@ type execConfig struct {
 }
 
 // Step is the exec step.
-type Step struct{}
+type Step struct {
+	// runner runs the command of a step. Nil runs real processes with
+	// [command.Default].
+	runner command.Runner
+}
 
 // New returns the exec step.
 func New() Step { return Step{} }
@@ -56,13 +61,13 @@ var _ plugin.Downer = Step{}
 // Up runs the configured command. Its stdout, trimmed, becomes the
 // step's "stdout" output, and is also persisted under the workspace so a
 // later, possibly cross-scope Export call can read it back.
-func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
+func (s Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
 	cfg, err := decode(req.Config)
 	if err != nil {
 		return nil, err
 	}
 
-	stdout, err := runExec(ctx, cfg.Up, cfg.Proxy, req.Env, out)
+	stdout, err := s.runExec(ctx, cfg.Up, cfg.Proxy, req.Env, out)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +84,7 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 // Down removes the stdout Up persisted, then runs the configured cleanup
 // command. The command itself does nothing when the with block sets no
 // down.
-func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitter) error {
+func (s Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitter) error {
 	cfg, err := decode(req.Config)
 	if err != nil {
 		return err
@@ -93,7 +98,7 @@ func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitte
 	if cfg.Down == nil {
 		return nil
 	}
-	_, err = runExec(ctx, *cfg.Down, cfg.Proxy, req.Env, out)
+	_, err = s.runExec(ctx, *cfg.Down, cfg.Proxy, req.Env, out)
 	return err
 }
 
@@ -130,7 +135,7 @@ func persistStdout(workspace, step, stdout string) error {
 }
 
 // runExec runs one #Exec block and returns its trimmed stdout.
-func runExec(ctx context.Context, execCfg execConfig, proxy bool, env plugin.Env, out plugin.Emitter) (string, error) {
+func (s Step) runExec(ctx context.Context, execCfg execConfig, proxy bool, env plugin.Env, out plugin.Emitter) (string, error) {
 	label := strings.Join(execCfg.Command, " ")
 	out.Log("stdout", "running "+label)
 
@@ -142,7 +147,7 @@ func runExec(ctx context.Context, execCfg execConfig, proxy bool, env plugin.Env
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	if err := s.run(ctx, cmd); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			return "", plugin.Wrap(fmt.Errorf("exec: %s: %w", label, err),
@@ -219,4 +224,13 @@ func decode(data []byte) (config, error) {
 		return cfg, fmt.Errorf("exec: decode config: %w", err)
 	}
 	return cfg, nil
+}
+
+// run runs cmd with the runner of s, or with command.Default when s has
+// none.
+func (s Step) run(ctx context.Context, cmd *exec.Cmd) error {
+	if s.runner == nil {
+		return command.Run(ctx, cmd)
+	}
+	return s.runner.Run(ctx, cmd)
 }

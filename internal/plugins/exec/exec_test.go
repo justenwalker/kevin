@@ -1,14 +1,20 @@
 package exec
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/command/commandtest"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -226,5 +232,50 @@ func TestExport(t *testing.T) {
 
 		_, err = Step{}.Export(t.Context(), &plugin.ExportRequest{Step: "b", Env: plugin.Env{Workspace: workspace}})
 		require.Error(t, err, "a's captured stdout must not leak into b's Export")
+	})
+}
+
+func TestRunExec(t *testing.T) {
+	step := func(t *testing.T, stdout, stderr string, runErr error, check func(cmd *exec.Cmd)) Step {
+		t.Helper()
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				if check != nil {
+					check(cmd)
+				}
+				_, _ = io.WriteString(cmd.Stdout, stdout)
+				_, _ = io.WriteString(cmd.Stderr, stderr)
+				return runErr
+			})
+		return Step{runner: runner}
+	}
+	cfg := execConfig{Command: []string{"make", "up"}, Cwd: "sub", Env: map[string]string{"A": "b"}}
+	env := plugin.Env{ProjectDir: "/proj"}
+
+	t.Run("runs the command in its directory with its environment", func(t *testing.T) {
+		s := step(t, "  out\n", "", nil, func(cmd *exec.Cmd) {
+			assert.Equal(t, []string{"make", "up"}, cmd.Args)
+			assert.Equal(t, filepath.Join("/proj", "sub"), cmd.Dir)
+			assert.Contains(t, cmd.Env, "A=b")
+		})
+
+		got, err := s.runExec(t.Context(), cfg, false, env, &capture{})
+		require.NoError(t, err)
+		assert.Equal(t, "out", got, "stdout is trimmed")
+	})
+
+	t.Run("puts the stderr of the command in the error", func(t *testing.T) {
+		s := step(t, "", "no rule to make target\n", errors.New("exit status 2"), nil)
+
+		_, err := s.runExec(t.Context(), cfg, false, env, &capture{})
+		require.ErrorContains(t, err, "no rule to make target")
+	})
+
+	t.Run("points at the logs when the command printed nothing", func(t *testing.T) {
+		s := step(t, "", "", errors.New("exit status 2"), nil)
+
+		_, err := s.runExec(t.Context(), cfg, false, env, &capture{})
+		require.ErrorContains(t, err, "make up")
 	})
 }

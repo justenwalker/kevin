@@ -28,6 +28,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/browser"
 	"github.com/justenwalker/kevin/internal/ca"
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/console"
 	"github.com/justenwalker/kevin/internal/cri"
@@ -264,7 +265,7 @@ func Run(ctx context.Context, opts Options) error {
 	log.Ctx(ctx).Info("mcp listening", "url", consoleURL+mcpserver.Path)
 	if opts.Open {
 		go func() {
-			if openErr := browser.Open(ctx, consoleURL); openErr != nil {
+			if openErr := browser.Open(ctx, command.DefaultStarter, consoleURL); openErr != nil {
 				log.Ctx(ctx).Warn("open browser", "error", openErr)
 			}
 		}()

@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/command/commandtest"
 	kubectlcmd "github.com/justenwalker/kevin/internal/command/kubectl"
 	"github.com/justenwalker/kevin/internal/uerr"
 	"github.com/justenwalker/kevin/plugin"
@@ -200,11 +203,11 @@ func TestProbeHTTP(t *testing.T) {
 
 func TestRunExec(t *testing.T) {
 	t.Run("succeeds", func(t *testing.T) {
-		assert.NoError(t, runExec(t.Context(), []string{"sh", "-c", "exit 0"}))
+		assert.NoError(t, Step{}.runExec(t.Context(), []string{"sh", "-c", "exit 0"}))
 	})
 
 	t.Run("fails on a non-zero exit", func(t *testing.T) {
-		assert.Error(t, runExec(t.Context(), []string{"sh", "-c", "exit 1"}))
+		assert.Error(t, Step{}.runExec(t.Context(), []string{"sh", "-c", "exit 1"}))
 	})
 }
 
@@ -298,5 +301,33 @@ func TestCheckKubectl(t *testing.T) {
 
 		err := Step{kubectl: cli}.checkKubectl(t.Context(), kubectlConfig{Resource: "pod/x", For: "delete"}, time.Second)
 		require.ErrorContains(t, err, "not ready")
+	})
+}
+
+func TestRunExecRunner(t *testing.T) {
+	step := func(t *testing.T, output string, runErr error) Step {
+		t.Helper()
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				assert.Equal(t, []string{"probe", "--ready"}, cmd.Args)
+				_, _ = io.WriteString(cmd.Stdout, output)
+				return runErr
+			})
+		return Step{runner: runner}
+	}
+
+	t.Run("succeeds when the command does", func(t *testing.T) {
+		require.NoError(t, step(t, "", nil).runExec(t.Context(), []string{"probe", "--ready"}))
+	})
+
+	t.Run("adds the command's output to the error", func(t *testing.T) {
+		err := step(t, "not ready\n", errors.New("exit status 1")).runExec(t.Context(), []string{"probe", "--ready"})
+		require.ErrorContains(t, err, "not ready")
+	})
+
+	t.Run("returns the bare error when the command printed nothing", func(t *testing.T) {
+		err := step(t, "", errors.New("exit status 1")).runExec(t.Context(), []string{"probe", "--ready"})
+		require.EqualError(t, err, "exit status 1")
 	})
 }

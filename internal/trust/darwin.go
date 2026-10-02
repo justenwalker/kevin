@@ -72,7 +72,7 @@ func (k keychain) install(ctx context.Context, req Request) (Result, error) {
 		return result, fmt.Errorf("trust: the system keychain: %w", ErrNeedsRoot)
 	}
 
-	if _, err = runCmd(ctx, SecurityBinary, args...); err != nil {
+	if _, err = runCmd(ctx, req, SecurityBinary, args...); err != nil {
 		result.Reason = "run: " + quote(SecurityBinary, args...)
 		return result, err
 	}
@@ -91,7 +91,7 @@ func (k keychain) status(ctx context.Context, req Request) (Result, error) {
 		return result, err
 	}
 
-	_, findErr := runCmd(ctx, SecurityBinary, "find-certificate", "-c", req.CommonName, path)
+	_, findErr := runCmd(ctx, req, SecurityBinary, "find-certificate", "-c", req.CommonName, path)
 	result.Installed = findErr == nil
 	if !result.Installed {
 		result.Reason = "not trusted"
@@ -113,7 +113,7 @@ func (k keychain) remove(ctx context.Context, req Request) (Result, error) {
 		return result, fmt.Errorf("trust: the system keychain: %w", ErrNeedsRoot)
 	}
 
-	out, err := runCmd(ctx, SecurityBinary, args...)
+	out, err := runCmd(ctx, req, SecurityBinary, args...)
 	if err != nil {
 		// A removal must be idempotent. security reports an absent
 		// certificate on standard error and exits non-zero.

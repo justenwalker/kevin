@@ -49,3 +49,19 @@ func TestRun(t *testing.T) {
 		assert.Less(t, time.Since(start), 5*time.Second)
 	})
 }
+
+func TestStart(t *testing.T) {
+	t.Run("starts the process and sets it on cmd", func(t *testing.T) {
+		cmd := exec.CommandContext(t.Context(), "sh", "-c", "exit 0")
+		require.NoError(t, Start(t.Context(), cmd))
+		require.NotNil(t, cmd.Process)
+		state, err := cmd.Process.Wait()
+		require.NoError(t, err)
+		assert.True(t, state.Success())
+	})
+
+	t.Run("reports a missing binary as not found", func(t *testing.T) {
+		err := Start(t.Context(), exec.CommandContext(t.Context(), "kevin-no-such-binary"))
+		require.ErrorIs(t, err, exec.ErrNotFound)
+	})
+}

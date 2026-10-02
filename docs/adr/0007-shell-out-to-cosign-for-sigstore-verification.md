@@ -15,7 +15,7 @@ functionality. Both the library and the CLI were considered.
 
 Verify a sigstore bundle by shelling out to the `cosign` CLI
 (`cosign verify-blob --bundle ...`), not by importing `sigstore-go` or
-`cosign`'s own Go libraries. New package `internal/sigstorepkg` shells out
+`cosign`'s own Go libraries. New package `internal/command/cosign` shells out
 the same way `internal/docker`, `internal/command/kubectl`, and `internal/command/helm`
 already do for their own external tools (see ADR-0005). Signing itself stays
 a manual step the user runs with the `cosign` CLI directly - `kevin plugin
@@ -38,9 +38,9 @@ clients that nothing else in kevin's dependency graph already needs, and
 Fulcio/Rekor is a purpose-built protocol, not a plain HTTP API a generic
 client already covers.
 
-**DO** (`internal/sigstorepkg/sigstorepkg.go:32`):
+**DO** (`internal/command/cosign/cosign.go:43`):
 ```go
-func VerifyBlob(ctx context.Context, pkgPath, bundlePath, identity, issuer string) error {
+func (c *Client) VerifyBlob(ctx context.Context, pkgPath, bundlePath, identity, issuer string) error {
 	if _, err := LookPath(); err != nil {
 		return err
 	}
@@ -65,9 +65,9 @@ func VerifyBlob(ctx context.Context, pkgPath, bundlePath, identity, issuer strin
 `cosign verify-blob` has no stable machine-readable failure taxonomy, so
 every verification failure - identity mismatch, issuer mismatch, a bad
 certificate chain, a bad Rekor proof - collapses into one
-`sigstorepkg.ErrVerifyFailed` sentinel with cosign's raw stderr attached,
+`cosign.ErrVerifyFailed` sentinel with cosign's raw stderr attached,
 an honest precision regression from minisign's distinct
 `ErrUnknownKeyID`/`ErrSignatureInvalid` sentinels. `cosign` becomes a new
-opt-in external-tool dependency (`sigstorepkg.ErrCosignNotFound`), required
+opt-in external-tool dependency (`cosign.ErrCosignNotFound`), required
 only for a user who actually sets `signing: scheme: "sigstore"` - minisign
 stays the zero-dependency default.

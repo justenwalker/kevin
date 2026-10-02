@@ -8,11 +8,12 @@ import (
 
 	"github.com/jedisct1/go-minisign"
 
+	"github.com/justenwalker/kevin/internal/command"
+	"github.com/justenwalker/kevin/internal/command/cosign"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/httppkg"
 	"github.com/justenwalker/kevin/internal/ocipkg"
 	"github.com/justenwalker/kevin/internal/pkgtrust"
-	"github.com/justenwalker/kevin/internal/sigstorepkg"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
@@ -119,7 +120,7 @@ func verifySigstoreBlob(ctx context.Context, pkgPath, bundlePath string, signing
 	if err := pkgtrust.VerifyIdentity(signing.Identity, signing.Issuer); err != nil {
 		return err
 	}
-	return sigstorepkg.VerifyBlob(ctx, pkgPath, bundlePath, signing.Identity, signing.Issuer)
+	return cosign.New(command.Default).VerifyBlob(ctx, pkgPath, bundlePath, signing.Identity, signing.Issuer)
 }
 
 // verifySigstoreBlobBytes is [verifySigstoreBlob] for a bundle fetched into
@@ -157,9 +158,9 @@ func friendlySignatureErr(err error, name string) error {
 		return uerr.Wrap(err, "plugins.%s's signing identity isn't trusted - run `kevin plugin trust add-identity` first", name)
 	case errors.Is(err, pkgtrust.ErrSignatureInvalid):
 		return uerr.Wrap(err, "plugins.%s's signature doesn't verify against its package - it may be corrupted or tampered with", name)
-	case errors.Is(err, sigstorepkg.ErrVerifyFailed):
+	case errors.Is(err, cosign.ErrVerifyFailed):
 		return uerr.Wrap(err, "plugins.%s's sigstore signature doesn't verify against its package - it may be corrupted or tampered with", name)
-	case errors.Is(err, sigstorepkg.ErrCosignNotFound):
+	case errors.Is(err, cosign.ErrCosignNotFound):
 		return uerr.Wrap(err, "plugins.%s needs cosign to verify its sigstore signature - install it: https://docs.sigstore.dev/cosign/system_config/installation/", name)
 	default:
 		return err
