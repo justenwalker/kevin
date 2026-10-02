@@ -12,8 +12,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/justenwalker/kevin/internal/command"
+	k3dcmd "github.com/justenwalker/kevin/internal/command/k3d"
 	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/k3dcmd"
 	"github.com/justenwalker/kevin/internal/podman"
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -42,7 +43,7 @@ type k3dDriver struct {
 	kubeconfig string
 	rt         cri.Runtime
 
-	// The k3dcmd calls that Create, Delete and the reads make, held as values
+	// The k3d calls that Create, Delete and the reads make, held as values
 	// so that a test can stub them.
 	create          func(ctx context.Context, spec k3dcmd.CreateSpec, stdout, stderr io.Writer) error
 	deleteCluster   func(ctx context.Context, name string, env map[string]string, stderr io.Writer) error
@@ -74,13 +75,14 @@ func newK3dDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.Ru
 	if _, reserved := cfg.K3d.Labels[nodeLabelKey]; reserved {
 		return nil, fmt.Errorf("labels %q: %w", nodeLabelKey, ErrK3dReservedLabel)
 	}
+	client := k3dcmd.New(command.Default)
 	return &k3dDriver{
 		cfg: cfg, env: env, name: name, kubeconfig: kubeconfig, rt: rt,
-		create:          k3dcmd.Create,
-		deleteCluster:   k3dcmd.Delete,
-		listNodes:       k3dcmd.GetNodes,
-		writeKubeconfig: k3dcmd.KubeconfigWrite,
-		importImage:     k3dcmd.ImageImport,
+		create:          client.Create,
+		deleteCluster:   client.Delete,
+		listNodes:       client.GetNodes,
+		writeKubeconfig: client.KubeconfigWrite,
+		importImage:     client.ImageImport,
 		freePort:        freeLoopbackPort,
 		socket:          podman.Socket,
 	}, nil

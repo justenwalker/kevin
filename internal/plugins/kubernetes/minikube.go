@@ -13,8 +13,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/justenwalker/kevin/internal/command"
+	minikubecmd "github.com/justenwalker/kevin/internal/command/minikube"
 	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/minikubecmd"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -35,7 +36,7 @@ type minikubeDriver struct {
 	kubeconfig string
 	rt         cri.Runtime
 
-	// The minikubecmd calls that Create, Delete and LoadImage make, and the
+	// The minikube calls that Create, Delete and LoadImage make, and the
 	// lookup of the cache that every cluster shares, held as values so that a
 	// test can stub them.
 	start         func(ctx context.Context, spec minikubecmd.StartSpec, stdout, stderr io.Writer) error
@@ -59,11 +60,12 @@ func newMinikubeDriver(cfg config, env plugin.Env, name, kubeconfig string, rt c
 	if len(cfg.Mounts) > 1 {
 		return nil, fmt.Errorf("%d entries: %w", len(cfg.Mounts), ErrMinikubeMounts)
 	}
+	client := minikubecmd.New(command.Default)
 	return &minikubeDriver{
 		cfg: cfg, env: env, name: name, kubeconfig: kubeconfig, rt: rt,
-		start:         minikubecmd.Start,
-		deleteProfile: minikubecmd.Delete,
-		loadImage:     minikubecmd.ImageLoad,
+		start:         client.Start,
+		deleteProfile: client.Delete,
+		loadImage:     client.ImageLoad,
 		cacheDir:      minikubeCacheDir,
 	}, nil
 }

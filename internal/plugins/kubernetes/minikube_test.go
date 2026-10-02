@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	minikubecmd "github.com/justenwalker/kevin/internal/command/minikube"
 	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/minikubecmd"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -217,7 +217,7 @@ func TestMinikubeDriverNodes(t *testing.T) {
 	})
 }
 
-// stubbedMinikube builds a driver whose minikubecmd calls only record
+// stubbedMinikube builds a driver whose minikube calls only record
 // themselves, with a workspace and a cache under t.TempDir.
 func stubbedMinikube(t *testing.T, rt cri.Runtime) (*minikubeDriver, *[]string) {
 	t.Helper()

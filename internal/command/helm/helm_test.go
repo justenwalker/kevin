@@ -1,15 +1,19 @@
-package helmcmd
+package helm
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/command/commandtest"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
@@ -109,5 +113,55 @@ func TestIsReleaseNotFound(t *testing.T) {
 	t.Run("an unrelated error", func(t *testing.T) {
 		err := errors.New("helm uninstall demo --kubeconfig /tmp/kubeconfig: Error: Kubernetes cluster unreachable: exit status 1")
 		assert.False(t, isReleaseNotFound(err))
+	})
+}
+
+func TestClient(t *testing.T) {
+	t.Run("UpgradeInstall returns standard output", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				assert.Equal(t, []string{"helm", "upgrade", "--install", "demo", "./demo", "--kubeconfig", "/kc"}, cmd.Args)
+				_, err := io.WriteString(cmd.Stdout, "released")
+				return err
+			})
+
+		out, err := New(runner).UpgradeInstall(t.Context(), UpgradeSpec{Release: "demo", Chart: "./demo", Kubeconfig: "/kc"})
+		require.NoError(t, err)
+		assert.Equal(t, "released", out)
+	})
+
+	t.Run("UpgradeInstall includes helm's stderr in the error", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				_, _ = io.WriteString(cmd.Stderr, "chart not found\n")
+				return errors.New("exit status 1")
+			})
+
+		_, err := New(runner).UpgradeInstall(t.Context(), UpgradeSpec{Release: "demo", Chart: "nope", Kubeconfig: "/kc"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "chart not found")
+	})
+
+	t.Run("Uninstall reports ErrReleaseNotFound", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				_, _ = io.WriteString(cmd.Stderr, "Error: uninstall: Release not found: release: not found")
+				return errors.New("exit status 1")
+			})
+
+		_, err := New(runner).Uninstall(t.Context(), UninstallSpec{Release: "demo", Kubeconfig: "/kc"})
+		require.ErrorIs(t, err, ErrReleaseNotFound)
+	})
+
+	t.Run("a missing binary reads as not installed", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).Return(exec.ErrNotFound)
+
+		_, err := New(runner).Uninstall(t.Context(), UninstallSpec{Release: "demo", Kubeconfig: "/kc"})
+		require.ErrorIs(t, err, exec.ErrNotFound)
+		assert.Contains(t, uerr.Display(err), "helm isn't installed")
 	})
 }

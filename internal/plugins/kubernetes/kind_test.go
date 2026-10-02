@@ -9,9 +9,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
 
+	kindcmd "github.com/justenwalker/kevin/internal/command/kind"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -473,4 +475,56 @@ func TestNewKindDriver(t *testing.T) {
 func TestKindDriverRefreshAccess(t *testing.T) {
 	require.NoError(t, (&kindDriver{name: "demo-cluster"}).RefreshAccess(t.Context()),
 		"kind publishes the API server on a host port that joining a network does not change")
+}
+
+func TestKindDriverCLI(t *testing.T) {
+	podman := plugin.Env{Engine: enginePodman}
+
+	t.Run("Nodes lists the cluster's nodes under the engine's provider", func(t *testing.T) {
+		cli := newMockkindCLI(t)
+		cli.EXPECT().GetNodes(mock.Anything, "demo", map[string]string{kindProviderEnvVar: "podman"}).
+			Return([]string{"demo-control-plane"}, nil)
+
+		got, err := (&kindDriver{name: "demo", env: podman, cli: cli}).Nodes(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, []string{"demo-control-plane"}, got)
+	})
+
+	t.Run("Nodes wraps a failure with the cluster name", func(t *testing.T) {
+		cli := newMockkindCLI(t)
+		cli.EXPECT().GetNodes(mock.Anything, "demo", mock.Anything).Return(nil, errors.New("boom"))
+
+		_, err := (&kindDriver{name: "demo", cli: cli}).Nodes(t.Context())
+		require.ErrorContains(t, err, `list the nodes of "demo": boom`)
+	})
+
+	t.Run("Delete removes the cluster", func(t *testing.T) {
+		cli := newMockkindCLI(t)
+		cli.EXPECT().Delete(mock.Anything, kindcmd.DeleteSpec{Name: "demo", Kubeconfig: "/kc"}, mock.Anything).Return(nil)
+
+		require.NoError(t, (&kindDriver{name: "demo", kubeconfig: "/kc", cli: cli}).Delete(t.Context(), &capture{}))
+	})
+
+	t.Run("Delete wraps a failure", func(t *testing.T) {
+		cli := newMockkindCLI(t)
+		cli.EXPECT().Delete(mock.Anything, mock.Anything, mock.Anything).Return(errors.New("boom"))
+
+		err := (&kindDriver{name: "demo", cli: cli}).Delete(t.Context(), &capture{})
+		require.ErrorContains(t, err, `delete the cluster "demo": boom`)
+	})
+
+	t.Run("LoadImage loads the archive into the cluster", func(t *testing.T) {
+		cli := newMockkindCLI(t)
+		cli.EXPECT().LoadImageArchive(mock.Anything, kindcmd.LoadImageArchiveSpec{Name: "demo", Path: "/img.tar"}, mock.Anything).Return(nil)
+
+		require.NoError(t, (&kindDriver{name: "demo", cli: cli}).LoadImage(t.Context(), "/img.tar", &capture{}))
+	})
+
+	t.Run("LoadImage wraps a failure", func(t *testing.T) {
+		cli := newMockkindCLI(t)
+		cli.EXPECT().LoadImageArchive(mock.Anything, mock.Anything, mock.Anything).Return(errors.New("boom"))
+
+		err := (&kindDriver{name: "demo", cli: cli}).LoadImage(t.Context(), "/img.tar", &capture{})
+		require.ErrorContains(t, err, "load the image archive: boom")
+	})
 }

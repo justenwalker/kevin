@@ -1,5 +1,5 @@
-// Package helmcmd drives the helm command line, on the host.
-package helmcmd
+// Package helm drives the helm command line, on the host.
+package helm
 
 import (
 	"bytes"
@@ -10,19 +10,31 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
 // Binary is the command that this package runs.
 const Binary = "helm"
 
+// Client runs helm through a [command.Runner]. It is safe for concurrent
+// use when its runner is.
+type Client struct {
+	runner command.Runner
+}
+
+// New returns a Client that runs helm with runner.
+func New(runner command.Runner) *Client {
+	return &Client{runner: runner}
+}
+
 // Available reports whether the helm command runs.
-func Available(ctx context.Context) error {
+func (c *Client) Available(ctx context.Context) error {
 	if _, err := exec.LookPath(Binary); err != nil {
-		return fmt.Errorf("helmcmd: %w: %w", ErrUnavailable, err)
+		return fmt.Errorf("helm: %w: %w", ErrUnavailable, err)
 	}
-	if _, err := run(ctx, "version", "--short"); err != nil {
-		return fmt.Errorf("helmcmd: %w: %w", ErrUnavailable, err)
+	if _, err := c.run(ctx, "version", "--short"); err != nil {
+		return fmt.Errorf("helm: %w: %w", ErrUnavailable, err)
 	}
 	return nil
 }
@@ -55,10 +67,10 @@ type UpgradeSpec struct {
 
 // UpgradeInstall runs helm upgrade --install against spec, and returns its
 // standard output.
-func UpgradeInstall(ctx context.Context, spec UpgradeSpec) (string, error) {
-	out, err := run(ctx, upgradeArgs(spec)...)
+func (c *Client) UpgradeInstall(ctx context.Context, spec UpgradeSpec) (string, error) {
+	out, err := c.run(ctx, upgradeArgs(spec)...)
 	if err != nil {
-		return "", fmt.Errorf("helmcmd: upgrade --install: %w", err)
+		return "", fmt.Errorf("helm: upgrade --install: %w", err)
 	}
 	return out, nil
 }
@@ -112,13 +124,13 @@ type UninstallSpec struct {
 // Uninstall runs helm uninstall against spec, and returns its standard
 // output. It reports ErrReleaseNotFound, not helm's own exit error, when the
 // release is already gone.
-func Uninstall(ctx context.Context, spec UninstallSpec) (string, error) {
-	out, err := run(ctx, uninstallArgs(spec)...)
+func (c *Client) Uninstall(ctx context.Context, spec UninstallSpec) (string, error) {
+	out, err := c.run(ctx, uninstallArgs(spec)...)
 	if err != nil {
 		if isReleaseNotFound(err) {
-			return "", fmt.Errorf("helmcmd: uninstall: %w", ErrReleaseNotFound)
+			return "", fmt.Errorf("helm: uninstall: %w", ErrReleaseNotFound)
 		}
-		return "", fmt.Errorf("helmcmd: uninstall: %w", err)
+		return "", fmt.Errorf("helm: uninstall: %w", err)
 	}
 	return out, nil
 }
@@ -141,7 +153,7 @@ func uninstallArgs(spec UninstallSpec) []string {
 }
 
 // run calls the helm binary and returns the standard output.
-func run(ctx context.Context, args ...string) (string, error) {
+func (c *Client) run(ctx context.Context, args ...string) (string, error) {
 	//nolint:gosec // every argument comes from the environment definition
 	cmd := exec.CommandContext(ctx, Binary, args...)
 
@@ -149,7 +161,7 @@ func run(ctx context.Context, args ...string) (string, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := c.runner.Run(ctx, cmd); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			return "", notInstalled(fmt.Errorf("helm %s: %w", strings.Join(args, " "), err))

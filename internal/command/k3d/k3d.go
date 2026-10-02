@@ -1,5 +1,5 @@
-// Package k3dcmd drives the k3d command line, on the host.
-package k3dcmd
+// Package k3d drives the k3d command line, on the host.
+package k3d
 
 import (
 	"bytes"
@@ -16,19 +16,31 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
 // Binary is the command that this package runs.
 const Binary = "k3d"
 
+// Client runs k3d through a [command.Runner]. It is safe for concurrent use
+// when its runner is.
+type Client struct {
+	runner command.Runner
+}
+
+// New returns a Client that runs k3d with runner.
+func New(runner command.Runner) *Client {
+	return &Client{runner: runner}
+}
+
 // Available reports whether the k3d command runs.
-func Available(ctx context.Context) error {
+func (c *Client) Available(ctx context.Context) error {
 	if _, err := exec.LookPath(Binary); err != nil {
-		return fmt.Errorf("k3dcmd: %w: %w", ErrUnavailable, err)
+		return fmt.Errorf("k3d: %w: %w", ErrUnavailable, err)
 	}
-	if _, err := runBuffered(ctx, nil, "version"); err != nil {
-		return fmt.Errorf("k3dcmd: %w: %w", ErrUnavailable, err)
+	if _, err := c.runBuffered(ctx, nil, "version"); err != nil {
+		return fmt.Errorf("k3d: %w: %w", ErrUnavailable, err)
 	}
 	return nil
 }
@@ -81,9 +93,9 @@ type CreateSpec struct {
 
 // Create runs k3d cluster create against spec, streaming its output to
 // stdout and stderr as it runs. It never touches the user's own kubeconfig.
-func Create(ctx context.Context, spec CreateSpec, stdout, stderr io.Writer) error {
-	if err := runStreamed(ctx, stdout, stderr, envWith(spec.CommandEnv), CreateArgs(spec)...); err != nil {
-		return fmt.Errorf("k3dcmd: create cluster: %w", err)
+func (c *Client) Create(ctx context.Context, spec CreateSpec, stdout, stderr io.Writer) error {
+	if err := c.runStreamed(ctx, stdout, stderr, envWith(spec.CommandEnv), CreateArgs(spec)...); err != nil {
+		return fmt.Errorf("k3d: create cluster: %w", err)
 	}
 	return nil
 }
@@ -133,16 +145,16 @@ func CreateArgs(spec CreateSpec) []string {
 // Delete runs k3d cluster delete against name, streaming its output to
 // stderr as it runs. A cluster that does not exist is not an error. env names
 // extra variables (DOCKER_HOST, ...) set for the k3d process only.
-func Delete(ctx context.Context, name string, env map[string]string, stderr io.Writer) error {
-	nodes, err := GetNodes(ctx, name, env)
+func (c *Client) Delete(ctx context.Context, name string, env map[string]string, stderr io.Writer) error {
+	nodes, err := c.GetNodes(ctx, name, env)
 	if err != nil {
 		return err
 	}
 	if len(nodes) == 0 {
 		return nil
 	}
-	if err := runStreamed(ctx, io.Discard, stderr, envWith(env), "cluster", "delete", name); err != nil {
-		return fmt.Errorf("k3dcmd: delete cluster: %w", err)
+	if err := c.runStreamed(ctx, io.Discard, stderr, envWith(env), "cluster", "delete", name); err != nil {
+		return fmt.Errorf("k3d: delete cluster: %w", err)
 	}
 	return nil
 }
@@ -157,10 +169,10 @@ const (
 // cluster name, servers first, leaving out the load balancer. A cluster that
 // does not exist reports (nil, nil), not an error. env names extra variables
 // (DOCKER_HOST, ...) set for the k3d process only.
-func GetNodes(ctx context.Context, name string, env map[string]string) ([]string, error) {
-	out, err := runBuffered(ctx, envWith(env), "cluster", "list", "-o", "json")
+func (c *Client) GetNodes(ctx context.Context, name string, env map[string]string) ([]string, error) {
+	out, err := c.runBuffered(ctx, envWith(env), "cluster", "list", "-o", "json")
 	if err != nil {
-		return nil, fmt.Errorf("k3dcmd: cluster list: %w", err)
+		return nil, fmt.Errorf("k3d: cluster list: %w", err)
 	}
 	return parseNodes(out, name)
 }
@@ -174,7 +186,7 @@ func parseNodes(out, name string) ([]string, error) {
 		} `json:"nodes"`
 	}
 	if err := json.Unmarshal([]byte(out), &clusters); err != nil {
-		return nil, fmt.Errorf("k3dcmd: parse cluster list: %w", err)
+		return nil, fmt.Errorf("k3d: parse cluster list: %w", err)
 	}
 	var servers, agents []string
 	for _, cluster := range clusters {
@@ -198,9 +210,9 @@ func parseNodes(out, name string) ([]string, error) {
 // KubeconfigWrite runs k3d kubeconfig write, saving cluster name's
 // kubeconfig to path and replacing whatever the file held. env names extra
 // variables (DOCKER_HOST, ...) set for the k3d process only.
-func KubeconfigWrite(ctx context.Context, name, path string, env map[string]string) error {
-	if _, err := runBuffered(ctx, envWith(env), "kubeconfig", "write", name, "--output", path, "--overwrite"); err != nil {
-		return fmt.Errorf("k3dcmd: write kubeconfig: %w", err)
+func (c *Client) KubeconfigWrite(ctx context.Context, name, path string, env map[string]string) error {
+	if _, err := c.runBuffered(ctx, envWith(env), "kubeconfig", "write", name, "--output", path, "--overwrite"); err != nil {
+		return fmt.Errorf("k3d: write kubeconfig: %w", err)
 	}
 	return nil
 }
@@ -219,10 +231,10 @@ type ImageImportSpec struct {
 
 // ImageImport runs k3d image import against spec, streaming its output to
 // stderr as it runs.
-func ImageImport(ctx context.Context, spec ImageImportSpec, stderr io.Writer) error {
+func (c *Client) ImageImport(ctx context.Context, spec ImageImportSpec, stderr io.Writer) error {
 	args := []string{"image", "import", spec.Path, "--cluster", spec.Name}
-	if err := runStreamed(ctx, io.Discard, stderr, envWith(spec.CommandEnv), args...); err != nil {
-		return fmt.Errorf("k3dcmd: image import: %w", err)
+	if err := c.runStreamed(ctx, io.Discard, stderr, envWith(spec.CommandEnv), args...); err != nil {
+		return fmt.Errorf("k3d: image import: %w", err)
 	}
 	return nil
 }
@@ -245,7 +257,7 @@ func envWith(extra map[string]string) []string {
 // call whose result is data to parse rather than progress to show. A nil env
 // leaves the child's environment as the process's own; env otherwise
 // replaces it outright (the caller builds it with [envWith]).
-func runBuffered(ctx context.Context, env []string, args ...string) (string, error) {
+func (c *Client) runBuffered(ctx context.Context, env []string, args ...string) (string, error) {
 	//nolint:gosec // every argument comes from the environment definition
 	cmd := exec.CommandContext(ctx, Binary, args...)
 	if env != nil {
@@ -256,7 +268,7 @@ func runBuffered(ctx context.Context, env []string, args ...string) (string, err
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := c.runner.Run(ctx, cmd); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			return "", notInstalled(fmt.Errorf("k3d %s: %w", strings.Join(args, " "), err))
@@ -280,7 +292,7 @@ func notInstalled(err error) error {
 // through to the caller's writers, for a call long enough that the caller
 // needs to see progress as it happens rather than only once it exits. A nil
 // env leaves the child's environment as the process's own.
-func runStreamed(ctx context.Context, stdout, stderr io.Writer, env []string, args ...string) error {
+func (c *Client) runStreamed(ctx context.Context, stdout, stderr io.Writer, env []string, args ...string) error {
 	//nolint:gosec // every argument comes from the environment definition
 	cmd := exec.CommandContext(ctx, Binary, args...)
 	cmd.Stdout = stdout
@@ -289,7 +301,7 @@ func runStreamed(ctx context.Context, stdout, stderr io.Writer, env []string, ar
 		cmd.Env = env
 	}
 
-	if err := cmd.Run(); err != nil {
+	if err := c.runner.Run(ctx, cmd); err != nil {
 		return notInstalled(fmt.Errorf("k3d %s: %w", strings.Join(args, " "), err))
 	}
 	return nil

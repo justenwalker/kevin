@@ -44,7 +44,7 @@ func run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
 	...
 }
 ```
-`internal/plugins/kubernetes`, `internal/kubectlcmd`, and `internal/helmcmd` shell
+`internal/plugins/kubernetes`, `internal/command/kubectl`, and `internal/command/helm` shell
 out to their respective binaries the same way, each scoping proxy
 environment variables to that one `exec.Cmd`.
 

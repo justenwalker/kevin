@@ -23,7 +23,8 @@ import (
 
 	"golang.org/x/net/proxy"
 
-	"github.com/justenwalker/kevin/internal/kubectlcmd"
+	"github.com/justenwalker/kevin/internal/command"
+	kubectlcmd "github.com/justenwalker/kevin/internal/command/kubectl"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -64,11 +65,19 @@ type execConfig struct {
 	Command []string `json:"command"`
 }
 
-// Step is the wait step.
-type Step struct{}
+// kubectlCLI is the part of the kubectl command line that a Step calls.
+type kubectlCLI interface {
+	Wait(ctx context.Context, spec kubectlcmd.WaitSpec) (string, error)
+	RolloutStatus(ctx context.Context, spec kubectlcmd.RolloutStatusSpec) (string, error)
+}
 
-// New returns the wait step.
-func New() Step { return Step{} }
+// Step is the wait step.
+type Step struct {
+	kubectl kubectlCLI
+}
+
+// New returns the wait step, running kubectl with [command.Default].
+func New() Step { return Step{kubectl: kubectlcmd.New(command.Default)} }
 
 // Step must keep satisfying plugin.Step.
 var _ plugin.Step = Step{}
@@ -88,7 +97,7 @@ func (Step) Idempotent() bool { return true }
 
 // Up runs the configured check, retrying until it succeeds or the timeout
 // passes.
-func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
+func (s Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
 	cfg, err := decode(req.Config)
 	if err != nil {
 		return nil, err
@@ -125,7 +134,7 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 		})
 	case cfg.Kubectl != nil:
 		err = retry(ctx, out, cfg.Kubectl.Resource, deadline, interval, func(ctx context.Context) error {
-			return checkKubectl(ctx, *cfg.Kubectl, interval)
+			return s.checkKubectl(ctx, *cfg.Kubectl, interval)
 		})
 	default:
 		err = retry(ctx, out, strings.Join(cfg.Exec.Command, " "), deadline, interval, func(ctx context.Context) error {
@@ -264,9 +273,9 @@ func probeHTTP(ctx context.Context, cfg httpConfig) error {
 	return nil
 }
 
-func checkKubectl(ctx context.Context, cfg kubectlConfig, timeout time.Duration) error {
+func (s Step) checkKubectl(ctx context.Context, cfg kubectlConfig, timeout time.Duration) error {
 	if cfg.Rollout {
-		_, err := kubectlcmd.RolloutStatus(ctx, kubectlcmd.RolloutStatusSpec{
+		_, err := s.kubectl.RolloutStatus(ctx, kubectlcmd.RolloutStatusSpec{
 			Kubeconfig: cfg.Kubeconfig,
 			Context:    cfg.Context,
 			Namespace:  cfg.Namespace,
@@ -275,7 +284,7 @@ func checkKubectl(ctx context.Context, cfg kubectlConfig, timeout time.Duration)
 		})
 		return err
 	}
-	_, err := kubectlcmd.Wait(ctx, kubectlcmd.WaitSpec{
+	_, err := s.kubectl.Wait(ctx, kubectlcmd.WaitSpec{
 		Kubeconfig: cfg.Kubeconfig,
 		Context:    cfg.Context,
 		Namespace:  cfg.Namespace,

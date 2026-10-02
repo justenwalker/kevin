@@ -13,7 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justenwalker/kevin/internal/helmcmd"
+	"github.com/justenwalker/kevin/internal/command"
+	helmcmd "github.com/justenwalker/kevin/internal/command/helm"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -38,11 +39,19 @@ type config struct {
 	Keep             bool     `json:"keep"`
 }
 
-// Step is the helm step.
-type Step struct{}
+// cli is the part of the helm command line that a Step calls.
+type cli interface {
+	UpgradeInstall(ctx context.Context, spec helmcmd.UpgradeSpec) (string, error)
+	Uninstall(ctx context.Context, spec helmcmd.UninstallSpec) (string, error)
+}
 
-// New returns the helm step.
-func New() Step { return Step{} }
+// Step is the helm step.
+type Step struct {
+	cli cli
+}
+
+// New returns the helm step, running helm with [command.Default].
+func New() Step { return Step{cli: helmcmd.New(command.Default)} }
 
 // Step must keep satisfying plugin.Step.
 var _ plugin.Step = Step{}
@@ -65,7 +74,7 @@ var _ plugin.IdempotentStep = Step{}
 func (Step) Idempotent() bool { return true }
 
 // Up installs or upgrades the release.
-func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
+func (s Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
 	cfg, err := decode(req.Config)
 	if err != nil {
 		return nil, err
@@ -82,7 +91,7 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 	}
 
 	out.Log("stdout", "upgrading release "+cfg.Release)
-	if _, err = helmcmd.UpgradeInstall(ctx, helmcmd.UpgradeSpec{
+	if _, err = s.cli.UpgradeInstall(ctx, helmcmd.UpgradeSpec{
 		Kubeconfig:       cfg.Kubeconfig,
 		Context:          cfg.Context,
 		Release:          cfg.Release,
@@ -113,7 +122,7 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 
 // Down uninstalls the release. If the step's with block sets keep, Down
 // does nothing and the release stays installed.
-func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitter) error {
+func (s Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitter) error {
 	cfg, err := decode(req.Config)
 	if err != nil {
 		return err
@@ -124,7 +133,7 @@ func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitte
 	}
 
 	out.Log("stdout", "uninstalling release "+cfg.Release)
-	if _, err = helmcmd.Uninstall(ctx, helmcmd.UninstallSpec{
+	if _, err = s.cli.Uninstall(ctx, helmcmd.UninstallSpec{
 		Kubeconfig: cfg.Kubeconfig,
 		Context:    cfg.Context,
 		Release:    cfg.Release,

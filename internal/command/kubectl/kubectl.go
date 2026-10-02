@@ -1,6 +1,6 @@
-// Package kubectlcmd drives the kubectl command line, on the host rather
+// Package kubectl drives the kubectl command line, on the host rather
 // than inside a container.
-package kubectlcmd
+package kubectl
 
 import (
 	"bytes"
@@ -12,19 +12,31 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
 // Binary is the command that this package runs.
 const Binary = "kubectl"
 
+// Client runs kubectl through a [command.Runner]. It is safe for concurrent
+// use when its runner is.
+type Client struct {
+	runner command.Runner
+}
+
+// New returns a Client that runs kubectl with runner.
+func New(runner command.Runner) *Client {
+	return &Client{runner: runner}
+}
+
 // Available reports whether the kubectl command runs.
-func Available(ctx context.Context) error {
+func (c *Client) Available(ctx context.Context) error {
 	if _, err := exec.LookPath(Binary); err != nil {
-		return fmt.Errorf("kubectlcmd: %w: %w", ErrUnavailable, err)
+		return fmt.Errorf("kubectl: %w: %w", ErrUnavailable, err)
 	}
-	if _, err := run(ctx, nil, "version", "--client"); err != nil {
-		return fmt.Errorf("kubectlcmd: %w: %w", ErrUnavailable, err)
+	if _, err := c.run(ctx, nil, "version", "--client"); err != nil {
+		return fmt.Errorf("kubectl: %w: %w", ErrUnavailable, err)
 	}
 	return nil
 }
@@ -50,11 +62,11 @@ type ApplySpec struct {
 }
 
 // Apply runs kubectl apply against spec, and returns its standard output.
-func Apply(ctx context.Context, spec ApplySpec) (string, error) {
+func (c *Client) Apply(ctx context.Context, spec ApplySpec) (string, error) {
 	args, stdin := applyArgs(spec)
-	out, err := run(ctx, stdin, args...)
+	out, err := c.run(ctx, stdin, args...)
 	if err != nil {
-		return "", fmt.Errorf("kubectlcmd: apply: %w", err)
+		return "", fmt.Errorf("kubectl: apply: %w", err)
 	}
 	return out, nil
 }
@@ -98,11 +110,11 @@ type DeleteSpec struct {
 }
 
 // Delete runs kubectl delete against spec, and returns its standard output.
-func Delete(ctx context.Context, spec DeleteSpec) (string, error) {
+func (c *Client) Delete(ctx context.Context, spec DeleteSpec) (string, error) {
 	args, stdin := deleteArgs(spec)
-	out, err := run(ctx, stdin, args...)
+	out, err := c.run(ctx, stdin, args...)
 	if err != nil {
-		return "", fmt.Errorf("kubectlcmd: delete: %w", err)
+		return "", fmt.Errorf("kubectl: delete: %w", err)
 	}
 	return out, nil
 }
@@ -141,10 +153,10 @@ type WaitSpec struct {
 }
 
 // Wait runs kubectl wait against spec, and returns its standard output.
-func Wait(ctx context.Context, spec WaitSpec) (string, error) {
-	out, err := run(ctx, nil, waitArgs(spec)...)
+func (c *Client) Wait(ctx context.Context, spec WaitSpec) (string, error) {
+	out, err := c.run(ctx, nil, waitArgs(spec)...)
 	if err != nil {
-		return "", fmt.Errorf("kubectlcmd: wait: %w", err)
+		return "", fmt.Errorf("kubectl: wait: %w", err)
 	}
 	return out, nil
 }
@@ -173,10 +185,10 @@ type RolloutStatusSpec struct {
 
 // RolloutStatus runs kubectl rollout status against spec, and returns its
 // standard output.
-func RolloutStatus(ctx context.Context, spec RolloutStatusSpec) (string, error) {
-	out, err := run(ctx, nil, rolloutStatusArgs(spec)...)
+func (c *Client) RolloutStatus(ctx context.Context, spec RolloutStatusSpec) (string, error) {
+	out, err := c.run(ctx, nil, rolloutStatusArgs(spec)...)
 	if err != nil {
-		return "", fmt.Errorf("kubectlcmd: rollout status: %w", err)
+		return "", fmt.Errorf("kubectl: rollout status: %w", err)
 	}
 	return out, nil
 }
@@ -203,7 +215,7 @@ func commonArgs(kubeconfig, kubeContext, namespace string) []string {
 
 // run calls the kubectl binary and returns the standard output. A nil stdin
 // gives the command no standard input.
-func run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
+func (c *Client) run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
 	//nolint:gosec // every argument comes from the environment definition
 	cmd := exec.CommandContext(ctx, Binary, args...)
 	cmd.Stdin = stdin
@@ -212,7 +224,7 @@ func run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := c.runner.Run(ctx, cmd); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			return "", notInstalled(fmt.Errorf("kubectl %s: %w", strings.Join(args, " "), err))

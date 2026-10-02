@@ -16,7 +16,7 @@ functionality. Both the library and the CLI were considered.
 Verify a sigstore bundle by shelling out to the `cosign` CLI
 (`cosign verify-blob --bundle ...`), not by importing `sigstore-go` or
 `cosign`'s own Go libraries. New package `internal/sigstorepkg` shells out
-the same way `internal/docker`, `internal/kubectlcmd`, and `internal/helmcmd`
+the same way `internal/docker`, `internal/command/kubectl`, and `internal/command/helm`
 already do for their own external tools (see ADR-0005). Signing itself stays
 a manual step the user runs with the `cosign` CLI directly - `kevin plugin
 push` only detects and uploads whatever signature file is already there

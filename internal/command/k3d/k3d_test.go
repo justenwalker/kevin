@@ -1,15 +1,19 @@
-package k3dcmd
+package k3d
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/command/commandtest"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
@@ -132,5 +136,83 @@ func TestParseNodes(t *testing.T) {
 	t.Run("rejects malformed output", func(t *testing.T) {
 		_, err := parseNodes("not json", "demo")
 		require.Error(t, err)
+	})
+}
+
+func TestClient(t *testing.T) {
+	// run answers each expected call in turn: stdouts[i] is what call i
+	// prints, and check sees every cmd first.
+	run := func(t *testing.T, stdouts []string, runErr error, check func(cmd *exec.Cmd)) *Client {
+		t.Helper()
+		calls := 0
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				if check != nil {
+					check(cmd)
+				}
+				if cmd.Stdout != nil && calls < len(stdouts) {
+					_, _ = io.WriteString(cmd.Stdout, stdouts[calls])
+				}
+				calls++
+				return runErr
+			}).Times(max(len(stdouts), 1))
+		return New(runner)
+	}
+
+	const list = `[{"name":"demo","nodes":[{"name":"k3d-demo-server-0","role":"server"}]}]`
+
+	t.Run("GetNodes lists the cluster's nodes as json", func(t *testing.T) {
+		c := run(t, []string{list}, nil, func(cmd *exec.Cmd) {
+			assert.Equal(t, []string{"k3d", "cluster", "list", "-o", "json"}, cmd.Args)
+			assert.Contains(t, cmd.Env, "DOCKER_HOST=unix:///sock")
+		})
+		got, err := c.GetNodes(t.Context(), "demo", map[string]string{"DOCKER_HOST": "unix:///sock"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"k3d-demo-server-0"}, got)
+	})
+
+	t.Run("Delete skips a cluster that does not exist", func(t *testing.T) {
+		c := run(t, []string{"[]"}, nil, nil)
+		require.NoError(t, c.Delete(t.Context(), "demo", nil, io.Discard))
+	})
+
+	t.Run("Delete removes a cluster that exists", func(t *testing.T) {
+		var got [][]string
+		c := run(t, []string{list, ""}, nil, func(cmd *exec.Cmd) { got = append(got, cmd.Args) })
+		require.NoError(t, c.Delete(t.Context(), "demo", nil, io.Discard))
+		assert.Equal(t, []string{"k3d", "cluster", "delete", "demo"}, got[1])
+	})
+
+	t.Run("Delete stops when the listing fails", func(t *testing.T) {
+		c := run(t, nil, errors.New("exit status 1"), nil)
+		require.ErrorContains(t, c.Delete(t.Context(), "demo", nil, io.Discard), "k3d: cluster list")
+	})
+
+	t.Run("KubeconfigWrite names the output file", func(t *testing.T) {
+		c := run(t, []string{""}, nil, func(cmd *exec.Cmd) {
+			assert.Equal(t, []string{"k3d", "kubeconfig", "write", "demo", "--output", "/kc", "--overwrite"}, cmd.Args)
+		})
+		require.NoError(t, c.KubeconfigWrite(t.Context(), "demo", "/kc", nil))
+	})
+
+	t.Run("ImageImport names the archive and cluster", func(t *testing.T) {
+		c := run(t, nil, nil, func(cmd *exec.Cmd) {
+			assert.Equal(t, []string{"k3d", "image", "import", "/img.tar", "--cluster", "demo"}, cmd.Args)
+		})
+		require.NoError(t, c.ImageImport(t.Context(), ImageImportSpec{Name: "demo", Path: "/img.tar"}, io.Discard))
+	})
+
+	t.Run("Create streams output and wraps a failure", func(t *testing.T) {
+		c := run(t, nil, errors.New("exit status 1"), nil)
+		err := c.Create(t.Context(), CreateSpec{Name: "demo"}, io.Discard, io.Discard)
+		require.ErrorContains(t, err, "k3d: create cluster")
+	})
+
+	t.Run("a missing binary reads as not installed", func(t *testing.T) {
+		c := run(t, nil, exec.ErrNotFound, nil)
+		err := c.ImageImport(t.Context(), ImageImportSpec{Name: "demo", Path: "/img.tar"}, io.Discard)
+		require.ErrorIs(t, err, exec.ErrNotFound)
+		assert.Contains(t, uerr.Display(err), "k3d isn't installed")
 	})
 }

@@ -2,12 +2,15 @@ package kubectl
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	kubectlcmd "github.com/justenwalker/kevin/internal/command/kubectl"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -98,4 +101,54 @@ func TestDownKeepSkipsDelete(t *testing.T) {
 	}, out)
 	require.NoError(t, err)
 	assert.Contains(t, out.logs, "keeping inline manifest")
+}
+
+func TestUp(t *testing.T) {
+	req := &plugin.UpRequest{
+		Config: json.RawMessage(`{"kubeconfig":"/kc","path":"deploy.yaml"}`),
+		Env:    plugin.Env{ProjectDir: "/proj"},
+	}
+
+	t.Run("applies the manifest and publishes outputs", func(t *testing.T) {
+		cli := newMockcli(t)
+		cli.EXPECT().Apply(mock.Anything, kubectlcmd.ApplySpec{
+			Kubeconfig: "/kc", Path: "/proj/deploy.yaml",
+		}).Return("", nil)
+
+		res, err := Step{cli: cli}.Up(t.Context(), req, &capture{})
+		require.NoError(t, err)
+		assert.Equal(t, plugin.StringMap(map[string]string{
+			"kubeconfig": "/kc", "context": "", "namespace": "",
+		}), res.Outputs)
+	})
+
+	t.Run("wraps a kubectl failure", func(t *testing.T) {
+		cli := newMockcli(t)
+		cli.EXPECT().Apply(mock.Anything, mock.Anything).Return("", errors.New("boom"))
+
+		_, err := Step{cli: cli}.Up(t.Context(), req, &capture{})
+		require.ErrorContains(t, err, "kubectl: boom")
+	})
+}
+
+func TestDown(t *testing.T) {
+	req := &plugin.DownRequest{Config: json.RawMessage(`{"kubeconfig":"/kc","manifest":"kind: Pod"}`)}
+
+	t.Run("deletes what Up applied", func(t *testing.T) {
+		cli := newMockcli(t)
+		cli.EXPECT().Delete(mock.Anything, kubectlcmd.DeleteSpec{
+			Kubeconfig: "/kc", Manifest: "kind: Pod",
+		}).Return("", nil)
+
+		out := &capture{}
+		require.NoError(t, Step{cli: cli}.Down(t.Context(), req, out))
+		assert.Contains(t, out.logs, "deleted")
+	})
+
+	t.Run("wraps a kubectl failure", func(t *testing.T) {
+		cli := newMockcli(t)
+		cli.EXPECT().Delete(mock.Anything, mock.Anything).Return("", errors.New("boom"))
+
+		require.ErrorContains(t, Step{cli: cli}.Down(t.Context(), req, &capture{}), "kubectl: boom")
+	})
 }

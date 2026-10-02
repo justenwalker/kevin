@@ -1,4 +1,4 @@
-package gitcmd
+package git
 
 // Error is a constant sentinel error.
 type Error string
@@ -6,4 +6,4 @@ type Error string
 func (e Error) Error() string { return string(e) }
 
 // ErrUnavailable reports that the git command is absent.
-const ErrUnavailable = Error("gitcmd: the git command is unavailable")
+const ErrUnavailable = Error("git: the git command is unavailable")

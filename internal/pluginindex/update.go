@@ -8,7 +8,8 @@ import (
 
 	"cuelang.org/go/cue"
 
-	"github.com/justenwalker/kevin/internal/gitcmd"
+	"github.com/justenwalker/kevin/internal/command"
+	"github.com/justenwalker/kevin/internal/command/git"
 )
 
 // AddResult reports the outcome of [AddSource]: how many plugins the
@@ -92,7 +93,7 @@ func cloneAndSwap(ctx context.Context, url, destDir string) error {
 	defer os.RemoveAll(tmp) //nolint:errcheck // best-effort cleanup; the rename below empties it on success
 
 	cloneDir := filepath.Join(tmp, "repo")
-	if cloneErr := gitcmd.Clone(ctx, gitcmd.CloneSpec{URL: url, Dir: cloneDir}); cloneErr != nil {
+	if cloneErr := git.New(command.Default).Clone(ctx, git.CloneSpec{URL: url, Dir: cloneDir}); cloneErr != nil {
 		return fmt.Errorf("pluginindex: clone %q: %w", url, cloneErr)
 	}
 

@@ -11,14 +11,23 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/justenwalker/kevin/internal/command"
+	kindcmd "github.com/justenwalker/kevin/internal/command/kind"
 	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/kindcmd"
 	"github.com/justenwalker/kevin/plugin"
 )
 
 // kindProviderEnvVar is kind's own switch (upstream-labeled experimental)
 // between its docker and podman node-container providers.
 const kindProviderEnvVar = "KIND_EXPERIMENTAL_PROVIDER"
+
+// kindCLI is the part of the kind command line that kindDriver calls.
+type kindCLI interface {
+	Create(ctx context.Context, spec kindcmd.CreateSpec, stdout, stderr io.Writer) error
+	Delete(ctx context.Context, spec kindcmd.DeleteSpec, stderr io.Writer) error
+	GetNodes(ctx context.Context, name string, env map[string]string) ([]string, error)
+	LoadImageArchive(ctx context.Context, spec kindcmd.LoadImageArchiveSpec, stderr io.Writer) error
+}
 
 // kindDriver creates the cluster with the kind command. kind runs each node
 // as a container, so a command in a node goes through the container
@@ -29,6 +38,7 @@ type kindDriver struct {
 	name       string
 	kubeconfig string
 	rt         cri.Runtime
+	cli        kindCLI
 }
 
 var _ driver = (*kindDriver)(nil)
@@ -41,12 +51,12 @@ func newKindDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.R
 		resolveMountPaths(w, env.ProjectDir)
 	}
 	cfg.Mounts = resolveMounts(cfg.Mounts, env.ProjectDir)
-	return &kindDriver{cfg: cfg, env: env, name: name, kubeconfig: kubeconfig, rt: rt}
+	return &kindDriver{cfg: cfg, env: env, name: name, kubeconfig: kubeconfig, rt: rt, cli: kindcmd.New(command.Default)}
 }
 
 // Nodes lists the node containers of the cluster.
 func (d *kindDriver) Nodes(ctx context.Context) ([]string, error) {
-	nodes, err := kindcmd.GetNodes(ctx, d.name, providerEnv(d.env))
+	nodes, err := d.cli.GetNodes(ctx, d.name, providerEnv(d.env))
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: kind: list the nodes of %q: %w", d.name, err)
 	}
@@ -95,7 +105,7 @@ func (d *kindDriver) Create(ctx context.Context, spec createSpec, out plugin.Emi
 		Image:      d.cfg.Kind.Image,
 		Env:        env,
 	}
-	if err = kindcmd.Create(ctx, create, plugin.NewLineWriter(out, "stdout"), plugin.NewLineWriter(out, "stderr")); err != nil {
+	if err = d.cli.Create(ctx, create, plugin.NewLineWriter(out, "stdout"), plugin.NewLineWriter(out, "stderr")); err != nil {
 		return nil, fmt.Errorf("kubernetes: kind: create the cluster %q: %w", d.name, err)
 	}
 
@@ -114,7 +124,7 @@ func (d *kindDriver) Create(ctx context.Context, spec createSpec, out plugin.Emi
 // Delete removes the cluster.
 func (d *kindDriver) Delete(ctx context.Context, out plugin.Emitter) error {
 	spec := kindcmd.DeleteSpec{Name: d.name, Kubeconfig: d.kubeconfig, Env: providerEnv(d.env)}
-	if err := kindcmd.Delete(ctx, spec, plugin.NewLineWriter(out, "stderr")); err != nil {
+	if err := d.cli.Delete(ctx, spec, plugin.NewLineWriter(out, "stderr")); err != nil {
 		return fmt.Errorf("kubernetes: kind: delete the cluster %q: %w", d.name, err)
 	}
 	return nil
@@ -139,13 +149,13 @@ func (*kindDriver) LabelNodes(context.Context) error { return nil }
 // LoadImage loads the image archive at path into the nodes.
 func (d *kindDriver) LoadImage(ctx context.Context, path string, out plugin.Emitter) error {
 	spec := kindcmd.LoadImageArchiveSpec{Name: d.name, Path: path, Env: providerEnv(d.env)}
-	if err := kindcmd.LoadImageArchive(ctx, spec, plugin.NewLineWriter(out, "stderr")); err != nil {
+	if err := d.cli.LoadImageArchive(ctx, spec, plugin.NewLineWriter(out, "stderr")); err != nil {
 		return fmt.Errorf("kubernetes: kind: load the image archive: %w", err)
 	}
 	return nil
 }
 
-// providerEnv reports the KIND_EXPERIMENTAL_PROVIDER addition every kindcmd
+// providerEnv reports the KIND_EXPERIMENTAL_PROVIDER addition every kind
 // call for one cluster needs when the project's engine is podman - kind's
 // node-container operations (create, delete, get nodes, load
 // image-archive) all go through this switch, not just creation. nil for

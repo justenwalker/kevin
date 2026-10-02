@@ -1,16 +1,20 @@
-package minikubecmd
+package minikube
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/command/commandtest"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
@@ -114,5 +118,58 @@ func TestStartArgs(t *testing.T) {
 			"--mount", "--mount-string", "/src:/mnt/src:ro",
 		}
 		assert.Equal(t, want, args)
+	})
+}
+
+func TestClient(t *testing.T) {
+	run := func(t *testing.T, runErr error, check func(cmd *exec.Cmd)) *Client {
+		t.Helper()
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				if check != nil {
+					check(cmd)
+				}
+				return runErr
+			})
+		return New(runner)
+	}
+
+	t.Run("Start runs with minikube's own home and kubeconfig", func(t *testing.T) {
+		c := run(t, nil, func(cmd *exec.Cmd) {
+			assert.Equal(t, "minikube", cmd.Args[0])
+			assert.Contains(t, cmd.Args, "start")
+			assert.Contains(t, cmd.Env, "MINIKUBE_HOME=/home")
+			assert.Contains(t, cmd.Env, "KUBECONFIG=/kc")
+		})
+		err := c.Start(t.Context(), StartSpec{Name: "demo", Home: "/home", Kubeconfig: "/kc"}, io.Discard, io.Discard)
+		require.NoError(t, err)
+	})
+
+	t.Run("Start wraps a failure", func(t *testing.T) {
+		c := run(t, errors.New("exit status 1"), nil)
+		err := c.Start(t.Context(), StartSpec{Name: "demo"}, io.Discard, io.Discard)
+		require.ErrorContains(t, err, "minikube: start")
+	})
+
+	t.Run("Delete names the profile", func(t *testing.T) {
+		c := run(t, nil, func(cmd *exec.Cmd) {
+			assert.Equal(t, []string{"minikube", "delete", "-p", "demo"}, cmd.Args)
+		})
+		require.NoError(t, c.Delete(t.Context(), "demo", "/home", io.Discard))
+	})
+
+	t.Run("ImageLoad names the archive and profile", func(t *testing.T) {
+		c := run(t, nil, func(cmd *exec.Cmd) {
+			assert.Equal(t, []string{"minikube", "image", "load", "/img.tar", "-p", "demo"}, cmd.Args)
+		})
+		require.NoError(t, c.ImageLoad(t.Context(), "demo", "/home", "/img.tar", io.Discard))
+	})
+
+	t.Run("a missing binary reads as not installed", func(t *testing.T) {
+		c := run(t, exec.ErrNotFound, nil)
+		err := c.Delete(t.Context(), "demo", "/home", io.Discard)
+		require.ErrorIs(t, err, exec.ErrNotFound)
+		assert.Contains(t, uerr.Display(err), "minikube isn't installed")
 	})
 }

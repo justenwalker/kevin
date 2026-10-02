@@ -1,15 +1,19 @@
-package kubectlcmd
+package kubectl
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/command/commandtest"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
@@ -126,5 +130,68 @@ func TestRolloutStatusArgs(t *testing.T) {
 		args := rolloutStatusArgs(RolloutStatusSpec{Kubeconfig: "/tmp/kubeconfig", Resource: "deployment/api"})
 		want := []string{"--kubeconfig", "/tmp/kubeconfig", "rollout", "status", "deployment/api"}
 		assert.Equal(t, want, args)
+	})
+}
+
+func TestClient(t *testing.T) {
+	t.Run("Apply feeds an inline manifest through stdin", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				assert.Equal(t, []string{"kubectl", "--kubeconfig", "/kc", "apply", "-f", "-"}, cmd.Args)
+				in, err := io.ReadAll(cmd.Stdin)
+				require.NoError(t, err)
+				assert.Equal(t, "kind: Pod", string(in))
+				_, err = io.WriteString(cmd.Stdout, "pod/x created")
+				return err
+			})
+
+		out, err := New(runner).Apply(t.Context(), ApplySpec{Kubeconfig: "/kc", Manifest: "kind: Pod"})
+		require.NoError(t, err)
+		assert.Equal(t, "pod/x created", out)
+	})
+
+	t.Run("Delete, Wait, and RolloutStatus run their own subcommand", func(t *testing.T) {
+		var got [][]string
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				got = append(got, cmd.Args)
+				return nil
+			}).Times(3)
+
+		c := New(runner)
+		_, err := c.Delete(t.Context(), DeleteSpec{Kubeconfig: "/kc", Path: "/m.yaml"})
+		require.NoError(t, err)
+		_, err = c.Wait(t.Context(), WaitSpec{Kubeconfig: "/kc", Resource: "pod/x", For: "condition=Ready"})
+		require.NoError(t, err)
+		_, err = c.RolloutStatus(t.Context(), RolloutStatusSpec{Kubeconfig: "/kc", Resource: "deployment/api"})
+		require.NoError(t, err)
+
+		require.Len(t, got, 3)
+		assert.Contains(t, got[0], "delete")
+		assert.Contains(t, got[1], "wait")
+		assert.Contains(t, got[2], "rollout")
+	})
+
+	t.Run("includes kubectl's stderr in the error", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				_, _ = io.WriteString(cmd.Stderr, "no such resource\n")
+				return errors.New("exit status 1")
+			})
+
+		_, err := New(runner).Wait(t.Context(), WaitSpec{Kubeconfig: "/kc", Resource: "pod/x", For: "delete"})
+		require.ErrorContains(t, err, "no such resource")
+	})
+
+	t.Run("a missing binary reads as not installed", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).Return(exec.ErrNotFound)
+
+		_, err := New(runner).Apply(t.Context(), ApplySpec{Kubeconfig: "/kc", Manifest: "x"})
+		require.ErrorIs(t, err, exec.ErrNotFound)
+		assert.Contains(t, uerr.Display(err), "kubectl isn't installed")
 	})
 }

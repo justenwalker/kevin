@@ -11,7 +11,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/justenwalker/kevin/internal/kubectlcmd"
+	"github.com/justenwalker/kevin/internal/command"
+	kubectlcmd "github.com/justenwalker/kevin/internal/command/kubectl"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -30,11 +31,19 @@ type config struct {
 	Keep       bool   `json:"keep"`
 }
 
-// Step is the kubectl step.
-type Step struct{}
+// cli is the part of the kubectl command line that a Step calls.
+type cli interface {
+	Apply(ctx context.Context, spec kubectlcmd.ApplySpec) (string, error)
+	Delete(ctx context.Context, spec kubectlcmd.DeleteSpec) (string, error)
+}
 
-// New returns the kubectl step.
-func New() Step { return Step{} }
+// Step is the kubectl step.
+type Step struct {
+	cli cli
+}
+
+// New returns the kubectl step, running kubectl with [command.Default].
+func New() Step { return Step{cli: kubectlcmd.New(command.Default)} }
 
 // Step must keep satisfying plugin.Step.
 var _ plugin.Step = Step{}
@@ -57,7 +66,7 @@ var _ plugin.IdempotentStep = Step{}
 func (Step) Idempotent() bool { return true }
 
 // Up applies the manifest.
-func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
+func (s Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
 	cfg, err := decode(req.Config)
 	if err != nil {
 		return nil, err
@@ -67,7 +76,7 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 	}
 
 	out.Log("stdout", "applying "+applyLabel(cfg))
-	if _, err = kubectlcmd.Apply(ctx, kubectlcmd.ApplySpec{
+	if _, err = s.cli.Apply(ctx, kubectlcmd.ApplySpec{
 		Kubeconfig: cfg.Kubeconfig,
 		Context:    cfg.Context,
 		Namespace:  cfg.Namespace,
@@ -91,7 +100,7 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 
 // Down deletes what Up applied. If the step's with block sets keep, Down
 // does nothing and the resources stay in place.
-func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitter) error {
+func (s Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitter) error {
 	cfg, err := decode(req.Config)
 	if err != nil {
 		return err
@@ -105,7 +114,7 @@ func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitte
 	}
 
 	out.Log("stdout", "deleting "+applyLabel(cfg))
-	if _, err = kubectlcmd.Delete(ctx, kubectlcmd.DeleteSpec{
+	if _, err = s.cli.Delete(ctx, kubectlcmd.DeleteSpec{
 		Kubeconfig: cfg.Kubeconfig,
 		Context:    cfg.Context,
 		Namespace:  cfg.Namespace,

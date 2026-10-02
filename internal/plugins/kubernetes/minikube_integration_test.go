@@ -20,8 +20,9 @@ import (
 	"golang.org/x/net/proxy"
 
 	"github.com/justenwalker/kevin/internal/ca"
+	"github.com/justenwalker/kevin/internal/command"
+	minikubecmd "github.com/justenwalker/kevin/internal/command/minikube"
 	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/minikubecmd"
 	"github.com/justenwalker/kevin/internal/podman"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
@@ -151,7 +152,7 @@ func (s *MinikubeSuite) TearDownSuite() {
 		}, &capture{})
 		s.NoError(downErr, "Down must remove the cluster without error")
 		if downErr != nil {
-			_ = minikubecmd.Delete(ctx, s.clusterName, filepath.Join(s.T().TempDir(), ".minikube"), os.Stderr)
+			_ = minikubecmd.New(command.Default).Delete(ctx, s.clusterName, filepath.Join(s.T().TempDir(), ".minikube"), os.Stderr)
 		}
 		nodes, err := s.minikubeDriver().Nodes(ctx)
 		s.NoError(err)
@@ -380,7 +381,7 @@ func (s *MinikubeSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 
 func requireMinikube(t *testing.T) {
 	t.Helper()
-	if err := minikubecmd.Available(t.Context()); err != nil {
+	if err := minikubecmd.New(command.Default).Available(t.Context()); err != nil {
 		t.Skip("minikube is unavailable:", err)
 	}
 }

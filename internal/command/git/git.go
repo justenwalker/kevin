@@ -1,5 +1,5 @@
-// Package gitcmd drives the git command line, on the host.
-package gitcmd
+// Package git drives the git command line, on the host.
+package git
 
 import (
 	"bytes"
@@ -10,19 +10,31 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
 // Binary is the command that this package runs.
 const Binary = "git"
 
+// Client runs git through a [command.Runner]. It is safe for concurrent use
+// when its runner is.
+type Client struct {
+	runner command.Runner
+}
+
+// New returns a Client that runs git with runner.
+func New(runner command.Runner) *Client {
+	return &Client{runner: runner}
+}
+
 // Available reports whether the git command runs.
-func Available(ctx context.Context) error {
+func (c *Client) Available(ctx context.Context) error {
 	if _, err := exec.LookPath(Binary); err != nil {
-		return fmt.Errorf("gitcmd: %w: %w", ErrUnavailable, err)
+		return fmt.Errorf("git: %w: %w", ErrUnavailable, err)
 	}
-	if _, err := run(ctx, "version"); err != nil {
-		return fmt.Errorf("gitcmd: %w: %w", ErrUnavailable, err)
+	if _, err := c.run(ctx, "version"); err != nil {
+		return fmt.Errorf("git: %w: %w", ErrUnavailable, err)
 	}
 	return nil
 }
@@ -43,7 +55,7 @@ type CloneSpec struct {
 
 // Clone runs git clone against spec. Dir must not already exist; the
 // caller owns any temp-dir-then-atomic-rename orchestration.
-func Clone(ctx context.Context, spec CloneSpec) error {
+func (c *Client) Clone(ctx context.Context, spec CloneSpec) error {
 	//nolint:gosec // every argument comes from caller-supplied index source configuration
 	cmd := exec.CommandContext(ctx, Binary, "clone", spec.URL, spec.Dir)
 	if env := envWith(spec.Env); env != nil {
@@ -52,7 +64,7 @@ func Clone(ctx context.Context, spec CloneSpec) error {
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	if err := c.runner.Run(ctx, cmd); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			return notInstalled(fmt.Errorf("git clone %s: %w", spec.URL, err))
@@ -77,13 +89,13 @@ func envWith(extra map[string]string) []string {
 }
 
 // run calls the git binary and returns its standard output.
-func run(ctx context.Context, args ...string) (string, error) {
+func (c *Client) run(ctx context.Context, args ...string) (string, error) {
 	//nolint:gosec // every argument is a fixed literal passed by this package's own callers
 	cmd := exec.CommandContext(ctx, Binary, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	if err := c.runner.Run(ctx, cmd); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			return "", notInstalled(fmt.Errorf("git %s: %w", strings.Join(args, " "), err))

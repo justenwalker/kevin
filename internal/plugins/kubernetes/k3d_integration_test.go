@@ -17,8 +17,9 @@ import (
 	"golang.org/x/net/proxy"
 
 	"github.com/justenwalker/kevin/internal/ca"
+	"github.com/justenwalker/kevin/internal/command"
+	k3dcmd "github.com/justenwalker/kevin/internal/command/k3d"
 	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/k3dcmd"
 	"github.com/justenwalker/kevin/internal/podman"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
@@ -142,9 +143,9 @@ func (s *K3dSuite) TearDownSuite() {
 		}, &capture{})
 		s.NoError(downErr, "Down must remove the cluster without error")
 		if downErr != nil {
-			_ = k3dcmd.Delete(ctx, s.clusterName, nil, os.Stderr)
+			_ = k3dcmd.New(command.Default).Delete(ctx, s.clusterName, nil, os.Stderr)
 		}
-		nodes, err := k3dcmd.GetNodes(ctx, s.clusterName, nil)
+		nodes, err := k3dcmd.New(command.Default).GetNodes(ctx, s.clusterName, nil)
 		s.NoError(err)
 		s.Empty(nodes, "Down must remove every node")
 		_, gwErr := dockerClient.NetworkGateway(ctx, "kevin-k3d-"+s.clusterName)
@@ -345,7 +346,7 @@ func (s *K3dSuite) TestExposeReachesTheAPIServerThroughSOCKS5() {
 // against an unchanged with block reuses the live cluster.
 func (s *K3dSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 	t := s.T()
-	before, err := k3dcmd.GetNodes(t.Context(), s.clusterName, nil)
+	before, err := k3dcmd.New(command.Default).GetNodes(t.Context(), s.clusterName, nil)
 	s.Require().NoError(err)
 	beforeInfo, err := dockerClient.Inspect(t.Context(), before[0])
 	s.Require().NoError(err)
@@ -358,7 +359,7 @@ func (s *K3dSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 	}, out)
 	s.Require().NoError(err)
 
-	after, err := k3dcmd.GetNodes(t.Context(), s.clusterName, nil)
+	after, err := k3dcmd.New(command.Default).GetNodes(t.Context(), s.clusterName, nil)
 	s.Require().NoError(err)
 	s.Equal(before, after)
 	afterInfo, err := dockerClient.Inspect(t.Context(), after[0])

@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	kubectlcmd "github.com/justenwalker/kevin/internal/command/kubectl"
 	"github.com/justenwalker/kevin/internal/uerr"
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -263,4 +265,38 @@ func TestStepDoesNotImplementDowner(t *testing.T) {
 
 func TestStepIsIdempotent(t *testing.T) {
 	assert.True(t, Step{}.Idempotent(), "a wait step creates nothing, so a rerun just checks or sleeps again")
+}
+
+func TestCheckKubectl(t *testing.T) {
+	t.Run("waits for a condition", func(t *testing.T) {
+		cli := newMockkubectlCLI(t)
+		cli.EXPECT().Wait(mock.Anything, kubectlcmd.WaitSpec{
+			Kubeconfig: "/kc", Namespace: "web", Resource: "pod/x", For: "condition=Ready", Timeout: time.Second,
+		}).Return("", nil)
+
+		err := Step{kubectl: cli}.checkKubectl(t.Context(), kubectlConfig{
+			Kubeconfig: "/kc", Namespace: "web", Resource: "pod/x", For: "condition=Ready",
+		}, time.Second)
+		require.NoError(t, err)
+	})
+
+	t.Run("checks a rollout", func(t *testing.T) {
+		cli := newMockkubectlCLI(t)
+		cli.EXPECT().RolloutStatus(mock.Anything, kubectlcmd.RolloutStatusSpec{
+			Kubeconfig: "/kc", Resource: "deployment/api", Timeout: time.Second,
+		}).Return("", nil)
+
+		err := Step{kubectl: cli}.checkKubectl(t.Context(), kubectlConfig{
+			Kubeconfig: "/kc", Resource: "deployment/api", Rollout: true,
+		}, time.Second)
+		require.NoError(t, err)
+	})
+
+	t.Run("returns the kubectl error", func(t *testing.T) {
+		cli := newMockkubectlCLI(t)
+		cli.EXPECT().Wait(mock.Anything, mock.Anything).Return("", errors.New("not ready"))
+
+		err := Step{kubectl: cli}.checkKubectl(t.Context(), kubectlConfig{Resource: "pod/x", For: "delete"}, time.Second)
+		require.ErrorContains(t, err, "not ready")
+	})
 }

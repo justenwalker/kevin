@@ -19,8 +19,9 @@ import (
 	"golang.org/x/net/proxy"
 
 	"github.com/justenwalker/kevin/internal/ca"
+	"github.com/justenwalker/kevin/internal/command"
+	kindcmd "github.com/justenwalker/kevin/internal/command/kind"
 	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/kindcmd"
 	"github.com/justenwalker/kevin/internal/plugins/route"
 	"github.com/justenwalker/kevin/internal/plugins/wait"
 	"github.com/justenwalker/kevin/internal/relay"
@@ -127,10 +128,10 @@ func (s *KindSuite) TearDownSuite() {
 	if downErr != nil {
 		// Down failed. A leaked cluster holds gigabytes, so remove it
 		// directly as a last resort.
-		_ = kindcmd.Delete(ctx, kindcmd.DeleteSpec{Name: s.clusterName}, io.Discard)
+		_ = kindcmd.New(command.Default).Delete(ctx, kindcmd.DeleteSpec{Name: s.clusterName}, io.Discard)
 	}
 
-	if list, err := kindcmd.GetClusters(ctx); s.NoError(err) {
+	if list, err := kindcmd.New(command.Default).GetClusters(ctx); s.NoError(err) {
 		s.NotContains(list, s.clusterName,
 			"the cluster must not appear in the kind cluster list after Down")
 	}
@@ -355,7 +356,7 @@ func (s *KindSuite) TestWaitTCPReachesTheAPIServerThroughTheRelay() {
 func (s *KindSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 	t := s.T()
 
-	before, err := kindcmd.GetNodes(t.Context(), s.clusterName, nil)
+	before, err := kindcmd.New(command.Default).GetNodes(t.Context(), s.clusterName, nil)
 	s.Require().NoError(err)
 
 	out := &capture{}
@@ -373,7 +374,7 @@ func (s *KindSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 	}, out)
 	s.Require().NoError(err)
 
-	after, err := kindcmd.GetNodes(t.Context(), s.clusterName, nil)
+	after, err := kindcmd.New(command.Default).GetNodes(t.Context(), s.clusterName, nil)
 	s.Require().NoError(err)
 	s.ElementsMatch(before, after, "reusing the cluster must not destroy and recreate its nodes")
 	s.Equal(res.Outputs["name"].Reveal(), s.clusterName)
@@ -393,7 +394,7 @@ func (s *KindSuite) TestUpIsIdempotent() {
 	t := s.T()
 	ctx := t.Context()
 
-	allNodes, err := kindcmd.GetNodes(ctx, s.clusterName, nil)
+	allNodes, err := kindcmd.New(command.Default).GetNodes(ctx, s.clusterName, nil)
 	s.Require().NoError(err)
 
 	s.Require().NoError(patchCoreDNS(ctx, s.kindDriver(), allNodes, kindDomain, s.relay.Addr(), &capture{}),

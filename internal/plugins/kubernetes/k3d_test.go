@@ -12,8 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/command"
+	k3dcmd "github.com/justenwalker/kevin/internal/command/k3d"
 	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/k3dcmd"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -444,7 +445,7 @@ func TestK3dDriverNodes(t *testing.T) {
 
 func requireK3d(t *testing.T) {
 	t.Helper()
-	if err := k3dcmd.Available(t.Context()); err != nil {
+	if err := k3dcmd.New(command.Default).Available(t.Context()); err != nil {
 		t.Skip("k3d is unavailable:", err)
 	}
 }

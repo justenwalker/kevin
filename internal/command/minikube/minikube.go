@@ -1,5 +1,5 @@
-// Package minikubecmd drives the minikube command line, on the host.
-package minikubecmd
+// Package minikube drives the minikube command line, on the host.
+package minikube
 
 import (
 	"bytes"
@@ -13,19 +13,31 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
 // Binary is the command that this package runs.
 const Binary = "minikube"
 
+// Client runs minikube through a [command.Runner]. It is safe for concurrent
+// use when its runner is.
+type Client struct {
+	runner command.Runner
+}
+
+// New returns a Client that runs minikube with runner.
+func New(runner command.Runner) *Client {
+	return &Client{runner: runner}
+}
+
 // Available reports whether the minikube command runs.
-func Available(ctx context.Context) error {
+func (c *Client) Available(ctx context.Context) error {
 	if _, err := exec.LookPath(Binary); err != nil {
-		return fmt.Errorf("minikubecmd: %w: %w", ErrUnavailable, err)
+		return fmt.Errorf("minikube: %w: %w", ErrUnavailable, err)
 	}
-	if _, err := runBuffered(ctx, nil, "version", "--short"); err != nil {
-		return fmt.Errorf("minikubecmd: %w: %w", ErrUnavailable, err)
+	if _, err := c.runBuffered(ctx, nil, "version", "--short"); err != nil {
+		return fmt.Errorf("minikube: %w: %w", ErrUnavailable, err)
 	}
 	return nil
 }
@@ -75,9 +87,9 @@ type StartSpec struct {
 
 // Start runs minikube start against spec, streaming its output to stdout and
 // stderr as it runs.
-func Start(ctx context.Context, spec StartSpec, stdout, stderr io.Writer) error {
-	if err := runStreamed(ctx, stdout, stderr, spec.Home, spec.Kubeconfig, StartArgs(spec)...); err != nil {
-		return fmt.Errorf("minikubecmd: start: %w", err)
+func (c *Client) Start(ctx context.Context, spec StartSpec, stdout, stderr io.Writer) error {
+	if err := c.runStreamed(ctx, stdout, stderr, spec.Home, spec.Kubeconfig, StartArgs(spec)...); err != nil {
+		return fmt.Errorf("minikube: start: %w", err)
 	}
 	return nil
 }
@@ -121,18 +133,18 @@ func StartArgs(spec StartSpec) []string {
 
 // Delete runs minikube delete against profile name, streaming its output to
 // stderr as it runs. A profile that does not exist is not an error.
-func Delete(ctx context.Context, name, home string, stderr io.Writer) error {
-	if err := runStreamed(ctx, io.Discard, stderr, home, "", "delete", "-p", name); err != nil {
-		return fmt.Errorf("minikubecmd: delete: %w", err)
+func (c *Client) Delete(ctx context.Context, name, home string, stderr io.Writer) error {
+	if err := c.runStreamed(ctx, io.Discard, stderr, home, "", "delete", "-p", name); err != nil {
+		return fmt.Errorf("minikube: delete: %w", err)
 	}
 	return nil
 }
 
 // ImageLoad runs minikube image load, loading the tar file at path into
 // every node of profile name.
-func ImageLoad(ctx context.Context, name, home, path string, stderr io.Writer) error {
-	if err := runStreamed(ctx, io.Discard, stderr, home, "", "image", "load", path, "-p", name); err != nil {
-		return fmt.Errorf("minikubecmd: image load: %w", err)
+func (c *Client) ImageLoad(ctx context.Context, name, home, path string, stderr io.Writer) error {
+	if err := c.runStreamed(ctx, io.Discard, stderr, home, "", "image", "load", path, "-p", name); err != nil {
+		return fmt.Errorf("minikube: image load: %w", err)
 	}
 	return nil
 }
@@ -183,7 +195,7 @@ func Env(home, kubeconfig string) []string {
 // runBuffered calls the minikube binary and returns its standard output, for
 // a call whose result is data to parse rather than progress to show. A nil
 // env leaves the child's environment as the process's own.
-func runBuffered(ctx context.Context, env []string, args ...string) (string, error) {
+func (c *Client) runBuffered(ctx context.Context, env []string, args ...string) (string, error) {
 	//nolint:gosec // every argument comes from the environment definition
 	cmd := exec.CommandContext(ctx, Binary, args...)
 	if env != nil {
@@ -194,7 +206,7 @@ func runBuffered(ctx context.Context, env []string, args ...string) (string, err
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := c.runner.Run(ctx, cmd); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			return "", notInstalled(fmt.Errorf("minikube %s: %w", strings.Join(args, " "), err))
@@ -217,14 +229,14 @@ func notInstalled(err error) error {
 // runStreamed calls the minikube binary with stdout and stderr wired
 // straight through to the caller's writers, for a call long enough that the
 // caller needs to see progress as it happens rather than only once it exits.
-func runStreamed(ctx context.Context, stdout, stderr io.Writer, home, kubeconfig string, args ...string) error {
+func (c *Client) runStreamed(ctx context.Context, stdout, stderr io.Writer, home, kubeconfig string, args ...string) error {
 	//nolint:gosec // every argument comes from the environment definition
 	cmd := exec.CommandContext(ctx, Binary, args...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.Env = Env(home, kubeconfig)
 
-	if err := cmd.Run(); err != nil {
+	if err := c.runner.Run(ctx, cmd); err != nil {
 		return notInstalled(fmt.Errorf("minikube %s: %w", strings.Join(args, " "), err))
 	}
 	return nil

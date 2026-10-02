@@ -1,5 +1,5 @@
-// Package kindcmd drives the kind command line, on the host.
-package kindcmd
+// Package kind drives the kind command line, on the host.
+package kind
 
 import (
 	"bytes"
@@ -12,19 +12,31 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
 // Binary is the command that this package runs.
 const Binary = "kind"
 
+// Client runs kind through a [command.Runner]. It is safe for concurrent use
+// when its runner is.
+type Client struct {
+	runner command.Runner
+}
+
+// New returns a Client that runs kind with runner.
+func New(runner command.Runner) *Client {
+	return &Client{runner: runner}
+}
+
 // Available reports whether the kind command runs.
-func Available(ctx context.Context) error {
+func (c *Client) Available(ctx context.Context) error {
 	if _, err := exec.LookPath(Binary); err != nil {
-		return fmt.Errorf("kindcmd: %w: %w", ErrUnavailable, err)
+		return fmt.Errorf("kind: %w: %w", ErrUnavailable, err)
 	}
-	if _, err := runBuffered(ctx, nil, "version"); err != nil {
-		return fmt.Errorf("kindcmd: %w: %w", ErrUnavailable, err)
+	if _, err := c.runBuffered(ctx, nil, "version"); err != nil {
+		return fmt.Errorf("kind: %w: %w", ErrUnavailable, err)
 	}
 	return nil
 }
@@ -50,10 +62,10 @@ type CreateSpec struct {
 // Create runs kind create cluster against spec, streaming its output to
 // stdout and stderr as it runs - a cluster can take minutes to come up, so
 // the caller sees progress rather than one message at the end.
-func Create(ctx context.Context, spec CreateSpec, stdout, stderr io.Writer) error {
+func (c *Client) Create(ctx context.Context, spec CreateSpec, stdout, stderr io.Writer) error {
 	args := createArgs(spec)
-	if err := runStreamed(ctx, strings.NewReader(spec.Config), stdout, stderr, envWith(spec.Env), args...); err != nil {
-		return fmt.Errorf("kindcmd: create cluster: %w", err)
+	if err := c.runStreamed(ctx, strings.NewReader(spec.Config), stdout, stderr, envWith(spec.Env), args...); err != nil {
+		return fmt.Errorf("kind: create cluster: %w", err)
 	}
 	return nil
 }
@@ -91,10 +103,10 @@ type DeleteSpec struct {
 // Delete runs kind delete cluster against spec, streaming its output to
 // stderr as it runs. kind documents delete cluster as idempotent - a
 // cluster that is already gone is success, not an error.
-func Delete(ctx context.Context, spec DeleteSpec, stderr io.Writer) error {
+func (c *Client) Delete(ctx context.Context, spec DeleteSpec, stderr io.Writer) error {
 	args := deleteArgs(spec)
-	if err := runStreamed(ctx, nil, io.Discard, stderr, envWith(spec.Env), args...); err != nil {
-		return fmt.Errorf("kindcmd: delete cluster: %w", err)
+	if err := c.runStreamed(ctx, nil, io.Discard, stderr, envWith(spec.Env), args...); err != nil {
+		return fmt.Errorf("kind: delete cluster: %w", err)
 	}
 	return nil
 }
@@ -106,10 +118,10 @@ func deleteArgs(spec DeleteSpec) []string {
 // GetNodes runs kind get nodes against name, and returns the docker
 // container name of every node in the cluster. env names extra variables
 // (KIND_EXPERIMENTAL_PROVIDER, ...) set for this call only.
-func GetNodes(ctx context.Context, name string, env map[string]string) ([]string, error) {
-	out, err := runBuffered(ctx, envWith(env), "get", "nodes", "--name", name)
+func (c *Client) GetNodes(ctx context.Context, name string, env map[string]string) ([]string, error) {
+	out, err := c.runBuffered(ctx, envWith(env), "get", "nodes", "--name", name)
 	if err != nil {
-		return nil, fmt.Errorf("kindcmd: get nodes: %w", err)
+		return nil, fmt.Errorf("kind: get nodes: %w", err)
 	}
 	return parseLines(out), nil
 }
@@ -118,10 +130,10 @@ func GetNodes(ctx context.Context, name string, env map[string]string) ([]string
 // cluster on the host - not scoped to kevin's own, the same as the CLI
 // itself. Test-only: production code always knows a cluster's deterministic
 // name already and never needs to enumerate every cluster on the host.
-func GetClusters(ctx context.Context) ([]string, error) {
-	out, err := runBuffered(ctx, nil, "get", "clusters")
+func (c *Client) GetClusters(ctx context.Context) ([]string, error) {
+	out, err := c.runBuffered(ctx, nil, "get", "clusters")
 	if err != nil {
-		return nil, fmt.Errorf("kindcmd: get clusters: %w", err)
+		return nil, fmt.Errorf("kind: get clusters: %w", err)
 	}
 	return parseLines(out), nil
 }
@@ -154,10 +166,10 @@ type LoadImageArchiveSpec struct {
 
 // LoadImageArchive runs kind load image-archive against spec, streaming its
 // output to stderr as it runs.
-func LoadImageArchive(ctx context.Context, spec LoadImageArchiveSpec, stderr io.Writer) error {
+func (c *Client) LoadImageArchive(ctx context.Context, spec LoadImageArchiveSpec, stderr io.Writer) error {
 	args := []string{"load", "image-archive", spec.Path, "--name", spec.Name}
-	if err := runStreamed(ctx, nil, io.Discard, stderr, envWith(spec.Env), args...); err != nil {
-		return fmt.Errorf("kindcmd: load image archive: %w", err)
+	if err := c.runStreamed(ctx, nil, io.Discard, stderr, envWith(spec.Env), args...); err != nil {
+		return fmt.Errorf("kind: load image archive: %w", err)
 	}
 	return nil
 }
@@ -180,7 +192,7 @@ func envWith(extra map[string]string) []string {
 // call whose result is data to parse rather than progress to show. A nil
 // env leaves the child's environment as the process's own; env otherwise
 // replaces it outright (the caller builds it with [envWith]).
-func runBuffered(ctx context.Context, env []string, args ...string) (string, error) {
+func (c *Client) runBuffered(ctx context.Context, env []string, args ...string) (string, error) {
 	//nolint:gosec // every argument comes from the environment definition
 	cmd := exec.CommandContext(ctx, Binary, args...)
 	if env != nil {
@@ -191,7 +203,7 @@ func runBuffered(ctx context.Context, env []string, args ...string) (string, err
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := c.runner.Run(ctx, cmd); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			return "", notInstalled(fmt.Errorf("kind %s: %w", strings.Join(args, " "), err))
@@ -216,7 +228,7 @@ func notInstalled(err error) error {
 // needs to see progress as it happens rather than only once it exits. A nil
 // env leaves the child's environment as the process's own; env otherwise
 // replaces it outright (the caller builds it with [envWith]).
-func runStreamed(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, env []string, args ...string) error {
+func (c *Client) runStreamed(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, env []string, args ...string) error {
 	//nolint:gosec // every argument comes from the environment definition
 	cmd := exec.CommandContext(ctx, Binary, args...)
 	cmd.Stdin = stdin
@@ -226,7 +238,7 @@ func runStreamed(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer,
 		cmd.Env = env
 	}
 
-	if err := cmd.Run(); err != nil {
+	if err := c.runner.Run(ctx, cmd); err != nil {
 		return notInstalled(fmt.Errorf("kind %s: %w", strings.Join(args, " "), err))
 	}
 	return nil

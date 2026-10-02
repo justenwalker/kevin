@@ -2,11 +2,14 @@ package helm
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	helmcmd "github.com/justenwalker/kevin/internal/command/helm"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -89,4 +92,68 @@ func TestDownKeepSkipsUninstall(t *testing.T) {
 	err = Step{}.Down(t.Context(), &plugin.DownRequest{Config: cfg}, out)
 	require.NoError(t, err)
 	assert.Contains(t, out.logs, "keeping release demo")
+}
+
+func TestUp(t *testing.T) {
+	cfg, err := json.Marshal(map[string]any{
+		"kubeconfig": "/kc",
+		"release":    "demo",
+		"chart":      "./charts/demo",
+	})
+	require.NoError(t, err)
+	req := &plugin.UpRequest{Config: cfg, Env: plugin.Env{ProjectDir: "/proj"}}
+
+	t.Run("installs the release and publishes outputs", func(t *testing.T) {
+		cli := newMockcli(t)
+		cli.EXPECT().UpgradeInstall(mock.Anything, mock.MatchedBy(func(spec helmcmd.UpgradeSpec) bool {
+			return spec.Release == "demo" && spec.Chart == "/proj/charts/demo" && spec.Kubeconfig == "/kc"
+		})).Return("", nil)
+
+		res, err := Step{cli: cli}.Up(t.Context(), req, &capture{})
+		require.NoError(t, err)
+		assert.Equal(t, plugin.StringMap(map[string]string{
+			"release": "demo", "namespace": "default", "kubeconfig": "/kc", "context": "",
+		}), res.Outputs)
+	})
+
+	t.Run("wraps a helm failure", func(t *testing.T) {
+		cli := newMockcli(t)
+		cli.EXPECT().UpgradeInstall(mock.Anything, mock.Anything).Return("", errors.New("boom"))
+
+		_, err := Step{cli: cli}.Up(t.Context(), req, &capture{})
+		require.ErrorContains(t, err, "helm: boom")
+	})
+}
+
+func TestDown(t *testing.T) {
+	cfg, err := json.Marshal(map[string]any{"kubeconfig": "/kc", "release": "demo"})
+	require.NoError(t, err)
+	req := &plugin.DownRequest{Config: cfg}
+
+	t.Run("uninstalls the release", func(t *testing.T) {
+		cli := newMockcli(t)
+		cli.EXPECT().Uninstall(mock.Anything, helmcmd.UninstallSpec{
+			Kubeconfig: "/kc", Release: "demo", Namespace: "default",
+		}).Return("", nil)
+
+		out := &capture{}
+		require.NoError(t, Step{cli: cli}.Down(t.Context(), req, out))
+		assert.Contains(t, out.logs, "release demo uninstalled")
+	})
+
+	t.Run("treats a missing release as done", func(t *testing.T) {
+		cli := newMockcli(t)
+		cli.EXPECT().Uninstall(mock.Anything, mock.Anything).Return("", helmcmd.ErrReleaseNotFound)
+
+		out := &capture{}
+		require.NoError(t, Step{cli: cli}.Down(t.Context(), req, out))
+		assert.Contains(t, out.logs, "release demo already gone")
+	})
+
+	t.Run("reports any other failure", func(t *testing.T) {
+		cli := newMockcli(t)
+		cli.EXPECT().Uninstall(mock.Anything, mock.Anything).Return("", errors.New("boom"))
+
+		require.ErrorContains(t, Step{cli: cli}.Down(t.Context(), req, &capture{}), "helm: boom")
+	})
 }

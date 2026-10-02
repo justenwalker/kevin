@@ -28,3 +28,22 @@ packages:
       Downer:
       Exporter:
       ToolProvider:
+  github.com/justenwalker/kevin/internal/command:
+    interfaces:
+      Runner:
+        config:
+          dir: internal/command/commandtest
+          filename: mocks.go
+          pkgname: commandtest
+  github.com/justenwalker/kevin/internal/plugins/helm:
+    interfaces:
+      cli:
+  github.com/justenwalker/kevin/internal/plugins/kubectl:
+    interfaces:
+      cli:
+  github.com/justenwalker/kevin/internal/plugins/wait:
+    interfaces:
+      kubectlCLI:
+  github.com/justenwalker/kevin/internal/plugins/kubernetes:
+    interfaces:
+      kindCLI:

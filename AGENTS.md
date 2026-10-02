@@ -329,13 +329,18 @@ Key model to hold in your head when changing any of this:
   environment with no way to pass them in otherwise, which shelling out
   avoids: `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` are scoped to each `kind`
   child process's own `exec.Cmd.Env`, not kevin's.
-  The `k3d` driver (shelling out via `internal/k3dcmd`) follows the same
+  The `k3d` driver (shelling out via `internal/command/k3d`) follows the same
   rule - unlike kind, k3d creates its containers through the Docker API, so
   the proxy env goes in as `--env` flags on `k3d cluster create`.
-  The `minikube` driver (`internal/minikubecmd`) follows it too. minikube
+  The `minikube` driver (`internal/command/minikube`) follows it too. minikube
   reads proxy variables from its own process environment and sends its host
-  downloads through them, so `minikubecmd` strips them from every child, and
+  downloads through them, so `command/minikube` strips them from every child, and
   the proxy reaches containerd as a systemd drop-in instead.
+  Each host CLI wrapper (`kind`, `k3d`, `minikube`, `kubectl`, `helm`, `git`)
+  lives under `internal/command/<tool>` as a `Client` that runs its binary
+  through a `command.Runner`. A caller declares the interface of the `Client`
+  methods it uses, and its tests mock that with mockery (`.mockery.yml`;
+  `go tool -modfile=tools.mod mockery`).
   OCI registry access (`internal/ocipkg`) is the exception that proves the
   rule: it imports `cuelabs.dev/go/oci/ociregistry` rather than shelling out
   to `docker pull`, but that costs no new dependency tree - the module is

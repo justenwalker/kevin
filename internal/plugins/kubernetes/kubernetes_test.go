@@ -14,9 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/clusterrelay"
+	"github.com/justenwalker/kevin/internal/command"
+	kindcmd "github.com/justenwalker/kevin/internal/command/kind"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/docker"
-	"github.com/justenwalker/kevin/internal/kindcmd"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -454,7 +455,7 @@ func requireDocker(t *testing.T) {
 // requireKind skips a test when the kind binary does not answer.
 func requireKind(t *testing.T) {
 	t.Helper()
-	if err := kindcmd.Available(t.Context()); err != nil {
+	if err := kindcmd.New(command.Default).Available(t.Context()); err != nil {
 		t.Skip("kind is unavailable:", err)
 	}
 }
