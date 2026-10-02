@@ -268,7 +268,7 @@ kevin -C examples/echo run
 
 ## 7. `builtin:kubernetes`, `builtin:kubectl`, `builtin:helm`, relay routing
 
-_Automated by `gnob e2e` (`tests/e2e/kind_test.go`). `examples/minikube` has the same checks, minus the registry and Helm chart, in `tests/e2e/minikube_test.go`, plus the setup-scope checks below (keep, reuse, recreate). They need `minikube` on `PATH`._
+_Automated by `gnob e2e` (`tests/e2e/kind_test.go`). `examples/minikube` and `examples/k3d` run the same checks without the registry and Helm chart. They live in `tests/e2e/minikube_test.go` and `tests/e2e/k3d_test.go`, and add the setup-scope checks below (keep, reuse, recreate). They need `minikube` or `k3d` on `PATH`._
 
 Needs Docker; kind pulls node images the first time, so this is slower.
 
