@@ -232,6 +232,25 @@ func TestAnchorDir(t *testing.T) {
 		assert.Contains(t, result.Reason, "does not hold")
 	})
 
+	t.Run("remove needs root and reports the command", func(t *testing.T) {
+		if isRoot() {
+			t.Skip("this test needs a process that is not root")
+		}
+
+		dir := t.TempDir()
+		restore := anchorLayouts
+		anchorLayouts = []anchorLayout{{dir: dir, suffix: anchorSuffix, rebuild: "update-ca-certificates"}}
+		t.Cleanup(func() { anchorLayouts = restore })
+
+		target := filepath.Join(dir, "kevin-demo.crt")
+		require.NoError(t, os.WriteFile(target, []byte("pem"), 0o600))
+
+		result, err := anchorDir{}.remove(t.Context(), Request{CommonName: "kevin demo CA", FileName: "kevin-demo"})
+		require.ErrorIs(t, err, ErrNeedsRoot)
+		assert.Contains(t, result.Reason, "sudo rm "+target)
+		assert.FileExists(t, target)
+	})
+
 	t.Run("status reports not-installed then installed, and writes nothing", func(t *testing.T) {
 		dir := t.TempDir()
 		restore := anchorLayouts
@@ -507,4 +526,125 @@ func TestProfilesReturnsDirectoriesThatHoldADatabase(t *testing.T) {
 		assert.True(t, filepath.IsAbs(dir))
 		assert.True(t, hasCertDB(dir), "a profile without a database must not appear")
 	}
+}
+
+// fakeFirefox puts a certutil on PATH and one profile with a database under
+// a temporary home, and returns the profile directory.
+func fakeFirefox(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, CertutilBinary), []byte("#!/bin/sh\n"), 0o755))
+	t.Setenv("PATH", bin)
+
+	profile := filepath.Join(filepath.Dir(profileGlobs()[0]), "p1")
+	require.NoError(t, os.MkdirAll(profile, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(profile, "cert9.db"), nil, 0o600))
+	return profile
+}
+
+func TestNSSRunsCertutil(t *testing.T) {
+	req := Request{CertPath: "/tmp/ca.crt", CommonName: "kevin demo CA"}
+
+	t.Run("skips a machine without a profile", func(t *testing.T) {
+		fakeFirefox(t)
+		t.Setenv("HOME", t.TempDir())
+
+		for _, run := range []func(context.Context, Request) (Result, error){nss{}.install, nss{}.status, nss{}.remove} {
+			result, err := run(t.Context(), req)
+			require.NoError(t, err)
+			assert.True(t, result.Skipped)
+			assert.Contains(t, result.Reason, "no Firefox profile")
+		}
+	})
+
+	t.Run("install adds the authority to each profile", func(t *testing.T) {
+		profile := fakeFirefox(t)
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				assert.Equal(t, nssInstallArgs(req, profile), cmd.Args[1:])
+				return nil
+			})
+		req := req
+		req.Runner = runner
+
+		result, err := nss{}.install(t.Context(), req)
+		require.NoError(t, err)
+		assert.True(t, result.Installed)
+		assert.Equal(t, "1 profile", result.Reason)
+	})
+
+	t.Run("install accepts an authority the database already holds", func(t *testing.T) {
+		fakeFirefox(t)
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				_, _ = io.WriteString(cmd.Stderr, "certutil: could not add certificate: The nickname already exists.")
+				return errors.New("exit status 255")
+			})
+		req := req
+		req.Runner = runner
+
+		result, err := nss{}.install(t.Context(), req)
+		require.NoError(t, err)
+		assert.True(t, result.Installed)
+	})
+
+	t.Run("install reports the command to run by hand", func(t *testing.T) {
+		fakeFirefox(t)
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).Return(errors.New("exit status 255"))
+		req := req
+		req.Runner = runner
+
+		result, err := nss{}.install(t.Context(), req)
+		require.Error(t, err)
+		assert.False(t, result.Installed)
+		assert.Contains(t, result.Reason, "certutil -A")
+	})
+
+	t.Run("status reports a profile that lacks the authority", func(t *testing.T) {
+		fakeFirefox(t)
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).Return(errors.New("exit status 255"))
+		req := req
+		req.Runner = runner
+
+		result, err := nss{}.status(t.Context(), req)
+		require.NoError(t, err)
+		assert.False(t, result.Installed)
+		assert.Equal(t, "missing in 1 of 1 profile", result.Reason)
+	})
+
+	t.Run("status reads the authority as installed when every profile holds it", func(t *testing.T) {
+		fakeFirefox(t)
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).Return(nil)
+		req := req
+		req.Runner = runner
+
+		result, err := nss{}.status(t.Context(), req)
+		require.NoError(t, err)
+		assert.True(t, result.Installed)
+	})
+
+	t.Run("remove ignores a profile that does not hold the authority", func(t *testing.T) {
+		profile := fakeFirefox(t)
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				assert.Equal(t, nssRemoveArgs(req, profile), cmd.Args[1:])
+				return errors.New("exit status 255")
+			})
+		req := req
+		req.Runner = runner
+
+		result, err := nss{}.remove(t.Context(), req)
+		require.NoError(t, err)
+		assert.False(t, result.Skipped)
+		assert.Equal(t, "1 profile", result.Reason)
+	})
 }
