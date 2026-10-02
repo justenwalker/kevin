@@ -268,7 +268,7 @@ kevin -C examples/echo run
 
 ## 7. `builtin:kubernetes`, `builtin:kubectl`, `builtin:helm`, relay routing
 
-_Automated by `gnob e2e` (`tests/e2e/kind_test.go`)._
+_Automated by `gnob e2e` (`tests/e2e/kind_test.go`). `examples/minikube` has the same checks, minus the registry and Helm chart, in `tests/e2e/minikube_test.go`, which needs `minikube` on `PATH`._
 
 Needs Docker; kind pulls node images the first time, so this is slower.
 
