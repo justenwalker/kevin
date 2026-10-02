@@ -3,6 +3,8 @@ package console
 import (
 	"bufio"
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/a-h/templ"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -536,6 +539,10 @@ func TestEvents(t *testing.T) {
 			return len(s.clients) == 1
 		}, time.Second, 5*time.Millisecond)
 
+		require.Eventually(t, func() bool {
+			return strings.Contains(rec.String(), `<li id="step-web"`)
+		}, time.Second, 5*time.Millisecond, "the opening snapshot lands first")
+
 		before := len(rec.String())
 		store.SetStepProgress("web", 0.5)
 
@@ -679,4 +686,155 @@ func (r *syncRecorder) String() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.buf.String()
+}
+
+func TestIconDataURI(t *testing.T) {
+	assert.Empty(t, iconDataURI(nil))
+	assert.Equal(t, "data:image/png;base64,cG5n", iconDataURI([]byte("png")))
+}
+
+func TestRerun(t *testing.T) {
+	post := func(s *Server, target string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, target, nil))
+		return rec
+	}
+
+	t.Run("is unavailable without a rerun func", func(t *testing.T) {
+		s := New(Config{Project: "demo", Store: session.NewStore()})
+
+		assert.Equal(t, http.StatusServiceUnavailable, post(s, "/steps/web/rerun").Code)
+	})
+
+	t.Run("passes the step and the cascade flag to the rerun func", func(t *testing.T) {
+		var gotStep string
+		var gotCascade bool
+		s := New(Config{Project: "demo", Store: session.NewStore(), Rerun: func(_ context.Context, step string, cascade bool) error {
+			gotStep, gotCascade = step, cascade
+			return nil
+		}})
+
+		rec := post(s, "/steps/web/rerun?cascade=true")
+
+		assert.Equal(t, http.StatusAccepted, rec.Code)
+		assert.Equal(t, "web", gotStep)
+		assert.True(t, gotCascade)
+	})
+
+	t.Run("reports a step that is already running", func(t *testing.T) {
+		s := New(Config{Project: "demo", Store: session.NewStore(), Rerun: func(context.Context, string, bool) error {
+			return session.ErrStepBusy
+		}})
+
+		assert.Equal(t, http.StatusConflict, post(s, "/steps/web/rerun").Code)
+	})
+
+	t.Run("accepts a rerun that failed, since the stream already reported it", func(t *testing.T) {
+		s := New(Config{Project: "demo", Store: session.NewStore(), Rerun: func(context.Context, string, bool) error {
+			return errors.New("boom")
+		}})
+
+		assert.Equal(t, http.StatusAccepted, post(s, "/steps/web/rerun").Code)
+	})
+}
+
+// failingWriter accepts failAfter writes, then fails every later one.
+type failingWriter struct {
+	*httptest.ResponseRecorder
+
+	failAfter int
+	writes    int
+}
+
+func (f *failingWriter) Write(p []byte) (int, error) {
+	if f.writes >= f.failAfter {
+		return 0, errors.New("connection closed")
+	}
+	f.writes++
+	return f.ResponseRecorder.Write(p)
+}
+
+// plainWriter is a ResponseWriter that cannot flush.
+type plainWriter struct {
+	header http.Header
+	code   int
+}
+
+func (p *plainWriter) Header() http.Header         { return p.header }
+func (p *plainWriter) Write(b []byte) (int, error) { return len(b), nil }
+func (p *plainWriter) WriteHeader(code int)        { p.code = code }
+
+func TestEventsWriteFailures(t *testing.T) {
+	t.Run("is unavailable when the writer cannot flush", func(t *testing.T) {
+		s := New(Config{Project: "demo", Store: session.NewStore()})
+		w := &plainWriter{header: http.Header{}}
+
+		s.events(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil))
+
+		assert.Equal(t, http.StatusInternalServerError, w.code)
+	})
+
+	t.Run("stops when the opening snapshot cannot be written", func(t *testing.T) {
+		s := New(Config{Project: "demo", Store: session.NewStore()})
+		w := &failingWriter{ResponseRecorder: httptest.NewRecorder(), failAfter: 0}
+
+		s.events(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil))
+
+		assert.Zero(t, w.writes)
+	})
+
+	t.Run("stops when a later event cannot be written", func(t *testing.T) {
+		store := session.NewStore()
+		s := New(Config{Project: "demo", Store: store})
+		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		w := &failingWriter{ResponseRecorder: httptest.NewRecorder(), failAfter: 1}
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			s.events(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/events", nil))
+		}()
+		require.Eventually(t, func() bool {
+			s.clientsMu.Lock()
+			defer s.clientsMu.Unlock()
+			return len(s.clients) == 1
+		}, time.Second, 5*time.Millisecond)
+
+		store.SetStep("web", Ready, "")
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("the handler kept running after a failed write")
+		}
+	})
+}
+
+func TestPageWriteFailure(t *testing.T) {
+	t.Run("a broken connection does not fail the handler", func(t *testing.T) {
+		s := New(Config{Project: "demo", Store: session.NewStore()})
+		w := &failingWriter{ResponseRecorder: httptest.NewRecorder(), failAfter: 0}
+
+		s.Handler().ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
+
+		assert.Zero(t, w.writes)
+	})
+}
+
+func TestRender(t *testing.T) {
+	t.Run("a component that fails renders nothing", func(t *testing.T) {
+		failing := templ.ComponentFunc(func(context.Context, io.Writer) error { return errors.New("boom") })
+
+		assert.Nil(t, render(failing))
+	})
+
+	t.Run("publish skips a component that fails", func(t *testing.T) {
+		s := New(Config{Project: "demo", Store: session.NewStore()})
+		ch := s.subscribe()
+		failing := templ.ComponentFunc(func(context.Context, io.Writer) error { return errors.New("boom") })
+
+		s.publish(failing)
+
+		assert.Empty(t, ch)
+	})
 }
