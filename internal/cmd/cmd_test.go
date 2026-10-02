@@ -411,3 +411,40 @@ func TestCommandErrorUnwraps(t *testing.T) {
 	assert.Equal(t, "boom", err.Error())
 	assert.ErrorIs(t, err, sentinel)
 }
+
+func TestStatusCommand(t *testing.T) {
+	t.Run("reports not running, end to end", func(t *testing.T) {
+		var runErr error
+		out := captureStdout(t, func() {
+			runErr = cmd.Run(t.Context(), []string{"-C", t.TempDir(), "status"})
+		})
+
+		require.NoError(t, runErr)
+		assert.Equal(t, "not running\n", out)
+	})
+}
+
+func TestLogsCommand(t *testing.T) {
+	t.Run("reports a project that never ran", func(t *testing.T) {
+		err := cmd.Run(t.Context(), []string{"-C", t.TempDir(), "logs"})
+
+		require.ErrorContains(t, err, "no log file for this environment")
+	})
+}
+
+func TestDoCommand(t *testing.T) {
+	t.Run("rejects a missing name", func(t *testing.T) {
+		err := cmd.Run(t.Context(), []string{"do"})
+
+		var cmdErr *cmd.CommandError
+		require.ErrorAs(t, err, &cmdErr, "must be a usage error")
+	})
+
+	t.Run("reports a project without an environment file", func(t *testing.T) {
+		err := cmd.Run(t.Context(), []string{"--engine", "docker", "-C", t.TempDir(), "do", "shell"})
+
+		require.Error(t, err)
+		var cmdErr *cmd.CommandError
+		assert.NotErrorAs(t, err, &cmdErr, "a missing file is a command failure, not a usage error")
+	})
+}
