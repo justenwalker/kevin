@@ -6,14 +6,18 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"cuelabs.dev/go/oci/ociregistry"
 	"cuelabs.dev/go/oci/ociregistry/ocimem"
 	"cuelabs.dev/go/oci/ociregistry/ociref"
+	"cuelabs.dev/go/oci/ociregistry/ociserver"
 	digest "github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -413,4 +417,41 @@ func (r tamperedRegistry) GetBlob(ctx context.Context, repo string, dig digest.D
 		return nil, err
 	}
 	return tamperedBlobReader{BlobReader: br, content: bytes.NewReader([]byte("corrupted"))}, nil
+}
+
+func TestPublicAPIAgainstALocalRegistry(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	srv := httptest.NewTLSServer(ociserver.New(ocimem.New(), nil))
+	t.Cleanup(srv.Close)
+	// newRegistry always dials https, and its transport falls back to the default one.
+	original := http.DefaultTransport
+	http.DefaultTransport = srv.Client().Transport
+	t.Cleanup(func() { http.DefaultTransport = original })
+	host := strings.TrimPrefix(srv.URL, "https://")
+	ref := host + "/" + testRepo + ":v1"
+
+	dir := t.TempDir()
+	content := []byte("plugin package bytes")
+	tarPath := filepath.Join(dir, "pkg.tar.gz")
+	require.NoError(t, os.WriteFile(tarPath, content, 0o600))
+	sigContent := []byte("untrusted comment: test\nsignature bytes\n")
+	sigPath := filepath.Join(dir, "pkg.tar.gz.minisig")
+	require.NoError(t, os.WriteFile(sigPath, sigContent, 0o600))
+
+	_, err := Push(t.Context(), ref, tarPath)
+	require.NoError(t, err)
+
+	pkgPath, pkgDigest, err := Fetch(t.Context(), ref)
+	require.NoError(t, err)
+	assert.Equal(t, digest.FromBytes(content).String(), pkgDigest)
+	got, err := os.ReadFile(pkgPath)
+	require.NoError(t, err)
+	assert.Equal(t, content, got)
+
+	_, err = PushSignature(t.Context(), ref, sigPath, SignatureMediaType)
+	require.NoError(t, err)
+
+	sig, err := FetchSignature(t.Context(), ref, pkgDigest, SignatureMediaType)
+	require.NoError(t, err)
+	assert.Equal(t, sigContent, sig)
 }
