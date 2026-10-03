@@ -295,8 +295,8 @@ Key model to hold in your head when changing any of this:
   resolve a container network alias and (on macOS) can't reach a container
   address directly. A route must be something the host can dial; the
   container plugin publishes a step's port on loopback and returns that as
-  the upstream. A step is "ready" when its published port accepts a
-  connection, not when the container reports `Running`.
+  the upstream. A container step is "ready" once the container reports
+  `Running`; a `wait` step checks that the service answers.
 - **Egress denial has no schema default.** `proxy: egress: deny` carries no
   default (like `proxy.listen`/`gateway_port`/`console.listen`) - an
   environment must say `deny: true` or `deny: false` itself, so a

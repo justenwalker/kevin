@@ -535,7 +535,7 @@ func TestUpWithFakeEngine(t *testing.T) {
 		useFakeRuntime(t, fakeRuntime{
 			run: func(context.Context, cri.RunSpec) (string, error) { return "abc123", nil },
 			inspect: func(context.Context, string) (cri.Container, error) {
-				return cri.Container{Running: false, ExitCode: 3}, nil
+				return cri.Container{Exited: true, ExitCode: 3}, nil
 			},
 		})
 
@@ -545,6 +545,22 @@ func TestUpWithFakeEngine(t *testing.T) {
 		}, &noopEmitter{})
 		require.ErrorIs(t, err, ErrExited)
 		assert.Contains(t, err.Error(), "code 3")
+	})
+
+	t.Run("fails when the container exits with code 0", func(t *testing.T) {
+		useFakeRuntime(t, fakeRuntime{
+			run: func(context.Context, cri.RunSpec) (string, error) { return "abc123", nil },
+			inspect: func(context.Context, string) (cri.Container, error) {
+				return cri.Container{Exited: true}, nil
+			},
+		})
+
+		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+			Step:   "done",
+			Config: []byte(`{"image":"nginx","start_timeout":"5s"}`),
+		}, &noopEmitter{})
+		require.ErrorIs(t, err, ErrExited)
+		assert.Contains(t, err.Error(), "code 0")
 	})
 
 	t.Run("gives up once the start_timeout deadline passes", func(t *testing.T) {

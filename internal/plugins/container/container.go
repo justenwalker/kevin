@@ -339,7 +339,7 @@ func waitRunning(ctx context.Context, runtime cri.Runtime, name string, deadline
 		if info.Running {
 			return info, nil
 		}
-		if info.ExitCode != 0 {
+		if info.Exited {
 			return info, fmt.Errorf("container %q exited with code %d: %w", name, info.ExitCode, ErrExited)
 		}
 

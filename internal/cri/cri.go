@@ -89,13 +89,22 @@ type RunSpec struct {
 	Pull bool
 }
 
+// StatusExited reports whether an inspect state status means the container
+// has stopped running for good.
+func StatusExited(status string) bool {
+	return status == "exited" || status == "stopped" || status == "dead"
+}
+
 // Container holds the parts of an inspect result that kevin uses.
 type Container struct {
 	ID      string
 	Name    string
 	Running bool
 
-	// ExitCode is meaningful only when Running is false.
+	// Exited reports that the container ran and has stopped.
+	Exited bool
+
+	// ExitCode is meaningful only when Exited is true.
 	ExitCode int
 
 	// IPs maps a network name to the address of the container on it.

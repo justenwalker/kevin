@@ -37,9 +37,9 @@
 
 	// expose makes a container port reachable from the host, published on
 	// 127.0.0.1 unless relay is true.
-	// The key names the entry in the console. The step is ready when each
-	// published TCP port accepts connections. To give the port a name on
-	// the environment domain, add a builtin:route step.
+	// The key names the entry in the console. The step is ready once the
+	// container is running, not when its ports accept connections. To give
+	// the port a name on the environment domain, add a builtin:route step.
 	expose?: [string]: #Expose
 }
 

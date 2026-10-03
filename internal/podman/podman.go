@@ -374,6 +374,7 @@ type inspectResult struct {
 	Name  string
 	State struct {
 		Running  bool
+		Status   string
 		ExitCode int
 		Pid      int
 	}
@@ -415,6 +416,7 @@ func fromInspect(raw inspectResult) cri.Container {
 		ID:       raw.ID,
 		Name:     strings.TrimPrefix(raw.Name, "/"),
 		Running:  raw.State.Running,
+		Exited:   cri.StatusExited(raw.State.Status),
 		ExitCode: raw.State.ExitCode,
 		IPs:      map[string]string{},
 		IPv6:     map[string]string{},

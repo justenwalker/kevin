@@ -204,11 +204,12 @@ func TestFromInspect(t *testing.T) {
 	t.Run("a stopped container", func(t *testing.T) {
 		var raw inspectResult
 		require.NoError(t, json.Unmarshal([]byte(
-			`{"Id":"a","Name":"/c","State":{"Running":false,"ExitCode":137}}`), &raw))
+			`{"Id":"a","Name":"/c","State":{"Running":false,"Status":"exited","ExitCode":137}}`), &raw))
 
 		c := fromInspect(raw)
 
 		assert.False(t, c.Running)
+		assert.True(t, c.Exited)
 		assert.Equal(t, 137, c.ExitCode)
 		assert.Empty(t, c.IPs)
 		assert.Empty(t, c.IPv6)

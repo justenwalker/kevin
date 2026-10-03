@@ -27,7 +27,7 @@ Use Terraform for the cloud resources an environment depends on. Use kevin for t
 
 Compose is the closest in use: both start a set of containers from a file and remove them on command.
 
-Compose orders containers with [`depends_on`](https://docs.docker.com/compose/how-tos/startup-order/). kevin runs every step with no dependency in parallel. By default, `depends_on` waits until a container is running, and Compose needs a health check to wait for readiness. A kevin container step is ready when its published port accepts a connection, and a `wait` step can add an HTTP, `kubectl`, or command check.
+Compose orders containers with [`depends_on`](https://docs.docker.com/compose/how-tos/startup-order/). kevin runs every step with no dependency in parallel. By default, `depends_on` waits until a container is running, and Compose needs a health check to wait for readiness. A kevin container step is ready once the container is running, and a `wait` step can add a TCP, HTTP, `kubectl`, or command check.
 
 Compose is for [a single host](https://docs.docker.com/compose/intro/features-uses/). It has no Kubernetes step, no TLS-terminating proxy, no egress control, and no way to send a real hostname to a local container without editing `/etc/hosts`.
 

@@ -56,4 +56,4 @@ The proxy runs in the `kevin` process, not in a container. It cannot resolve a n
 
 `builtin:container` publishes an `expose` port on the host loopback address, and reports that address as an output. Steps reach each other by step name. The proxy reaches a step by its published port.
 
-A container reports `Running` before the process inside it listens on its port. A container step is ready when its published port accepts a connection, not when the container starts.
+A container reports `Running` before the process inside it listens on its port. A container step is ready once the container is running, so a route can reach it before the process listens. Add a `wait` step to hold dependents until the service answers.
