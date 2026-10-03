@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,23 +35,36 @@ func statusCommand(opts *options) *cobra.Command {
 	}
 }
 
+// runningConsole returns the console address of the "kevin run" tracked in
+// stateDir. It reports ErrNotRunning without any I/O beyond the pidfile
+// when nothing is tracked, and ErrStaleRun (after clearing the leftover
+// state) when the tracked process is gone.
+func runningConsole(stateDir string) (runAddrs, error) {
+	pid := readPID(stateDir)
+	if pid == 0 {
+		return runAddrs{}, ErrNotRunning
+	}
+	if !pidAlive(pid) {
+		removeRunState(stateDir)
+		return runAddrs{}, ErrStaleRun
+	}
+	return readRunAddrs(stateDir)
+}
+
 // printStatus reports "not running" (mirroring stopRun's own messages)
 // without ever making an HTTP request when this project/environment's
 // pidfile says nothing is running, and otherwise asks the running
 // console's /api/status for current step states.
 func printStatus(ctx context.Context, w io.Writer, stateDir string) error {
-	pid := readPID(stateDir)
-	if pid == 0 {
+	addrs, err := runningConsole(stateDir)
+	if errors.Is(err, ErrNotRunning) {
 		_, _ = fmt.Fprintln(w, "not running")
 		return nil
 	}
-	if !pidAlive(pid) {
-		removeRunState(stateDir)
+	if errors.Is(err, ErrStaleRun) {
 		_, _ = fmt.Fprintln(w, "not running (removed stale pid file)")
 		return nil
 	}
-
-	addrs, err := readRunAddrs(stateDir)
 	if err != nil {
 		return err
 	}

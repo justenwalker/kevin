@@ -20,6 +20,14 @@ The engine returns the outputs of every step that finished. kevin uses this list
 
 Teardown reverses every edge and uses the same scheduler. Steps are removed in parallel wherever the graph allows.
 
+## Rerunning a step
+
+A rerun walks the same graph again, from the step you name. The steps it does not touch keep the outputs they recorded, so the rerun step sees its dependencies' real outputs without starting them again. The console, the `rerun_step` MCP tool, and [`kevin rerun`]({{< relref "/docs/reference/commands/rerun" >}}) all start one.
+
+The named step always runs. With `cascade`, its transitive dependents join it. A dependent that never completed, because a failure upstream skipped it, always joins. A dependent that already completed joins only if its step type is idempotent, so a cascade does not repeat side effects that cannot safely run twice.
+
+A step that is already running rejects the rerun with an error instead of queuing it. A name the environment does not declare is also an error.
+
 ## Step groups
 
 A [step group]({{< relref "/docs/reference/environment-file#step-groups" >}}) adds one node to the map. The group's node needs every member. Its work is to compute the group's `outputs` from its members' outputs, with no plugin call. A member's name is not visible outside its group.

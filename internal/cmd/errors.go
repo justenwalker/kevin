@@ -18,3 +18,11 @@ const ErrAlreadyRunning = Error("cmd: run: already running")
 // or load at least one configured source - every source was still
 // attempted, and its own failure is printed on its own line.
 const ErrIndexUpdateFailed = Error("cmd: index update: at least one source failed")
+
+// ErrNotRunning reports that no "kevin run" is tracked for this project and
+// environment.
+const ErrNotRunning = Error("cmd: not running")
+
+// ErrStaleRun reports that the tracked "kevin run" is gone; its leftover pid
+// file was removed.
+const ErrStaleRun = Error("cmd: not running (removed stale pid file)")

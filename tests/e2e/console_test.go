@@ -84,6 +84,14 @@ func (s *ConsoleSuite) TestConsole() {
 	s.Require().Eventually(func() bool {
 		return strings.Count(p.buf.String(), stepLine("web", "ready")) >= 2
 	}, defaultTimeout, 100*time.Millisecond, "rerun must reach ready again")
+
+	rerunOut, code := s.runToCompletion(dir, "-C", dir, "rerun", "web")
+	s.Equal(0, code, "output:\n%s", rerunOut)
+	s.Contains(rerunOut, "web ready")
+
+	rerunOut, code = s.runToCompletion(dir, "-C", dir, "rerun", "nope")
+	s.NotEqual(0, code, "output:\n%s", rerunOut)
+	s.Contains(rerunOut, `no step named "nope"`)
 }
 
 func (s *ConsoleSuite) getPage(consoleAddr string) string {

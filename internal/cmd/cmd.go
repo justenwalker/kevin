@@ -147,6 +147,7 @@ func NewRootCommand() (*cobra.Command, *options) {
 		stopCommand(opts),
 		statusCommand(opts),
 		logsCommand(opts),
+		rerunCommand(opts),
 		setupCommand(opts),
 		teardownCommand(opts),
 		initCommand(opts),
