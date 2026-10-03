@@ -21,8 +21,9 @@ web: {
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `image` | `string` | - | **Required.** The container image to run. |
-| `pull` | `bool` | - | Fetches the image before the container starts. |
+| `image` | `string` | - | The container image to run. Set exactly one of image and build. |
+| `build` | `#Build` | - | Builds the image from a local Dockerfile on every run, then runs it. Set exactly one of image and build. |
+| `pull` | `bool` | - | Fetches the image before the container starts. It cannot be set together with build. |
 | `cmd` | `[...string]` | - | Replaces the command of the image. |
 | `entrypoint` | `[...string]` | - | Replaces the entrypoint of the image, such as [`"sh"`, `"-c"`]. Unset keeps the image's own entrypoint. |
 | `user` | `string` | - | Sets the user the container runs as, such as `"1000:1000"` or `"app"`. |
@@ -36,6 +37,15 @@ web: {
 | `egress` | `[...string]` | - | Lists external hosts that this container can reach when proxy.egress.deny is true, in addition to proxy.egress.allow. |
 | `start_timeout` | `string` | `"30s"` | The maximum time to wait for the container to start, as a duration such as `"30s"`. |
 | `expose` | `[string]: #Expose` | - | Makes a container port reachable from the host, published on 127.0.0.1 unless relay is true. The key names the entry in the console. The step is ready once the container is running, not when its ports accept connections. To give the port a name on the environment domain, add a builtin:route step. |
+
+## `#Build`
+
+| Field | Type | Default | Description |
+|:------|:----:|:-------:|:------------|
+| `context` | `string` | - | **Required.** The directory to build from. A relative path is relative to the project directory. |
+| `dockerfile` | `string` | `"Dockerfile"` | The Dockerfile to build, relative to context. |
+| `args` | `[string]: string` | - | Sets build arguments, as with `"--build-arg"`. |
+| `target` | `string` | - | The stage of a multi-stage Dockerfile to build. |
 
 ## `#Expose`
 
@@ -69,6 +79,9 @@ For each `expose` entry with `relay: true`:
 - Steps reach each other by step name on the project network.
 - A container step does not give itself a name on the environment domain. Use a [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step.
 - Supports export: `id`, `name`, `ip`, and `host_<port>`, for a `setup.<step>` need or a command. Export fails if the container is not running.
+- With `build`, every start of the step builds the image, tags it `kevin-<project>-<step>:latest` in lowercase, and runs that tag. The build output appears in the step's log.
+- Teardown removes the container and keeps a built image.
+- Build traffic is not proxied, and `proxy.egress.deny` does not apply to it.
 - Removed on teardown.
 
 ```cue

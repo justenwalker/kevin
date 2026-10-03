@@ -322,6 +322,36 @@ func sortedKeys(m map[string]string) []string {
 	return keys
 }
 
+// buildArgs builds the docker arguments for an image build.
+func buildArgs(spec cri.BuildSpec) []string {
+	args := []string{"build", "--tag", spec.Tag}
+	if spec.Dockerfile != "" {
+		args = append(args, "--file", spec.Dockerfile)
+	}
+	if spec.Target != "" {
+		args = append(args, "--target", spec.Target)
+	}
+	args = append(args, labelArgs(spec.Labels)...)
+	for _, k := range sortedKeys(spec.Args) {
+		args = append(args, "--build-arg", k+"="+spec.Args[k])
+	}
+	return append(args, spec.Context)
+}
+
+// Build implements [cri.Runtime] for docker. The output of docker build, on
+// both streams, goes to out as it arrives.
+func (c Client) Build(ctx context.Context, spec cri.BuildSpec, out io.Writer) error {
+	args := buildArgs(spec)
+	//nolint:gosec // every argument comes from the environment definition
+	cmd := exec.CommandContext(ctx, Binary, args...)
+	cmd.Stdout = out
+	cmd.Stderr = out
+	if err := c.runCmd(ctx, cmd); err != nil {
+		return fmt.Errorf("docker: build %q: %w", spec.Tag, err)
+	}
+	return nil
+}
+
 // Run implements [cri.Runtime] for docker.
 func (c Client) Run(ctx context.Context, spec cri.RunSpec) (string, error) {
 	out, err := c.run(ctx, nil, runArgs(spec)...)

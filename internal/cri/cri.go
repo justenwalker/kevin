@@ -101,6 +101,28 @@ type RunSpec struct {
 	Memory string
 }
 
+// BuildSpec describes one image to build from a local Dockerfile.
+type BuildSpec struct {
+	// Context is the directory to build from. The field is required.
+	Context string
+
+	// Dockerfile is the path of the Dockerfile, as the engine's --file flag
+	// takes it. Empty builds Dockerfile in Context.
+	Dockerfile string
+
+	// Tag names the built image. The field is required.
+	Tag string
+
+	// Args sets build arguments.
+	Args map[string]string
+
+	// Target is the stage of a multi-stage Dockerfile to build.
+	Target string
+
+	// Labels mark the image as owned by kevin.
+	Labels map[string]string
+}
+
 // StatusExited reports whether an inspect state status means the container
 // has stopped running for good.
 func StatusExited(status string) bool {
@@ -172,6 +194,10 @@ type Runtime interface {
 
 	// Run creates a container and returns the container ID.
 	Run(ctx context.Context, spec RunSpec) (string, error)
+
+	// Build builds an image from a local Dockerfile and streams the output
+	// of the build to out.
+	Build(ctx context.Context, spec BuildSpec, out io.Writer) error
 
 	// Remove stops and deletes a container. Remove is idempotent: a
 	// container that is absent is not an error.

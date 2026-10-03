@@ -21,6 +21,10 @@ web: {
 
 [[template "table" .Definitions.Config]]
 
+## `#Build`
+
+[[template "table" .Definitions.Build]]
+
 ## `#Expose`
 
 [[template "table" .Definitions.Expose]]
@@ -48,6 +52,9 @@ For each `expose` entry with `relay: true`:
 - Steps reach each other by step name on the project network.
 - A container step does not give itself a name on the environment domain. Use a [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step.
 - Supports export: `id`, `name`, `ip`, and `host_<port>`, for a `setup.<step>` need or a command. Export fails if the container is not running.
+- With `build`, every start of the step builds the image, tags it `kevin-<project>-<step>:latest` in lowercase, and runs that tag. The build output appears in the step's log.
+- Teardown removes the container and keeps a built image.
+- Build traffic is not proxied, and `proxy.egress.deny` does not apply to it.
 - Removed on teardown.
 
 ```cue

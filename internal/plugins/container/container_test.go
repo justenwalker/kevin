@@ -3,10 +3,15 @@ package container
 import (
 	"context"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"cuelang.org/go/cue"
+	"cuelang.org/go/cue/cuecontext"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -21,7 +26,51 @@ func TestSchemaCarriesTheEmbeddedSchema(t *testing.T) {
 	schema := Container{}.Schema()
 
 	assert.Contains(t, string(schema), "#Config")
-	assert.Contains(t, string(schema), "image!", "image must be required")
+}
+
+func TestSchemaValidation(t *testing.T) {
+	ctx := cuecontext.New()
+	v := ctx.CompileBytes(Container{}.Schema(), cue.Filename("container/schema.cue"))
+	require.NoError(t, v.Err())
+	config := v.LookupPath(cue.ParsePath("#Config"))
+
+	validate := func(with string) error {
+		return config.Unify(ctx.CompileString(with)).Validate(cue.Concrete(true))
+	}
+
+	t.Run("accepts image alone", func(t *testing.T) {
+		require.NoError(t, validate(`{image: "nginx"}`))
+	})
+
+	t.Run("accepts build alone", func(t *testing.T) {
+		require.NoError(t, validate(`{build: {context: "./api"}}`))
+	})
+
+	t.Run("accepts pull with image", func(t *testing.T) {
+		require.NoError(t, validate(`{image: "nginx", pull: true}`))
+	})
+
+	t.Run("rejects image with build", func(t *testing.T) {
+		require.Error(t, validate(`{image: "nginx", build: {context: "."}}`))
+	})
+
+	t.Run("rejects neither image nor build", func(t *testing.T) {
+		require.Error(t, validate(`{cmd: ["true"]}`))
+	})
+
+	t.Run("rejects pull with build", func(t *testing.T) {
+		require.Error(t, validate(`{build: {context: "."}, pull: true}`))
+	})
+
+	t.Run("rejects a build with no context", func(t *testing.T) {
+		require.Error(t, validate(`{build: {target: "dev"}}`))
+	})
+
+	t.Run("checks the cpus and memory formats", func(t *testing.T) {
+		require.NoError(t, validate(`{image: "nginx", cpus: "1.5", memory: "512m"}`))
+		require.Error(t, validate(`{image: "nginx", cpus: "lots"}`))
+		require.Error(t, validate(`{image: "nginx", memory: "512mb"}`))
+	})
 }
 
 func TestContainerName(t *testing.T) {
@@ -392,6 +441,30 @@ func TestUp(t *testing.T) {
 		require.NoError(t, Container{}.Down(t.Context(), &plugin.DownRequest{Step: "web", Env: env}, &noopEmitter{}))
 	})
 
+	t.Run("builds and runs an image against docker", func(t *testing.T) {
+		env := testEnv(t)
+		env.ProjectDir = t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(env.ProjectDir, "Dockerfile"),
+			[]byte("FROM busybox:stable\nCMD [\"sleep\", \"60\"]\n"), 0o600))
+		name := containerName(env.Project, "app")
+		t.Cleanup(func() {
+			ctx := context.WithoutCancel(t.Context())
+			_ = (docker.Client{}).Remove(ctx, name)
+			_, _ = exec.CommandContext(ctx, "docker", "image", "rm", imageTag(env.Project, "app")).CombinedOutput()
+		})
+
+		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+			Step:   "app",
+			Env:    env,
+			Config: []byte(`{"build":{"context":"."}}`),
+		}, &noopEmitter{})
+		require.NoError(t, err)
+
+		info, err := (docker.Client{}).Inspect(t.Context(), name)
+		require.NoError(t, err)
+		assert.True(t, info.Running)
+	})
+
 	t.Run("exposes a raw TCP port against docker", func(t *testing.T) {
 		env := testEnv(t)
 		name := containerName(env.Project, "web")
@@ -437,6 +510,14 @@ type fakeRuntime struct {
 	run     func(ctx context.Context, spec cri.RunSpec) (string, error)
 	remove  func(ctx context.Context, name string) error
 	inspect func(ctx context.Context, name string) (cri.Container, error)
+	build   func(ctx context.Context, spec cri.BuildSpec, out io.Writer) error
+}
+
+func (f fakeRuntime) Build(ctx context.Context, spec cri.BuildSpec, out io.Writer) error {
+	if f.build == nil {
+		return nil
+	}
+	return f.build(ctx, spec, out)
 }
 
 func (f fakeRuntime) Run(ctx context.Context, spec cri.RunSpec) (string, error) {
@@ -704,6 +785,122 @@ func TestUpWithFakeEngine(t *testing.T) {
 		assert.Equal(t, plugin.ContainerInfo{
 			ID: "abc123", Name: containerName("demo", "web"), NetnsPath: "/proc/123/ns/net",
 		}, result.Containers[0])
+	})
+}
+
+func TestUpBuild(t *testing.T) {
+	t.Run("builds the image, then runs the built tag", func(t *testing.T) {
+		var calls []string
+		var gotBuild cri.BuildSpec
+		var gotRun cri.RunSpec
+		useFakeRuntime(t, fakeRuntime{
+			build: func(_ context.Context, spec cri.BuildSpec, out io.Writer) error {
+				calls = append(calls, "build")
+				gotBuild = spec
+				_, _ = io.WriteString(out, "step 1/2\n")
+				return nil
+			},
+			run: func(_ context.Context, spec cri.RunSpec) (string, error) {
+				calls = append(calls, "run")
+				gotRun = spec
+				return "abc123", nil
+			},
+			inspect: func(context.Context, string) (cri.Container, error) {
+				return cri.Container{Running: true}, nil
+			},
+		})
+		emitter := &noopEmitter{}
+
+		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+			Step: "api",
+			Env:  plugin.Env{Project: "Demo", Scope: "env", ProjectDir: "/proj"},
+			Config: []byte(`{"build":{
+				"context": "./api",
+				"dockerfile": "Dockerfile.dev",
+				"args": {"GO_VERSION": "1.25"},
+				"target": "dev"
+			}}`),
+		}, emitter)
+		require.NoError(t, err)
+
+		assert.Equal(t, []string{"build", "run"}, calls)
+		assert.Equal(t, cri.BuildSpec{
+			Context:    "/proj/api",
+			Dockerfile: "/proj/api/Dockerfile.dev",
+			Tag:        "kevin-demo-api:latest",
+			Args:       map[string]string{"GO_VERSION": "1.25"},
+			Target:     "dev",
+			Labels:     gotRun.Labels,
+		}, gotBuild)
+		assert.Equal(t, "kevin-demo-api:latest", gotRun.Image)
+		assert.Equal(t, "Demo:env:api", gotRun.Labels[cri.LabelURN])
+		assert.Equal(t, "Demo", gotRun.Labels[cri.LabelProject])
+	})
+
+	t.Run("defaults the Dockerfile and keeps an absolute context", func(t *testing.T) {
+		var gotBuild cri.BuildSpec
+		useFakeRuntime(t, fakeRuntime{
+			build: func(_ context.Context, spec cri.BuildSpec, _ io.Writer) error {
+				gotBuild = spec
+				return nil
+			},
+			run: func(context.Context, cri.RunSpec) (string, error) { return "abc123", nil },
+			inspect: func(context.Context, string) (cri.Container, error) {
+				return cri.Container{Running: true}, nil
+			},
+		})
+
+		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+			Step:   "api",
+			Env:    plugin.Env{Project: "demo", ProjectDir: "/proj"},
+			Config: []byte(`{"build":{"context":"/abs/src"}}`),
+		}, &noopEmitter{})
+		require.NoError(t, err)
+
+		assert.Equal(t, "/abs/src", gotBuild.Context)
+		assert.Equal(t, "/abs/src/Dockerfile", gotBuild.Dockerfile)
+	})
+
+	t.Run("keeps an absolute Dockerfile", func(t *testing.T) {
+		var gotBuild cri.BuildSpec
+		useFakeRuntime(t, fakeRuntime{
+			build: func(_ context.Context, spec cri.BuildSpec, _ io.Writer) error {
+				gotBuild = spec
+				return nil
+			},
+			run: func(context.Context, cri.RunSpec) (string, error) { return "abc123", nil },
+			inspect: func(context.Context, string) (cri.Container, error) {
+				return cri.Container{Running: true}, nil
+			},
+		})
+
+		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+			Step:   "api",
+			Env:    plugin.Env{Project: "demo", ProjectDir: "/proj"},
+			Config: []byte(`{"build":{"context":".","dockerfile":"/etc/df"}}`),
+		}, &noopEmitter{})
+		require.NoError(t, err)
+
+		assert.Equal(t, "/etc/df", gotBuild.Dockerfile)
+	})
+
+	t.Run("does not run a container when the build fails", func(t *testing.T) {
+		ran := false
+		useFakeRuntime(t, fakeRuntime{
+			build: func(context.Context, cri.BuildSpec, io.Writer) error { return io.ErrUnexpectedEOF },
+			run: func(context.Context, cri.RunSpec) (string, error) {
+				ran = true
+				return "abc123", nil
+			},
+		})
+
+		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+			Step:   "api",
+			Env:    plugin.Env{Project: "demo", ProjectDir: "/proj"},
+			Config: []byte(`{"build":{"context":"."}}`),
+		}, &noopEmitter{})
+		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+		assert.False(t, ran)
 	})
 }
 

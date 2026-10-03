@@ -1,9 +1,22 @@
 #Config: {
-	// image is the container image to run.
-	image!: string
+	// image is the container image to run. Set exactly one of image and build.
+	image?: string
 
-	// pull fetches the image before the container starts.
+	// build builds the image from a local Dockerfile on every run, then runs
+	// it. Set exactly one of image and build.
+	build?: #Build
+
+	// pull fetches the image before the container starts. It cannot be set
+	// together with build.
 	pull?: bool
+
+	if build != _|_ {
+		image?: _|_
+		pull?:  _|_
+	}
+	if build == _|_ {
+		image!: string
+	}
 
 	// cmd replaces the command of the image.
 	cmd?: [...string]
@@ -54,6 +67,21 @@
 	// container is running, not when its ports accept connections. To give
 	// the port a name on the environment domain, add a builtin:route step.
 	expose?: [string]: #Expose
+}
+
+#Build: {
+	// context is the directory to build from. A relative path is relative to
+	// the project directory.
+	context!: string
+
+	// dockerfile is the Dockerfile to build, relative to context.
+	dockerfile?: string | *"Dockerfile"
+
+	// args sets build arguments, as with "--build-arg".
+	args?: [string]: string
+
+	// target is the stage of a multi-stage Dockerfile to build.
+	target?: string
 }
 
 #Expose: {

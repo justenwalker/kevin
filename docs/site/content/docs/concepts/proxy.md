@@ -48,6 +48,8 @@ The relay sends all TCP traffic of a `builtin:container` step on ports 80 and 44
 
 A `builtin:exec` step runs on the host, and relies on the proxy variables. For a `builtin:kubernetes` pod, the relay captures traffic at the node.
 
+The image build of a `builtin:container` step with `build` is not captured. Its `RUN` instructions run in the container engine's build containers, which the relay does not control, so `proxy.egress.deny` does not apply to them. Plugin downloads are unproxied host traffic in the same way.
+
 `NO_PROXY` lists the step names, so a client that honors it reaches another step directly over the project network. Some clients ignore `NO_PROXY`, such as busybox `wget`, so each step is also reachable through the proxy by its full name.
 
 ## Why the proxy runs on the host

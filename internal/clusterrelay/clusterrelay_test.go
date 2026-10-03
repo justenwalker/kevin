@@ -82,6 +82,8 @@ func (*fakeRuntime) ExecInput(context.Context, string, io.Reader, ...string) (st
 	return "", nil
 }
 
+func (*fakeRuntime) Build(context.Context, cri.BuildSpec, io.Writer) error { return nil }
+
 func (*fakeRuntime) Save(context.Context, string) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader("")), nil
 }

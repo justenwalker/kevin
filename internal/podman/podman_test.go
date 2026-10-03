@@ -518,6 +518,36 @@ func TestDefaultRouteArgs(t *testing.T) {
 	})
 }
 
+func TestBuildArgs(t *testing.T) {
+	t.Run("orders every flag before the context", func(t *testing.T) {
+		args := buildArgs(cri.BuildSpec{
+			Context:    "/proj/api",
+			Dockerfile: "/proj/api/Dockerfile.dev",
+			Tag:        "kevin-demo-api:latest",
+			Args:       map[string]string{"B": "2", "A": "1"},
+			Target:     "dev",
+			Labels:     map[string]string{cri.LabelURN: "demo:env:api", cri.LabelProject: "demo"},
+		})
+
+		assert.Equal(t, []string{
+			"build", "--tag", "kevin-demo-api:latest",
+			"--file", "/proj/api/Dockerfile.dev",
+			"--target", "dev",
+			"--label", "kevin.project=demo",
+			"--label", "kevin.urn=demo:env:api",
+			"--build-arg", "A=1",
+			"--build-arg", "B=2",
+			"/proj/api",
+		}, args)
+	})
+
+	t.Run("omits what is not set", func(t *testing.T) {
+		args := buildArgs(cri.BuildSpec{Context: ".", Tag: "t"})
+
+		assert.Equal(t, []string{"build", "--tag", "t", "."}, args)
+	})
+}
+
 // reply answers one Run call: it prints stdout, prints stderr, and returns
 // err. check, if set, sees the cmd first.
 func reply(stdout, stderr string, err error, check func(cmd *exec.Cmd)) func(context.Context, *exec.Cmd) error {
@@ -533,6 +563,34 @@ func reply(stdout, stderr string, err error, check func(cmd *exec.Cmd)) func(con
 		}
 		return err
 	}
+}
+
+func TestClientBuild(t *testing.T) {
+	t.Run("streams both output streams to the writer", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				assert.Equal(t, "podman", cmd.Args[0])
+				assert.Equal(t, "build", cmd.Args[1])
+				_, _ = io.WriteString(cmd.Stdout, "out\n")
+				_, _ = io.WriteString(cmd.Stderr, "err\n")
+				return nil
+			})
+
+		var out strings.Builder
+		err := Client{Runner: runner}.Build(t.Context(), cri.BuildSpec{Context: ".", Tag: "t"}, &out)
+		require.NoError(t, err)
+		assert.Equal(t, "out\nerr\n", out.String())
+	})
+
+	t.Run("names the tag when the build fails", func(t *testing.T) {
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).Return(errors.New("exit status 1"))
+
+		err := Client{Runner: runner}.Build(t.Context(), cri.BuildSpec{Context: ".", Tag: "t"}, io.Discard)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `podman: build "t"`)
+	})
 }
 
 func TestClientRunner(t *testing.T) {

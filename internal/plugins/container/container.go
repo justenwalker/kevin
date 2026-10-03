@@ -12,8 +12,10 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/justenwalker/kevin/internal/cri"
@@ -33,6 +35,7 @@ const pollInterval = 100 * time.Millisecond
 // config is the decoded with block of one step.
 type config struct {
 	Image        string            `json:"image"`
+	Build        *buildConfig      `json:"build"`
 	Pull         bool              `json:"pull"`
 	User         string            `json:"user"`
 	Workdir      string            `json:"workdir"`
@@ -47,6 +50,15 @@ type config struct {
 	Egress       []string          `json:"egress"`
 	StartTimeout string            `json:"start_timeout"`
 	Expose       map[string]expose `json:"expose"`
+}
+
+// buildConfig is the with block's build entry: the local Dockerfile to build
+// the step's image from.
+type buildConfig struct {
+	Context    string            `json:"context"`
+	Dockerfile string            `json:"dockerfile"`
+	Args       map[string]string `json:"args"`
+	Target     string            `json:"target"`
 }
 
 // expose is one entry of the with block's expose map: a container port
@@ -92,7 +104,6 @@ func (Container) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitt
 	if err != nil {
 		return nil, fmt.Errorf("container: start_timeout %q: %w", cfg.StartTimeout, err)
 	}
-	deadline := time.Now().Add(timeout)
 
 	runtime, err := newRuntime(req.Env)
 	if err != nil {
@@ -107,8 +118,26 @@ func (Container) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitt
 		return nil, err
 	}
 
+	labels := map[string]string{
+		cri.LabelProject: req.Env.Project,
+		cri.LabelScope:   cri.ScopeLabel(req.Env.Project, req.Env.Scope),
+		cri.LabelURN:     cri.URNLabel(req.Env.Project, req.Env.Scope, req.Step),
+	}
+
+	image := cfg.Image
+	if cfg.Build != nil {
+		image = imageTag(req.Env.Project, req.Step)
+		out.Progress("building", 0, 0)
+		err = runtime.Build(ctx, buildSpec(cfg.Build, image, req.Env.ProjectDir, labels), plugin.NewLineWriter(out, "build"))
+		if err != nil {
+			return nil, err
+		}
+		out.Progress("starting", 0, 0)
+	}
+	deadline := time.Now().Add(timeout)
+
 	spec := cri.RunSpec{
-		Image:      cfg.Image,
+		Image:      image,
 		Name:       name,
 		Network:    req.Env.Network,
 		Alias:      req.Step,
@@ -121,12 +150,8 @@ func (Container) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitt
 		Entrypoint: cfg.Entrypoint,
 		Ports:      buildPorts(cfg),
 		Volumes:    cfg.Volumes,
-		Labels: map[string]string{
-			cri.LabelProject: req.Env.Project,
-			cri.LabelScope:   cri.ScopeLabel(req.Env.Project, req.Env.Scope),
-			cri.LabelURN:     cri.URNLabel(req.Env.Project, req.Env.Scope, req.Step),
-		},
-		Env: buildEnv(cfg, req),
+		Labels:     labels,
+		Env:        buildEnv(cfg, req),
 	}
 	if cfg.Proxy && req.Env.CAPath != "" {
 		spec.Volumes = append(spec.Volumes, req.Env.CAPath+":"+caPath+":ro")
@@ -135,7 +160,7 @@ func (Container) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitt
 		spec.DNS = []string{req.Env.Relay}
 	}
 
-	out.Log("stdout", "starting "+cfg.Image)
+	out.Log("stdout", "starting "+image)
 	id, err := runtime.Run(ctx, spec)
 	if err != nil {
 		return nil, err
@@ -160,6 +185,34 @@ func (Container) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitt
 		Details:      stepDetails(exposed),
 		Containers:   containerInfo(id, name, info),
 	}, nil
+}
+
+// imageTag names the image that a build step produces. Image names must be
+// lowercase.
+func imageTag(project, step string) string {
+	return strings.ToLower("kevin-" + project + "-" + step + ":latest")
+}
+
+// buildSpec turns a build entry into a [cri.BuildSpec]. The context resolves
+// against projectDir when it is relative, and the Dockerfile against the
+// context, unless it is absolute.
+func buildSpec(b *buildConfig, tag, projectDir string, labels map[string]string) cri.BuildSpec {
+	dir := b.Context
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(projectDir, dir)
+	}
+	dockerfile := b.Dockerfile
+	if !filepath.IsAbs(dockerfile) {
+		dockerfile = filepath.Join(dir, dockerfile)
+	}
+	return cri.BuildSpec{
+		Context:    dir,
+		Dockerfile: dockerfile,
+		Tag:        tag,
+		Args:       b.Args,
+		Target:     b.Target,
+		Labels:     labels,
+	}
 }
 
 // containerInfo reports the one container a builtin:container step
@@ -394,6 +447,9 @@ func decode(data []byte) (config, error) {
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("container: decode config: %w", err)
+	}
+	if cfg.Build != nil && cfg.Build.Dockerfile == "" {
+		cfg.Build.Dockerfile = "Dockerfile"
 	}
 	// Repeat schema.cue's per-entry default too, for the same reason.
 	for name, e := range cfg.Expose {

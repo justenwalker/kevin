@@ -92,6 +92,8 @@ func (f fakeRuntime) Run(ctx context.Context, spec cri.RunSpec) (string, error) 
 
 func (fakeRuntime) Remove(context.Context, string) error { return nil }
 
+func (fakeRuntime) Build(context.Context, cri.BuildSpec, io.Writer) error { return nil }
+
 func (f fakeRuntime) Save(ctx context.Context, image string) (io.ReadCloser, error) {
 	if f.save == nil {
 		return io.NopCloser(strings.NewReader("")), nil
