@@ -469,6 +469,20 @@ func (s *e2eSuite) waitDockerLogs(name, want string, timeout time.Duration) stri
 	return ""
 }
 
+// stepContainer returns the name of project's container for step. The name
+// ends in a hash, so it is found by prefix instead of rebuilt.
+func (s *e2eSuite) stepContainer(project, step string) string {
+	t := s.T()
+	t.Helper()
+
+	out, err := exec.CommandContext(t.Context(), "docker", "ps", "-a",
+		"--filter", "name=^kevin-"+project+"-"+step+"-[0-9a-f]{8}$", "--format", "{{.Names}}").Output()
+	require.NoError(t, err)
+	names := strings.Fields(string(out))
+	require.Len(t, names, 1, "one container for step %s", step)
+	return names[0]
+}
+
 // readLogs reads dir's durable step log (.kevin/logs.ndjson).
 func (s *e2eSuite) readLogs(dir string) string {
 	b, err := os.ReadFile(filepath.Join(dir, ".kevin", "logs.ndjson"))

@@ -116,7 +116,7 @@ func (s *InterceptSuite) TestIntercept() {
 	// the unique marker that every step (mb, cp, ls, and the read-back)
 	// succeeded, since the earlier "echo ... > /tmp/hello.txt" writes to a
 	// file rather than stdout.
-	logs := s.waitDockerLogs("kevin-"+project+"-probe", "hello from kevin", defaultTimeout)
+	logs := s.waitDockerLogs(s.stepContainer(project, "probe"), "hello from kevin", defaultTimeout)
 	s.Contains(logs, "aws s3 mb: create the bucket")
 	s.Contains(logs, "aws s3 cp: upload a file")
 	s.Contains(logs, "aws s3 ls: list the bucket")

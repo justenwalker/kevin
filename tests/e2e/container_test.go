@@ -79,7 +79,7 @@ func (s *ContainerRelaySuite) TestRelayEntryReachesContainerAndSkipsPublish() {
 
 	// Checked while still up - Down removes the container, taking its
 	// published-port state with it.
-	s.assertNoPublishedPorts("kevin-" + project + "-web")
+	s.assertNoPublishedPorts(s.stepContainer(project, "web"))
 
 	s.Require().NoError(p.cmd.Process.Signal(syscall.SIGINT))
 	code := s.waitExit(p, defaultTimeout)

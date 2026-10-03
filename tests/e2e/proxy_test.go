@@ -145,7 +145,7 @@ func (s *ProxySuite) TestPACFileDirectFetch() {
 // proxy: false, so it carries no proxy environment at all, yet still
 // reaches web by step name over the docker network.
 func (s *ProxySuite) TestNoProxyStepReachesUpstreamWithoutProxyEnv() {
-	out := s.waitDockerLogs("kevin-kevin-e2e-proxy-noproxy", "Welcome to nginx", defaultTimeout)
+	out := s.waitDockerLogs(s.stepContainer("kevin-e2e-proxy", "noproxy"), "Welcome to nginx", defaultTimeout)
 	s.Contains(out, "Welcome to nginx", "noproxy must reach web over the docker network with no proxy env")
 }
 

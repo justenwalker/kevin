@@ -2,8 +2,9 @@
 // kevin.cue file of the user before anything runs.
 
 // project names the environment. project is also the prefix of every resource
-// that kevin creates. The default is the name of the project directory.
-project: string | *""
+// that kevin creates, so it must be lowercase letters and digits separated by
+// single hyphens. The default is the name of the project directory.
+project: *"" | =~"^[a-z0-9]+(-[a-z0-9]+)*$"
 
 // domain is the base name of the environment. A step is reachable through the
 // proxy at <step>.<domain>, and the proxy serves a proxy.pac that sends this

@@ -70,7 +70,7 @@ The flag is repeatable. Without the flag, the field keeps its value from the fil
 
 | Field | Type | Default | Description |
 |:------|:----:|:-------:|:------------|
-| `project` | `string` | directory name | Names the environment. Every resource kevin creates carries this name. A named environment defaults to `<directory>-<name>`. |
+| `project` | `string` | directory name | Names the environment. Use lowercase letters and digits separated by single hyphens. Every resource kevin creates carries this name. A named environment appends `-<name>`, so the default is `<directory>-<name>`. |
 | `domain` | `string` | `"kevin.home"` | Base domain for routes. The proxy serves `<host>.<domain>`. |
 | `plugins` | `{[name]: #Plugin}` | - | Third-party plugins. See [Plugins](#plugins). |
 | `setup` | `{[name]: #Step \| #StepGroup}` | - | Steps that persist across runs. `kevin setup` starts them and `kevin teardown` removes them. |

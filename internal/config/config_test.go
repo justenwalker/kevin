@@ -60,7 +60,7 @@ func TestLoad(t *testing.T) {
 		require.NoError(t, err)
 		cfg, err := f.Config()
 		require.NoError(t, err)
-		assert.Equal(t, "staging-env", cfg.Project)
+		assert.Equal(t, "staging-env-staging", cfg.Project)
 	})
 
 	t.Run("resolves a dotfile-named environment", func(t *testing.T) {
@@ -72,7 +72,7 @@ func TestLoad(t *testing.T) {
 		require.NoError(t, err)
 		cfg, err := f.Config()
 		require.NoError(t, err)
-		assert.Equal(t, "staging-hidden", cfg.Project)
+		assert.Equal(t, "staging-hidden-staging", cfg.Project)
 	})
 
 	t.Run("reports ambiguous candidates", func(t *testing.T) {
@@ -99,6 +99,14 @@ func TestLoad(t *testing.T) {
 				// project is a string in the core schema.
 				name: "a conflict with the core schema",
 				src:  `project: 42`,
+			},
+			{
+				name: "a project name with a space",
+				src:  `project: "my app"`,
+			},
+			{
+				name: "a project name with uppercase letters",
+				src:  `project: "MyApp"`,
 			},
 			{
 				name: "a plugins key that breaks the reference grammar",
@@ -344,7 +352,7 @@ project: "staging-env"`), 0o600))
 		require.NoError(t, err)
 		cfg, err = f.Config()
 		require.NoError(t, err)
-		assert.Equal(t, "staging-env", cfg.Project)
+		assert.Equal(t, "staging-env-staging", cfg.Project)
 	})
 
 	t.Run("a package-mode named sibling never conflicts with an unrelated package-less file", func(t *testing.T) {
@@ -1300,7 +1308,7 @@ relay: image: "kevin-relay:custom"
 		assert.Equal(t, "my-service-staging", cfg.Project)
 	})
 
-	t.Run("an explicit project field wins over the default even with a name", func(t *testing.T) {
+	t.Run("an explicit project field gets the name suffix", func(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "staging.kevin.cue"), []byte(listenBlockDefault+`project: "explicit"`), 0o600))
 
@@ -1309,8 +1317,8 @@ relay: image: "kevin-relay:custom"
 		cfg, err := f.Config()
 		require.NoError(t, err)
 
-		assert.Equal(t, "explicit", cfg.Project)
-		assert.Equal(t, "staging", cfg.Name, "Name still reports the resolved environment")
+		assert.Equal(t, "explicit-staging", cfg.Project)
+		assert.Equal(t, "staging", cfg.Name)
 	})
 
 	t.Run("rejects an incomplete value", func(t *testing.T) {

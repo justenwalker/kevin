@@ -25,7 +25,13 @@ func TestSchemaCarriesTheEmbeddedSchema(t *testing.T) {
 }
 
 func TestContainerName(t *testing.T) {
-	assert.Equal(t, "kevin-demo-api", containerName("demo", "api"))
+	t.Run("starts with the project and step", func(t *testing.T) {
+		assert.Regexp(t, `^kevin-demo-api-[0-9a-f]{8}$`, containerName("demo", "api"))
+	})
+
+	t.Run("differs when only the hyphen split moves", func(t *testing.T) {
+		assert.NotEqual(t, containerName("a", "b-c"), containerName("a-b", "c"))
+	})
 }
 
 func TestDecode(t *testing.T) {
@@ -640,7 +646,7 @@ func TestUpWithFakeEngine(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, result.Containers, 1)
 		assert.Equal(t, plugin.ContainerInfo{
-			ID: "abc123", Name: "kevin-demo-web", NetnsPath: "/proc/123/ns/net",
+			ID: "abc123", Name: containerName("demo", "web"), NetnsPath: "/proc/123/ns/net",
 		}, result.Containers[0])
 	})
 }
@@ -660,7 +666,7 @@ func TestDownWithFakeEngine(t *testing.T) {
 			Env:  plugin.Env{Project: "demo"},
 		}, &noopEmitter{})
 		require.NoError(t, err)
-		assert.Equal(t, "kevin-demo-web", removed)
+		assert.Equal(t, containerName("demo", "web"), removed)
 	})
 
 	t.Run("reports an unsupported engine before it touches any runtime", func(t *testing.T) {
@@ -685,12 +691,12 @@ func TestExportWithFakeEngine(t *testing.T) {
 			Env:  plugin.Env{Project: "demo", Network: "net"},
 		})
 		require.NoError(t, err)
-		assert.Equal(t, "kevin-demo-web", result.Out["name"].Reveal())
+		assert.Equal(t, containerName("demo", "web"), result.Out["name"].Reveal())
 		assert.Equal(t, "abc123", result.Out["id"].Reveal())
 		assert.Equal(t, "10.0.0.2", result.Out["ip"].Reveal())
 		require.Len(t, result.Containers, 1)
 		assert.Equal(t, "abc123", result.Containers[0].ID)
-		assert.Equal(t, "kevin-demo-web", result.Containers[0].Name)
+		assert.Equal(t, containerName("demo", "web"), result.Containers[0].Name)
 	})
 
 	t.Run("fails when the container is not running", func(t *testing.T) {

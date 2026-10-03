@@ -920,9 +920,9 @@ func (f *File) Config() (*Config, error) {
 	cfg.Name = SlugName(f.name)
 	if cfg.Project == "" {
 		cfg.Project = projectName(f.dir)
-		if cfg.Name != "" {
-			cfg.Project += "-" + cfg.Name
-		}
+	}
+	if cfg.Name != "" {
+		cfg.Project += "-" + cfg.Name
 	}
 	return cfg, nil
 }

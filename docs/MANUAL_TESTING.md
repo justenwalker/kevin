@@ -877,7 +877,7 @@ KEVIN_RELAY_IMAGE=kevin-relay:dev kevin -C /path/to/this run
       SOCKS5 gateway, the same way `examples/kind`'s `apiserver_ready`
       proves `builtin:kubernetes`'s own expose entries.
 - [ ] `docker inspect --format '{{json .NetworkSettings.Ports}}'
-      kevin-<project>-web` shows no `HostPort` - a `relay: true` entry never
+      $(docker ps -aq --filter name=kevin-<project>-web)` shows no `HostPort` - a `relay: true` entry never
       gets a `docker --publish` spec, unlike a plain `expose` entry.
 - [ ] Add a `builtin:exec` step needing `web` that curls
       `http://${needs.web.system.forward_web}/` - the `forward_web` system

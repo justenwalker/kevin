@@ -5,7 +5,9 @@ package container
 
 import (
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -299,9 +301,11 @@ var newRuntime = func(env plugin.Env) (cri.Runtime, error) { // a var so tests c
 	return rt, nil
 }
 
-// containerName builds the container name for one step of one project.
+// containerName builds the container name for one step of one project, with
+// a short hash of both to tell hyphenated names apart.
 func containerName(project, step string) string {
-	return "kevin-" + project + "-" + step
+	sum := sha256.Sum256([]byte(project + "\x00" + step))
+	return "kevin-" + project + "-" + step + "-" + hex.EncodeToString(sum[:4])
 }
 
 // buildEnv merges the environment of the step with SSL_CERT_FILE, when the
