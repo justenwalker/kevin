@@ -242,7 +242,7 @@ func runCommand(opts *options) *cobra.Command {
 // engine and removes it (and the address file) on the way out, whatever
 // the exit path. A --detach child reaches this same function once exec'd.
 func runForeground(ctx context.Context, opts *options, engineName, stateDir string, keep, open bool) error {
-	if err := writePID(stateDir, os.Getpid()); err != nil {
+	if err := claimPID(stateDir, os.Getpid()); err != nil {
 		return err
 	}
 	defer removeRunState(stateDir)

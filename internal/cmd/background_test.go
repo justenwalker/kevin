@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -136,6 +137,38 @@ func TestCheckNotRunning(t *testing.T) {
 		require.NoError(t, checkNotRunning(dir))
 		assert.NoFileExists(t, filepath.Join(dir, pidFileName))
 		assert.NoFileExists(t, filepath.Join(dir, addrFileName))
+	})
+}
+
+func TestClaimPID(t *testing.T) {
+	t.Run("only one concurrent claim wins", func(t *testing.T) {
+		dir := t.TempDir()
+		const claimers = 16
+		errs := make(chan error, claimers)
+		var wg sync.WaitGroup
+		for range claimers {
+			wg.Go(func() { errs <- claimPID(dir, os.Getpid()) })
+		}
+		wg.Wait()
+		close(errs)
+
+		wins := 0
+		for err := range errs {
+			if err == nil {
+				wins++
+				continue
+			}
+			require.ErrorIs(t, err, ErrAlreadyRunning)
+		}
+		assert.Equal(t, 1, wins)
+	})
+
+	t.Run("a stale pid is taken over", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, writePID(dir, deadPID(t)))
+
+		require.NoError(t, claimPID(dir, os.Getpid()))
+		assert.Equal(t, os.Getpid(), readPID(dir))
 	})
 }
 

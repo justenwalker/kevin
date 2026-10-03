@@ -7,7 +7,7 @@ weight: 1
 
 # `kevin run`
 
-Starts the `env` steps in dependency order and waits. On Ctrl-C, it removes the steps in reverse order.
+Starts the `env` steps in dependency order and waits. On Ctrl-C, it removes the steps in reverse order. A second Ctrl-C quits at once and leaves the rest for the next run to clean up. Removal stops after 5 minutes.
 
 With `--detach`/`-d`, `run` starts in the background, prints the console and proxy addresses, and returns. Stop it with [`kevin stop`]({{< relref "/docs/reference/commands/stop" >}}).
 

@@ -22,6 +22,7 @@ import (
 
 const (
 	pidFileName  = "kevin.pid"
+	lockFileName = "kevin.lock"
 	addrFileName = "kevin.json"
 	logFileName  = "run.log"
 )
@@ -80,6 +81,26 @@ func writePID(stateDir string, pid int) error {
 		return fmt.Errorf("cmd: run: write pidfile: %w", err)
 	}
 	return nil
+}
+
+// claimPID checks that no live run holds stateDir, then writes pid, under an
+// exclusive lock so two runs started together cannot both pass the check.
+func claimPID(stateDir string, pid int) error {
+	if err := os.MkdirAll(stateDir, 0o750); err != nil {
+		return fmt.Errorf("cmd: run: create state dir: %w", err)
+	}
+	lock, err := os.OpenFile(filepath.Join(stateDir, lockFileName), os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // path is the project's own workspace file
+	if err != nil {
+		return fmt.Errorf("cmd: run: open lock file: %w", err)
+	}
+	defer func() { _ = lock.Close() }()
+	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("cmd: run: lock %s: %w", lockFileName, err)
+	}
+	if err = checkNotRunning(stateDir); err != nil {
+		return err
+	}
+	return writePID(stateDir, pid)
 }
 
 // readPID reads stateDir's pidfile, reporting 0 when it's absent or
