@@ -16,8 +16,14 @@ import (
 
 	"github.com/justenwalker/kevin/internal/cmd"
 	"github.com/justenwalker/kevin/internal/config"
+	"github.com/justenwalker/kevin/internal/gittest"
 	"github.com/justenwalker/kevin/internal/pluginindex"
 )
+
+func TestMain(m *testing.M) {
+	gittest.Isolate()
+	os.Exit(m.Run())
+}
 
 // testMinisignKeyText generates a fresh, unencrypted minisign key pair and
 // returns its public key in minisign's 2-line text format - for

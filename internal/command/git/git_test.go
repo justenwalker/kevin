@@ -16,8 +16,14 @@ import (
 	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/command/commandtest"
 	"github.com/justenwalker/kevin/internal/command/git"
+	"github.com/justenwalker/kevin/internal/gittest"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
+
+func TestMain(m *testing.M) {
+	gittest.Isolate()
+	os.Exit(m.Run())
+}
 
 // initFixtureRepo creates a git repo at dir with one commit, so Clone has
 // something real to clone.

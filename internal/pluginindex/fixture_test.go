@@ -8,7 +8,14 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/justenwalker/kevin/internal/gittest"
 )
+
+func TestMain(m *testing.M) {
+	gittest.Isolate()
+	os.Exit(m.Run())
+}
 
 // indexMarker is a valid kevin-index.yaml body (layout 1).
 const indexMarker = "layout: 1\n"

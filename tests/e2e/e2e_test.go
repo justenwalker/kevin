@@ -31,6 +31,16 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
+// TestMain unsets the variables that point git at a repository, so the git
+// children of a test run on their own directory even when go test is
+// started from inside a git hook or rebase.
+func TestMain(m *testing.M) {
+	for _, name := range []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR"} {
+		_ = os.Unsetenv(name)
+	}
+	os.Exit(m.Run())
+}
+
 // defaultTimeout bounds every subprocess run. A hang fails the test loudly,
 // with whatever output was captured, instead of blocking forever - this is
 // the guard for the kind of regression that let "kevin run --keep" return
