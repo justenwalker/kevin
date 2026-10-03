@@ -187,3 +187,23 @@ func startFakeUpstreamDNS(t *testing.T) string {
 
 	return pc.LocalAddr().String()
 }
+
+func TestDNSServerRun(t *testing.T) {
+	t.Run("stops when its context ended before the servers started", func(t *testing.T) {
+		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.1:1", testFakeIPPool(t))
+		srv, err := bindDNSServer(t.Context(), "127.0.0.1:0", relay)
+		require.NoError(t, err)
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		done := make(chan error, 1)
+		go func() { done <- srv.run(ctx) }()
+
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "run kept serving after its context ended")
+		}
+	})
+}

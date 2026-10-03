@@ -219,6 +219,8 @@ func (s *dnsServer) run(ctx context.Context) error {
 // runDNSServer serves srv until ctx is done, and shuts srv down when it is.
 // srv must already carry a bound Listener or PacketConn.
 func runDNSServer(ctx context.Context, srv *dns.Server) error {
+	started := make(chan struct{})
+	srv.NotifyStartedFunc = func() { close(started) }
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ActivateAndServe() }()
 
@@ -229,8 +231,14 @@ func runDNSServer(ctx context.Context, srv *dns.Server) error {
 		}
 		return nil
 	case <-ctx.Done():
-		_ = srv.ShutdownContext(context.WithoutCancel(ctx))
-		<-errCh
+		// ShutdownContext fails on a server that has not started yet, and
+		// ActivateAndServe would then serve forever.
+		select {
+		case <-started:
+			_ = srv.ShutdownContext(context.WithoutCancel(ctx))
+			<-errCh
+		case <-errCh:
+		}
 		return nil
 	}
 }

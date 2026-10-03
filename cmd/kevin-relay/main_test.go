@@ -227,7 +227,7 @@ func TestServeForward(t *testing.T) {
 		case err := <-done:
 			require.NoError(t, err)
 		case <-time.After(5 * time.Second):
-			t.Fatal("the relay kept running after its context ended")
+			require.FailNow(t, "the relay kept running after its context ended")
 		}
 	})
 
@@ -279,7 +279,7 @@ func TestSocks5GatewayCommand(t *testing.T) {
 		case err := <-done:
 			require.NoError(t, err)
 		case <-time.After(5 * time.Second):
-			t.Fatal("the gateway kept running after its context ended")
+			require.FailNow(t, "the gateway kept running after its context ended")
 		}
 	})
 
