@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"crypto/tls"
+	"errors"
 	"net"
 	"testing"
 
@@ -189,4 +190,68 @@ func TestHandleHTTPSPipesTheClientHelloAndTheDataAfterIt(t *testing.T) {
 	}()
 
 	<-done
+}
+
+func TestServerNameParsers(t *testing.T) {
+	t.Run("a client hello cut short fails without panicking", func(t *testing.T) {
+		hello := captureClientHello(t, &tls.Config{ServerName: "api.kevin.home", InsecureSkipVerify: true})
+		body := hello[9:] // the record header, then the handshake header
+
+		for n := range body {
+			_, err := serverNameFromClientHello(body[:n])
+
+			require.Error(t, err, "a prefix of %d bytes cannot name a host", n)
+			assert.True(t, errors.Is(err, ErrTruncated) || errors.Is(err, ErrNoSNI), "got %v at %d bytes", err, n)
+		}
+	})
+
+	t.Run("extensions", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			data    []byte
+			wantErr error
+		}{
+			{name: "none", data: nil, wantErr: ErrNoSNI},
+			{name: "a cut type", data: []byte{0x00}, wantErr: ErrTruncated},
+			{name: "a cut length", data: []byte{0x00, 0x05, 0x00}, wantErr: ErrTruncated},
+			{name: "a cut body", data: []byte{0x00, 0x00, 0x00, 0x05, 0x01}, wantErr: ErrTruncated},
+			{name: "only another extension", data: []byte{0x00, 0x0b, 0x00, 0x00}, wantErr: ErrNoSNI},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, err := serverNameFromExtensions(tt.data)
+
+				require.ErrorIs(t, err, tt.wantErr)
+			})
+		}
+	})
+
+	t.Run("the server_name extension", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			data    []byte
+			want    string
+			wantErr error
+		}{
+			{name: "empty", data: nil, wantErr: ErrTruncated},
+			{name: "a list longer than the data", data: []byte{0x00, 0x05, 0x00}, wantErr: ErrTruncated},
+			{name: "an empty list", data: []byte{0x00, 0x00}, wantErr: ErrNoSNI},
+			{name: "a cut name length", data: []byte{0x00, 0x02, 0x00, 0x00}, wantErr: ErrTruncated},
+			{name: "a name longer than the list", data: []byte{0x00, 0x04, 0x00, 0x00, 0x05, 'a'}, wantErr: ErrTruncated},
+			{name: "only a name of another type", data: []byte{0x00, 0x04, 0x01, 0x00, 0x01, 'a'}, wantErr: ErrNoSNI},
+			{name: "a host name", data: []byte{0x00, 0x06, 0x00, 0x00, 0x03, 'a', 'b', 'c'}, want: "abc"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				got, err := serverNameFromExtension(tt.data)
+
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, got)
+			})
+		}
+	})
 }

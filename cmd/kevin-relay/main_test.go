@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/miekg/dns"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -190,4 +191,131 @@ func TestAcceptLoop(t *testing.T) {
 			t.Fatal("acceptLoop never ran handle for the connection")
 		}
 	})
+}
+
+func TestServeForward(t *testing.T) {
+	loopback := config{
+		domain: "kevin.home", proxyAddr: "127.0.0.1:1", self: "127.0.0.1", upstreamDNS: "127.0.0.1:1",
+		dnsListen: "127.0.0.1:0", httpListen: "127.0.0.1:0", httpsListen: "127.0.0.1:0",
+		socks5Listen: "127.0.0.1:0", controlListen: "127.0.0.1:0",
+	}
+
+	t.Run("binds every listener and stops with its context", func(t *testing.T) {
+		controlCertEnv(t)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		p, err := newRelayProcess(ctx, loopback)
+		require.NoError(t, err)
+		for _, addr := range []string{p.dnsAddr(), p.httpAddr(), p.httpsAddr(), p.socks5Addr(), p.controlAddr()} {
+			assert.NotEmpty(t, addr)
+		}
+
+		done := make(chan error, 1)
+		go func() { done <- p.run(ctx) }()
+
+		req := new(dns.Msg)
+		req.SetQuestion("web.kevin.home.", dns.TypeA)
+		client := dns.Client{Timeout: time.Second}
+		require.Eventually(t, func() bool {
+			_, _, err := client.Exchange(req, p.dnsAddr())
+			return err == nil
+		}, 5*time.Second, 20*time.Millisecond, "the DNS server never started answering")
+		cancel()
+
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("the relay kept running after its context ended")
+		}
+	})
+
+	t.Run("serveForward reports a listener that cannot bind", func(t *testing.T) {
+		controlCertEnv(t)
+		var lc net.ListenConfig
+		taken, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = taken.Close() })
+		cfg := loopback
+		cfg.httpsListen = taken.Addr().String()
+
+		err = serveForward(t.Context(), cfg)
+
+		require.ErrorContains(t, err, "listen https")
+	})
+
+	t.Run("rejects a malformed UDP port range", func(t *testing.T) {
+		controlCertEnv(t)
+		cfg := loopback
+		cfg.udpRelayPorts = "nope"
+
+		_, err := newRelayProcess(t.Context(), cfg)
+
+		require.ErrorIs(t, err, ErrInvalidUDPRelayPorts)
+	})
+
+	t.Run("fails without control TLS material", func(t *testing.T) {
+		t.Setenv(tlsCertEnv, "")
+
+		_, err := newRelayProcess(t.Context(), loopback)
+
+		require.ErrorContains(t, err, "control tls certificate")
+	})
+}
+
+func TestSocks5GatewayCommand(t *testing.T) {
+	t.Run("serves until its context ends", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cmd := socks5GatewayCommand()
+		cmd.SetArgs([]string{"--listen", "127.0.0.1:0"})
+		cmd.SilenceUsage, cmd.SilenceErrors = true, true
+
+		done := make(chan error, 1)
+		go func() { done <- cmd.ExecuteContext(ctx) }()
+		cancel()
+
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("the gateway kept running after its context ended")
+		}
+	})
+
+	t.Run("rejects a malformed UDP port range", func(t *testing.T) {
+		cmd := socks5GatewayCommand()
+		cmd.SetArgs([]string{"--listen", "127.0.0.1:0", "--udp-relay-ports", "nope"})
+		cmd.SilenceUsage, cmd.SilenceErrors = true, true
+
+		require.ErrorIs(t, cmd.ExecuteContext(t.Context()), ErrInvalidUDPRelayPorts)
+	})
+
+	t.Run("reports an address it cannot bind", func(t *testing.T) {
+		cmd := socks5GatewayCommand()
+		cmd.SetArgs([]string{"--listen", "not an address"})
+		cmd.SilenceUsage, cmd.SilenceErrors = true, true
+
+		require.ErrorContains(t, cmd.ExecuteContext(t.Context()), "listen socks5")
+	})
+}
+
+func TestRun(t *testing.T) {
+	t.Run("exits 1 for an unknown command", func(t *testing.T) {
+		assert.Equal(t, 1, run([]string{"nonsense"}))
+	})
+
+	t.Run("exits 1 for a command that fails", func(t *testing.T) {
+		assert.Equal(t, 1, run([]string{"socks5-gateway", "--listen", "not an address"}))
+	})
+}
+
+func TestRootCommand(t *testing.T) {
+	commands := rootCommand().Commands()
+	names := make([]string, 0, len(commands))
+	for _, c := range commands {
+		names = append(names, c.Name())
+	}
+
+	assert.ElementsMatch(t, []string{"forward", "socks5-gateway", "port-forward"}, names)
 }
