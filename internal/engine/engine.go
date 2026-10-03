@@ -348,13 +348,19 @@ func earlyCleanup(ctx context.Context, r *run, committed *bool) func() {
 	}
 }
 
+// shutdownTimeout bounds how long shutdown waits for steps, the relay, and
+// orphans to be removed.
+const shutdownTimeout = 5 * time.Minute
+
 // shutdown removes the run's steps. keep leaves everything, including the
 // relay, in place; otherwise the relay only stops if the other scope
 // isn't still live and sharing it.
 func (r *run) shutdown(ctx context.Context, rl *relay.Relay, keep bool) error {
 	// Removal needs a live context. Reaching this line usually means that the
-	// user pressed Ctrl-C, which already canceled ctx.
-	downCtx := context.WithoutCancel(ctx)
+	// user pressed Ctrl-C, which already canceled ctx. The timeout keeps a
+	// hung container engine from holding the process forever.
+	downCtx, cancelDown := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+	defer cancelDown()
 	var downErr error
 	if !keep {
 		downErr = r.down(downCtx)

@@ -85,6 +85,8 @@ func writePID(stateDir string, pid int) error {
 
 // claimPID checks that no live run holds stateDir, then writes pid, under an
 // exclusive lock so two runs started together cannot both pass the check.
+// The lock file is never removed: unlinking it while another run waits on
+// the lock would let a third run lock a fresh file and skip the wait.
 func claimPID(stateDir string, pid int) error {
 	if err := os.MkdirAll(stateDir, 0o750); err != nil {
 		return fmt.Errorf("cmd: run: create state dir: %w", err)
