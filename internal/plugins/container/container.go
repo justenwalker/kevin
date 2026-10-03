@@ -34,6 +34,10 @@ const pollInterval = 100 * time.Millisecond
 type config struct {
 	Image        string            `json:"image"`
 	Pull         bool              `json:"pull"`
+	User         string            `json:"user"`
+	Workdir      string            `json:"workdir"`
+	CPUs         string            `json:"cpus"`
+	Memory       string            `json:"memory"`
 	Cmd          []string          `json:"cmd"`
 	Entrypoint   []string          `json:"entrypoint"`
 	Env          map[string]string `json:"env"`
@@ -109,6 +113,10 @@ func (Container) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitt
 		Network:    req.Env.Network,
 		Alias:      req.Step,
 		Pull:       cfg.Pull,
+		User:       cfg.User,
+		Workdir:    cfg.Workdir,
+		CPUs:       cfg.CPUs,
+		Memory:     cfg.Memory,
 		Cmd:        cfg.Cmd,
 		Entrypoint: cfg.Entrypoint,
 		Ports:      buildPorts(cfg),

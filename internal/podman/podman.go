@@ -268,6 +268,7 @@ func runArgs(spec cri.RunSpec) []string {
 	if len(spec.Entrypoint) > 0 {
 		args = append(args, "--entrypoint", spec.Entrypoint[0])
 	}
+	args = append(args, processArgs(spec)...)
 
 	args = append(args, labelArgs(spec.Labels)...)
 
@@ -300,6 +301,24 @@ func runArgs(spec cri.RunSpec) []string {
 		args = append(args, spec.Entrypoint[1:]...)
 	}
 	return append(args, spec.Cmd...)
+}
+
+// processArgs builds the flags for the user, working directory, and limits.
+func processArgs(spec cri.RunSpec) []string {
+	var args []string
+	if spec.User != "" {
+		args = append(args, "--user", spec.User)
+	}
+	if spec.Workdir != "" {
+		args = append(args, "--workdir", spec.Workdir)
+	}
+	if spec.CPUs != "" {
+		args = append(args, "--cpus", spec.CPUs)
+	}
+	if spec.Memory != "" {
+		args = append(args, "--memory", spec.Memory)
+	}
+	return args
 }
 
 func labelArgs(labels map[string]string) []string {

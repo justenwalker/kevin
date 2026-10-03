@@ -87,6 +87,18 @@ type RunSpec struct {
 
 	// Pull fetches the image before the container starts.
 	Pull bool
+
+	// User sets the user that the container runs as, such as "1000:1000".
+	User string
+
+	// Workdir sets the working directory inside the container.
+	Workdir string
+
+	// CPUs limits the CPUs that the container can use, such as "1.5".
+	CPUs string
+
+	// Memory limits the memory that the container can use, such as "512m".
+	Memory string
 }
 
 // StatusExited reports whether an inspect state status means the container

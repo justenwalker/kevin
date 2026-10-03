@@ -68,6 +68,22 @@ func TestDecode(t *testing.T) {
 		assert.Equal(t, "5s", cfg.StartTimeout)
 	})
 
+	t.Run("reads user, workdir, and limits", func(t *testing.T) {
+		cfg, err := decode([]byte(`{
+			"image": "nginx:alpine",
+			"user": "1000:1000",
+			"workdir": "/app",
+			"cpus": "1.5",
+			"memory": "512m"
+		}`))
+		require.NoError(t, err)
+
+		assert.Equal(t, "1000:1000", cfg.User)
+		assert.Equal(t, "/app", cfg.Workdir)
+		assert.Equal(t, "1.5", cfg.CPUs)
+		assert.Equal(t, "512m", cfg.Memory)
+	})
+
 	t.Run("reads expose", func(t *testing.T) {
 		cfg, err := decode([]byte(`{
 			"image": "postgres:16",
@@ -588,6 +604,30 @@ func TestUpWithFakeEngine(t *testing.T) {
 			Config: []byte(`{"image":"nginx"}`),
 		}, &noopEmitter{})
 		require.ErrorIs(t, err, ErrUnsupportedEngine)
+	})
+
+	t.Run("passes user, workdir, and limits to the engine", func(t *testing.T) {
+		var gotSpec cri.RunSpec
+		useFakeRuntime(t, fakeRuntime{
+			run: func(_ context.Context, spec cri.RunSpec) (string, error) {
+				gotSpec = spec
+				return "abc123", nil
+			},
+			inspect: func(context.Context, string) (cri.Container, error) {
+				return cri.Container{Running: true}, nil
+			},
+		})
+
+		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+			Step:   "api",
+			Config: []byte(`{"image":"nginx","user":"1000:1000","workdir":"/app","cpus":"1.5","memory":"512m"}`),
+		}, &noopEmitter{})
+		require.NoError(t, err)
+
+		assert.Equal(t, "1000:1000", gotSpec.User)
+		assert.Equal(t, "/app", gotSpec.Workdir)
+		assert.Equal(t, "1.5", gotSpec.CPUs)
+		assert.Equal(t, "512m", gotSpec.Memory)
 	})
 
 	t.Run("routes a relay entry through the relay instead of publishing it", func(t *testing.T) {

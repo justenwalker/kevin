@@ -159,6 +159,26 @@ func TestRunArgs(t *testing.T) {
 		}, args)
 	})
 
+	t.Run("sets user, workdir, and limits", func(t *testing.T) {
+		args := runArgs(cri.RunSpec{
+			Image:   "busybox",
+			Name:    "c",
+			User:    "1000:1000",
+			Workdir: "/app",
+			CPUs:    "1.5",
+			Memory:  "512m",
+		})
+
+		assert.Equal(t, []string{
+			"run", "--detach", "--name", "c",
+			"--user", "1000:1000",
+			"--workdir", "/app",
+			"--cpus", "1.5",
+			"--memory", "512m",
+			"busybox",
+		}, args)
+	})
+
 	t.Run("is stable across calls", func(t *testing.T) {
 		// A map has no order. The arguments must not change between two
 		// runs, or a diff of the command line becomes noise.

@@ -25,6 +25,10 @@ web: {
 | `pull` | `bool` | - | Fetches the image before the container starts. |
 | `cmd` | `[...string]` | - | Replaces the command of the image. |
 | `entrypoint` | `[...string]` | - | Replaces the entrypoint of the image, such as [`"sh"`, `"-c"`]. Unset keeps the image's own entrypoint. |
+| `user` | `string` | - | Sets the user the container runs as, such as `"1000:1000"` or `"app"`. |
+| `workdir` | `string` | - | Sets the working directory inside the container. |
+| `cpus` | `string & =~"^[0-9]+(\\.[0-9]+)?$"` | - | Limits the CPUs the container can use, such as `"1.5"`. |
+| `memory` | `string & =~"^[0-9]+[bkmg]?$"` | - | Limits the memory the container can use, such as `"512m"`. The suffix is b, k, m, or g. |
 | `env` | `[string]: string` | - | Holds extra environment variables for the container. |
 | `ports` | `[...string]` | - | Publish a container port on the host, such as `"8080:80"`. Steps reach each other by step name and do not need a published port. |
 | `volumes` | `[...string]` | - | Mount a host path, such as `"/src:/dst:ro"`. |

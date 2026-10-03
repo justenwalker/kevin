@@ -12,6 +12,19 @@
 	// Unset keeps the image's own entrypoint.
 	entrypoint?: [...string]
 
+	// user sets the user the container runs as, such as "1000:1000" or "app".
+	user?: string
+
+	// workdir sets the working directory inside the container.
+	workdir?: string
+
+	// cpus limits the CPUs the container can use, such as "1.5".
+	cpus?: string & =~"^[0-9]+(\\.[0-9]+)?$"
+
+	// memory limits the memory the container can use, such as "512m". The
+	// suffix is b, k, m, or g.
+	memory?: string & =~"^[0-9]+[bkmg]?$"
+
 	// env holds extra environment variables for the container.
 	env?: [string]: string
 
