@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -166,10 +168,75 @@ func TestClient(t *testing.T) {
 		require.NoError(t, c.ImageLoad(t.Context(), "demo", "/home", "/img.tar", io.Discard))
 	})
 
+	t.Run("ImageLoad wraps a failure", func(t *testing.T) {
+		c := run(t, errors.New("exit status 1"), nil)
+		err := c.ImageLoad(t.Context(), "demo", "/home", "/img.tar", io.Discard)
+		require.ErrorContains(t, err, "minikube: image load")
+	})
+
 	t.Run("a missing binary reads as not installed", func(t *testing.T) {
 		c := run(t, exec.ErrNotFound, nil)
 		err := c.Delete(t.Context(), "demo", "/home", io.Discard)
 		require.ErrorIs(t, err, exec.ErrNotFound)
 		assert.Contains(t, uerr.Display(err), "minikube isn't installed")
 	})
+}
+
+func TestAvailable(t *testing.T) {
+	onPath := func(t *testing.T) {
+		t.Helper()
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, Binary), []byte("#!/bin/sh\n"), 0o755))
+		t.Setenv("PATH", dir)
+	}
+
+	t.Run("reports a binary that is not on PATH", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+
+		err := New(commandtest.NewMockRunner(t)).Available(t.Context())
+
+		require.ErrorIs(t, err, ErrUnavailable)
+	})
+
+	t.Run("runs minikube version", func(t *testing.T) {
+		onPath(t)
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				assert.Equal(t, []string{Binary, "version", "--short"}, cmd.Args)
+				return nil
+			})
+
+		require.NoError(t, New(runner).Available(t.Context()))
+	})
+
+	t.Run("includes what minikube wrote to stderr", func(t *testing.T) {
+		onPath(t)
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, cmd *exec.Cmd) error {
+				_, _ = io.WriteString(cmd.Stderr, "driver is broken\n")
+				return errors.New("exit status 1")
+			})
+
+		err := New(runner).Available(t.Context())
+
+		require.ErrorIs(t, err, ErrUnavailable)
+		assert.ErrorContains(t, err, "driver is broken")
+	})
+
+	t.Run("reports a failure with no stderr", func(t *testing.T) {
+		onPath(t)
+		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).Return(errors.New("exit status 1"))
+
+		err := New(runner).Available(t.Context())
+
+		require.ErrorIs(t, err, ErrUnavailable)
+		assert.ErrorContains(t, err, "minikube version --short")
+	})
+}
+
+func TestError(t *testing.T) {
+	assert.Equal(t, "minikube: the minikube command is unavailable", ErrUnavailable.Error())
 }
