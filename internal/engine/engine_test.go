@@ -633,6 +633,18 @@ env: {
 	assert.Contains(t, string(logs), "removing slow")
 }
 
+func TestRerunStep(t *testing.T) {
+	t.Run("rejects an unknown step without recording it", func(t *testing.T) {
+		store := session.NewStore()
+		r := &run{store: store, steps: map[string]config.Step{"web": {}}}
+
+		err := r.RerunStep(t.Context(), "nope", false)
+
+		require.ErrorIs(t, err, session.ErrUnknownStep)
+		assert.Empty(t, store.Snapshot().Steps)
+	})
+}
+
 func TestWarnDenied(t *testing.T) {
 	start := time.Now()
 	newRun := func(requests ...session.Request) (*run, *bytes.Buffer) {

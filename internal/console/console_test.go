@@ -729,6 +729,14 @@ func TestRerun(t *testing.T) {
 		assert.Equal(t, http.StatusConflict, post(s, "/steps/web/rerun").Code)
 	})
 
+	t.Run("reports a step that does not exist", func(t *testing.T) {
+		s := New(Config{Project: "demo", Store: session.NewStore(), Rerun: func(context.Context, string, bool) error {
+			return session.ErrUnknownStep
+		}})
+
+		assert.Equal(t, http.StatusNotFound, post(s, "/steps/nope/rerun").Code)
+	})
+
 	t.Run("accepts a rerun that failed, since the stream already reported it", func(t *testing.T) {
 		s := New(Config{Project: "demo", Store: session.NewStore(), Rerun: func(context.Context, string, bool) error {
 			return errors.New("boom")

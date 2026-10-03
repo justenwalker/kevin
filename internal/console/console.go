@@ -198,10 +198,15 @@ func (s *Server) rerun(w http.ResponseWriter, r *http.Request) {
 		log.Ctx(r.Context()).Debug("rerun step", "step", name, "error", err)
 		// A step that ran and failed already reported it over the SSE
 		// stream (RerunStep's own doc comment); this handler has nothing
-		// to add. A step rejected before it ran at all (ErrStepBusy) never
-		// touched the store, so it's the one case worth an HTTP error.
+		// to add. A step rejected before it ran at all (ErrStepBusy,
+		// ErrUnknownStep) never touched the store, so those are the cases
+		// worth an HTTP error.
 		if errors.Is(err, session.ErrStepBusy) {
 			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if errors.Is(err, session.ErrUnknownStep) {
+			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
 	}

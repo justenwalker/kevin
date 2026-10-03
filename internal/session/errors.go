@@ -9,3 +9,7 @@ func (e Error) Error() string { return string(e) }
 // initial bring-up hasn't reached it yet, or an earlier rerun is still in
 // flight - so a new rerun request for it is rejected rather than queued.
 const ErrStepBusy = Error("session: step is already running")
+
+// ErrUnknownStep reports that a rerun named a step the environment does not
+// declare.
+const ErrUnknownStep = Error("session: no such step")

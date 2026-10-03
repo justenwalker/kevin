@@ -1728,6 +1728,10 @@ func (r *run) up(ctx context.Context) error {
 // idempotent. name itself always runs, regardless of its own idempotent
 // flag - it was targeted directly.
 func (r *run) RerunStep(ctx context.Context, name string, cascade bool) error {
+	if _, ok := r.steps[name]; !ok {
+		return fmt.Errorf("%s: %w", name, session.ErrUnknownStep)
+	}
+
 	completed := r.snapshotCompleted()
 
 	toRun := map[string]bool{name: true}
