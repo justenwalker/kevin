@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/cri"
@@ -37,20 +38,21 @@ func (r *run) reap(ctx context.Context) error {
 		skip[name] = struct{}{}
 	}
 
+	var errs []error
 	for _, name := range names {
 		if _, ok := skip[name]; ok {
 			continue
 		}
 		r.emit(name, "orphan, removing")
 		if removeErr := r.runtime.Remove(ctx, name); removeErr != nil {
-			return removeErr
+			errs = append(errs, removeErr)
 		}
 	}
 
-	if len(otherLive) > 0 {
-		return nil
+	if len(otherLive) == 0 {
+		errs = append(errs, r.runtime.NetworkRemove(ctx, NetworkName(r.cfg.Project)))
 	}
-	return r.runtime.NetworkRemove(ctx, NetworkName(r.cfg.Project))
+	return errors.Join(errs...)
 }
 
 // otherScopeLive reports the container names of this project's other scope

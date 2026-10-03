@@ -43,6 +43,7 @@ import (
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/protos/pb"
 )
 
@@ -1862,14 +1863,98 @@ func TestStartProxyGatewayPort(t *testing.T) {
 		defer func() { _ = held.Close() }()
 		heldPort := mustPort(t, held.Addr().String())
 
+		var lc net.ListenConfig
+		probe, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		listen := probe.Addr().String()
+		require.NoError(t, probe.Close())
+
 		_, err = startProxy(t.Context(), dockerClient, authority, proxyOptions{
 			Network:     network,
-			Listen:      "127.0.0.1:0",
+			Listen:      listen,
 			GatewayPort: heldPort,
 			Domain:      "kevin.test",
 		})
 		require.Error(t, err, "a port already in use must fail, not fall back silently")
+
+		again, err := lc.Listen(t.Context(), "tcp", listen)
+		require.NoError(t, err, "a failed startProxy must release its primary listener")
+		require.NoError(t, again.Close())
 	})
+}
+
+// gatewayRuntime is a cri.Runtime double whose network has a fixed gateway.
+type gatewayRuntime struct {
+	cri.Runtime
+
+	gateway    cri.Gateway
+	gatewayErr error
+}
+
+func (g gatewayRuntime) NetworkGateway(context.Context, string) (cri.Gateway, error) {
+	return g.gateway, g.gatewayErr
+}
+
+// freeLoopbackAddr returns a loopback address that nothing listens on.
+func freeLoopbackAddr(t *testing.T) string {
+	t.Helper()
+	var lc net.ListenConfig
+	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+	return addr
+}
+
+// TestStartProxyReleasesListeners proves that a failed startProxy leaves no
+// listener bound, using a loopback gateway so no docker daemon is needed.
+func TestStartProxyReleasesListeners(t *testing.T) {
+	t.Setenv(state.UserStateDirEnv, t.TempDir())
+	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+	authority, err := ca.NewManager("cwd", "", "proxy-release", ca.Options{}).LoadOrGenerateIntermediate()
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		rt   func(t *testing.T) (gatewayRuntime, int)
+	}{
+		{
+			name: "the gateway lookup fails",
+			rt: func(*testing.T) (gatewayRuntime, int) {
+				return gatewayRuntime{gatewayErr: assert.AnError}, 0
+			},
+		},
+		{
+			name: "the gateway port is already in use",
+			rt: func(t *testing.T) (gatewayRuntime, int) {
+				t.Helper()
+				var lc net.ListenConfig
+				held, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = held.Close() })
+				return gatewayRuntime{gateway: cri.Gateway{V4: netip.MustParseAddr("127.0.0.1")}}, mustPort(t, held.Addr().String())
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rt, port := tt.rt(t)
+			listen := freeLoopbackAddr(t)
+
+			_, err := startProxy(t.Context(), rt, authority, proxyOptions{
+				Network:     "net",
+				Listen:      listen,
+				GatewayPort: port,
+				Domain:      "kevin.test",
+			})
+			require.Error(t, err)
+
+			var lc net.ListenConfig
+			again, err := lc.Listen(t.Context(), "tcp", listen)
+			require.NoError(t, err, "the primary listener must be released")
+			require.NoError(t, again.Close())
+		})
+	}
 }
 
 // bindGatewayPort reserves a free port on the gateway address and reports
@@ -1982,5 +2067,27 @@ func TestRecordAndClearFaults(t *testing.T) {
 		// nothing recorded for name.
 		r := &run{}
 		r.clearFaults(t.Context(), "never-applied-anything")
+	})
+}
+
+type fakeForward struct{ closed int }
+
+func (f *fakeForward) Addr() net.Addr { return &net.TCPAddr{} }
+func (f *fakeForward) Close() error   { f.closed++; return nil }
+
+func TestCloseStepForwards(t *testing.T) {
+	t.Run("closeStepForwards closes only that step's forwards", func(t *testing.T) {
+		r := &run{}
+		web, db := &fakeForward{}, &fakeForward{}
+		r.addForward("web", web)
+		r.addForward("db", db)
+
+		r.closeStepForwards("web")
+		assert.Equal(t, 1, web.closed)
+		assert.Equal(t, 0, db.closed)
+
+		require.NoError(t, r.closeForwards())
+		assert.Equal(t, 1, web.closed, "a closed forward is not closed again")
+		assert.Equal(t, 1, db.closed)
 	})
 }

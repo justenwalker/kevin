@@ -547,12 +547,19 @@ func startProxy(ctx context.Context, rt cri.Runtime, authority *ca.CA, opts prox
 		return nil, fmt.Errorf("supervisor: listen on %s: %w", opts.Listen, err)
 	}
 
+	listeners := []net.Listener{ln}
+	closeAll := func() {
+		for _, l := range listeners {
+			_ = l.Close()
+		}
+	}
+
 	gateway, err := rt.NetworkGateway(ctx, opts.Network)
 	if err != nil {
+		closeAll()
 		return nil, err
 	}
 
-	listeners := []net.Listener{ln}
 	gatewayAddr := ln.Addr().String()
 	if gateway.V4.IsValid() {
 		gatewayLn, bindErr := bindGatewayAddr(ctx, &lc, gateway.V4, opts.GatewayPort)
@@ -567,6 +574,7 @@ func startProxy(ctx context.Context, rt cri.Runtime, authority *ca.CA, opts prox
 			// listener on the host loopback, so the primary listener covers
 			// the relay too.
 		default:
+			closeAll()
 			return nil, bindErr
 		}
 	}
@@ -979,7 +987,7 @@ type run struct {
 	stepLog    *slog.Logger
 
 	forwardsMu sync.Mutex
-	forwards   []forward
+	forwards   map[string][]forward
 
 	// systemOutputs maps a step name to kevin-computed values (currently
 	// expose_<name>/forward_<name> for an ExposedPort) - kept separate from
@@ -1125,12 +1133,28 @@ type forward interface {
 	Close() error
 }
 
-// addForward records f for closeForwards to close at session teardown.
-// Concurrent DAG steps call this from separate goroutines during r.up.
-func (r *run) addForward(f forward) {
+// addForward records f under step for closeForwards to close at session
+// teardown. Concurrent DAG steps call this from separate goroutines during
+// r.up.
+func (r *run) addForward(step string, f forward) {
 	r.forwardsMu.Lock()
-	r.forwards = append(r.forwards, f)
+	if r.forwards == nil {
+		r.forwards = make(map[string][]forward)
+	}
+	r.forwards[step] = append(r.forwards[step], f)
 	r.forwardsMu.Unlock()
+}
+
+// closeStepForwards closes the forwards a previous Up of step opened, so a
+// rerun does not stack listeners.
+func (r *run) closeStepForwards(step string) {
+	r.forwardsMu.Lock()
+	old := r.forwards[step]
+	delete(r.forwards, step)
+	r.forwardsMu.Unlock()
+	for _, f := range old {
+		_ = f.Close()
+	}
 }
 
 // exposePort records ep's upstream as a system output, and - for a
@@ -1155,7 +1179,7 @@ func (r *run) exposePort(ctx context.Context, name string, ep *pb.ExposedPort, s
 		r.emit(name, "warning: local forward for "+ep.GetName()+": "+fwdErr.Error())
 		return
 	}
-	r.addForward(pf)
+	r.addForward(name, pf)
 	addr := pf.Addr().String()
 	r.emit(name, fmt.Sprintf("forwarding %s at %s", ep.GetName(), addr))
 	r.store.AddStepDetail(name, session.Detail{
@@ -1168,10 +1192,13 @@ func (r *run) exposePort(ctx context.Context, name string, ep *pb.ExposedPort, s
 func (r *run) closeForwards() error {
 	r.forwardsMu.Lock()
 	forwards := r.forwards
+	r.forwards = nil
 	r.forwardsMu.Unlock()
-	errs := make([]error, len(forwards))
-	for i, pf := range forwards {
-		errs[i] = pf.Close()
+	var errs []error
+	for _, fs := range forwards {
+		for _, pf := range fs {
+			errs = append(errs, pf.Close())
+		}
 	}
 	return errors.Join(errs...)
 }
@@ -1566,6 +1593,7 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	}
 	r.recordContainers(name, result.GetContainers())
 	systemThis := dag.Outputs{}
+	r.closeStepForwards(name)
 	for _, ep := range result.GetExposedPorts() {
 		r.exposePort(ctx, name, ep, systemThis)
 	}
