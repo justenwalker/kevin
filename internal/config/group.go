@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"cuelang.org/go/cue"
 	cueerrors "cuelang.org/go/cue/errors"
@@ -140,6 +141,9 @@ func (f *File) decodeScope(scopeName string) (scopeEntries, error) {
 				return scopeEntries{}, f.wrapAt(entryPath.Append(cue.Str("needs")),
 					fmt.Errorf("config: %s.%s.needs: %w", scopeName, name, err))
 			}
+			if err := f.parseTimeout(scopeName+"."+name, entryPath, &step); err != nil {
+				return scopeEntries{}, err
+			}
 			entries.Steps[name] = step
 			entries.Paths[name] = entryPath
 			continue
@@ -185,6 +189,9 @@ func (f *File) decodeGroup(scopeName, name string, groupPath cue.Path, raw json.
 				fmt.Errorf("config: %s.%s.steps.%s.needs: %w", scopeName, name, member, err))
 		}
 		step.Needs = unionNeeds(step.Needs, g.Needs)
+		if err := f.parseTimeout(fmt.Sprintf("%s.%s.steps.%s", scopeName, name, member), memberPath, &step); err != nil {
+			return err
+		}
 
 		flat := name + groupMemberSep + member
 		entries.Steps[flat] = step
@@ -230,6 +237,21 @@ func unionNeeds(a, b []string) []string {
 		out = append(out, n)
 	}
 	return out
+}
+
+// parseTimeout sets step.TimeoutDuration from step.Timeout. who names the
+// step in the error, and path is the step's own CUE source path.
+func (f *File) parseTimeout(who string, path cue.Path, step *Step) error {
+	if step.Timeout == "" {
+		return nil
+	}
+	d, err := time.ParseDuration(step.Timeout)
+	if err != nil || d <= 0 {
+		return f.wrapAt(path.Append(cue.Str("timeout")),
+			fmt.Errorf("config: %s.timeout %q: %w", who, step.Timeout, ErrBadTimeout))
+	}
+	step.TimeoutDuration = d
+	return nil
 }
 
 // reservedKeyErr reports [ErrReservedKeyChar] for the key at p.

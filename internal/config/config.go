@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
@@ -129,6 +130,11 @@ type Step struct {
 	// Label is a friendly display name for the console. Empty means the
 	// step's own key names it instead.
 	Label string `json:"label"`
+
+	// Timeout is the step's timeout field as written. TimeoutDuration is its
+	// parsed value, set by decodeScope; zero means no limit.
+	Timeout         string        `json:"timeout"`
+	TimeoutDuration time.Duration `json:"-"`
 }
 
 // Command is one entry of the commands block, run on demand by name.

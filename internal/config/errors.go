@@ -48,6 +48,9 @@ const (
 	// step that the step's own needs list does not declare.
 	ErrUndeclaredNeed = Error("config: with block references a step its needs list does not declare")
 
+	// ErrBadTimeout reports a step timeout that is not a positive duration.
+	ErrBadTimeout = Error("config: timeout must be a positive duration such as \"2m\"")
+
 	// ErrReservedKeyChar reports a step, group, or group member key
 	// containing '.' - reserved for a group member's own internal
 	// "<group>.<member>" name.

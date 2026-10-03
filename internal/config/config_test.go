@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1417,6 +1418,66 @@ env: {
 		env := cfg.Steps(config.ScopeEnv)
 		assert.Empty(t, env["a"].Label, "a step without a label carries none")
 		assert.Equal(t, "Public API", env["b"].Label)
+	})
+
+	t.Run("reads timeout", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: {
+	a: uses: "echo:echo"
+	b: {
+		uses:    "echo:echo"
+		timeout: "1m30s"
+	}
+	g: steps: m: {
+		uses:    "echo:echo"
+		timeout: "2m"
+	}
+}
+`)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+		cfg, err := f.Config()
+		require.NoError(t, err)
+
+		env := cfg.Steps(config.ScopeEnv)
+		assert.Zero(t, env["a"].TimeoutDuration, "a step without a timeout has no limit")
+		assert.Equal(t, 90*time.Second, env["b"].TimeoutDuration)
+		assert.Equal(t, 2*time.Minute, env["g.m"].TimeoutDuration)
+	})
+
+	t.Run("rejects a bad timeout", func(t *testing.T) {
+		for name, timeout := range map[string]string{
+			"malformed": "soon",
+			"zero":      "0s",
+			"negative":  "-5s",
+		} {
+			t.Run(name, func(t *testing.T) {
+				f, err := config.Load(write(t, `
+plugins: echo: cmd: "echo"
+env: a: {uses: "echo:echo", timeout: "`+timeout+`"}
+`), "", nil)
+				if err == nil {
+					err = f.Validate(offers("echo", "echo"))
+				}
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "timeout")
+				if name == "zero" {
+					assert.ErrorIs(t, err, config.ErrBadTimeout)
+				}
+			})
+		}
+	})
+
+	t.Run("rejects timeout on a group", func(t *testing.T) {
+		f, err := config.Load(write(t, `
+plugins: echo: cmd: "echo"
+env: g: {timeout: "1m", steps: m: uses: "echo:echo"}
+`), "", nil)
+		if err == nil {
+			err = f.Validate(offers("echo", "echo"))
+		}
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "timeout")
 	})
 }
 

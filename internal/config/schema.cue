@@ -126,6 +126,10 @@ plugins: close({[=~"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"]: #Plugin})
 	// step's own key still names it everywhere else - needs, the domain, the
 	// event log. Unset means the console shows the key instead.
 	label?: string
+
+	// timeout bounds how long the step may take to start, as a duration such
+	// as "2m" or "90s". A step that takes longer fails. Unset means no limit.
+	timeout?: =~"^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
 }
 
 #StepGroup: {

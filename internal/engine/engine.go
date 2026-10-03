@@ -1489,6 +1489,32 @@ func (r *run) failUp(ctx context.Context, name string, err error) {
 	}
 }
 
+// callUp calls Up on client, bounded by timeout when it is positive, and
+// reports a failure. A step whose Up outlived its timeout is not settled, so
+// shutdown calls Down for it.
+func (r *run) callUp(ctx context.Context, name string, client *pluginhost.Client, req *pb.UpRequest, timeout time.Duration, start time.Time) (*pb.Result, error) {
+	upCtx := ctx
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		upCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	result, err := client.Up(upCtx, req, r.onEvent(name))
+	if err == nil {
+		return result, nil
+	}
+	// The parent ctx, not upCtx, tells a timeout from an interrupted run.
+	if ctx.Err() == nil && errors.Is(upCtx.Err(), context.DeadlineExceeded) {
+		err = uerr.Wrap(fmt.Errorf("%s: %w", name, session.ErrStepTimeout),
+			"timed out after %s; raise timeout in kevin.cue", timeout)
+		r.reportUpFailure(ctx, name, err)
+		return nil, err
+	}
+	r.failUp(ctx, name, err)
+	r.warnDenied(ctx, name, start)
+	return nil, err
+}
+
 // warnDenied names the hosts that the proxy denied since start, after the Up
 // of step name failed, unless a canceled run caused the failure. Another step
 // can have made some of the requests.
@@ -1587,10 +1613,8 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	r.store.ClearStepDetails(name)
 
 	r.markStarted(name)
-	result, upErr := client.Up(ctx, req, r.onEvent(name))
+	result, upErr := r.callUp(ctx, name, client, req, step.TimeoutDuration, start)
 	if upErr != nil {
-		r.failUp(ctx, name, upErr)
-		r.warnDenied(ctx, name, start)
 		return nil, upErr
 	}
 

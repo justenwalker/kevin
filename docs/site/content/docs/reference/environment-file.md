@@ -90,6 +90,7 @@ The flag is repeatable. Without the flag, the field keeps its value from the fil
 | `needs` | `[...string]` | `[]` | Steps that must be ready before this step starts. |
 | `with` | `{...}` | - | Configuration for the step type. See [Steps]({{< relref "/docs/reference/steps" >}}) for builtin step types. |
 | `label` | `string` | step name | Display name in the console. |
+| `timeout` | `string` | none | Longest the step may take to start, as a Go duration such as `"2m"`. A step that takes longer fails. Must be positive. A group does not accept it. |
 
 Steps with no dependency between them start in parallel. If a step fails, kevin cancels steps that have not started and removes the steps that came up, and any step whose `Up` was still running, in reverse dependency order.
 

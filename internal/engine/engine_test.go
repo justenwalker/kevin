@@ -633,6 +633,34 @@ env: {
 	assert.Contains(t, string(logs), "removing slow")
 }
 
+func TestStepTimeout(t *testing.T) {
+	requireRelay(t)
+
+	t.Run("fails a step whose Up outlives it and removes it at shutdown", func(t *testing.T) {
+		dir := project(t, `
+env: {
+	slow: {uses: "echo:echo", timeout: "50ms", with: {message: "S", delay: "1h"}}
+	next: {uses: "echo:echo", needs: ["slow"], with: message: "never"}
+}
+`)
+		w, _ := runUntil(t, dir, "slow             failed:")
+
+		out := w.String()
+		assert.Contains(t, out, "timed out after 50ms; raise timeout in kevin.cue")
+		assert.NotContains(t, out, "next             up", "a dependent of a timed-out step must not start")
+		assert.Contains(t, out, "slow             removed", "the cut-off step must get a Down")
+	})
+
+	t.Run("leaves a step that finishes in time alone", func(t *testing.T) {
+		dir := project(t, `
+env: ok: {uses: "echo:echo", timeout: "1m", with: message: "A"}
+`)
+		w, err := runUntil(t, dir, "ok               ready")
+		require.NoError(t, err)
+		assert.NotContains(t, w.String(), "failed:")
+	})
+}
+
 func TestRerunStep(t *testing.T) {
 	t.Run("rejects an unknown step without recording it", func(t *testing.T) {
 		store := session.NewStore()

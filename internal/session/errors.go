@@ -10,6 +10,9 @@ func (e Error) Error() string { return string(e) }
 // flight - so a new rerun request for it is rejected rather than queued.
 const ErrStepBusy = Error("session: step is already running")
 
+// ErrStepTimeout reports that a step's Up outlived the step's timeout.
+const ErrStepTimeout = Error("session: step exceeded its timeout")
+
 // ErrUnknownStep reports that a rerun named a step the environment does not
 // declare.
 const ErrUnknownStep = Error("session: no such step")
