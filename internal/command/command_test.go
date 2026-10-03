@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os/exec"
+	"syscall"
 	"testing"
 	"time"
 
@@ -53,15 +54,50 @@ func TestRun(t *testing.T) {
 func TestStart(t *testing.T) {
 	t.Run("starts the process and sets it on cmd", func(t *testing.T) {
 		cmd := exec.CommandContext(t.Context(), "sh", "-c", "exit 0")
-		require.NoError(t, Start(t.Context(), cmd))
-		require.NotNil(t, cmd.Process)
-		state, err := cmd.Process.Wait()
+		proc, err := Start(t.Context(), cmd)
 		require.NoError(t, err)
-		assert.True(t, state.Success())
+		assert.Positive(t, proc.Pid())
+		require.NoError(t, proc.Wait())
+		<-proc.Done()
+	})
+
+	t.Run("reaps a child that exits on its own", func(t *testing.T) {
+		proc, err := Start(t.Context(), exec.CommandContext(t.Context(), "sh", "-c", "exit 1"))
+		require.NoError(t, err)
+
+		select {
+		case <-proc.Done():
+		case <-time.After(5 * time.Second):
+			t.Fatal("child was not waited on")
+		}
+		var exit *exec.ExitError
+		require.ErrorAs(t, proc.Wait(), &exit, "a later Wait returns the same result")
+		assert.Equal(t, 1, exit.ExitCode())
+		// Signal 0 succeeds on an unreaped zombie.
+		require.Error(t, syscall.Kill(proc.Pid(), 0))
 	})
 
 	t.Run("reports a missing binary as not found", func(t *testing.T) {
-		err := Start(t.Context(), exec.CommandContext(t.Context(), "kevin-no-such-binary"))
+		_, err := Start(t.Context(), exec.CommandContext(t.Context(), "kevin-no-such-binary"))
 		require.ErrorIs(t, err, exec.ErrNotFound)
+	})
+}
+
+func TestNewProcess(t *testing.T) {
+	t.Run("Done closes without a Wait call", func(t *testing.T) {
+		p := NewProcess(1, func() error { return nil })
+
+		select {
+		case <-p.Done():
+		case <-time.After(5 * time.Second):
+			t.Fatal("Done did not close")
+		}
+	})
+
+	t.Run("every Wait returns the exit error", func(t *testing.T) {
+		p := NewProcess(1, func() error { return assert.AnError })
+
+		require.ErrorIs(t, p.Wait(), assert.AnError)
+		require.ErrorIs(t, p.Wait(), assert.AnError)
 	})
 }

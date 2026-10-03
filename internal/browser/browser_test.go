@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/command/commandtest"
 )
 
@@ -37,11 +38,11 @@ func TestOpen(t *testing.T) {
 	t.Run("starts the opener for this OS on the url", func(t *testing.T) {
 		starter := commandtest.NewMockStarter(t)
 		starter.EXPECT().Start(mock.Anything, mock.Anything).RunAndReturn(
-			func(_ context.Context, cmd *exec.Cmd) error {
+			func(_ context.Context, cmd *exec.Cmd) (*command.Process, error) {
 				name, _ := opener(runtime.GOOS, "")
 				assert.Equal(t, name, cmd.Args[0])
 				assert.Equal(t, "http://127.0.0.1:8080", cmd.Args[len(cmd.Args)-1])
-				return nil
+				return command.NewProcess(1, func() error { return nil }), nil
 			})
 
 		require.NoError(t, Open(t.Context(), starter, "http://127.0.0.1:8080"))
@@ -49,7 +50,7 @@ func TestOpen(t *testing.T) {
 
 	t.Run("wraps a failure to start", func(t *testing.T) {
 		starter := commandtest.NewMockStarter(t)
-		starter.EXPECT().Start(mock.Anything, mock.Anything).Return(errors.New("no opener"))
+		starter.EXPECT().Start(mock.Anything, mock.Anything).Return(nil, errors.New("no opener"))
 
 		err := Open(t.Context(), starter, "http://127.0.0.1:8080")
 		require.ErrorContains(t, err, `browser: open "http://127.0.0.1:8080": no opener`)

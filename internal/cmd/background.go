@@ -205,31 +205,34 @@ func runInBackground(ctx context.Context, starter command.Starter, stateDir stri
 	child.Stdout = logFile
 	child.Stderr = logFile
 	detach(child)
-	if err := starter.Start(detached, child); err != nil {
+	proc, err := starter.Start(detached, child)
+	if err != nil {
 		return fmt.Errorf("cmd: run: start background process: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(os.Stderr, "started in background (pid %d), logs: %s\n", child.Process.Pid, logPath)
-	return waitForAddrs(ctx, stateDir, child.Process.Pid, logPath, addrsPollTimeout, addrsPollInterval)
+	_, _ = fmt.Fprintf(os.Stderr, "started in background (pid %d), logs: %s\n", proc.Pid(), logPath)
+	return waitForAddrs(ctx, stateDir, proc, logPath, addrsPollTimeout, addrsPollInterval)
 }
 
 // waitForAddrs polls for stateDir's address file and prints it the same way
-// a foreground run would once it appears. It reports an error if pid exits
+// a foreground run would once it appears. It reports an error if proc exits
 // first - the caller's exit code is then the only signal a script gets that
-// --detach failed to start. Timing out with pid still alive is not an
+// --detach failed to start. Timing out with proc still running is not an
 // error: the environment may just be slow to come up, and it keeps running
 // in the background regardless; waitForAddrs points at logPath instead.
-func waitForAddrs(ctx context.Context, stateDir string, pid int, logPath string, timeout, interval time.Duration) error {
+func waitForAddrs(ctx context.Context, stateDir string, proc *command.Process, logPath string, timeout, interval time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if addrs, err := readRunAddrs(stateDir); err == nil && addrs.ConsoleAddr != "" {
 			printEnvironmentInfo(os.Stderr, &pb.Environment{ConsoleAddr: addrs.ConsoleAddr, HttpProxyAddr: addrs.HTTPProxyAddr})
 			return nil
 		}
-		if !pidAlive(pid) {
-			return fmt.Errorf("cmd: run: background process exited before starting up; see %s", logPath)
-		}
 		select {
+		case <-proc.Done():
+			if err := proc.Wait(); err != nil {
+				return fmt.Errorf("cmd: run: background process exited before starting up: %w; see %s", err, logPath)
+			}
+			return fmt.Errorf("cmd: run: background process exited before starting up; see %s", logPath)
 		case <-ctx.Done():
 			return nil
 		case <-time.After(interval):

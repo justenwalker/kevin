@@ -8,6 +8,7 @@ import (
 	"context"
 	"os/exec"
 
+	"github.com/justenwalker/kevin/internal/command"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -123,20 +124,31 @@ func (_m *MockStarter) EXPECT() *MockStarter_Expecter {
 }
 
 // Start provides a mock function for the type MockStarter
-func (_mock *MockStarter) Start(ctx context.Context, cmd *exec.Cmd) error {
+func (_mock *MockStarter) Start(ctx context.Context, cmd *exec.Cmd) (*command.Process, error) {
 	ret := _mock.Called(ctx, cmd)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Start")
 	}
 
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *exec.Cmd) error); ok {
+	var r0 *command.Process
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *exec.Cmd) (*command.Process, error)); ok {
+		return returnFunc(ctx, cmd)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *exec.Cmd) *command.Process); ok {
 		r0 = returnFunc(ctx, cmd)
 	} else {
-		r0 = ret.Error(0)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*command.Process)
+		}
 	}
-	return r0
+	if returnFunc, ok := ret.Get(1).(func(context.Context, *exec.Cmd) error); ok {
+		r1 = returnFunc(ctx, cmd)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
 }
 
 // MockStarter_Start_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Start'
@@ -169,12 +181,12 @@ func (_c *MockStarter_Start_Call) Run(run func(ctx context.Context, cmd *exec.Cm
 	return _c
 }
 
-func (_c *MockStarter_Start_Call) Return(err error) *MockStarter_Start_Call {
-	_c.Call.Return(err)
+func (_c *MockStarter_Start_Call) Return(process *command.Process, err error) *MockStarter_Start_Call {
+	_c.Call.Return(process, err)
 	return _c
 }
 
-func (_c *MockStarter_Start_Call) RunAndReturn(run func(ctx context.Context, cmd *exec.Cmd) error) *MockStarter_Start_Call {
+func (_c *MockStarter_Start_Call) RunAndReturn(run func(ctx context.Context, cmd *exec.Cmd) (*command.Process, error)) *MockStarter_Start_Call {
 	_c.Call.Return(run)
 	return _c
 }

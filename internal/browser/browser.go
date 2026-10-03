@@ -15,7 +15,7 @@ import (
 func Open(ctx context.Context, starter command.Starter, url string) error {
 	name, args := opener(runtime.GOOS, url)
 	//nolint:gosec // name/args are a fixed OS opener, url is the console's own address
-	if err := starter.Start(ctx, exec.CommandContext(ctx, name, args...)); err != nil {
+	if _, err := starter.Start(ctx, exec.CommandContext(ctx, name, args...)); err != nil {
 		return fmt.Errorf("browser: open %q: %w", url, err)
 	}
 	return nil

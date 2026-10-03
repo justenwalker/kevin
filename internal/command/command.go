@@ -6,6 +6,7 @@ package command
 import (
 	"context"
 	"os/exec"
+	"sync"
 )
 
 // Runner runs cmd to completion. cmd is built with [exec.CommandContext]; its
@@ -15,11 +16,46 @@ type Runner interface {
 	Run(ctx context.Context, cmd *exec.Cmd) error
 }
 
-// Starter starts cmd without waiting for it to exit, and sets cmd.Process.
-// It takes the same cmd as [Runner].
+// Starter starts cmd without waiting for it to exit, and returns the running
+// [Process]. It takes the same cmd as [Runner].
 type Starter interface {
-	Start(ctx context.Context, cmd *exec.Cmd) error
+	Start(ctx context.Context, cmd *exec.Cmd) (*Process, error)
 }
+
+// Process is a started command. Wait and Done may be used from any goroutine.
+type Process struct {
+	pid  int
+	wait func() error
+	once sync.Once
+	done chan struct{}
+	err  error
+}
+
+// NewProcess builds a Process for pid whose exit is reported by wait. wait
+// runs once, on a goroutine NewProcess starts, so an exited child is reaped
+// instead of lingering as a zombie that kill(pid, 0) still sees. wait must
+// eventually return, or that goroutine stays blocked.
+func NewProcess(pid int, wait func() error) *Process {
+	p := &Process{pid: pid, wait: wait, done: make(chan struct{})}
+	go func() { _ = p.Wait() }()
+	return p
+}
+
+// Pid returns the process id.
+func (p *Process) Pid() int { return p.pid }
+
+// Wait blocks until the process exits and returns its exit error. Every call
+// returns the same result.
+func (p *Process) Wait() error {
+	p.once.Do(func() {
+		p.err = p.wait()
+		close(p.done)
+	})
+	return p.err
+}
+
+// Done is closed once the process has exited.
+func (p *Process) Done() <-chan struct{} { return p.done }
 
 // Default is the [Runner] behind [Run]: it starts a real process.
 var Default Runner = execRunner{}
@@ -33,7 +69,7 @@ func Run(ctx context.Context, cmd *exec.Cmd) error {
 }
 
 // Start starts cmd with [DefaultStarter].
-func Start(ctx context.Context, cmd *exec.Cmd) error {
+func Start(ctx context.Context, cmd *exec.Cmd) (*Process, error) {
 	return DefaultStarter.Start(ctx, cmd)
 }
 
@@ -46,15 +82,13 @@ func (execRunner) Run(ctx context.Context, cmd *exec.Cmd) error {
 	return copyOf(ctx, cmd).Run() //nolint:wrapcheck // callers inspect the process's own exit error
 }
 
-// Start copies cmd the same way Run does, starts the copy, and hands its
-// process back on cmd.
-func (execRunner) Start(ctx context.Context, cmd *exec.Cmd) error {
+// Start copies cmd the same way Run does and starts the copy.
+func (execRunner) Start(ctx context.Context, cmd *exec.Cmd) (*Process, error) {
 	c := copyOf(ctx, cmd)
 	if err := c.Start(); err != nil {
-		return err //nolint:wrapcheck // callers inspect the start error itself
+		return nil, err //nolint:wrapcheck // callers inspect the start error itself
 	}
-	cmd.Process = c.Process
-	return nil
+	return NewProcess(c.Process.Pid, c.Wait), nil
 }
 
 // copyOf builds an [exec.CommandContext] that carries cmd's settings.

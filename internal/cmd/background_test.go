@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/command/commandtest"
 	"github.com/justenwalker/kevin/protos/pb"
 )
@@ -82,20 +83,22 @@ func TestWaitForAddrs(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, writeRunAddrs(dir, &pb.Environment{ConsoleAddr: "127.0.0.1:1", HttpProxyAddr: "127.0.0.1:2"}))
 
-		err := waitForAddrs(t.Context(), dir, os.Getpid(), "irrelevant.log", time.Second, time.Millisecond)
+		err := waitForAddrs(t.Context(), dir, runningProcess(t), "irrelevant.log", time.Second, time.Millisecond)
 		require.NoError(t, err)
 	})
 
 	t.Run("errors if the process exits before writing addresses", func(t *testing.T) {
 		dir := t.TempDir()
-		err := waitForAddrs(t.Context(), dir, deadPID(t), "some.log", time.Second, time.Millisecond)
-		require.Error(t, err)
+		proc := command.NewProcess(1, func() error { return errors.New("exit status 3") })
+
+		err := waitForAddrs(t.Context(), dir, proc, "some.log", time.Second, time.Millisecond)
+		require.ErrorContains(t, err, "exit status 3")
 		assert.Contains(t, err.Error(), "some.log")
 	})
 
 	t.Run("times out without error while the process is still starting", func(t *testing.T) {
 		dir := t.TempDir()
-		err := waitForAddrs(t.Context(), dir, os.Getpid(), "some.log", 20*time.Millisecond, 5*time.Millisecond)
+		err := waitForAddrs(t.Context(), dir, runningProcess(t), "some.log", 20*time.Millisecond, 5*time.Millisecond)
 		require.NoError(t, err, "a slow start is not a failure - the process is still running")
 	})
 }
@@ -167,6 +170,14 @@ func TestBackgroundArgsArgv(t *testing.T) {
 	}
 }
 
+// runningProcess is a Process that has not exited by the end of the test.
+func runningProcess(t *testing.T) *command.Process {
+	t.Helper()
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	return command.NewProcess(os.Getpid(), func() error { <-block; return nil })
+}
+
 func TestStopRun(t *testing.T) {
 	t.Run("no pidfile", func(t *testing.T) {
 		var buf bytes.Buffer
@@ -212,12 +223,11 @@ func TestRunInBackground(t *testing.T) {
 
 		starter := commandtest.NewMockStarter(t)
 		starter.EXPECT().Start(mock.Anything, mock.Anything).RunAndReturn(
-			func(ctx context.Context, cmd *exec.Cmd) error {
+			func(ctx context.Context, cmd *exec.Cmd) (*command.Process, error) {
 				require.NoError(t, ctx.Err())
 				assert.Equal(t, args.argv(), cmd.Args[1:])
 				assert.NotNil(t, cmd.Stdout, "the child logs to the state dir")
-				cmd.Process = &os.Process{Pid: os.Getpid()}
-				return nil
+				return runningProcess(t), nil
 			})
 
 		require.NoError(t, runInBackground(t.Context(), starter, stateDir, args))
@@ -231,11 +241,10 @@ func TestRunInBackground(t *testing.T) {
 
 		starter := commandtest.NewMockStarter(t)
 		starter.EXPECT().Start(mock.Anything, mock.Anything).RunAndReturn(
-			func(startCtx context.Context, cmd *exec.Cmd) error {
+			func(startCtx context.Context, _ *exec.Cmd) (*command.Process, error) {
 				cancel()
 				require.NoError(t, startCtx.Err(), "cancelling the caller must not kill the child")
-				cmd.Process = &os.Process{Pid: os.Getpid()}
-				return nil
+				return runningProcess(t), nil
 			})
 
 		require.NoError(t, runInBackground(ctx, starter, stateDir, args))
@@ -243,7 +252,7 @@ func TestRunInBackground(t *testing.T) {
 
 	t.Run("wraps a failure to start", func(t *testing.T) {
 		starter := commandtest.NewMockStarter(t)
-		starter.EXPECT().Start(mock.Anything, mock.Anything).Return(errors.New("no such file"))
+		starter.EXPECT().Start(mock.Anything, mock.Anything).Return(nil, errors.New("no such file"))
 
 		err := runInBackground(t.Context(), starter, t.TempDir(), args)
 		require.ErrorContains(t, err, "start background process: no such file")
