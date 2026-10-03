@@ -12,7 +12,9 @@ package config
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -135,6 +137,10 @@ type Step struct {
 	// parsed value, set by decodeScope; zero means no limit.
 	Timeout         string        `json:"timeout"`
 	TimeoutDuration time.Duration `json:"-"`
+
+	// Watch lists the paths, relative to the project directory, whose
+	// changes rerun the step.
+	Watch []string `json:"watch"`
 }
 
 // Command is one entry of the commands block, run on demand by name.
@@ -690,6 +696,9 @@ func (f *File) validateStep(scopeName, step string, path cue.Path, spec Step, pl
 	if err != nil {
 		return f.invalid(cueerrors.Wrapf(fmt.Errorf("config: %s.%s.uses: %w", scopeName, step, err), pos, ""))
 	}
+	if watchErr := f.validateWatch(scopeName, step, path, spec.Watch); watchErr != nil {
+		return watchErr
+	}
 	if resolveErr := ResolvePlugin(ref.Plugin, plugins); resolveErr != nil {
 		return f.invalid(cueerrors.Wrapf(fmt.Errorf("config: %s.%s: %w", scopeName, step, resolveErr), pos, ""))
 	}
@@ -741,6 +750,35 @@ func (f *File) validateStep(scopeName, step string, path cue.Path, spec Step, pl
 	if err := concreteExcept(merged, cue.Path{}, except); err != nil {
 		wrapped := cueerrors.Wrapf(err, with.Pos(), "%s.%s.with", scopeName, step)
 		return f.invalid(fmt.Errorf("%w: %w", ErrInvalid, wrapped))
+	}
+	return nil
+}
+
+// validateWatch checks a step's watch paths: only an env step may watch, and
+// each path must be relative, stay inside the project directory, and exist.
+func (f *File) validateWatch(scopeName, step string, path cue.Path, watch []string) error {
+	if len(watch) == 0 {
+		return nil
+	}
+	at := path.Append(cue.Str("watch"))
+	if scopeName != ScopeEnv {
+		return f.wrapAt(at, fmt.Errorf("config: %s.%s.watch: only env steps can watch: %w", scopeName, step, ErrBadWatch))
+	}
+	for _, p := range watch {
+		if filepath.IsAbs(p) {
+			return f.wrapAt(at, fmt.Errorf("config: %s.%s.watch %q: path must be relative: %w", scopeName, step, p, ErrBadWatch))
+		}
+		clean := filepath.Clean(p)
+		if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return f.wrapAt(at, fmt.Errorf("config: %s.%s.watch %q: path escapes the project directory: %w", scopeName, step, p, ErrBadWatch))
+		}
+		if _, err := os.Stat(filepath.Join(f.dir, clean)); err != nil {
+			reason := err.Error()
+			if errors.Is(err, fs.ErrNotExist) {
+				reason = "path does not exist"
+			}
+			return f.wrapAt(at, fmt.Errorf("config: %s.%s.watch %q: %s: %w", scopeName, step, p, reason, ErrBadWatch))
+		}
 	}
 	return nil
 }

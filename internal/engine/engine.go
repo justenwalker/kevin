@@ -311,7 +311,9 @@ func Run(ctx context.Context, opts Options) error {
 	committed = true
 
 	_ = r.up(ctx)
+	stopWatch := r.startWatch(ctx, opts.NoWait)
 	awaitDone(ctx, opts.NoWait)
+	stopWatch()
 
 	// keep leaves the environment's own resources (containers, network,
 	// CA, relay) in place; this process's own proxy/console still shut

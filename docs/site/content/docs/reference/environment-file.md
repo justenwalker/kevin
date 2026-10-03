@@ -91,6 +91,7 @@ The flag is repeatable. Without the flag, the field keeps its value from the fil
 | `with` | `{...}` | - | Configuration for the step type. See [Steps]({{< relref "/docs/reference/steps" >}}) for builtin step types. |
 | `label` | `string` | step name | Display name in the console. |
 | `timeout` | `string` | none | Longest the step may take to start, as a Go duration such as `"2m"`. A step that takes longer fails. Must be positive. A group does not accept it. |
+| `watch` | `[...string]` | `[]` | Files and directories, relative to the project directory. While `kevin run` is running, a change under any of them reruns the step and the steps that depend on it. A directory is watched recursively, and `.kevin/`, `.git/`, and editor temp files (`*~`, `.#*`, `*.swp`) are ignored. Each path must exist and stay inside the project directory. Only `env` steps accept it, and a group does not. |
 
 Steps with no dependency between them start in parallel. If a step fails, kevin cancels steps that have not started and removes the steps that came up, and any step whose `Up` was still running, in reverse dependency order.
 

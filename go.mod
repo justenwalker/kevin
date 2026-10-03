@@ -6,6 +6,7 @@ require (
 	cuelabs.dev/go/oci/ociregistry v0.0.0-20260601085548-328ff8e2c943
 	cuelang.org/go v0.17.1
 	github.com/a-h/templ v0.3.1020
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/cel-go v0.31.0
 	github.com/google/nftables v0.3.0
 	github.com/hashicorp/go-hclog v1.6.3

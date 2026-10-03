@@ -130,6 +130,12 @@ plugins: close({[=~"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"]: #Plugin})
 	// timeout bounds how long the step may take to start, as a duration such
 	// as "2m" or "90s". A step that takes longer fails. Unset means no limit.
 	timeout?: =~"^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+
+	// watch lists files and directories, relative to the project directory.
+	// While kevin run is running, a change under any of them reruns the step
+	// and the steps that depend on it. A directory is watched recursively.
+	// Only env steps can watch.
+	watch?: [...string]
 }
 
 #StepGroup: {

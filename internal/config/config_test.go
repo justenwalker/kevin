@@ -1479,6 +1479,51 @@ env: g: {timeout: "1m", steps: m: uses: "echo:echo"}
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "timeout")
 	})
+
+	t.Run("reads watch", func(t *testing.T) {
+		dir := write(t, `
+plugins: echo: cmd: "echo"
+env: a: {uses: "echo:echo", watch: ["src", "main.go"]}
+`)
+		require.NoError(t, os.Mkdir(filepath.Join(dir, "src"), 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), nil, 0o600))
+		f, err := config.Load(dir, "", nil)
+		require.NoError(t, err)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+		cfg, err := f.Config()
+		require.NoError(t, err)
+		assert.Equal(t, []string{"src", "main.go"}, cfg.Steps(config.ScopeEnv)["a"].Watch)
+	})
+
+	t.Run("rejects a bad watch", func(t *testing.T) {
+		for name, src := range map[string]string{
+			"setup step":    `setup: a: {uses: "echo:echo", watch: ["."]}`,
+			"absolute path": `env: a: {uses: "echo:echo", watch: ["/etc"]}`,
+			"escaping path": `env: a: {uses: "echo:echo", watch: ["../x"]}`,
+			"missing path":  `env: a: {uses: "echo:echo", watch: ["nope"]}`,
+			"group":         `env: g: {watch: ["."], steps: m: uses: "echo:echo"}`,
+		} {
+			t.Run(name, func(t *testing.T) {
+				f, err := config.Load(write(t, "plugins: echo: cmd: \"echo\"\n"+src), "", nil)
+				if err == nil {
+					err = f.Validate(offers("echo", "echo"))
+				}
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "watch")
+				if name != "group" {
+					assert.ErrorIs(t, err, config.ErrBadWatch)
+				}
+			})
+		}
+	})
+
+	t.Run("accepts watch on a group member", func(t *testing.T) {
+		f := load(t, `
+plugins: echo: cmd: "echo"
+env: g: steps: m: {uses: "echo:echo", watch: ["."]}
+`)
+		require.NoError(t, f.Validate(offers("echo", "echo")))
+	})
 }
 
 // write puts src into a new kevin.cue, prefixed with listenBlockDefault so

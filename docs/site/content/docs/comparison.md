@@ -37,7 +37,7 @@ For a few containers with no need for traffic control or Kubernetes, Compose is 
 
 [Tilt](https://tilt.dev) is for Kubernetes. Its main feature is [live update](https://docs.tilt.dev/tutorial/5-live-update.html): it syncs code into a running container without a rebuild, and shows the result in a [web UI](https://docs.tilt.dev/tutorial/3-tilt-ui.html). A Tiltfile is a [Starlark](https://docs.tilt.dev/tiltfile_concepts.html) program, not a declared graph of steps.
 
-kevin does not watch your source code or sync it into containers. kevin starts and removes an environment of containers and Kubernetes clusters in dependency order, with a TLS-terminating, egress-controlled proxy in front.
+kevin reruns a step when files in its `watch` list change, but it does not sync code into a running container. kevin starts and removes an environment of containers and Kubernetes clusters in dependency order, with a TLS-terminating, egress-controlled proxy in front.
 
 For fast changes to code in a cluster, use Tilt. To start and remove a mixed environment the same way each time, with egress control, use kevin.
 

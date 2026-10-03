@@ -51,6 +51,9 @@ const (
 	// ErrBadTimeout reports a step timeout that is not a positive duration.
 	ErrBadTimeout = Error("config: timeout must be a positive duration such as \"2m\"")
 
+	// ErrBadWatch reports a step watch entry that cannot be watched.
+	ErrBadWatch = Error("config: invalid watch path")
+
 	// ErrReservedKeyChar reports a step, group, or group member key
 	// containing '.' - reserved for a group member's own internal
 	// "<group>.<member>" name.

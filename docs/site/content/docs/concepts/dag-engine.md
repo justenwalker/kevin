@@ -30,6 +30,8 @@ The named step always runs. With `cascade`, its transitive dependents join it. A
 
 A step that is already running rejects the rerun with an error instead of queuing it. A name the environment does not declare is also an error.
 
+A step with a `watch` list starts a rerun of its own: when a watched file changes, kevin reruns the step with `cascade` on. kevin waits 300ms after the last change, so a burst of writes causes one rerun. If the step is still rerunning when another change arrives, kevin remembers that one change and reruns the step once more when the current rerun ends. If a rerun from the console, MCP, or `kevin rerun` holds the step, the watch tries again after one second. A failed rerun does not stop the watch.
+
 ## Step groups
 
 A [step group]({{< relref "/docs/reference/environment-file#step-groups" >}}) adds one node to the map. The group's node needs every member. Its work is to compute the group's `outputs` from its members' outputs, with no plugin call. A member's name is not visible outside its group.
