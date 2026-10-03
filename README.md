@@ -1,49 +1,45 @@
 # kevin
 
-Kevin is a local development environment engine. It makes it possible to run complex local setups with a DAG of steps, a real network boundary, and an extensible plugin system.
+Getting a local environment running usually means a page of setup steps, a pile of shell scripts, and leftovers to clean up when something fails. kevin replaces all of that with a single description of your environment. It starts every piece in the right order, makes your services reachable by name, and cleans up after itself when you are done.
 
-**[Quickstart](docs/site/content/docs/quickstart.md)** &mdash; **[Docs](https://justenwalker.github.io/kevin/)** &mdash; **[Examples](examples)**
+**[Documentation](https://justenwalker.github.io/kevin/)** · **[Quickstart](https://justenwalker.github.io/kevin/docs/quickstart/)** · **[Examples](examples)**
 
-## Welcome to kevin!
+## Features
 
-- **A DAG, not a script.** Steps declare what they `need`; kevin figures out the order, runs independent steps in parallel.
-- **Extensible plugin system.** Every step is provided by a plugin. All plugins speak the same gRPC protocol: there are no major differences between builtin and third-party plugins.
-- **A real network boundary.** An HTTP/HTTPS proxy with TLS termination and an egress gateway. You can configure the proxy to only allow egress to specific hosts. You can also intercept and rewrite requests to services you control.
+- **Parallel startup in dependency order.** Steps with no dependency between them start at the same time. Each step gets the outputs of the steps it needs, such as an address or a kubeconfig path.
+- **Clean teardown.** Ctrl-C or a failed step removes everything kevin started, even after a crash.
+- **HTTPS names for your services.** A local proxy serves each service under a name such as `web.kevin.home`.
+- **Egress control.** The proxy can block outbound traffic to hosts you did not allow.
+- **Plugins.** Each step type is a plugin. You can write your own in any language that speaks gRPC.
 
-## Getting Started
+## Try it
 
-Download a prebuilt binary from the [releases page](https://github.com/justenwalker/kevin/releases), or:
+You need Docker or Podman running.
 
 ```sh
+git clone https://github.com/justenwalker/kevin.git && cd kevin
 go install github.com/justenwalker/kevin/cmd/kevin@latest
-kevin -C examples/web run    # Ctrl-C to remove
+kevin -C examples/web run    # Ctrl-C to stop and remove everything
 ```
 
-Or build from source with [gnob](https://github.com/justenwalker/gnob):
+Prebuilt binaries are on the [releases page](https://github.com/justenwalker/kevin/releases).
 
-```sh
-go generate -C ./build -tags gnob .    # bootstrap, once
-./build/gnob                           # build into bin/
-./bin/kevin -C examples/web run
-```
-
-See the [Quickstart](docs/site/content/docs/quickstart.md) for a walkthrough.
-
-## Docs
-
-Full documentation, including the environment file reference and plugin protocol, lives at <https://justenwalker.github.io/kevin/>.
-
-## Usage Overview
-
-An environment is one `kevin.cue` file: a map of steps, each naming a plugin step type and its `needs`:
+## An environment file
 
 ```cue
 project: "web-example"
 
+proxy: {
+	listen:       "127.0.0.1:18080"
+	gateway_port: 18082
+	egress: deny: true
+}
+console: listen: "127.0.0.1:18081"
+
 env: {
 	web: {
-		uses:  "builtin:container"
-		with: {image: "nginx:alpine", expose: [{port: 80}]}
+		uses: "builtin:container"
+		with: {image: "nginx:alpine", expose: web: {port: 80}}
 	}
 	web_route: {
 		uses:  "builtin:route"
@@ -53,20 +49,12 @@ env: {
 }
 ```
 
-```sh
-kevin run              # bring the DAG up, tear it down on Ctrl-C
-kevin setup            # bring up steps that should persist across runs (e.g. CA trust)
-kevin teardown         # remove them again
-```
+`kevin run` starts both steps and serves nginx at `https://web.kevin.home` through the proxy, which blocks every other outbound host. A web console shows each step and its logs while it runs.
 
-While an environment is running, a web console shows the DAG and its logs live, and an MCP server (mounted at `/_mcp` on the console) lets a coding agent drive the same environment.
+## Learn more
 
-## How kevin Works
-
-You write a `kevin.cue` file describing the pieces your local environment needs and how they depend on each other. kevin then brings the pieces up in dependency order, passing each step's output (an address, a kubeconfig path) to the steps that need it. There's no state file to get out of sync: tearing the environment down works from what's actually running, so it's safe even after a crash mid-run.
-
-See [Architecture](docs/site/content/docs/concepts/architecture.md) for the full rationale.
-
-## Plugins
-
-Every step type - builtin or third-party - speaks the same gRPC protocol, documented in [Writing a Plugin](docs/site/content/docs/extending/writing-a-plugin.md). `kevin plugin list` prints every builtin step type; a project declares its own plugin binary under `plugins:` in `kevin.cue`. `kevin plugin search` finds third-party plugins across git repos you point it at - see [Third-party plugins](docs/site/content/docs/guides/third-party-plugins.md).
+- [Quickstart](https://justenwalker.github.io/kevin/docs/quickstart/): install kevin and run an example environment.
+- [Guides](https://justenwalker.github.io/kevin/docs/guides/): Kubernetes clusters, proxy and egress, hostname interception, and more.
+- [Environment file](https://justenwalker.github.io/kevin/docs/reference/environment-file/): write a `kevin.cue` for your own project.
+- [kevin vs. other tools](https://justenwalker.github.io/kevin/docs/comparison/): Docker Compose, Tilt, Garden, and others.
+- [Contributing](https://justenwalker.github.io/kevin/docs/contributing/): build kevin from source and run the tests.
