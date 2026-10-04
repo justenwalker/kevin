@@ -56,7 +56,7 @@ func TestWritePIDCreateStateDirFailure(t *testing.T) {
 // that needs its own cancellation context.
 func deadPID(t *testing.T) int {
 	t.Helper()
-	dead := exec.Command(os.Args[0], "-test.run=^$") //nolint:noctx // throwaway helper process, exits on its own
+	dead := exec.Command("true") //nolint:noctx // throwaway helper process, exits on its own
 	require.NoError(t, dead.Start())
 	require.NoError(t, dead.Wait())
 	return dead.Process.Pid

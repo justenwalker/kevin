@@ -16,7 +16,7 @@ import (
 
 // logsPollInterval is how often --follow re-reads the log file for new
 // entries.
-const logsPollInterval = 500 * time.Millisecond
+var logsPollInterval = 500 * time.Millisecond
 
 func logsCommand(opts *options) *cobra.Command {
 	var follow bool

@@ -95,6 +95,10 @@ func TestPrintLogs(t *testing.T) {
 	})
 
 	t.Run("--follow picks up a line appended after it started, then stops once the run is gone", func(t *testing.T) {
+		old := logsPollInterval
+		logsPollInterval = 10 * time.Millisecond
+		t.Cleanup(func() { logsPollInterval = old })
+
 		dir := t.TempDir()
 		logsPath := filepath.Join(dir, "logs.ndjson")
 		writeNDJSONLine(t, logsPath, "web", "first")

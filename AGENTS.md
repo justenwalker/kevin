@@ -116,7 +116,7 @@ leaves no tag or GitHub release behind.
 - Integration tests are gated behind the `integration` build tag (see files
   named `integration_test.go` or `*_integration_test.go` in `cmd/kevin-relay`,
   `internal/plugins/kubernetes`, `internal/plugins/container`, `internal/relay`,
-  `internal/engine`) and generally require Docker (the k3d and minikube
+  `internal/engine`, `internal/docker`, `internal/podman`) and generally require Docker (the k3d and minikube
   driver suites also need a real `k3d` or `minikube` binary on `PATH`). Run with
   `go test -tags integration ./...`.
 - Try a real environment end-to-end:

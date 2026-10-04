@@ -3,9 +3,11 @@ package pluginhost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,14 +20,26 @@ import (
 	"github.com/justenwalker/kevin/protos/pb"
 )
 
-// buildEchoPlugin builds the echo plugin binary. It reports Name: "echo".
+var echoPlugin = sync.OnceValues(func() (string, error) {
+	dir, err := os.MkdirTemp("", "kevin-plugin-*")
+	if err != nil {
+		return "", err
+	}
+	bin := filepath.Join(dir, "kevin-plugin-echo")
+	cmd := exec.CommandContext(context.Background(), "go", "build", "-o", bin,
+		"github.com/justenwalker/kevin/cmd/kevin-plugin-echo")
+	if out, buildErr := cmd.CombinedOutput(); buildErr != nil {
+		return "", fmt.Errorf("build echo plugin: %w: %s", buildErr, out)
+	}
+	return bin, nil
+})
+
+// buildEchoPlugin returns the echo plugin binary, built once per test run.
+// It reports Name: "echo".
 func buildEchoPlugin(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "kevin-plugin-echo")
-	cmd := exec.CommandContext(t.Context(), "go", "build", "-o", bin,
-		"github.com/justenwalker/kevin/cmd/kevin-plugin-echo")
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "build echo plugin: %s", out)
+	bin, err := echoPlugin()
+	require.NoError(t, err)
 	return bin
 }
 
@@ -65,10 +79,9 @@ func TestLaunch(t *testing.T) {
 		dir := t.TempDir()
 		bin := filepath.Join(dir, "sub", "kevin-plugin-echo")
 		require.NoError(t, os.MkdirAll(filepath.Dir(bin), 0o750))
-		cmd := exec.CommandContext(t.Context(), "go", "build", "-o", bin,
-			"github.com/justenwalker/kevin/cmd/kevin-plugin-echo")
-		out, err := cmd.CombinedOutput()
-		require.NoError(t, err, "build echo plugin: %s", out)
+		data, err := os.ReadFile(buildEchoPlugin(t))
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(bin, data, 0o700))
 
 		client, err := Launch(t.Context(), "echo", Spec{Cmd: filepath.Join("sub", "kevin-plugin-echo"), Dir: dir})
 		require.NoError(t, err)
