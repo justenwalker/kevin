@@ -1165,16 +1165,29 @@ func (r *run) closeStepForwards(step string) {
 	}
 }
 
+// exposePorts runs exposePort for each of eps, and reports the step failed on
+// the first error.
+func (r *run) exposePorts(ctx context.Context, name string, eps []*pb.ExposedPort, systemThis dag.Outputs) error {
+	for _, ep := range eps {
+		if err := r.exposePort(ctx, name, ep, systemThis); err != nil {
+			r.reportUpFailure(ctx, name, err)
+			return err
+		}
+	}
+	return nil
+}
+
 // exposePort records ep's upstream as a system output, and - for a
 // relay-routed entry - opens a local forward for it (a TCP dial-per-
 // connection forward, or a UDP ASSOCIATE session, by ep's protocol),
-// recording that too. Extracted from upStep to keep its complexity down.
-func (r *run) exposePort(ctx context.Context, name string, ep *pb.ExposedPort, systemThis dag.Outputs) {
+// recording that too. A failed UDP forward is an error; a failed TCP one is
+// only a warning. Extracted from upStep to keep its complexity down.
+func (r *run) exposePort(ctx context.Context, name string, ep *pb.ExposedPort, systemThis dag.Outputs) error {
 	r.emit(name, fmt.Sprintf("exposing %s %s at %s", ep.GetProtocol(), ep.GetName(), ep.GetUpstream()))
 	systemThis["expose_"+ep.GetName()] = output.Value{String: ep.GetUpstream()}
 
 	if !ep.GetRelay() {
-		return
+		return nil
 	}
 	var pf forward
 	var fwdErr error
@@ -1184,8 +1197,11 @@ func (r *run) exposePort(ctx context.Context, name string, ep *pb.ExposedPort, s
 		pf, fwdErr = newPortForward(ctx, ep)
 	}
 	if fwdErr != nil {
+		if ep.GetProtocol() == "udp" {
+			return fmt.Errorf("local forward for %s: %w", ep.GetName(), fwdErr)
+		}
 		r.emit(name, "warning: local forward for "+ep.GetName()+": "+fwdErr.Error())
-		return
+		return nil
 	}
 	r.addForward(name, pf)
 	addr := pf.Addr().String()
@@ -1194,6 +1210,7 @@ func (r *run) exposePort(ctx context.Context, name string, ep *pb.ExposedPort, s
 		Label: ep.GetName() + " (local)", Value: addr, Copyable: true,
 	})
 	systemThis["forward_"+ep.GetName()] = output.Value{String: addr}
+	return nil
 }
 
 // closeForwards closes every forward listener r.up opened.
@@ -1626,8 +1643,8 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	r.recordContainers(name, result.GetContainers())
 	systemThis := dag.Outputs{}
 	r.closeStepForwards(name)
-	for _, ep := range result.GetExposedPorts() {
-		r.exposePort(ctx, name, ep, systemThis)
+	if err := r.exposePorts(ctx, name, result.GetExposedPorts(), systemThis); err != nil {
+		return nil, err
 	}
 	if len(systemThis) > 0 {
 		r.systemMu.Lock()

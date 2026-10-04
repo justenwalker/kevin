@@ -79,7 +79,7 @@ A `builtin:container` `expose` entry with `relay: true` uses the project relay's
 
 ### UDP
 
-SOCKS5 UDP `ASSOCIATE` (RFC 1928 section 7) normally binds a random port, which is known only after the relay container or pod exists, too late to publish it. `kevin-relay` binds a port from a fixed pool instead. The pool is `KEVIN_RELAY_UDP_POOL_SIZE` ports (default 16), published by the relay container, or by a cluster's forwarder container. When the pool is full, a new session fails immediately. A size of `0` reserves no ports.
+SOCKS5 UDP `ASSOCIATE` (RFC 1928 section 7) normally binds a random port, which is known only after the relay container or pod exists, too late to publish it. `kevin-relay` binds a port from a fixed pool instead. The pool is `KEVIN_RELAY_UDP_POOL_SIZE` ports (default 16), published by the relay container, or by a cluster's forwarder container. When the pool is full, a new session fails immediately and so does the step that asked for it. A size of `0` reserves no ports.
 
 Each UDP `ExposedPort` carries `RelayUdpAddrs`, which maps each pool port to its address on the host. The `ASSOCIATE` reply names a pool port, and kevin's local forward looks up the address there. RFC 1928 ties a session to its TCP control connection, so if that connection drops, kevin closes the local listener.
 

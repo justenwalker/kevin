@@ -856,7 +856,7 @@ env: {
 		label: "Web Server"
 		with: {
 			image:  "nginx:alpine"
-			expose: [{port: 80, name: "web", relay: true}]
+			expose: web: {port: 80, relay: true}
 		}
 	}
 	web_ready: {
@@ -886,13 +886,13 @@ KEVIN_RELAY_IMAGE=kevin-relay:dev kevin -C /path/to/this run
       needed.
 - [ ] Add a `protocol: "udp", relay: true` expose entry against a UDP echo
       container and confirm a UDP client round-trips through the forwarded
-      local port (`forward_<name>`) - the relay's gateway now carries UDP
-      via SOCKS5 ASSOCIATE, not just CONNECT.
+      local port (`forward_<name>`) - the relay's gateway carries UDP via
+      SOCKS5 ASSOCIATE as well as CONNECT.
 - [ ] Run two such clients concurrently against the same forwarded port and
       confirm both receive replies - the documented fan-out model, not just
       the newest sender.
 - [ ] `KEVIN_RELAY_UDP_POOL_SIZE=1` with two relay+udp entries: the second
-      fails immediately with a clear pool-exhaustion error, not a hang.
+      step fails immediately with `relay refused associate`, not a hang.
 
 ## 20. `examples/s3-app` - persistent cluster, intercepted S3, cross-scope route
 

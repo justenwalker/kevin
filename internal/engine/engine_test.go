@@ -1000,3 +1000,32 @@ func TestCloseStepForwards(t *testing.T) {
 		assert.Equal(t, 1, db.closed)
 	})
 }
+
+func TestExposePort(t *testing.T) {
+	newEP := func(protocol string) *pb.ExposedPort {
+		return &pb.ExposedPort{Name: "u", Protocol: protocol, Upstream: "not-socks5", Relay: true}
+	}
+
+	t.Run("a failed UDP forward is an error", func(t *testing.T) {
+		var events bytes.Buffer
+		r := &run{events: &events}
+		err := r.exposePort(t.Context(), "udp", newEP("udp"), dag.Outputs{})
+		require.ErrorContains(t, err, "local forward for u")
+	})
+
+	t.Run("a failed TCP forward is only a warning", func(t *testing.T) {
+		var events bytes.Buffer
+		r := &run{events: &events}
+		require.NoError(t, r.exposePort(t.Context(), "web", newEP("tcp"), dag.Outputs{}))
+		assert.Contains(t, events.String(), "warning: local forward for u")
+	})
+
+	t.Run("exposePorts marks the step failed", func(t *testing.T) {
+		var events bytes.Buffer
+		store := session.NewStore()
+		r := &run{events: &events, store: store}
+		eps := []*pb.ExposedPort{newEP("udp")}
+		require.Error(t, r.exposePorts(t.Context(), "udp", eps, dag.Outputs{}))
+		assert.Contains(t, events.String(), "failed: ")
+	})
+}
