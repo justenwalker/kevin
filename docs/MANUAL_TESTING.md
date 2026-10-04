@@ -671,7 +671,8 @@ plugins: echo: {
 always uses HTTPS with no plain-HTTP/insecure option - a bare
 `docker run -d -p 5000:5000 registry:3` (plain HTTP, no TLS) will not work.
 Use a registry that terminates TLS with a certificate this machine trusts
-(e.g. a real registry you can `docker login` to), or skip this part:
+(e.g. a real registry you can `docker login` to), or one with a private CA
+whose PEM file `KEVIN_PLUGIN_CA_FILE` names, or skip this part:
 
 ```sh
 kevin plugin push /tmp/kevin-pkg/echo.tar.gz localhost:5000/echo:v1

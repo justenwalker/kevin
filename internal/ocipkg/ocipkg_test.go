@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -423,10 +423,10 @@ func TestPublicAPIAgainstALocalRegistry(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	srv := httptest.NewTLSServer(ociserver.New(ocimem.New(), nil))
 	t.Cleanup(srv.Close)
-	// newRegistry always dials https, and its transport falls back to the default one.
-	original := http.DefaultTransport
-	http.DefaultTransport = srv.Client().Transport
-	t.Cleanup(func() { http.DefaultTransport = original })
+	caPath := filepath.Join(t.TempDir(), "ca.pem")
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+	require.NoError(t, os.WriteFile(caPath, caPEM, 0o600))
+	t.Setenv("KEVIN_PLUGIN_CA_FILE", caPath)
 	host := strings.TrimPrefix(srv.URL, "https://")
 	ref := host + "/" + testRepo + ":v1"
 

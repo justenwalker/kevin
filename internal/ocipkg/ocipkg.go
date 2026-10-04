@@ -24,6 +24,7 @@ import (
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
+	"github.com/justenwalker/kevin/internal/netca"
 	"github.com/justenwalker/kevin/internal/pkgcache"
 )
 
@@ -276,16 +277,21 @@ func pushSignature(ctx context.Context, reg ociregistry.Interface, r ociref.Refe
 }
 
 // newRegistry builds an authenticated client for host, reusing whatever
-// credentials docker login (or a credential helper) already wrote. A
-// failure is wrapped in sentinel, so a caller's errors.Is check matches the
-// operation it attempted (Fetch's ErrFetch, or Push's ErrPush) even when the
-// failure happened before any request reached the registry.
+// credentials docker login (or a credential helper) already wrote, and
+// trusting the extra roots netca.EnvVar names. A failure is wrapped in
+// sentinel, so a caller's errors.Is check matches the operation it attempted
+// (Fetch's ErrFetch, or Push's ErrPush) even when the failure happened before
+// any request reached the registry.
 func newRegistry(host string, sentinel error) (ociregistry.Interface, error) { //nolint:ireturn // ociclient.New itself returns this interface; there is no concrete type to return instead
 	cfg, err := ociauth.Load(nil)
 	if err != nil {
 		return nil, fmt.Errorf("ocipkg: load registry credentials: %w: %w", sentinel, err)
 	}
-	transport := ociauth.NewStdTransport(ociauth.StdTransportParams{Config: cfg})
+	base, err := netca.Transport()
+	if err != nil {
+		return nil, fmt.Errorf("ocipkg: %w: %w", sentinel, err)
+	}
+	transport := ociauth.NewStdTransport(ociauth.StdTransportParams{Config: cfg, Transport: base})
 	reg, err := ociclient.New(host, &ociclient.Options{Transport: transport})
 	if err != nil {
 		return nil, fmt.Errorf("ocipkg: %q: %w: %w", host, sentinel, err)

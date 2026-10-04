@@ -93,6 +93,19 @@ kevin plugin trust add-identity \
 
 Check the result with `kevin plugin trust list`.
 
+## Fetch from a registry with a private CA
+
+Do this when an `oci:` or `http:` source uses a certificate that your system does not trust.
+
+1. Save the CA certificate as a PEM file.
+2. Set `KEVIN_PLUGIN_CA_FILE` to that file:
+
+   ```sh
+   export KEVIN_PLUGIN_CA_FILE=$PWD/registry-ca.pem
+   ```
+
+kevin trusts the certificates in the file in addition to your system roots. This applies to `kevin run`, `kevin plugin push`, and any other command that fetches a package. It does not apply to `cosign` when it verifies a sigstore signature.
+
 ## Use the plugin
 
 1. Add a step that uses a step type of the plugin:

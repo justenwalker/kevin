@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/justenwalker/kevin/internal/netca"
 	"github.com/justenwalker/kevin/internal/pkgcache"
 )
 
@@ -61,7 +62,7 @@ func FetchSignature(ctx context.Context, rawURL, suffix string) ([]byte, error) 
 	if err != nil {
 		return nil, fmt.Errorf("httppkg: %q: %w: %w", sigURL, ErrFetch, err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := do(req)
 	if err != nil {
 		return nil, fmt.Errorf("httppkg: %q: %w: %w", sigURL, ErrFetch, err)
 	}
@@ -75,6 +76,19 @@ func FetchSignature(ctx context.Context, rawURL, suffix string) ([]byte, error) 
 		return nil, fmt.Errorf("httppkg: read %q: %w: %w", sigURL, ErrFetch, err)
 	}
 	return data, nil
+}
+
+// do sends req with a transport that trusts the roots netca.EnvVar names.
+func do(req *http.Request) (*http.Response, error) {
+	transport, err := netca.Transport()
+	if err != nil {
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+	resp, err := (&http.Client{Transport: transport}).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+	return resp, nil
 }
 
 // checksumHex strips the "sha256:" prefix from checksum. A checksum that
@@ -109,7 +123,7 @@ func download(ctx context.Context, rawURL, wantHex string, prior validators) (st
 	if prior.LastModified != "" {
 		req.Header.Set("If-Modified-Since", prior.LastModified)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := do(req)
 	if err != nil {
 		return "", "", fmt.Errorf("httppkg: %q: %w: %w", rawURL, ErrFetch, err)
 	}

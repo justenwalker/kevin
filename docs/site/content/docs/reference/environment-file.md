@@ -345,6 +345,7 @@ Change an `intercept` range only when it overlaps a network your workloads use.
 | `KEVIN_VAR_<NAME>` | Supplies a declared variable's value, name upper-cased. See [Variables](#variables). |
 | `KEVIN_PROJECT_STATE_DIR` | Project state directory. Default: `.kevin/` in the project directory, or `.kevin/<name>/` for a named environment. |
 | `KEVIN_USER_STATE_DIR` | User state directory, for the root CA, trust stores, and package cache. Default: `~/.kevin/`. |
+| `KEVIN_PLUGIN_CA_FILE` | PEM file of extra root certificates, trusted in addition to the system roots, for `oci:` and `http:` plugin fetches and `kevin plugin push`. Not used by `cosign`. |
 | `KEVIN_RELAY_IMAGE` | Relay image. Overrides `relay.image`. |
 | `KEVIN_RELAY_REPO` | Relay image repository, keeping the default tag. |
 | `KEVIN_RELAY_TAG` | Relay image tag, keeping the default repository. |

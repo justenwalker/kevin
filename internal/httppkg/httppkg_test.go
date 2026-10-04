@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -192,6 +193,29 @@ func TestFetch(t *testing.T) {
 		got, err := os.ReadFile(pkgPath2)
 		require.NoError(t, err)
 		assert.Equal(t, bodyV2, got)
+	})
+}
+
+func TestFetchTrustsThePluginCAFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("plugin package bytes"))
+	}))
+	t.Cleanup(srv.Close)
+
+	t.Run("fails without the CA", func(t *testing.T) {
+		t.Setenv("KEVIN_PLUGIN_CA_FILE", "")
+		_, _, err := httppkg.Fetch(t.Context(), srv.URL, "")
+		require.ErrorIs(t, err, httppkg.ErrFetch)
+	})
+
+	t.Run("succeeds with the CA", func(t *testing.T) {
+		caPath := filepath.Join(t.TempDir(), "ca.pem")
+		data := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+		require.NoError(t, os.WriteFile(caPath, data, 0o600))
+		t.Setenv("KEVIN_PLUGIN_CA_FILE", caPath)
+		_, _, err := httppkg.Fetch(t.Context(), srv.URL, "")
+		require.NoError(t, err)
 	})
 }
 
