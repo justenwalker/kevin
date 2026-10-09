@@ -166,8 +166,12 @@ func TestRun(t *testing.T) {
 		})
 		require.NoError(t, runErr, "plugin list must succeed")
 
-		assert.Contains(t, out, "builtin:container")
-		assert.Contains(t, out, "builtin:kubernetes")
+		for _, name := range []string{
+			"builtin:container", "builtin:exec", "builtin:fault", "builtin:kubernetes",
+			"builtin:kubectl", "builtin:helm", "builtin:wait", "builtin:route",
+		} {
+			assert.Contains(t, out, name+"\n")
+		}
 	})
 
 	t.Run("plugin run reports an unknown plugin", func(t *testing.T) {
@@ -438,6 +442,22 @@ func TestDoCommand(t *testing.T) {
 
 		var cmdErr *cmd.CommandError
 		require.ErrorAs(t, err, &cmdErr, "must be a usage error")
+	})
+
+	t.Run("reports an unknown command and lists the available ones", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(listenBlockDefault+
+			`project: "x"
+commands: {
+	whoami: run: ["true"]
+	both: run: ["true"]
+}`,
+		), 0o600))
+
+		err := cmd.Run(t.Context(), []string{"--engine", "docker", "-C", dir, "do", "nope"})
+
+		require.ErrorContains(t, err, `no command named "nope"`)
+		assert.ErrorContains(t, err, "both, whoami")
 	})
 
 	t.Run("reports a project without an environment file", func(t *testing.T) {

@@ -4,11 +4,10 @@ package kubernetes
 
 import (
 	"context"
-	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,8 +21,6 @@ import (
 	"github.com/justenwalker/kevin/internal/command"
 	kindcmd "github.com/justenwalker/kevin/internal/command/kind"
 	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/plugins/route"
-	"github.com/justenwalker/kevin/internal/plugins/wait"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/state"
@@ -44,6 +41,8 @@ const kindStepName = "cluster"
 // KindSuite drives one kind cluster against a real docker daemon. A cluster
 // takes minutes to create, so the suite creates exactly one and asserts
 // everything against it.
+//
+// Tier: integration.
 type KindSuite struct {
 	suite.Suite
 
@@ -283,72 +282,6 @@ func (s *KindSuite) TestExposeReachesTheAPIServerThroughSOCKS5() {
 	_ = conn.Close()
 }
 
-// TestRouteBuildsTheSameUpstreamShapeExposeAlreadyProvesReachable proves
-// builtin:route's Route.Upstream, built from the real relay_addr this
-// cluster published, is the exact same socks5://<relay>/<target> shape
-// TestExposeReachesTheAPIServerThroughSOCKS5 already dials successfully
-// against this same live cluster - so a real SOCKS5 CONNECT through it
-// really does complete a TLS handshake against the real API server.
-// internal/proxy/relay_test.go separately proves, against a local SOCKS5
-// server, that the proxy's own dial-through-relay mechanism correctly
-// delivers a full HTTP request end to end; this test is what ties that
-// mechanism's input shape to a real cluster instead of a local double.
-func (s *KindSuite) TestRouteBuildsTheSameUpstreamShapeExposeAlreadyProvesReachable() {
-	t := s.T()
-	relayAddr, ok := s.up.Outputs["relay_addr"]
-	s.Require().True(ok, "Up must publish relay_addr when expose is non-empty")
-
-	result, err := route.Step{}.Up(t.Context(), &plugin.UpRequest{
-		Step: "apiserver_route",
-		Env:  plugin.Env{Domain: kindDomain},
-		Config: []byte(fmt.Sprintf(
-			`{"relay":%q,"routes":[{"host":"apiserver","address":"kubernetes.default.svc:443","tls":true}]}`,
-			relayAddr,
-		)),
-	}, &capture{})
-	s.Require().NoError(err)
-	s.Require().Len(result.Routes, 1)
-
-	r := result.Routes[0]
-	s.Equal("apiserver.kevin.home", r.Host)
-	s.True(r.TLS)
-
-	relay, target, ok := strings.Cut(strings.TrimPrefix(r.Upstream, "socks5://"), "/")
-	s.Require().True(ok, "Upstream must carry both the relay address and the target")
-	s.Equal(relayAddr.Reveal(), relay)
-	s.Equal("kubernetes.default.svc:443", target)
-
-	// The dial and handshake themselves: identical to
-	// TestExposeReachesTheAPIServerThroughSOCKS5's dial, plus wrapping the
-	// connection in TLS to prove the target on the other end of the
-	// tunnel really does speak TLS. InsecureSkipVerify is fine here - the
-	// test verifies reachability through the relay, not the cluster's
-	// certificate trust chain (kevin's proxy would itself need to trust
-	// the cluster's own CA to route to it with a verified certificate,
-	// which is a separate, cluster-specific concern from this feature).
-	dialer, err := proxy.SOCKS5("tcp", relay, nil, proxy.Direct)
-	s.Require().NoError(err)
-	conn, err := dialer.Dial("tcp", target)
-	s.Require().NoError(err, "the relay must reach the api server from inside the cluster")
-	defer conn.Close() //nolint:errcheck // best effort, the test is done with it either way
-
-	tlsConn := tls.Client(conn, &tls.Config{InsecureSkipVerify: true})
-	s.Require().NoError(tlsConn.HandshakeContext(t.Context()), "the target must speak TLS on the routed port")
-}
-
-// TestWaitTCPReachesTheAPIServerThroughTheRelay proves builtin:wait's tcp
-// check, not just a raw SOCKS5 dial, succeeds against the same target
-// TestExposeReachesTheAPIServerThroughSOCKS5 already reaches directly.
-func (s *KindSuite) TestWaitTCPReachesTheAPIServerThroughTheRelay() {
-	address := s.up.ExposedPorts[0].Upstream
-	s.Require().NotEmpty(address)
-
-	_, err := wait.Step{}.Up(s.T().Context(), &plugin.UpRequest{
-		Config: json.RawMessage(fmt.Sprintf(`{"timeout":"10s","interval":"200ms","tcp":{"address":%q}}`, address)),
-	}, &capture{})
-	s.Require().NoError(err)
-}
-
 // TestUpReusesAnExistingClusterWithMatchingConfig proves a second Up against
 // an unchanged with block reuses the live cluster in place instead of
 // deleting and recreating it - the whole point of a persistent setup-scope
@@ -408,17 +341,23 @@ func (s *KindSuite) TestUpIsIdempotent() {
 	s.Equal(1, strings.Count(out, kindDomain+":53 {"), "a second patch must replace the zone, not add a second one")
 }
 
-// TestKindMounts proves that a mount reaches every node of a kind cluster,
-// the control plane and a worker.
-func TestKindMounts(t *testing.T) {
+// TestKindNodeSettings proves node-level settings reach a real cluster: a
+// mount lands in every node, control_plane extraMounts land on the control
+// plane alone, and a worker's own image applies to that node only.
+func TestKindNodeSettings(t *testing.T) {
 	requireDocker(t)
 	requireKind(t)
 
-	hostDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(hostDir, "probe.txt"), []byte("from the host"), 0o600))
+	allDir, cpDir := t.TempDir(), t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(allDir, "all.txt"), []byte("from the host"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(cpDir, "cp.txt"), []byte("control plane only"), 0o600))
 
-	env := plugin.Env{Project: "kind-mounts-it", Workspace: t.TempDir()}
-	config := []byte(fmt.Sprintf(`{"driver":"kind","workers":{"worker":{}},"coredns":false,"trust_ca":false,"mounts":[{"host":%q,"container":"/mnt/host"}]}`, hostDir))
+	const workerImage = "kindest/node:v1.34.0"
+	env := plugin.Env{Project: "kind-node-settings-it", Workspace: t.TempDir()}
+	config := []byte(fmt.Sprintf(`{"driver":"kind","coredns":false,"trust_ca":false,`+
+		`"mounts":[{"host":%q,"container":"/mnt/all"}],`+
+		`"kind":{"control_plane":{"extraMounts":[{"hostPath":%q,"containerPath":"/mnt/cp"}]}},`+
+		`"workers":{"worker":{"image":%q}}}`, allDir, cpDir, workerImage))
 	t.Cleanup(func() {
 		_ = Step{}.Down(context.WithoutCancel(t.Context()), &plugin.DownRequest{Step: "cluster", Env: env, Config: config}, &capture{})
 	})
@@ -428,9 +367,45 @@ func TestKindMounts(t *testing.T) {
 
 	nodes := strings.Split(res.Outputs["nodes"].Reveal(), ",")
 	require.Len(t, nodes, 2)
+	image := func(node string) string {
+		out, inspectErr := exec.CommandContext(t.Context(), "docker", "inspect", "--format", "{{.Config.Image}}", node).Output()
+		require.NoError(t, inspectErr, "node %s", node)
+		return strings.TrimSpace(string(out))
+	}
 	for _, node := range nodes {
-		out, execErr := dockerClient.Exec(t.Context(), node, "cat", "/mnt/host/probe.txt")
+		out, execErr := dockerClient.Exec(t.Context(), node, "cat", "/mnt/all/all.txt")
 		require.NoError(t, execErr, "node %s", node)
 		assert.Equal(t, "from the host", strings.TrimSpace(out), "node %s", node)
+
+		controlPlane := strings.HasSuffix(node, "-control-plane")
+		out, execErr = dockerClient.Exec(t.Context(), node, "cat", "/mnt/cp/cp.txt")
+		if controlPlane {
+			require.NoError(t, execErr, "node %s", node)
+			assert.Equal(t, "control plane only", strings.TrimSpace(out), "node %s", node)
+		} else {
+			require.Error(t, execErr, "extraMounts on the control plane must not reach %s", node)
+		}
+		assert.Equal(t, !controlPlane, image(node) == workerImage, "only the worker runs %s, node %s", workerImage, node)
 	}
+}
+
+// TestKindDownIsIdempotent proves that Down on a cluster that never existed
+// is not an error, because the supervisor calls Down for every step of the
+// setup scope, present or not.
+func TestKindDownIsIdempotent(t *testing.T) {
+	requireDocker(t)
+	requireKind(t)
+
+	out := &capture{}
+	err := Step{}.Down(t.Context(), &plugin.DownRequest{
+		Step:   "cluster",
+		Config: []byte(`{"driver":"kind"}`),
+		Env: plugin.Env{
+			Project:   "kevin-kind-absent",
+			Workspace: t.TempDir(),
+		},
+	}, out)
+
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(out.stdout, "\n"), "removing cluster kevin-kind-absent-cluster")
 }

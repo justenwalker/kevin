@@ -57,6 +57,8 @@ func (s *MinikubeSuite) configJSON() string {
 
 // MinikubeSuite drives one minikube cluster against a real docker daemon. The
 // suite creates a single cluster and asserts everything against it.
+//
+// Tier: integration.
 type MinikubeSuite struct {
 	suite.Suite
 

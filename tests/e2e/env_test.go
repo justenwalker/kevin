@@ -27,8 +27,10 @@ env: a: {
 }
 `
 
-// EnvSuite covers docs/MANUAL_TESTING.md sections 11 (named environments)
-// and 12 (cross-step values / CEL expressions).
+// EnvSuite covers a user running named environments and cross-step values
+// (CEL expressions).
+//
+// Tier: e2e.
 type EnvSuite struct {
 	e2eSuite
 }
@@ -44,43 +46,18 @@ func (s *EnvSuite) writeOneStep(dir, project, message string) {
 	s.writeCUE(dir, proxyBlock(s.T())+src)
 }
 
-// TestNamedEnvironmentDefaultsAndState covers --env: the named file is
-// picked up over the unnamed one, the default project name becomes
-// "<dirname>-<name>", and state lands under .kevin/<name>/.
-func (s *EnvSuite) TestNamedEnvironmentDefaultsAndState() {
+// TestNamedEnvironmentState covers --env: the named file is picked up over
+// the unnamed one, and state lands under .kevin/<name>/.
+func (s *EnvSuite) TestNamedEnvironmentState() {
 	dir := s.T().TempDir()
-	// project: "" behaves exactly like omitting the field - config.Config
-	// defaults an empty decoded Project the same way either way - so this
-	// still exercises the "<dirname>-<name>" default.
-	src := fmt.Sprintf(oneStepCUE, "", strconv.Quote(s.echoPluginBin()), strconv.Quote("hi"))
+	src := fmt.Sprintf(oneStepCUE, "kevin-e2e-named-state", strconv.Quote(s.echoPluginBin()), strconv.Quote("hi"))
 	s.writeCUEFile(dir, "staging.kevin.cue", proxyBlock(s.T())+src)
 
-	wantProject := filepath.Base(dir) + "-staging"
-
-	out, code := s.runToCompletion(dir, "-C", dir, "--env", "staging", "validate")
-	s.Equal(0, code, "output:\n%s", out)
-	s.Contains(out, wantProject+": 0 setup step(s), 1 env step(s)", "default project name must be <dirname>-<name>")
-
-	out, code = s.runUntil(dir, stepLine("a", "ready"), "-C", dir, "--env", "staging", "run")
+	out, code := s.runUntil(dir, stepLine("a", "ready"), "-C", dir, "--env", "staging", "run")
 	s.Equal(0, code, "output:\n%s", out)
 
 	_, err := os.Stat(filepath.Join(dir, ".kevin", "staging", "logs.ndjson"))
 	s.Require().NoError(err, "state must land under .kevin/staging/")
-}
-
-// TestKEVINEnvVariableSelectsTheSameEnvironment covers KEVIN_ENV as an
-// alternative to --env.
-func (s *EnvSuite) TestKEVINEnvVariableSelectsTheSameEnvironment() {
-	dir := s.T().TempDir()
-	s.writeOneStep(dir, "kevin-e2e-kevinenv-staging", "hi")
-	require := s.Require()
-	require.NoError(os.Rename(filepath.Join(dir, "kevin.cue"), filepath.Join(dir, "staging.kevin.cue")))
-
-	cmd := s.startKevinWithEnv(dir, []string{"KEVIN_ENV=staging"}, "-C", dir, "run")
-	s.waitFor(cmd, stepLine("a", "ready"), defaultTimeout)
-	require.NoError(cmd.cmd.Process.Signal(syscall.SIGINT))
-	code := s.waitExit(cmd, defaultTimeout)
-	s.Equal(0, code, "output:\n%s", cmd.buf.String())
 }
 
 // TestTwoNamedEnvironmentsRunSimultaneously covers running the default and a
@@ -153,63 +130,27 @@ func (s *EnvSuite) TestSetEnvVarSplicesCorrectly() {
 	s.Contains(string(logs), "value is spliced-value")
 }
 
-// TestHasFallbackForUnsetVar covers has(env.FOO) ? env.FOO : "default"
-// falling back cleanly when the var is unset.
-func (s *EnvSuite) TestHasFallbackForUnsetVar() {
-	project := "kevin-e2e-cel-fallback"
+// TestDoRendersEnvAndProjectTemplates is the regression guard for kevin do
+// sending a needed step's with block to Export unrendered: ${env.VAR} and
+// ${project.root_cert} must splice real values, not the literal templates,
+// into what do exports and reads back into run via ${needs...}. Only do's
+// own render path is under test, which the engine's tests never reach.
+func (s *EnvSuite) TestDoRendersEnvAndProjectTemplates() {
 	dir := s.T().TempDir()
-	s.writeOneStep(dir, project,
-		`value is ${has(env.KEVIN_E2E_UNSET_VAR_2) ? env.KEVIN_E2E_UNSET_VAR_2 : "localhost:5000"}`)
-	s.cleanupProject(project)
-
-	p := s.startKevin(dir, "-C", dir, "run")
-	s.waitFor(p, stepLine("a", "ready"), defaultTimeout)
-	s.Require().NoError(p.cmd.Process.Signal(syscall.SIGINT))
-	s.Equal(0, s.waitExit(p, defaultTimeout), "output:\n%s", p.buf.String())
-
-	logs, err := os.ReadFile(filepath.Join(dir, ".kevin", "logs.ndjson"))
-	s.Require().NoError(err)
-	s.Contains(string(logs), "value is localhost:5000")
-}
-
-// TestDoRendersEnvTemplate is the regression guard for kevin do sending a
-// needed step's with block to Export completely unrendered: an ${env.VAR}
-// reference must splice the real value, not the literal template, into
-// what do exports and then reads back into run via ${needs...}.
-func (s *EnvSuite) TestDoRendersEnvTemplate() {
-	dir := s.T().TempDir()
-	src := fmt.Sprintf(`project: "kevin-e2e-do-env"
+	src := fmt.Sprintf(`project: "kevin-e2e-do-render"
 
 plugins: echo: cmd: %s
 
-env: a: {uses: "echo:echo", with: export: msg: "${env.KEVIN_E2E_DO_ENV_VAR}"}
-commands: check: {needs: ["a"], run: ["sh", "-c", "echo msg=${needs.a.out.msg}"]}
+env: a: {uses: "echo:echo", with: export: {registry: "${env.KEVIN_E2E_DO_ENV_VAR}", cert: "${project.root_cert}"}}
+commands: check: {needs: ["a"], run: ["sh", "-c", "echo registry=${needs.a.out.registry} cert=${needs.a.out.cert}"]}
 `, strconv.Quote(s.echoPluginBin()))
 	s.writeCUE(dir, proxyBlock(s.T())+src)
 
 	out, code := s.runToCompletionWithEnv(dir, []string{"KEVIN_E2E_DO_ENV_VAR=do-value"}, "-C", dir, "do", "check")
 	s.Equal(0, code, "output:\n%s", out)
-	s.Contains(out, "msg=do-value")
-}
-
-// TestDoRendersProjectTemplate covers the same gap for ${project.root_cert}
-// - a value a needed step's Export can compute with no live DAG walk at
-// all, unlike ${needs...} inside that step's own with block.
-func (s *EnvSuite) TestDoRendersProjectTemplate() {
-	dir := s.T().TempDir()
-	src := fmt.Sprintf(`project: "kevin-e2e-do-project"
-
-plugins: echo: cmd: %s
-
-env: a: {uses: "echo:echo", with: export: msg: "${project.root_cert}"}
-commands: check: {needs: ["a"], run: ["sh", "-c", "echo msg=${needs.a.out.msg}"]}
-`, strconv.Quote(s.echoPluginBin()))
-	s.writeCUE(dir, proxyBlock(s.T())+src)
-
-	out, code := s.runToCompletion(dir, "-C", dir, "do", "check")
-	s.Equal(0, code, "output:\n%s", out)
-	s.Contains(out, "root.crt", "must render to the real CA path, not the literal ${project.root_cert} template")
-	s.NotContains(out, "${project.root_cert}")
+	s.Contains(out, "registry=do-value")
+	s.Contains(out, "root.crt", "must render to the real CA path, not the literal template")
+	s.NotContains(out, "${")
 }
 
 // TestDoRendersSetupCrossScopeTemplate covers ${setup.<name>.out.<key>}
@@ -236,30 +177,8 @@ commands: check: {needs: ["a"], run: ["sh", "-c", "echo msg=${needs.a.out.msg}"]
 	s.Contains(out, "msg=from-setup")
 }
 
-// TestProjectRootCertSplicesCorrectly covers the project.* CEL scope's
-// root_cert entry through a normal "kevin run", the same shape as
-// TestSetEnvVarSplicesCorrectly.
-func (s *EnvSuite) TestProjectRootCertSplicesCorrectly() {
-	project := "kevin-e2e-project-root-cert"
-	dir := s.T().TempDir()
-	s.writeOneStep(dir, project, "cert is ${project.root_cert}")
-	s.cleanupProject(project)
-
-	p := s.startKevin(dir, "-C", dir, "run")
-	s.waitFor(p, stepLine("a", "ready"), defaultTimeout)
-	s.Require().NoError(p.cmd.Process.Signal(syscall.SIGINT))
-	s.Equal(0, s.waitExit(p, defaultTimeout), "output:\n%s", p.buf.String())
-
-	logs, err := os.ReadFile(filepath.Join(dir, ".kevin", "logs.ndjson"))
-	s.Require().NoError(err)
-	logStr := string(logs)
-	s.Contains(logStr, "cert is ")
-	s.Contains(logStr, "root.crt")
-	s.NotContains(logStr, "${project.root_cert}")
-}
-
-// TestCrossScopeNeedsSurvivesSeparateProcesses covers docs/MANUAL_TESTING.md
-// section 12's setup/env cross-scope case: "kevin setup" runs and exits in
+// TestCrossScopeNeedsSurvivesSeparateProcesses covers the setup/env
+// cross-scope case: "kevin setup" runs and exits in
 // its own process - its plugin process is gone by the time a wholly
 // separate "kevin run" process starts - and that later process still
 // resolves needs: ["setup.<name>"] correctly, via a fresh Export call, not

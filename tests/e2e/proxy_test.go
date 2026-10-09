@@ -3,18 +3,26 @@
 package e2e
 
 import (
+	"context"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 
+	"github.com/chromedp/chromedp"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -58,11 +66,13 @@ env: {
 
 var addrRE = regexp.MustCompile(`(?m)^  (console|proxy)\s+http://(\S+)$`)
 
-// ProxySuite covers docs/MANUAL_TESTING.md sections 2 (TLS termination,
-// routing, NO_PROXY) and 3 (egress control). SetupSuite brings up one
+// ProxySuite covers a user going through the proxy: TLS termination,
+// routing, NO_PROXY, and egress control. SetupSuite brings up one
 // web-style project once, shared read-only across the TLS/PAC/deny tests;
 // the egress-allow and egress-deny-false variants each need their own
 // config, so they run their own project per test.
+//
+// Tier: e2e.
 type ProxySuite struct {
 	e2eSuite
 
@@ -126,19 +136,62 @@ func (s *ProxySuite) TestTLSTerminationThroughTheProjectCA() {
 	s.Contains(string(body), "Welcome to nginx", "must reach the real nginx container")
 }
 
-// TestPACFileDirectFetch covers a direct fetch of the PAC file (not through
-// the proxy - that would forward-proxy 127.0.0.1 and egress-deny it): it
-// sends the environment domain through the proxy and everything else
-// DIRECT.
-func (s *ProxySuite) TestPACFileDirectFetch() {
-	resp := httpGet(s.T(), http.DefaultClient, "http://"+s.proxyAddr+"/proxy.pac")
-	defer resp.Body.Close() //nolint:errcheck // read-only response body
-
-	body, err := io.ReadAll(resp.Body)
+// TestPACFileRoutesChrome points a real Chrome at the PAC URL. The
+// environment's hostname must load through the proxy, and an unrelated
+// hostname must go direct, which the local server seeing the request
+// proves: through the proxy it would have been egress-denied. It runs its
+// own project with a throwaway state dir, so kevin generates a root the
+// machine has never trusted and Chrome can only accept it through the
+// public-key hash passed on its command line.
+func (s *ProxySuite) TestPACFileRoutesChrome() {
+	s.newChromeTab() // skips before the bring-up below when there is no Chrome
+	var directHits atomic.Int64
+	direct := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		directHits.Add(1)
+		_, _ = io.WriteString(w, "reached directly")
+	}))
+	defer direct.Close()
+	_, port, err := net.SplitHostPort(strings.TrimPrefix(direct.URL, "http://"))
 	s.Require().NoError(err)
-	s.Equal(http.StatusOK, resp.StatusCode)
-	s.Contains(string(body), "kevin.home", "must send the environment domain through the proxy")
-	s.Contains(string(body), `return "DIRECT"`, "must send everything else direct")
+
+	home := s.T().TempDir()
+	dir := s.project("kevin-e2e-proxy-pac", webCUE)
+	p := s.startKevinWithEnv(dir, []string{"HOME=" + home, "KEVIN_USER_STATE_DIR=" + filepath.Join(home, ".kevin")},
+		"-C", dir, "run")
+	s.waitFor(p, stepLine("web_route", "ready"), defaultTimeout)
+	var proxyAddr string
+	for _, row := range addrRE.FindAllStringSubmatch(p.buf.String(), -1) {
+		if row[1] == "proxy" {
+			proxyAddr = row[2]
+		}
+	}
+	s.Require().NotEmpty(proxyAddr)
+	pemData, err := os.ReadFile(filepath.Join(dir, ".kevin", "root.crt"))
+	s.Require().NoError(err)
+
+	open := func(hash string) context.Context {
+		return s.newChromeTab(
+			chromedp.Flag("proxy-pac-url", "http://"+proxyAddr+"/proxy.pac"),
+			chromedp.Flag("ignore-certificate-errors-spki-list", hash),
+			chromedp.Flag("host-resolver-rules", "MAP direct.example.test 127.0.0.1"),
+		)
+	}
+
+	untrusted := open(base64.StdEncoding.EncodeToString(make([]byte, sha256.Size)))
+	err = chromedp.Do(untrusted, chromedp.Navigate("https://web.kevin.home/"))
+	s.Require().ErrorContains(err, "ERR_CERT_", "without the right key hash Chrome must reject the kevin certificate")
+
+	tab := open(spkiHash(s.T(), pemData))
+	s.Require().NoError(chromedp.Do(tab, chromedp.Navigate("https://web.kevin.home/")))
+	page, err := chromedp.Run(tab, chromedp.Text(chromedp.CSS("body")))
+	s.Require().NoError(err)
+	s.Contains(page, "Welcome to nginx", "the environment hostname must load through the proxy")
+
+	s.Require().NoError(chromedp.Do(tab, chromedp.Navigate("http://direct.example.test:"+port+"/")))
+	page, err = chromedp.Run(tab, chromedp.Text(chromedp.CSS("body")))
+	s.Require().NoError(err)
+	s.Contains(page, "reached directly")
+	s.Positive(directHits.Load(), "an unrelated host must bypass the proxy")
 }
 
 // TestNoProxyStepReachesUpstreamWithoutProxyEnv covers noproxy: it sets
@@ -149,7 +202,7 @@ func (s *ProxySuite) TestNoProxyStepReachesUpstreamWithoutProxyEnv() {
 	s.Contains(out, "Welcome to nginx", "noproxy must reach web over the docker network with no proxy env")
 }
 
-// TestEgressDefaultDenyReturns403 covers section 3: an unlisted host is
+// TestEgressDefaultDenyReturns403 covers default-deny egress: an unlisted host is
 // denied with a 403 naming the host and the CUE fix, and cache-busting
 // headers.
 func (s *ProxySuite) TestEgressDefaultDenyReturns403() {
@@ -213,65 +266,4 @@ func (s *ProxySuite) testEgressPolicy(egressCUE, project string) {
 
 	s.Require().NoError(p.cmd.Process.Signal(syscall.SIGINT))
 	s.waitExit(p, defaultTimeout)
-}
-
-// TestRouteWildcardWithoutIntercept covers a builtin:route host wildcard
-// with no intercept: true - the proxy's route table wildcard-matches any
-// Route.Host with a leading "*.", regardless of intercept, so "*.web"
-// (not "*.web.kevin.home" and not intercept) must already match
-// "anything.web.kevin.home" but not the bare "web.kevin.home". Its own
-// project, not the shared webCUE - that constant's own route stays a
-// plain, non-wildcard host for the other suites that depend on it.
-func (s *ProxySuite) TestRouteWildcardWithoutIntercept() {
-	s.requireDocker()
-
-	const project = "kevin-e2e-route-wildcard"
-	dir := s.T().TempDir()
-	s.cleanupProject(project)
-	src := fmt.Sprintf(`project: %s
-
-env: {
-	web: {uses: "builtin:container", label: "Web", with: {image: "nginx:alpine", expose: web: {port: 80}}}
-	web_route: {
-		uses:  "builtin:route"
-		needs: ["web"]
-		with: routes: [{host: "*.web", address: "${needs.web.out.host_80}"}]
-	}
-}
-`, strconv.Quote(project))
-	s.writeCUE(dir, proxyBlock(s.T())+src)
-
-	p := s.startKevin(dir, "-C", dir, "run")
-	s.waitFor(p, stepLine("web_route", "ready"), defaultTimeout)
-	out := p.buf.String()
-	s.T().Cleanup(func() {
-		require := s.Require()
-		require.NoError(p.cmd.Process.Signal(syscall.SIGINT))
-		s.waitExit(p, defaultTimeout)
-	})
-
-	var proxyAddr string
-	for _, row := range addrRE.FindAllStringSubmatch(out, -1) {
-		if row[1] == "proxy" {
-			proxyAddr = row[2]
-		}
-	}
-	s.Require().NotEmpty(proxyAddr, "output:\n%s", out)
-
-	pem, err := os.ReadFile(filepath.Join(dir, ".kevin", "root.crt"))
-	s.Require().NoError(err)
-	rootCAs := x509.NewCertPool()
-	s.Require().True(rootCAs.AppendCertsFromPEM(pem))
-	client := proxyHTTPClient(proxyAddr, rootCAs)
-
-	resp := httpGet(s.T(), client, "https://anything.web.kevin.home/")
-	defer resp.Body.Close() //nolint:errcheck // read-only response body
-	body, err := io.ReadAll(resp.Body)
-	s.Require().NoError(err)
-	s.Equal(http.StatusOK, resp.StatusCode)
-	s.Contains(string(body), "Welcome to nginx", "a wildcard host must match a subdomain with no intercept: true")
-
-	resp2 := httpGet(s.T(), client, "https://web.kevin.home/")
-	defer resp2.Body.Close() //nolint:errcheck // read-only response body
-	s.Equal(http.StatusForbidden, resp2.StatusCode, "a wildcard must not match the bare domain it's registered under")
 }

@@ -475,6 +475,15 @@ func TestUpWithFakeEngine(t *testing.T) {
 		assert.False(t, inspected, "Up must not inspect a container that never ran")
 	})
 
+	t.Run("rejects a start_timeout that is not a duration", func(t *testing.T) {
+		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+			Step:   "api",
+			Config: []byte(`{"image":"nginx","start_timeout":"soon"}`),
+		}, &noopEmitter{})
+
+		require.ErrorContains(t, err, "start_timeout")
+	})
+
 	t.Run("fails when the container exits before it reports running", func(t *testing.T) {
 		useFakeRuntime(t, fakeRuntime{
 			run: func(context.Context, cri.RunSpec) (string, error) { return "abc123", nil },

@@ -51,6 +51,8 @@ func (s *K3dSuite) configJSON() string {
 
 // K3dSuite drives one k3d cluster against a real docker daemon. The suite
 // creates a single cluster and asserts everything against it.
+//
+// Tier: integration.
 type K3dSuite struct {
 	suite.Suite
 

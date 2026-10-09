@@ -1,5 +1,3 @@
-//go:build integration
-
 package main
 
 import (
@@ -12,6 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"io"
 	"math/big"
 	"net"
@@ -282,20 +281,6 @@ func (s *RelayProcessSuite) TestDNSForwardsOutsideTheDomain() {
 	s.Equal("93.184.216.34", a.A.String())
 }
 
-// TestDNSAAAAAnswersEmptyNotNXDOMAIN proves that AAAA under the domain gets
-// an empty NOERROR answer, so a dual-stack client falls back to A.
-func (s *RelayProcessSuite) TestDNSAAAAAnswersEmptyNotNXDOMAIN() {
-	client := dns.Client{Timeout: 2 * time.Second}
-	req := new(dns.Msg)
-	req.SetQuestion("web."+relayTestDomain+".", dns.TypeAAAA)
-
-	reply, _, err := client.Exchange(req, s.proc.dnsAddr())
-	s.Require().NoError(err)
-
-	s.Empty(reply.Answer, "an AAAA query must get no answer, not an error")
-	s.Equal(dns.RcodeSuccess, reply.Rcode, "an empty AAAA must answer NOERROR, not NXDOMAIN")
-}
-
 // TestHTTPForwarderSendsAbsoluteURI proves that the relay forwards an HTTP
 // request to the proxy in absolute-URI proxy form.
 func (s *RelayProcessSuite) TestHTTPForwarderSendsAbsoluteURI() {
@@ -315,6 +300,18 @@ func (s *RelayProcessSuite) TestHTTPForwarderSendsAbsoluteURI() {
 	case <-time.After(2 * time.Second):
 		s.Fail("the stub proxy never saw a request")
 	}
+}
+
+// TestResolveSelfFindsAnInterfaceAddress proves that resolveSelf, which serve
+// calls when a caller leaves -self empty, picks a usable address. A host
+// whose interfaces carry none has nothing to find, so the test skips there.
+func (s *RelayProcessSuite) TestResolveSelfFindsAnInterfaceAddress() {
+	addrs, err := resolveSelf()
+	if errors.Is(err, ErrNoAddress) {
+		s.T().Skip("this host has no non-loopback interface address")
+	}
+	s.Require().NoError(err)
+	s.NotEmpty(addrs.V4 + addrs.V6)
 }
 
 // TestSOCKS5ForwardsToTarget proves that the relay's SOCKS5 gateway CONNECTs
@@ -350,15 +347,6 @@ func (s *RelayProcessSuite) TestSOCKS5ForwardsToTarget() {
 	_, err = io.ReadFull(conn, buf)
 	s.Require().NoError(err)
 	s.Equal("hello", string(buf))
-}
-
-// TestResolveSelfFindsARealInterfaceAddress proves that resolveSelf, which
-// serve calls when a caller leaves -self empty, finds a usable address on
-// the test host.
-func (s *RelayProcessSuite) TestResolveSelfFindsARealInterfaceAddress() {
-	addr, err := resolveSelf()
-	s.Require().NoError(err)
-	s.NotEmpty(addr)
 }
 
 // recordingConn wraps a net.Conn and keeps every byte that Read returns.

@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"archive/tar"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -35,7 +34,6 @@ import (
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pluginhost"
-	"github.com/justenwalker/kevin/internal/pluginpkg"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/session"
@@ -63,67 +61,6 @@ func buildEchoPlugin() (string, error) {
 		return "", fmt.Errorf("build echo plugin: %w: %s", buildErr, out)
 	}
 	return bin, nil
-}
-
-// packagedEchoPlugin is the path of a file: source tar built around the
-// compiled echo plugin. TestRun's "starts a file-source plugin" case uses it.
-var packagedEchoPlugin = sync.OnceValues(buildPackagedEchoPlugin)
-
-func buildPackagedEchoPlugin() (string, error) {
-	bin, err := echoPlugin()
-	if err != nil {
-		return "", err
-	}
-	binData, err := os.ReadFile(bin)
-	if err != nil {
-		return "", err
-	}
-
-	manifest, err := json.Marshal(pluginpkg.Manifest{
-		ManifestVersion: pluginpkg.CurrentManifestVersion,
-		Name:            "echo",
-		Version:         "1.0.0",
-		Entrypoint:      "kevin-plugin-echo",
-	})
-	if err != nil {
-		return "", err
-	}
-
-	dir, err := os.MkdirTemp("", "kevin-plugin-pkg-*")
-	if err != nil {
-		return "", err
-	}
-	pkgPath := filepath.Join(dir, "echo.tar")
-	f, err := os.Create(pkgPath)
-	if err != nil {
-		return "", err
-	}
-
-	tw := tar.NewWriter(f)
-	for _, entry := range []struct {
-		name string
-		mode int64
-		data []byte
-	}{
-		{name: pluginpkg.ManifestFile, mode: 0o644, data: manifest},
-		{name: "kevin-plugin-echo", mode: 0o755, data: binData},
-	} {
-		if err := tw.WriteHeader(&tar.Header{
-			Name: entry.name, Typeflag: tar.TypeReg, Mode: entry.mode, Size: int64(len(entry.data)),
-		}); err != nil {
-			return "", err
-		}
-		if _, err := tw.Write(entry.data); err != nil {
-			return "", err
-		}
-	}
-	if err := tw.Close(); err != nil {
-		return "", err
-	}
-	if err := f.Close(); err != nil {
-		return "", err
-	}
-	return pkgPath, nil
 }
 
 // project writes a kevin.cue into a temporary directory, and returns the
@@ -499,6 +436,36 @@ env: a: uses: "echo:echo"
 		assert.Contains(t, err.Error(), "echo")
 		assert.NotContains(t, err.Error(), "unused",
 			"a declared plugin that no step references must never start")
+	})
+
+	t.Run("an unknown same-scope needs name", func(t *testing.T) {
+		dir := project(t, `
+env: app: {uses: "echo:echo", needs: ["missing"]}
+`)
+		err := runEnv(t, dir)
+
+		require.ErrorContains(t, err, `app: needs "missing": no such step in scope "env"`)
+	})
+
+	t.Run("an unknown setup-scope needs name", func(t *testing.T) {
+		dir := project(t, `
+env: app: {uses: "echo:echo", needs: ["setup.missing"]}
+`)
+		err := runEnv(t, dir)
+
+		require.ErrorContains(t, err, `app: needs "setup.missing": no such step in scope "setup"`)
+	})
+
+	t.Run("the setup prefix outside the env scope", func(t *testing.T) {
+		dir := project(t, `
+setup: {
+	a: {uses: "echo:echo", needs: ["setup.b"]}
+	b: {uses: "echo:echo"}
+}
+`)
+		err := Run(t.Context(), Options{Dir: dir, Scope: config.ScopeSetup})
+
+		require.ErrorContains(t, err, `a: needs "setup.b": only an env step can use a "setup." dependency`)
 	})
 
 	t.Run("rejects config the plugin schema does not allow", func(t *testing.T) {
@@ -1027,5 +994,65 @@ func TestExposePort(t *testing.T) {
 		eps := []*pb.ExposedPort{newEP("udp")}
 		require.Error(t, r.exposePorts(t.Context(), "udp", eps, dag.Outputs{}))
 		assert.Contains(t, events.String(), "failed: ")
+	})
+}
+
+func TestMergeStepProperty(t *testing.T) {
+	ref := config.StepRef{Plugin: "echo", Step: "echo"}
+
+	t.Run("adds a required step string property", func(t *testing.T) {
+		out, err := mergeStepProperty([]byte(`{"type":"object","properties":{"sql":{"type":"string"}},"required":["sql"]}`), ref)
+		require.NoError(t, err)
+
+		var doc struct {
+			Properties map[string]struct {
+				Type string `json:"type"`
+			} `json:"properties"`
+			Required []string `json:"required"`
+		}
+		require.NoError(t, json.Unmarshal(out, &doc))
+		assert.Equal(t, "string", doc.Properties["step"].Type)
+		assert.Equal(t, "string", doc.Properties["sql"].Type, "the plugin's own properties stay")
+		assert.ElementsMatch(t, []string{"sql", "step"}, doc.Required)
+	})
+
+	t.Run("builds a schema when the plugin declares none", func(t *testing.T) {
+		out, err := mergeStepProperty(nil, ref)
+		require.NoError(t, err)
+		var doc struct {
+			Required []string `json:"required"`
+		}
+		require.NoError(t, json.Unmarshal(out, &doc))
+		assert.Equal(t, []string{"step"}, doc.Required)
+	})
+}
+
+func TestCallTool(t *testing.T) {
+	newRun := func() *run {
+		return &run{
+			toolRoutes: map[string]toolRoute{"echo_echo_echo": {plugin: "echo", step: "echo", tool: "echo"}},
+			steps: map[string]config.Step{
+				"a": {Uses: "echo:echo"},
+				"w": {Uses: "builtin:wait"},
+			},
+		}
+	}
+
+	t.Run("an unknown tool", func(t *testing.T) {
+		_, _, _, err := newRun().callTool(t.Context(), "a", "nope_nope_nope", nil)
+
+		require.ErrorContains(t, err, `no such tool "nope_nope_nope"`)
+	})
+
+	t.Run("an unknown step", func(t *testing.T) {
+		_, _, _, err := newRun().callTool(t.Context(), "missing", "echo_echo_echo", nil)
+
+		require.ErrorContains(t, err, `no step named "missing"`)
+	})
+
+	t.Run("a step of another type than the tool's owner", func(t *testing.T) {
+		_, _, _, err := newRun().callTool(t.Context(), "w", "echo_echo_echo", nil)
+
+		require.ErrorContains(t, err, `step "w" is a builtin:wait step, not a echo:echo step`)
 	})
 }

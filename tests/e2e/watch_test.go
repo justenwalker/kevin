@@ -17,6 +17,8 @@ import (
 
 // WatchSuite covers a step's watch field: editing a watched file reruns
 // the step while kevin run is still up.
+//
+// Tier: e2e.
 type WatchSuite struct {
 	e2eSuite
 }

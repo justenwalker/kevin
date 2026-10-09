@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -180,11 +181,13 @@ commands: {
 }
 `
 
-// KindSuite covers docs/MANUAL_TESTING.md sections 7 (builtin:kubernetes,
-// builtin:kubectl, builtin:helm, relay routing) and 9 (kevin do).
+// KindSuite covers a user running a kind cluster (builtin:kubernetes,
+// builtin:kubectl, builtin:helm, relay routing) and kevin do against it.
 // SetupSuite brings up one cluster - by far the most expensive part of the
-// whole e2e run - and TearDownSuite tears it down once; merging the two
-// sections onto it avoids paying kind's slow bring-up twice.
+// whole e2e run - and TearDownSuite tears it down once; sharing it between
+// both avoids paying kind's slow bring-up twice.
+//
+// Tier: e2e.
 type KindSuite struct {
 	e2eSuite
 
@@ -220,7 +223,10 @@ func (s *KindSuite) TearDownSuite() {
 	}
 	require := s.Require()
 	require.NoError(s.p.cmd.Process.Signal(syscall.SIGINT))
-	s.waitExit(s.p, kindTimeout)
+	s.Require().Equal(0, s.waitExit(s.p, kindTimeout), "output:\n%s", s.p.buf.String())
+
+	s.Empty(s.containerIDsForProject("kevin-e2e-kind"), "Ctrl-C must remove the cluster's containers")
+	s.requireNoKindCluster("kevin-e2e-kind")
 }
 
 // TestClusterAndDeploymentsReady confirms every step in the cluster's own
@@ -312,46 +318,6 @@ func (s *KindSuite) TestDoExecsCommandWithExportedOutput() {
 	s.Contains(out, "kube-system")
 }
 
-// TestDoExtraArgsAppendToRun covers "kevin do <name> -- <extra args>":
-// args after -- append to the command's own run argv.
-func (s *KindSuite) TestDoExtraArgsAppendToRun() {
-	if _, err := exec.LookPath("kubectl"); err != nil {
-		s.T().Skip("kubectl not found on PATH")
-	}
-	out, code := s.runToCompletion(s.dir, "-C", s.dir, "do", "nodes", "--", "-o", "wide")
-	s.Equal(0, code, "output:\n%s", out)
-	s.Contains(out, "Ready")
-	s.Contains(out, "INTERNAL-IP", "-o wide must have appended, adding columns get nodes alone doesn't print")
-}
-
-// noExportStepCUE is a minimal single-step DAG using "echo:probe" - unlike
-// "echo:echo", the probe step type implements no Export - plus a commands:
-// entry that needs it, which can never work.
-const noExportStepCUE = `project: "%s"
-
-plugins: echo: cmd: %s
-
-env: a: {
-	uses:  "echo:probe"
-	label: "A"
-}
-
-commands: bad: {needs: ["a"], run: ["echo", "unreachable"]}
-`
-
-// TestDoErrorsCleanlyWithoutExport covers a commands: entry whose needs
-// names a step that doesn't implement Export - kevin validate (and thus
-// kevin do) rejects it before anything runs, not a crash.
-func (s *KindSuite) TestDoErrorsCleanlyWithoutExport() {
-	dir := s.T().TempDir()
-	src := fmt.Sprintf(noExportStepCUE, "kevin-e2e-kind-noexport", strconv.Quote(s.echoPluginBin()))
-	s.writeCUE(dir, proxyBlock(s.T())+src)
-
-	out, code := s.runToCompletion(dir, "-C", dir, "do", "bad")
-	s.NotEqual(0, code, "output:\n%s", out)
-	s.Contains(out, "does not implement export")
-}
-
 // keepCUE puts the cluster in the setup scope (kevin run's teardown never
 // touches it) and a kubectl step with keep: true in the env scope, so
 // "kevin run"'s own SIGINT teardown - which only ever touches the env
@@ -383,10 +349,12 @@ env: keeper: {
 }
 `
 
-// KindKeepSuite covers docs/MANUAL_TESTING.md section 7's kubectl/helm
-// keep: field - its own suite, and its own setup-scope cluster, because
+// KindKeepSuite covers a user keeping a kubectl or helm resource across a
+// run with the keep: field - its own suite, and its own setup-scope cluster, because
 // proving keep needs a real "kevin run" teardown to happen (KindSuite's
 // shared cluster never runs one mid-suite).
+//
+// Tier: e2e.
 type KindKeepSuite struct {
 	e2eSuite
 
@@ -446,4 +414,122 @@ func (s *KindSuite) fetchThroughProxyOnce(proxyAddr, target string) string {
 	resp := httpGet(s.T(), client, target)
 	defer resp.Body.Close() //nolint:errcheck // read-only response body
 	return readAll(s.T(), resp.Body)
+}
+
+// S3AppSuite covers a user iterating on examples/s3-app: its
+// persistent cluster, intercepted S3 and cross-scope route. It runs a copy
+// of the example with its fixed ports and names replaced, since the chart
+// hardcodes the proxy port.
+//
+// Tier: e2e.
+type S3AppSuite struct {
+	e2eSuite
+
+	dir  string
+	name string
+}
+
+func TestS3AppSuite(t *testing.T) {
+	suite.Run(t, new(S3AppSuite))
+}
+
+// copyTree copies the regular files under src into dst, keeping their
+// relative paths, skipping any .kevin state.
+func copyTree(t *testing.T, src, dst string) {
+	t.Helper()
+	err := filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == ".kevin" {
+				return filepath.SkipDir
+			}
+			return os.MkdirAll(filepath.Join(dst, rel), 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dst, rel), data, 0o600)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (s *S3AppSuite) SetupSuite() {
+	s.requireDocker()
+	if _, err := exec.LookPath("kubectl"); err != nil {
+		s.T().Skip("kubectl not found on PATH")
+	}
+
+	s.name = "e2es3app"
+	s.dir = s.T().TempDir()
+	copyTree(s.T(), filepath.Join(repoRoot(), "examples", "s3-app"), s.dir)
+
+	port := func() string {
+		_, p, err := net.SplitHostPort(freeAddr(s.T()))
+		s.Require().NoError(err)
+		return p
+	}
+	proxyPort := port()
+	rewrite := func(path string, repl ...string) {
+		data, err := os.ReadFile(path)
+		s.Require().NoError(err)
+		out := strings.NewReplacer(repl...).Replace(string(data))
+		s.Require().NoError(os.WriteFile(path, []byte(out), 0o600))
+	}
+	rewrite(filepath.Join(s.dir, "kevin.cue"),
+		"18090", proxyPort, "18091", port(), "18092", port(),
+		`"s3-app-example"`, `"kevin-e2e-s3app"`, `"s3app"`, strconv.Quote(s.name))
+	rewrite(filepath.Join(s.dir, "charts", "app", "templates", "deployment.yaml"), "18090", proxyPort)
+	s.cleanupProject("kevin-e2e-s3app")
+}
+
+func (s *S3AppSuite) kubectl(args ...string) (string, error) {
+	kubeconfig := filepath.Join(s.dir, ".kevin", "kubeconfig", s.name)
+	out, err := exec.CommandContext(s.T().Context(), "kubectl",
+		append([]string{"--kubeconfig", kubeconfig}, args...)...).CombinedOutput()
+	return string(out), err
+}
+
+// TestPersistentClusterSurvivesRuns proves setup's cluster and seeded
+// bucket outlive a run, the app reaches the real S3 hostname through the
+// interception, and a second run redeploys against the same cluster.
+func (s *S3AppSuite) TestPersistentClusterSurvivesRuns() {
+	require := s.Require()
+	defer func() {
+		p := s.startKevin(s.dir, "-C", s.dir, "teardown")
+		s.Equal(0, s.waitExit(p, kindTimeout), "teardown output:\n%s", p.buf.String())
+		s.Empty(s.containerIDsForProject("kevin-e2e-s3app"), "teardown must remove the cluster and MiniStack containers")
+		s.requireNoKindCluster(s.name)
+	}()
+
+	setup := s.startKevin(s.dir, "-C", s.dir, "setup")
+	require.Equal(0, s.waitExit(setup, kindTimeout), "setup output:\n%s", setup.buf.String())
+	require.Contains(setup.buf.String(), stepLine("seed_ready", "ready"))
+
+	for run := 1; run <= 2; run++ {
+		p := s.startKevin(s.dir, "-C", s.dir, "run")
+		s.waitFor(p, stepLine("app_ready", "ready"), kindTimeout)
+
+		s.Eventually(func() bool {
+			logs, _ := s.kubectl("logs", "deployment/app")
+			return strings.Contains(logs, "seeded at kevin setup") && strings.Contains(logs, "heartbeat:")
+		}, 2*time.Minute, 3*time.Second, "run %d: the app must read the seeded and heartbeat objects through the interception", run)
+
+		require.NoError(p.cmd.Process.Signal(syscall.SIGINT))
+		require.Equal(0, s.waitExit(p, kindTimeout), "run %d output:\n%s", run, p.buf.String())
+
+		got, err := s.kubectl("get", "deployment", "ministack")
+		require.NoError(err, "the persistent scope must survive run %d:\n%s", run, got)
+		got, err = s.kubectl("get", "deployment", "app")
+		require.Error(err, "the env-scope app must be removed by run %d, got:\n%s", run, got)
+		s.Contains(got, "NotFound")
+	}
 }

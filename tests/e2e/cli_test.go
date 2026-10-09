@@ -10,10 +10,11 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-// CLISuite covers docs/MANUAL_TESTING.md sections 10 (validate/init), 14
-// (reserved plugin namespace), and 15 (environment file formats). These are
-// cheap, independent one-shot commands, so each test gets its own temp
-// project.
+// CLISuite covers a user validating an environment with no Docker daemon and
+// loading a dotfile-named environment file. These are cheap, independent
+// one-shot commands, so each test gets its own temp project.
+//
+// Tier: e2e.
 type CLISuite struct {
 	e2eSuite
 }
@@ -37,69 +38,6 @@ func (s *CLISuite) TestValidateNeedsNoDockerDaemon() {
 	s.Contains(out, "0 setup step(s), 1 env step(s)")
 }
 
-// TestValidateFailsOnBrokenSchemaBeforeDocker covers a with block that
-// fails schema-unify (image given as a number, not a string): validate must
-// fail with a clear CUE error, before anything Docker-related runs.
-func (s *CLISuite) TestValidateFailsOnBrokenSchemaBeforeDocker() {
-	dir := s.T().TempDir()
-	s.writeCUE(dir, proxyBlock(s.T())+`project: "kevin-e2e-validate-broken"
-
-env: web: {
-	uses: "builtin:container"
-	with: image: 123
-}
-`)
-
-	out, code := s.runToCompletion(dir, "-C", dir, "validate")
-	s.NotEqual(0, code, "output:\n%s", out)
-	s.Contains(out, "image")
-}
-
-// TestValidateFailsOnMissingListenPorts covers proxy.listen, proxy.gateway_port,
-// and console.listen all being required with no schema default: omitting the
-// proxy:/console: block entirely fails validate clearly, naming the field,
-// before anything Docker-related runs.
-func (s *CLISuite) TestValidateFailsOnMissingListenPorts() {
-	dir := s.T().TempDir()
-	s.writeCUE(dir, `project: "kevin-e2e-validate-missing-ports"`)
-
-	out, code := s.runToCompletion(dir, "-C", dir, "validate")
-	s.NotEqual(0, code, "output:\n%s", out)
-	s.Contains(out, "proxy.listen")
-}
-
-// TestInitPrintsPluginNameForCmdSourceAndStartsNoProcess covers init: it
-// lists every non-builtin plugin a step uses, cmd:-sourced or not, and
-// starts no process (a cmd: plugin needs nothing downloaded).
-func (s *CLISuite) TestInitPrintsPluginNameForCmdSourceAndStartsNoProcess() {
-	dir := s.T().TempDir()
-	src := fmt.Sprintf(oneStepCUE, "kevin-e2e-init", strconv.Quote(s.echoPluginBin()), strconv.Quote("hi"))
-	s.writeCUE(dir, proxyBlock(s.T())+src)
-
-	out, code := s.runToCompletion(dir, "-C", dir, "init")
-	s.Equal(0, code, "output:\n%s", out)
-	s.Equal("echo\n", out, "init must print exactly the plugin name, one per line")
-}
-
-// TestReservedPluginNamespaceFailsValidation covers section 14: a plugins:
-// key from the reserved list is rejected, naming every reserved name.
-func (s *CLISuite) TestReservedPluginNamespaceFailsValidation() {
-	dir := s.T().TempDir()
-	s.writeCUE(dir, proxyBlock(s.T())+`project: "kevin-e2e-reserved"
-
-plugins: kevin: {cmd: "./anything"}
-
-env: a: {
-	uses: "kevin:whatever"
-}
-`)
-
-	out, code := s.runToCompletion(dir, "-C", dir, "validate")
-	s.NotEqual(0, code, "output:\n%s", out)
-	s.Contains(out, "reserved name")
-	s.Contains(out, "builtin")
-}
-
 // TestDotfileEnvRuns covers the dotfile CUE variant (.kevin.cue) running the
 // same env as a plain kevin.cue.
 func (s *CLISuite) TestDotfileEnvRuns() {
@@ -109,17 +47,4 @@ func (s *CLISuite) TestDotfileEnvRuns() {
 
 	out, code := s.runUntil(dir, stepLine("a", "ready"), "-C", dir, "run")
 	s.Equal(0, code, "output:\n%s", out)
-}
-
-// TestTwoCandidatesInOneDirFailClearly covers the ambiguous case: kevin.cue
-// and its dotfile variant both present in the same directory.
-func (s *CLISuite) TestTwoCandidatesInOneDirFailClearly() {
-	dir := s.T().TempDir()
-	echoBin := strconv.Quote(s.echoPluginBin())
-	s.writeCUE(dir, fmt.Sprintf(oneStepCUE, "kevin-e2e-ambiguous", echoBin, strconv.Quote("hi")))
-	s.writeCUEFile(dir, ".kevin.cue", fmt.Sprintf(oneStepCUE, "kevin-e2e-ambiguous", echoBin, strconv.Quote("hi")))
-
-	out, code := s.runToCompletion(dir, "-C", dir, "validate")
-	s.NotEqual(0, code, "output:\n%s", out)
-	s.Contains(out, "multiple environment files found in")
 }

@@ -380,26 +380,6 @@ func TestDownReportsBadConfig(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestDownIsIdempotent(t *testing.T) {
-	requireDocker(t)
-	requireKind(t)
-
-	// A cluster that never existed is not an error. The supervisor calls Down
-	// for every step of the setup scope, present or not.
-	out := &capture{}
-	err := Step{}.Down(t.Context(), &plugin.DownRequest{
-		Step:   "cluster",
-		Config: []byte(`{"driver":"kind"}`),
-		Env: plugin.Env{
-			Project:   "kevin-kind-absent",
-			Workspace: t.TempDir(),
-		},
-	}, out)
-
-	require.NoError(t, err)
-	assert.Contains(t, strings.Join(out.stdout, "\n"), "removing cluster kevin-kind-absent-cluster")
-}
-
 func TestExportContainers(t *testing.T) {
 	t.Run("no engine fails open", func(t *testing.T) {
 		assert.Nil(t, exportContainers(t.Context(), nil, fakeDriver{}))

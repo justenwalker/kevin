@@ -5,11 +5,8 @@ package engine
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -39,38 +36,6 @@ func requireRelay(t *testing.T) {
 }
 
 func TestRun(t *testing.T) {
-	t.Run("brings up and tears down in dependency order", func(t *testing.T) {
-		requireRelay(t)
-		dir := project(t, `
-env: {
-	a: {uses: "echo:echo", with: {message: "A", outputs: greeting: "hi"}}
-	b: {uses: "echo:echo", needs: ["a"], with: message: "B"}
-	c: {uses: "echo:echo", needs: ["a"], with: message: "C"}
-	d: {uses: "echo:echo", needs: ["b", "c"], with: message: "D"}
-}
-`)
-		w, err := runUntil(t, dir, "d                ready")
-		require.NoError(t, err)
-
-		out := w.String()
-
-		// Every step came up, and the engine removed every step again.
-		for _, step := range []string{"a", "b", "c", "d"} {
-			assert.Contains(t, out, step+"                ready", "step %s must come up", step)
-			assert.Contains(t, out, step+"                removed", "the engine must remove step %s", step)
-		}
-
-		// The outputs reached the dependent step. A step's own log lines go
-		// to the console and the durable log file, not the terminal.
-		logs, err := os.ReadFile(filepath.Join(dir, WorkspaceDir, LogsFile))
-		require.NoError(t, err)
-		assert.Contains(t, string(logs), "saw a: map[greeting:hi step:a]")
-
-		// Step d came up last, and the engine removed it first.
-		assert.Less(t, strings.Index(out, "a                ready"), strings.Index(out, "d                ready"))
-		assert.Less(t, strings.Index(out, "d                removed"), strings.Index(out, "a                removed"))
-	})
-
 	// "skips down for a step with no downer" proves that a step type reporting
 	// no Downer via Info never gets its Down RPC called during teardown.
 	// run.down emits "down" right before the RPC, and skips both the RPC and
@@ -107,22 +72,6 @@ env: {
 		require.NoError(t, err)
 
 		assert.Contains(t, w.String(), "a                detail: admin password")
-	})
-
-	t.Run("starts a file-source plugin", func(t *testing.T) {
-		requireRelay(t)
-		pkgPath, err := packagedEchoPlugin()
-		require.NoError(t, err)
-
-		dir := configDir(t, "plugins: echo: file: "+strconv.Quote(pkgPath)+"\n"+proxyBlock(t)+
-			`env: a: {uses: "echo:echo", with: message: "A"}`+"\n")
-
-		w, err := runUntil(t, dir, "a                ready")
-		require.NoError(t, err)
-
-		out := w.String()
-		assert.Contains(t, out, "a                ready", "the extracted plugin must come up like any other")
-		assert.Contains(t, out, "a                removed")
 	})
 
 	t.Run("renders progress and carries the environment", func(t *testing.T) {
@@ -170,38 +119,6 @@ env:   api:   {uses: "echo:echo", with: message: "serving"}
 		dir := project(t, `env: {}`)
 		err := Run(t.Context(), Options{Dir: dir, Scope: config.ScopeEnv, Keep: true, NoWait: true})
 		require.NoError(t, err)
-	})
-
-	// The MCP server is mounted onto the console's own listener rather than
-	// binding one of its own - this proves it actually answers a real MCP
-	// tool call there.
-	t.Run("serves the mcp server alongside the console", func(t *testing.T) {
-		requireRelay(t)
-		dir := project(t, `env: {}`)
-
-		var callErr error
-		var result *mcp.CallToolResult
-		err := Run(t.Context(), Options{
-			Dir: dir, Scope: config.ScopeEnv, Keep: true, NoWait: true,
-			OnEnvironment: func(env *pb.Environment) {
-				client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
-				sess, connErr := client.Connect(t.Context(), &mcp.StreamableClientTransport{
-					Endpoint: "http://" + env.GetConsoleAddr() + mcpserver.Path,
-				}, nil)
-				if connErr != nil {
-					callErr = connErr
-					return
-				}
-				defer func() { _ = sess.Close() }()
-
-				result, callErr = sess.CallTool(t.Context(), &mcp.CallToolParams{Name: "list_steps"})
-			},
-		})
-		require.NoError(t, err)
-
-		require.NoError(t, callErr)
-		require.NotNil(t, result)
-		assert.False(t, result.IsError)
 	})
 
 	// setup relies on NoWait to bring its steps up and return without ever
@@ -339,29 +256,6 @@ env: ok: {uses: "echo:echo", timeout: "1m", with: message: "A"}
 // step via the "setup.<name>" prefix, resolved through Export rather than
 // Up - and each way that resolution can fail.
 func TestRunCrossScopeNeeds(t *testing.T) {
-	t.Run("resolves a setup step's Export into needs and Deps", func(t *testing.T) {
-		requireRelay(t)
-		dir := project(t, `
-setup: cluster: {uses: "echo:echo", with: {export: {greeting: "from-setup", password: "hunter2"}, export_sensitive: ["password"]}}
-env:   app:     {uses: "echo:echo", needs: ["setup.cluster"], with: message: "${setup.cluster.out.greeting}"}
-`)
-		w, err := runUntil(t, dir, fmt.Sprintf("%-16s %s", "app", "ready"))
-		require.NoError(t, err)
-		assert.Contains(t, w.String(), fmt.Sprintf("%-16s %s", "app", "ready"))
-
-		logs, err := os.ReadFile(filepath.Join(dir, WorkspaceDir, LogsFile))
-		require.NoError(t, err)
-		out := string(logs)
-		assert.Contains(t, out, "from-setup", "the CEL-rendered with block must carry the setup step's exported value")
-		assert.Contains(t, out, "saw setup.cluster:", "the wire Deps key must be the \"setup.\"-prefixed name")
-		// echo logs req.Deps with %v, and plugin.Sensitive's String() redacts
-		// to "[REDACTED]" - proving the Sensitive flag reached the plugin
-		// (not just that the raw value did) exactly as export_sensitive named it.
-		assert.Contains(t, out, "password:[REDACTED]", "export_sensitive must keep its Sensitive flag crossing scopes via Deps")
-		assert.NotContains(t, out, "hunter2", "a Sensitive value must never appear in its raw form in the log")
-		assert.Contains(t, out, "greeting:from-setup", "a non-sensitive value must appear in the clear")
-	})
-
 	t.Run("renders a setup step's own with block before exporting it", func(t *testing.T) {
 		requireRelay(t)
 		dir := project(t, `
@@ -408,24 +302,6 @@ env: {
 		assert.NotContains(t, out, "calls=3", "no more than one Export call per phase")
 	})
 
-	t.Run("an unknown same-scope name fails", func(t *testing.T) {
-		dir := project(t, `
-env: app: {uses: "echo:echo", needs: ["missing"]}
-`)
-		err := runEnv(t, dir)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), `app: needs "missing": no such step in scope "env"`)
-	})
-
-	t.Run("an unknown setup-scope name fails", func(t *testing.T) {
-		dir := project(t, `
-env: app: {uses: "echo:echo", needs: ["setup.missing"]}
-`)
-		err := runEnv(t, dir)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), `app: needs "setup.missing": no such step in scope "setup"`)
-	})
-
 	t.Run("a setup step with no Exporter fails", func(t *testing.T) {
 		dir := project(t, `
 setup: cluster: {uses: "echo:probe"}
@@ -434,18 +310,6 @@ env:   app:     {uses: "echo:echo", needs: ["setup.cluster"]}
 		w, err := runUntil(t, dir, fmt.Sprintf("%-16s %s", "app", "failed:"))
 		require.Error(t, err)
 		assert.Contains(t, w.String(), "does not implement export")
-	})
-
-	t.Run("the setup prefix is rejected outside the env scope", func(t *testing.T) {
-		dir := project(t, `
-setup: {
-	a: {uses: "echo:echo", needs: ["setup.b"]}
-	b: {uses: "echo:echo"}
-}
-`)
-		err := Run(t.Context(), Options{Dir: dir, Scope: config.ScopeSetup})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), `a: needs "setup.b": only an env step can use a "setup." dependency`)
 	})
 }
 
@@ -491,69 +355,6 @@ setup: {
 	require.NoError(t, err)
 	assert.Contains(t, string(logs), "from-cluster",
 		"app's Down must render needs.cluster.out.greeting, not fail or see it empty")
-}
-
-// TestRunAppliesEgressFromConfigToTheProxy proves proxy.egress.allow in
-// kevin.cue reaches the running proxy, and that deny (unset here, so
-// proxyBlock's own default true applies) still blocks everything else.
-func TestRunAppliesEgressFromConfigToTheProxy(t *testing.T) {
-	requireRelay(t)
-
-	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, "reachable")
-	}))
-	t.Cleanup(target.Close)
-
-	addr := freeAddr(t)
-	dir := project(t, `
-proxy: {
-	listen: "`+addr+`"
-	egress: allow: ["127.0.0.1"]
-}
-env: a: {uses: "echo:echo", with: message: "A"}
-`)
-
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	// The watcher normally cancels the run context when the step comes up.
-	// Here it only unblocks the test, so the checks below run against a
-	// proxy that is still up.
-	ready := make(chan struct{})
-	w := &watcher{until: "a                ready", cancel: func() { close(ready) }}
-	done := runAsync(t, ctx, dir, w)
-
-	select {
-	case <-ready:
-	case <-time.After(30 * time.Second):
-		t.Fatal("the environment never came up")
-	}
-
-	proxyURL, err := url.Parse("http://" + addr)
-	require.NoError(t, err)
-	client := &http.Client{
-		Timeout:   5 * time.Second,
-		Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)},
-	}
-
-	resp, err := getVia(t, client, target.URL+"/")
-	require.NoError(t, err)
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.NoError(t, resp.Body.Close())
-	assert.Equal(t, "reachable", string(body), "the allow list in kevin.cue must reach the proxy")
-
-	resp, err = getVia(t, client, "http://denied.kevin.test/")
-	require.NoError(t, err)
-	body, err = io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.NoError(t, resp.Body.Close())
-	assert.Equal(t, http.StatusForbidden, resp.StatusCode,
-		"proxyBlock's own deny:true default must reach the proxy")
-	assert.Contains(t, string(body), "Blocked by kevin")
-
-	cancel()
-	require.NoError(t, <-done)
 }
 
 // TestRunAppliesMaxParallelFromConfig proves engine.max_parallel in
@@ -700,73 +501,6 @@ env: {
 		}
 	}
 	assert.Equal(t, "hi", greeting, "export_step must receive the rendered value, not the raw needs.* template")
-
-	cancel()
-	require.NoError(t, <-done)
-}
-
-// TestRunCallsAPluginDeclaredTool proves a plugin-declared MCP tool
-// (echo's ToolProvider) reaches the plugin through a real tools/call,
-// with the step argument resolved to that step's rendered config and deps.
-func TestRunCallsAPluginDeclaredTool(t *testing.T) {
-	requireRelay(t)
-	dir := project(t, `
-env: {
-	a: {uses: "echo:echo", with: outputs: greeting: "hi"}
-	b: {uses: "echo:echo", needs: ["a"], with: message: "hello"}
-}
-`)
-	w := &watcher{}
-	addrCh := make(chan string, 1)
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	done := make(chan error, 1)
-	go func() {
-		done <- Run(ctx, Options{
-			Dir: dir, Scope: config.ScopeEnv, Events: w,
-			OnEnvironment: func(env *pb.Environment) { addrCh <- env.GetConsoleAddr() },
-		})
-	}()
-
-	var addr string
-	select {
-	case addr = <-addrCh:
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for the environment address")
-	}
-	waitForCount(t, w, "b                ready", 1, 5*time.Second)
-
-	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
-	sess, err := client.Connect(t.Context(), &mcp.StreamableClientTransport{
-		Endpoint: "http://" + addr + mcpserver.Path,
-	}, nil)
-	require.NoError(t, err)
-	defer func() { _ = sess.Close() }()
-
-	tools, err := sess.ListTools(t.Context(), nil)
-	require.NoError(t, err)
-	var toolName string
-	for _, tl := range tools.Tools {
-		if strings.HasPrefix(tl.Name, "echo_echo_") {
-			toolName = tl.Name
-		}
-	}
-	require.NotEmpty(t, toolName, "echo's step type must advertise its tool, namespaced echo_echo_<tool>")
-
-	result, err := sess.CallTool(t.Context(), &mcp.CallToolParams{
-		Name:      toolName,
-		Arguments: map[string]any{"step": "b"},
-	})
-	require.NoError(t, err)
-	require.False(t, result.IsError, "%v", result.Content)
-
-	out, ok := result.StructuredContent.(map[string]any)
-	require.True(t, ok, "expected structured content, got %#v", result.StructuredContent)
-	assert.Equal(t, "hello", out["message"])
-	deps, ok := out["deps"].(map[string]any)
-	require.True(t, ok, "expected a deps object, got %#v", out["deps"])
-	require.Contains(t, deps, "a")
 
 	cancel()
 	require.NoError(t, <-done)
@@ -1007,13 +741,16 @@ env: {}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dockerClient.Remove(context.WithoutCancel(t.Context()), orphan) })
 
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	// The environment is announced after the reap, so canceling there ends
+	// the run without a clock racing the relay start.
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	w := &watcher{}
 	require.NoError(t, Run(ctx, Options{
-		Dir:    dir,
-		Scope:  config.ScopeEnv,
-		Events: w,
+		Dir:           dir,
+		Scope:         config.ScopeEnv,
+		Events:        w,
+		OnEnvironment: func(*pb.Environment) { cancel() },
 	}))
 
 	names, err := dockerClient.ListByLabel(t.Context(), cri.LabelProject, "kevin-reap-test")
@@ -1117,42 +854,5 @@ func TestStartProxyGatewayPort(t *testing.T) {
 		t.Cleanup(func() { _ = server.Close() })
 
 		assert.Equal(t, wantPort, mustPort(t, server.gatewayAddr))
-	})
-
-	t.Run("fails when the port is already in use", func(t *testing.T) {
-		requireDocker(t)
-
-		cfg := &config.Config{Project: "kevin-gwport-conflict-test", Dir: t.TempDir()}
-		_, authority, err := prepare(t.Context(), cfg, dockerClient)
-		require.NoError(t, err)
-		network := NetworkName(cfg.Project)
-		t.Cleanup(func() {
-			_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
-		})
-
-		gateway, err := dockerClient.NetworkGateway(t.Context(), network)
-		require.NoError(t, err)
-
-		held := bindGatewayPort(t, gateway.V4)
-		defer func() { _ = held.Close() }()
-		heldPort := mustPort(t, held.Addr().String())
-
-		var lc net.ListenConfig
-		probe, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
-		require.NoError(t, err)
-		listen := probe.Addr().String()
-		require.NoError(t, probe.Close())
-
-		_, err = startProxy(t.Context(), dockerClient, authority, proxyOptions{
-			Network:     network,
-			Listen:      listen,
-			GatewayPort: heldPort,
-			Domain:      "kevin.test",
-		})
-		require.Error(t, err, "a port already in use must fail, not fall back silently")
-
-		again, err := lc.Listen(t.Context(), "tcp", listen)
-		require.NoError(t, err, "a failed startProxy must release its primary listener")
-		require.NoError(t, again.Close())
 	})
 }

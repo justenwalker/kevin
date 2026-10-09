@@ -75,6 +75,7 @@ func TestStartAndClose(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, name, info.Name, "the relay container must carry the project prefix and the relay suffix")
 	assert.True(t, info.Running, "the relay container must be running")
+	assert.Equal(t, "relay-test", info.Labels[cri.LabelProject], "the relay container must carry the project label")
 
 	labels, err := dockerClient.ListByLabel(t.Context(), cri.LabelRole, relay.Role)
 	require.NoError(t, err)

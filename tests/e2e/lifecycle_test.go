@@ -15,7 +15,7 @@ import (
 
 // lifecycleCUE brings up a real container (web) and a dependent (probe), so
 // teardown order and --keep/crash survival are observable against real
-// docker resources - matches docs/MANUAL_TESTING.md section 1.
+// docker resources.
 const lifecycleCUE = `project: "%s"
 
 env: {
@@ -39,10 +39,12 @@ env: {
 }
 `
 
-// LifecycleSuite covers docs/MANUAL_TESTING.md section 1: basic env
-// lifecycle. Each test needs a differently shaped run (plain, --keep,
+// LifecycleSuite covers a user running an environment with kevin run: its
+// basic lifecycle. Each test needs a differently shaped run (plain, --keep,
 // --debug, crashed), so this suite sets up a fresh project per test method
 // rather than sharing one SetupSuite bring-up.
+//
+// Tier: e2e.
 type LifecycleSuite struct {
 	e2eSuite
 }
@@ -65,6 +67,7 @@ func (s *LifecycleSuite) TestRunPrintsAddressesAndTearsDownInReverseOrder() {
 	out, code := s.runUntil(dir, stepLine("probe", "ready"), "-C", dir, "run")
 	s.Equal(0, code, "output:\n%s", out)
 
+	s.NotContains(out, "\x1b[", "a piped run must not draw the live display")
 	s.Contains(out, "console  http://", "must print the console address")
 	s.Contains(out, "proxy    http://", "must print the proxy address")
 	s.Contains(out, "export HTTP_PROXY=", "must print the shell hint")
@@ -77,6 +80,82 @@ func (s *LifecycleSuite) TestRunPrintsAddressesAndTearsDownInReverseOrder() {
 	s.Less(probeRemoved, webRemoved, "probe (the dependent) must be torn down before web")
 
 	s.Empty(s.containerIDsForProject(project), "no container may remain after a plain run")
+}
+
+// routedCUE adds a route step and a second dependent to lifecycleCUE, so
+// teardown order across siblings and a step with no Down are observable.
+const routedCUE = `project: "%s"
+
+env: {
+	web: {
+		uses: "builtin:container"
+		with: {
+			image:  "nginx:alpine"
+			expose: web: {port: 80}
+		}
+	}
+	web_route: {
+		uses:  "builtin:route"
+		needs: ["web"]
+		with: routes: [{host: "web", address: "${needs.web.out.host_80}"}]
+	}
+	probe: {
+		uses:  "builtin:container"
+		needs: ["web"]
+		with: {
+			image: "busybox:stable"
+			cmd:   ["sleep", "3600"]
+		}
+	}
+	noproxy: {
+		uses:  "builtin:container"
+		needs: ["web"]
+		with: {
+			proxy: false
+			image: "busybox:stable"
+			cmd:   ["sleep", "3600"]
+		}
+	}
+}
+`
+
+// TestTeardownRemovesEveryDependentBeforeItsDependency covers a step with
+// two dependents and a route step: both dependents are removed before web,
+// and the route step, which has nothing to tear down, prints no removal.
+func (s *LifecycleSuite) TestTeardownRemovesEveryDependentBeforeItsDependency() {
+	project := "kevin-e2e-lifecycle-routed"
+	dir := s.project(project, routedCUE)
+
+	out, code := s.runUntil(dir, stepLine("noproxy", "ready"), "-C", dir, "run")
+	s.Equal(0, code, "output:\n%s", out)
+	s.Contains(out, stepLine("web_route", "ready"))
+
+	webRemoved := strings.Index(out, stepLine("web", "removed"))
+	s.Require().NotEqual(-1, webRemoved, "web must be removed")
+	for _, dependent := range []string{"probe", "noproxy"} {
+		removed := strings.Index(out, stepLine(dependent, "removed"))
+		s.Require().NotEqual(-1, removed, "%s must be removed", dependent)
+		s.Less(removed, webRemoved, "%s must be torn down before web", dependent)
+	}
+	s.NotContains(out, stepLine("web_route", "removed"), "a route has nothing to remove")
+}
+
+// TestDebugFlagOnATerminalUsesThePlainStream covers --debug on a terminal:
+// the live display is replaced by the plain line-per-event stream, at debug
+// level.
+func (s *LifecycleSuite) TestDebugFlagOnATerminalUsesThePlainStream() {
+	project := "kevin-e2e-lifecycle-pty-debug"
+	dir := s.project(project, lifecycleCUE)
+
+	p := s.startKevinOnPTY(dir, "-C", dir, "--debug", "run")
+	s.waitFor(p, stepLine("probe", "ready"), defaultTimeout)
+
+	s.Require().NoError(p.cmd.Process.Signal(syscall.SIGINT))
+	s.Equal(0, s.waitExit(p, defaultTimeout), "output:\n%q", p.buf.String())
+	out := p.buf.String()
+
+	s.NotRegexp(`\r\x1b\[\d+A\x1b\[J`, out, "--debug must not redraw the live list")
+	s.Contains(out, " DEBUG ", "debug flag must produce debug-level log lines")
 }
 
 // TestDebugFlagLogsAtDebugLevel covers --debug: it falls back to the plain
@@ -138,7 +217,7 @@ func (s *LifecycleSuite) TestKeepBlocksForInterruptAndLeavesContainers() {
 	s.NotEmpty(s.containerIDsForProject(project), "--keep must leave the containers running")
 }
 
-// TestCrashLeavesContainersAndSecondRunReconciles covers section 16: a
+// TestCrashLeavesContainersAndSecondRunReconciles covers a crash: a
 // SIGKILL (a real crash, not Ctrl-C) leaves the containers running, and a
 // second run afterward still succeeds - state is derived from live docker
 // labels, not a state file.
@@ -195,3 +274,22 @@ func (s *LifecycleSuite) TestDetachStartsInBackgroundAndStopTearsDown() {
 // since a subprocess's stdout/stderr piped into a syncBuffer is never a
 // terminal, so wantsLiveUI is always false and kevin always falls back to
 // the plain per-event stream that stepLine matches against.
+
+// TestRunOnATerminalRedrawsTheStepList covers the live display: on a
+// terminal kevin rewrites its step list in place with cursor-up and erase
+// sequences, where a piped run (every other test here) gets plain lines.
+func (s *LifecycleSuite) TestRunOnATerminalRedrawsTheStepList() {
+	project := "kevin-e2e-lifecycle-pty"
+	dir := s.project(project, lifecycleCUE)
+
+	p := s.startKevinOnPTY(dir, "-C", dir, "run")
+	s.waitFor(p, "2 ready", defaultTimeout)
+
+	s.Require().NoError(p.cmd.Process.Signal(syscall.SIGINT))
+	s.Equal(0, s.waitExit(p, defaultTimeout), "output:\n%q", p.buf.String())
+	out := p.buf.String()
+
+	s.Regexp(`\r\x1b\[\d+A\x1b\[J`, out, "the list must be redrawn with cursor-up and erase")
+	s.Contains(out, "Web Server  running", "a running step must get its own row")
+	s.NotContains(out, stepLine("web", "up"), "the plain event stream must not be written alongside the live list")
+}

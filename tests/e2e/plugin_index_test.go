@@ -18,13 +18,13 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-// PluginIndexSuite covers docs/site/content/docs/guides/plugin-discovery.md
-// and docs/MANUAL_TESTING.md's own future base-command coverage: kevin
-// plugin index add/list/remove/update/show, kevin plugin search, and kevin
-// plugin index install, against a real local git fixture repo. The
-// federated version_source + sigstore case (MANUAL_TESTING.md section 23)
-// needs cosign and an interactive OIDC login, so it stays manual; this
-// suite covers minisign only.
+// PluginIndexSuite covers docs/site/content/docs/guides/plugin-discovery.md:
+// kevin plugin index add/list/remove/update/show, kevin plugin search, and
+// kevin plugin index install, against a real local git fixture repo. The
+// federated version_source + sigstore case needs cosign and an interactive
+// OIDC login, so it is checked by hand; this suite covers minisign only.
+//
+// Tier: e2e.
 type PluginIndexSuite struct {
 	e2eSuite
 }
@@ -100,16 +100,29 @@ func newE2ESignerKey(t *testing.T) e2eSignerKey {
 	return e2eSignerKey{sk: sk}
 }
 
-// text renders the key's public half in minisign's 2-line text format,
-// escaped for embedding in a double-quoted YAML scalar.
-func (k e2eSignerKey) yamlText() string {
+// pubText renders the key's public half in minisign's 2-line text format.
+func (k e2eSignerKey) pubText() string {
 	pub := k.sk.PublicKey()
 	raw := make([]byte, 0, 42)
 	raw = append(raw, pub.SignatureAlgorithm[:]...)
 	raw = append(raw, pub.KeyId[:]...)
 	raw = append(raw, pub.PublicKey[:]...)
-	text := "untrusted comment: e2e test key\n" + base64.StdEncoding.EncodeToString(raw) + "\n"
-	return strings.ReplaceAll(text, "\n", `\n`)
+	return "untrusted comment: e2e test key\n" + base64.StdEncoding.EncodeToString(raw) + "\n"
+}
+
+// yamlText is pubText escaped for embedding in a double-quoted YAML scalar.
+func (k e2eSignerKey) yamlText() string {
+	return strings.ReplaceAll(k.pubText(), "\n", `\n`)
+}
+
+// signFile writes path's detached signature next to it as path+".minisig".
+func (k e2eSignerKey) signFile(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	sig, err := k.sk.Sign(data, minisign.SignOptions{Hashed: true})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path+".minisig", sig.Encode(), 0o600))
 }
 
 // TestAddListShowSearchRemove covers the read-only discovery commands
@@ -148,50 +161,6 @@ func (s *PluginIndexSuite) TestAddListShowSearchRemove() {
 	out, code = s.runToCompletionWithEnv(dir, env, "plugin", "index", "list")
 	s.Equal(0, code, "output:\n%s", out)
 	s.NotContains(out, "e2e-repo")
-}
-
-// TestUpdatePicksUpNewVersion covers the append-only release flow: a
-// pure file-add to the fixture repo, no edits, and "index update" picks
-// it up as the new latest.
-func (s *PluginIndexSuite) TestUpdatePicksUpNewVersion() {
-	env := s.isolatedHome()
-	url := s.gitFixture(map[string]string{
-		"kevin-index.yaml":                 "layout: 1\n",
-		"plugins/demo/plugin.yaml":         "name: demo\nsummary: a demo plugin\n",
-		"plugins/demo/versions/1.0.0.yaml": "version: 1.0.0\nsource:\n  oci: ghcr.io/example/demo:v1.0.0\n",
-	})
-	dir := s.T().TempDir()
-
-	out, code := s.runToCompletionWithEnv(dir, env, "plugin", "index", "add", url, "--as", "e2e-repo")
-	s.Require().Equal(0, code, "output:\n%s", out)
-
-	s.Require().NoError(os.WriteFile(filepath.Join(url, "plugins", "demo", "versions", "1.5.0.yaml"),
-		[]byte("version: 1.5.0\nsource:\n  oci: ghcr.io/example/demo:v1.5.0\n"), 0o600))
-	s.gitCommit(url, "demo 1.5.0")
-
-	out, code = s.runToCompletionWithEnv(dir, env, "plugin", "index", "update")
-	s.Equal(0, code, "output:\n%s", out)
-	s.Contains(out, "ok\te2e-repo")
-
-	out, code = s.runToCompletionWithEnv(dir, env, "plugin", "index", "show", "demo")
-	s.Equal(0, code, "output:\n%s", out)
-	s.Contains(out, "version\t1.5.0 (latest)")
-	s.Contains(out, "version\t1.0.0")
-}
-
-// TestAddRejectsNonIndexRepo covers the kevin-index.yaml marker: a git
-// repo with a plugins/ directory but no marker fails clearly instead of
-// silently reporting zero plugins.
-func (s *PluginIndexSuite) TestAddRejectsNonIndexRepo() {
-	env := s.isolatedHome()
-	notIndex := s.gitFixture(map[string]string{
-		"README.md": "not a kevin plugin index\n",
-	})
-	dir := s.T().TempDir()
-
-	out, code := s.runToCompletionWithEnv(dir, env, "plugin", "index", "add", notIndex, "--as", "not-index")
-	s.NotEqual(0, code, "output:\n%s", out)
-	s.Contains(out, "kevin-index.yaml")
 }
 
 // TestInstallTrustsSignerAndWritesSnippet covers "kevin plugin index

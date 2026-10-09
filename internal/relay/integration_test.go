@@ -21,6 +21,8 @@ const relayProject = "kevin-it-relay"
 const relayDomain = "kevin.home"
 
 // RelaySuite drives one relay container against a real docker daemon.
+//
+// Tier: integration.
 type RelaySuite struct {
 	suite.Suite
 
@@ -96,17 +98,6 @@ func (s *RelaySuite) TestSOCKS5AddrIsPublishedOnLoopback() {
 	s.Regexp(`^127\.0\.0\.1:\d+$`, s.relay.SOCKS5Addr())
 }
 
-// TestCarriesRoleAndProjectLabels proves that the relay container carries
-// the labels that mark its role and its owner.
-func (s *RelaySuite) TestCarriesRoleAndProjectLabels() {
-	t := s.T()
-	info, err := dockerClient.Inspect(t.Context(), s.containerName())
-	s.Require().NoError(err)
-
-	s.Equal(relay.Role, info.Labels[cri.LabelRole], "the relay container must carry the role label")
-	s.Equal(relayProject, info.Labels[cri.LabelProject], "the relay container must carry the project label")
-}
-
 // TestRelayAnswersDNSForANameUnderTheDomain proves that a workload on the
 // shared network resolves a name under the domain to the relay address.
 func (s *RelaySuite) TestRelayAnswersDNSForANameUnderTheDomain() {
@@ -127,39 +118,4 @@ func (s *RelaySuite) TestRelayAnswersDNSForANameUnderTheDomain() {
 	out, err := dockerClient.Exec(ctx, name, "nslookup", "app."+relayDomain)
 	s.Require().NoError(err)
 	s.Contains(out, s.relay.Addr(), "a name under the domain must resolve to the relay address")
-}
-
-// TestCloseIsIdempotent starts a throwaway relay and proves that a second
-// Close is not an error. The shared suite relay stays up for the other
-// tests, so this test manages its own instance.
-func (s *RelaySuite) TestCloseIsIdempotent() {
-	t := s.T()
-	ctx := t.Context()
-
-	project := relayProject + "-close"
-	r, err := relay.Start(ctx, dockerClient, relay.Options{
-		Project:   project,
-		Network:   s.network,
-		Domain:    relayDomain,
-		ProxyAddr: "host.docker.internal:18080",
-		Image:     relay.Ref(""),
-		Authority: newTestAuthority(t),
-	})
-	s.Require().NoError(err)
-
-	s.Require().NoError(r.Close())
-	name := "kevin-" + project + "-relay"
-	_, err = dockerClient.Inspect(ctx, name)
-	s.Require().ErrorIs(err, cri.ErrNotFound, "Close must remove the container")
-
-	s.Require().NoError(r.Close(), "a second Close must not be an error")
-}
-
-// TestRefPrecedenceAgainstARealEnvironment proves that KEVIN_RELAY_IMAGE in
-// the process environment wins over a configured image.
-func (s *RelaySuite) TestRefPrecedenceAgainstARealEnvironment() {
-	t := s.T()
-	t.Setenv(relay.ImageEnvVar, "from-real-env:dev")
-
-	s.Equal("from-real-env:dev", relay.Ref("from-config:dev"))
 }

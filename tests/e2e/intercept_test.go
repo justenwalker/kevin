@@ -75,8 +75,10 @@ env: {
 }
 `
 
-// InterceptSuite covers docs/MANUAL_TESTING.md section 8: builtin:route
-// with intercept: true.
+// InterceptSuite covers a user faking a real hostname with builtin:route and
+// intercept: true.
+//
+// Tier: e2e.
 type InterceptSuite struct {
 	e2eSuite
 }

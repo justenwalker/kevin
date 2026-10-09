@@ -76,10 +76,12 @@ env: {
 }
 `
 
-// DAGSuite covers docs/MANUAL_TESTING.md section 6: DAG ordering and
-// failure propagation. SetupSuite runs the DAG once to completion and
+// DAGSuite covers a user running a DAG: ordering and failure
+// propagation. SetupSuite runs the DAG once to completion and
 // captures its output/exit code; the TestXxx methods each assert a
 // different facet of that one run.
+//
+// Tier: e2e.
 type DAGSuite struct {
 	e2eSuite
 
@@ -172,18 +174,103 @@ func (s *DAGSuite) TestExitCodeIsNonZero() {
 	s.Equal(1, s.exitCode)
 }
 
-// TestProviderConfigAndStepOutputDelivery covers cross-step values and
-// provider-level Configure delivery. A step's own log lines never reach the
-// terminal (see onEvent's comment in internal/engine/engine.go) - only the
-// console and .kevin/logs.ndjson - so this reads the ndjson file rather
-// than the process output: a's step-level output (outputs: greeting: "hi")
-// reaches b through req.Deps, and the provider-level config.greeting set
-// once via Configure shows up in every step's log.
-func (s *DAGSuite) TestProviderConfigAndStepOutputDelivery() {
-	s.Contains(s.logs, "provider greeting: hello from the provider config")
-
+// TestStepOutputReachesDependent covers a step's output reaching its
+// dependent. A step's own log lines never reach the terminal (see onEvent's
+// comment in internal/engine/engine.go), only the console and
+// .kevin/logs.ndjson, so this reads the ndjson file: a's step-level output
+// (outputs: greeting: "hi") reaches b through req.Deps.
+func (s *DAGSuite) TestStepOutputReachesDependent() {
 	sawA := strings.Index(s.logs, "saw a:")
 	s.Require().NotEqual(-1, sawA, "b or c must log the dependency output it saw from a")
 	line := s.logs[sawA : sawA+200]
 	s.Contains(line, "hi", "a's step-level output (outputs: greeting: \"hi\") must reach its dependent")
+}
+
+// groupsCUE mirrors examples/groups/kevin.cue.
+const groupsCUE = `project: "%s"
+
+plugins: echo: cmd: %s
+
+env: {
+	net: {
+		uses: "echo:echo"
+		with: {
+			message: "network ready"
+			outputs: addr: "10.0.0.1"
+		}
+	}
+	db: {
+		needs: ["net"]
+		steps: {
+			primary: {
+				uses: "echo:echo"
+				with: {
+					message: "primary got ${needs.net.out.addr}"
+					outputs: addr: "10.0.0.2"
+				}
+			}
+			replica: {
+				uses:  "echo:echo"
+				needs: ["primary"]
+				with: message: "replica got ${needs.primary.out.addr}"
+			}
+		}
+		outputs: addr: "${needs.primary.out.addr}"
+	}
+	web: {
+		uses:  "echo:echo"
+		needs: ["db"]
+		with: message: "web got ${needs.db.out.addr}"
+	}
+	hold: {
+		uses:  "builtin:wait"
+		needs: ["web"]
+		with: duration: "1h"
+	}
+}
+`
+
+// GroupsSuite covers a user running step groups: their start order,
+// computed outputs, and teardown order.
+//
+// Tier: e2e.
+type GroupsSuite struct {
+	e2eSuite
+}
+
+func TestGroupsSuite(t *testing.T) {
+	suite.Run(t, new(GroupsSuite))
+}
+
+// TestGroupLifecycleOrderAndValues runs the group environment until hold is up,
+// then interrupts it.
+func (s *GroupsSuite) TestGroupLifecycleOrderAndValues() {
+	dir := s.T().TempDir()
+	s.writeCUE(dir, proxyBlock(s.T())+fmt.Sprintf(groupsCUE, "kevin-e2e-groups", strconv.Quote(s.echoPluginBin())))
+
+	p := s.startKevin(dir, "-C", dir, "run")
+	s.waitFor(p, stepLine("hold", "up"), defaultTimeout)
+	s.Require().NoError(p.cmd.Process.Signal(syscall.SIGINT))
+	s.Equal(0, s.waitExit(p, defaultTimeout), "output:\n%s", p.buf.String())
+	out := p.buf.String()
+
+	order := func(events ...string) {
+		prev := -1
+		for _, e := range events {
+			i := strings.Index(out, e)
+			s.Require().NotEqual(-1, i, "missing %q in output:\n%s", e, out)
+			s.Greater(i, prev, "%q out of order", e)
+			prev = i
+		}
+	}
+	order(stepLine("net", "ready"), stepLine("db.primary", "up"), stepLine("db.primary", "ready"),
+		stepLine("db.replica", "up"), stepLine("db.replica", "ready"), stepLine("db", "ready"),
+		stepLine("web", "up"))
+	order(stepLine("web", "removed"), stepLine("db.replica", "removed"),
+		stepLine("db.primary", "removed"), stepLine("net", "removed"))
+	s.NotContains(out, stepLine("db", "removed"), "a group has nothing of its own to tear down")
+	logs := s.readLogs(dir)
+	s.Contains(logs, "primary got 10.0.0.1", "a member must see its group's implicit needs")
+	s.Contains(logs, "replica got 10.0.0.2", "a member must resolve a sibling's bare name to its outputs")
+	s.Contains(logs, "web got 10.0.0.2", "web must read the group's computed addr output")
 }

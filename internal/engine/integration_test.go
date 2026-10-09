@@ -40,6 +40,8 @@ func newTestAuthority(t *testing.T) *ca.CA {
 }
 
 // RelaySuite runs a full engine.Run against a real docker daemon.
+//
+// Tier: integration.
 type RelaySuite struct {
 	suite.Suite
 

@@ -158,6 +158,28 @@ plugins: extra: cmd: "extra"`), 0o600))
 		assert.Len(t, cfg.Plugins, 2)
 	})
 
+	t.Run("validates steps declared in every package file", func(t *testing.T) {
+		dir := write(t, `package kevin
+
+project: "base"
+plugins: echo: cmd: "echo"
+env: a: uses: "echo:echo"`)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "more.cue"), []byte(`package kevin
+
+env: b: uses: "echo:missing"`), 0o600))
+
+		f, err := config.Load(dir, "", nil)
+		require.NoError(t, err)
+		cfg, err := f.Config()
+		require.NoError(t, err)
+		assert.Len(t, cfg.Steps(config.ScopeEnv), 2)
+
+		err = f.Validate(offers("echo", "echo"))
+		require.Error(t, err, "the second file's step must be checked too")
+		assert.Contains(t, err.Error(), "env.b")
+		assert.Contains(t, err.Error(), "more.cue")
+	})
+
 	t.Run("excludes a sibling with a different package name", func(t *testing.T) {
 		dir := write(t, `package kevin
 
@@ -196,6 +218,7 @@ domain: "extra.test"`), 0o600))
 
 		_, err := config.Load(dir, "", nil)
 		require.ErrorIs(t, err, config.ErrPackageConflict)
+		assert.Contains(t, err.Error(), "extra.cue", "the error must name the conflicting file")
 	})
 
 	t.Run("injects a tag value into a package-mode file", func(t *testing.T) {
@@ -1210,6 +1233,20 @@ plugins: echo: {
 }
 
 func TestConfig(t *testing.T) {
+	t.Run("names proxy.egress.deny when it is missing", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(`project: "demo"
+proxy: {listen: "127.0.0.1:18080", gateway_port: 18081}
+console: listen: "127.0.0.1:18082"
+`), 0o600))
+		f, err := config.Load(dir, "", nil)
+		require.NoError(t, err)
+
+		_, err = f.Config()
+		require.ErrorIs(t, err, config.ErrInvalid)
+		assert.Contains(t, err.Error(), "proxy.egress.deny")
+	})
+
 	t.Run("fills the defaults", func(t *testing.T) {
 		f := load(t, `
 project: "demo"

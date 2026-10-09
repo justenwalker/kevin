@@ -36,12 +36,15 @@ commands: {
 		needs: ["a", "b"]
 		run: ["sh", "-c", "echo a=${needs.a.out.name} b=${needs.b.out.name}"]
 	}
+	args: run: ["echo", "base"]
 }
 `
 
-// DoSuite covers docs/MANUAL_TESTING.md section 9 (kevin do) against a
+// DoSuite covers a user running kevin do against a
 // plain builtin:container environment - no kind/Kubernetes required,
 // unlike KindSuite's own kevin do coverage.
+//
+// Tier: e2e.
 type DoSuite struct {
 	e2eSuite
 }
@@ -54,10 +57,11 @@ func (s *DoSuite) SetupTest() {
 	s.requireDocker()
 }
 
-// TestDoExportsContainerName covers builtin:container's Export: run's
-// "${needs.a.out.name}" renders to the container's real, deterministic
-// name, and docker exec against it succeeds.
-func (s *DoSuite) TestDoExportsContainerName() {
+// TestDoRunsCommandsAgainstALiveEnvironment covers kevin do against one live
+// environment: builtin:container's Export rendered into run, a command
+// needing two steps (each lands under its own name), and extra args after
+// -- appended to the command's own run argv.
+func (s *DoSuite) TestDoRunsCommandsAgainstALiveEnvironment() {
 	project := "kevin-e2e-do-container"
 	dir := s.project(project, doContainerCUE)
 
@@ -65,44 +69,19 @@ func (s *DoSuite) TestDoExportsContainerName() {
 	s.waitFor(p, stepLine("b", "ready"), defaultTimeout)
 
 	out, code := s.runToCompletion(dir, "-C", dir, "do", "whoami")
-	s.Equal(0, code, "output:\n%s", out)
+	s.Require().Equal(0, code, "output:\n%s", out)
 	s.Contains(out, "name=kevin-"+project+"-a")
+
+	out, code = s.runToCompletion(dir, "-C", dir, "do", "both")
+	s.Require().Equal(0, code, "output:\n%s", out)
+	s.Contains(out, "a=kevin-"+project+"-a")
+	s.Contains(out, "b=kevin-"+project+"-b")
+
+	out, code = s.runToCompletion(dir, "-C", dir, "do", "args", "--", "extra", "words")
+	s.Require().Equal(0, code, "output:\n%s", out)
+	s.Contains(out, "base extra words")
 
 	s.Require().NoError(p.cmd.Process.Signal(syscall.SIGINT))
 	s.Equal(0, s.waitExit(p, defaultTimeout), "output:\n%s", p.buf.String())
 	s.Empty(s.containerIDsForProject(project), "no container may remain after teardown")
-}
-
-// TestDoMergesMultipleNeeds covers a command whose needs names more than
-// one step: each step's Export lands under its own name
-// (${needs.a...}/${needs.b...}), unlike a flat env-var merge where two
-// steps publishing the same key would collide.
-func (s *DoSuite) TestDoMergesMultipleNeeds() {
-	project := "kevin-e2e-do-multi-needs"
-	dir := s.project(project, doContainerCUE)
-
-	p := s.startKevin(dir, "-C", dir, "run")
-	s.waitFor(p, stepLine("b", "ready"), defaultTimeout)
-
-	out, code := s.runToCompletion(dir, "-C", dir, "do", "both")
-	s.Equal(0, code, "output:\n%s", out)
-	s.Contains(out, "a=kevin-"+project+"-a")
-	s.Contains(out, "b=kevin-"+project+"-b")
-
-	s.Require().NoError(p.cmd.Process.Signal(syscall.SIGINT))
-	s.Equal(0, s.waitExit(p, defaultTimeout), "output:\n%s", p.buf.String())
-}
-
-// TestDoErrorsCleanlyWithUnknownCommand covers "kevin do <name>" naming no
-// command in the commands: block - errors listing the available names,
-// cleanly, not a crash.
-func (s *DoSuite) TestDoErrorsCleanlyWithUnknownCommand() {
-	project := "kevin-e2e-do-unknown"
-	dir := s.project(project, doContainerCUE)
-
-	out, code := s.runToCompletion(dir, "-C", dir, "do", "nope")
-	s.NotEqual(0, code, "output:\n%s", out)
-	s.Contains(out, `no command named "nope"`)
-	s.Contains(out, "whoami")
-	s.Contains(out, "both")
 }

@@ -1,15 +1,17 @@
 //go:build e2e
 
 // Package e2e drives the compiled kevin binary as a subprocess, black-box,
-// against the parts of docs/MANUAL_TESTING.md that need no GUI, browser,
-// minisign, or external OCI registry. It imports no kevin package.
+// against user flows, the way a user runs them. It imports no kevin package.
 package e2e
 
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +30,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chromedp/chromedp"
+	"github.com/creack/pty"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -323,6 +328,19 @@ func (s *e2eSuite) containerIDsForProject(project string) []string {
 	return strings.Fields(string(out))
 }
 
+// requireNoKindCluster fails when kind still lists a cluster whose name
+// contains name. It logs and checks nothing when the kind binary is absent.
+func (s *e2eSuite) requireNoKindCluster(name string) {
+	s.T().Helper()
+	if _, err := exec.LookPath("kind"); err != nil {
+		s.T().Log("kind not on PATH, skipping the cluster-removed check")
+		return
+	}
+	out, err := exec.CommandContext(context.Background(), "kind", "get", "clusters").CombinedOutput()
+	s.Require().NoError(err, "output:\n%s", out)
+	s.NotContains(string(out), name, "the kind cluster must be deleted")
+}
+
 // startKevin starts the kevin binary against dir with args, streaming
 // combined stdout+stderr into the process's buffer.
 func (s *e2eSuite) startKevin(dir string, args ...string) *kevinProc {
@@ -336,28 +354,92 @@ func (s *e2eSuite) startKevinWithEnv(dir string, extraEnv []string, args ...stri
 	t := s.T()
 	t.Helper()
 
+	buf := &syncBuffer{}
+	cmd := exec.CommandContext(context.Background(), s.kevinBin(), args...)
+	cmd.Dir = dir
+	cmd.Stdout = buf
+	cmd.Stderr = buf
+	cmd.Env = s.kevinEnv(extraEnv)
+	require.NoError(t, cmd.Start(), "start kevin")
+	return s.watch(cmd, buf)
+}
+
+// startKevinOnPTY is [e2eSuite.startKevin] with kevin's stdio on a
+// pseudo-terminal, so it draws its live display instead of the plain
+// event stream. p.buf holds the raw bytes, escape sequences included.
+func (s *e2eSuite) startKevinOnPTY(dir string, args ...string) *kevinProc {
+	t := s.T()
+	t.Helper()
+
+	cmd := exec.CommandContext(context.Background(), s.kevinBin(), args...)
+	cmd.Dir = dir
+	cmd.Env = s.kevinEnv(nil)
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 40, Cols: 120})
+	require.NoError(t, err, "start kevin on a pty")
+
+	buf := &syncBuffer{}
+	go func() {
+		_, _ = io.Copy(buf, ptmx)
+	}()
+	t.Cleanup(func() { _ = ptmx.Close() })
+	return s.watch(cmd, buf)
+}
+
+// newChromeTab starts a headless Chrome with extra allocator options and
+// returns one tab as a context, closed when the test ends. The test skips
+// when this machine has no usable Chrome.
+func (s *e2eSuite) newChromeTab(extra ...chromedp.ExecAllocatorOption) context.Context {
+	t := s.T()
+	t.Helper()
+
+	opts := append(slices.Clone(chromedp.DefaultExecAllocatorOptions[:]), chromedp.Headless)
+	alloc, cancelAlloc := chromedp.NewExecAllocator(t.Context(), append(opts, extra...)...)
+	t.Cleanup(cancelAlloc)
+	tab, cancelTab := chromedp.NewContext(alloc)
+	t.Cleanup(cancelTab)
+	tab, cancelTimeout := context.WithTimeout(tab, 2*time.Minute)
+	t.Cleanup(cancelTimeout)
+	if err := chromedp.Do(tab); err != nil {
+		t.Skipf("no usable Chrome: %v", err)
+	}
+	return tab
+}
+
+// spkiHash is the base64 SHA-256 of the first certificate's public key in
+// pem, the form Chrome's --ignore-certificate-errors-spki-list takes.
+func spkiHash(t *testing.T, pemData []byte) string {
+	t.Helper()
+	block, _ := pem.Decode(pemData)
+	require.NotNil(t, block, "root.crt must be PEM")
+	cert, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err)
+	sum := sha256.Sum256(cert.RawSubjectPublicKeyInfo)
+	return base64.StdEncoding.EncodeToString(sum[:])
+}
+
+// kevinEnv is the environment a kevin subprocess runs in: this process's
+// own, the relay image override, and extraEnv.
+func (s *e2eSuite) kevinEnv(extraEnv []string) []string {
+	t := s.T()
+	t.Helper()
+
 	env := append(os.Environ(), "NO_COLOR=1")
 	if !hasEnvKey(extraEnv, "KEVIN_RELAY_IMAGE") {
 		image, err := relayDevImageOnce()
 		require.NoError(t, err)
 		env = append(env, "KEVIN_RELAY_IMAGE="+image)
 	}
-	env = append(env, extraEnv...)
+	return append(env, extraEnv...)
+}
 
-	buf := &syncBuffer{}
-	cmd := exec.CommandContext(context.Background(), s.kevinBin(), args...)
-	cmd.Dir = dir
-	cmd.Stdout = buf
-	cmd.Stderr = buf
-	cmd.Env = env
-	require.NoError(t, cmd.Start(), "start kevin")
-
+// watch tracks a started cmd's exit and stops it when the test ends.
+func (s *e2eSuite) watch(cmd *exec.Cmd, buf *syncBuffer) *kevinProc {
 	p := &kevinProc{cmd: cmd, buf: buf, waitCh: make(chan struct{})}
 	go func() {
 		p.err = cmd.Wait()
 		close(p.waitCh)
 	}()
-	t.Cleanup(p.stop)
+	s.T().Cleanup(p.stop)
 	return p
 }
 

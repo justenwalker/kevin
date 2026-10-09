@@ -69,6 +69,8 @@ env: {
 // container and a real relay - the one path a unit test can't reach,
 // since internal/relay.Relay's fields are unexported outside its own
 // package, and internal/engine's own tests have no way to fake it.
+//
+// Tier: e2e.
 type FaultSuite struct {
 	e2eSuite
 }

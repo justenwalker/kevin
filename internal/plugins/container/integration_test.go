@@ -49,16 +49,6 @@ func testEnv(t *testing.T) plugin.Env {
 }
 
 func TestUp(t *testing.T) {
-	t.Run("reports a bad timeout", func(t *testing.T) {
-		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
-			Step:   "api",
-			Config: []byte(`{"image":"nginx","start_timeout":"soon"}`),
-		}, &noopEmitter{})
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "start_timeout")
-	})
-
 	t.Run("brings up and tears down against docker", func(t *testing.T) {
 		env := testEnv(t)
 		name := containerName(env.Project, "web")
@@ -78,6 +68,10 @@ func TestUp(t *testing.T) {
 			"the published port must be a host-reachable address, already accepting connections")
 
 		require.Len(t, result.ExposedPorts, 1)
+		assert.Equal(t, "http", result.ExposedPorts[0].Name)
+		assert.Equal(t, "tcp", result.ExposedPorts[0].Protocol)
+		assert.Regexp(t, hostPortPattern, result.ExposedPorts[0].Upstream,
+			"the expose entry must point at a published port on the host, already accepting connections")
 		require.Len(t, result.Details, 1, "every exposed port must also appear on the card")
 		assert.Equal(t, result.ExposedPorts[0].Detail(), result.Details[0])
 		require.Len(t, result.Containers, 1)
@@ -126,28 +120,6 @@ func TestUp(t *testing.T) {
 		info, err := (docker.Client{}).Inspect(t.Context(), name)
 		require.NoError(t, err)
 		assert.True(t, info.Running)
-	})
-
-	t.Run("exposes a raw TCP port against docker", func(t *testing.T) {
-		env := testEnv(t)
-		name := containerName(env.Project, "web")
-		t.Cleanup(func() { _ = (docker.Client{}).Remove(context.WithoutCancel(t.Context()), name) })
-
-		result, err := Container{}.Up(t.Context(), &plugin.UpRequest{
-			Step:   "web",
-			Env:    env,
-			Config: []byte(`{"image":"nginx:alpine","expose":{"http":{"port":80}}}`),
-		}, &noopEmitter{})
-		require.NoError(t, err)
-
-		require.Len(t, result.ExposedPorts, 1)
-		assert.Equal(t, "http", result.ExposedPorts[0].Name)
-		assert.Equal(t, "tcp", result.ExposedPorts[0].Protocol)
-		assert.Regexp(t, hostPortPattern, result.ExposedPorts[0].Upstream,
-			"the expose entry must point at a published port on the host, already accepting connections")
-
-		require.Len(t, result.Details, 1, "the exposed port must also appear on the card")
-		assert.Equal(t, plugin.Detail{Label: "tcp http", Value: plugin.String(result.ExposedPorts[0].Upstream), Copyable: true}, result.Details[0])
 	})
 
 	t.Run("fails when the container stops during startup", func(t *testing.T) {

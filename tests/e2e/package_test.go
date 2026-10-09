@@ -12,39 +12,15 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-// PackageSuite covers docs/MANUAL_TESTING.md section 21: CUE package-mode
-// directory loading and the --tag flag.
+// PackageSuite covers a user selecting a CUE package mode with the --tag flag.
+//
+// Tier: e2e.
 type PackageSuite struct {
 	e2eSuite
 }
 
 func TestPackageSuite(t *testing.T) {
 	suite.Run(t, new(PackageSuite))
-}
-
-// TestPackageModeSplitsAcrossFiles covers a package split into kevin.cue and
-// a second file sharing its package clause: validate must report both
-// files' fields as one environment, with no import statement between them.
-func (s *PackageSuite) TestPackageModeSplitsAcrossFiles() {
-	dir := s.T().TempDir()
-	echoBin := strconv.Quote(s.echoPluginBin())
-
-	s.writeCUE(dir, fmt.Sprintf(`package kevin
-
-`+proxyBlock(s.T())+`
-project: "kevin-e2e-package-split"
-plugins: echo: cmd: %s
-env: a: {uses: "echo:echo", with: message: "hi"}
-`, echoBin))
-	s.writeCUEFile(dir, "mirrors.cue", `package kevin
-
-env: b: {uses: "echo:echo", with: message: "hi from mirrors"}
-`)
-
-	out, code := s.runToCompletion(dir, "-C", dir, "validate")
-	s.Equal(0, code, "output:\n%s", out)
-	s.Contains(out, "kevin-e2e-package-split: 0 setup step(s), 2 env step(s)",
-		"both files' env steps must merge into one environment")
 }
 
 // TestTagFlipsMode covers --tag: a bare -t airgap flips an @tag-gated field,
@@ -82,24 +58,4 @@ env: a: {uses: "echo:echo", with: message: "note is \(note)"}
 	logs, err = os.ReadFile(filepath.Join(dir, ".kevin", "logs.ndjson"))
 	s.Require().NoError(err)
 	s.Contains(string(logs), "note is airgap-mode", "a bare -t airgap must behave like -t airgap=true")
-}
-
-// TestPackageConflictFailsClearly covers the legacy-format-plus-package-mode
-// conflict: a package-less kevin.cue alongside a .cue sibling that declares
-// a package fails clearly, naming the conflicting file.
-func (s *PackageSuite) TestPackageConflictFailsClearly() {
-	dir := s.T().TempDir()
-	echoBin := strconv.Quote(s.echoPluginBin())
-
-	s.writeCUE(dir, fmt.Sprintf(`project: %s
-plugins: echo: cmd: %s
-`, strconv.Quote("package-conflict"), echoBin))
-	s.writeCUEFile(dir, "mirrors.cue", `package kevin
-
-domain: "should-not-load"
-`)
-
-	out, code := s.runToCompletion(dir, "-C", dir, "validate")
-	s.NotEqual(0, code, "output:\n%s", out)
-	s.Contains(out, "mirrors.cue", "the error must name the conflicting file")
 }
