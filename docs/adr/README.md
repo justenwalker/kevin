@@ -23,6 +23,7 @@ order the decisions were made.
 | [ADR-0005](0005-shell-out-to-clis-over-embedding-libraries.md) | Shell out to CLIs over embedding their libraries |
 | [ADR-0006](0006-struct-plus-error-over-multi-value-returns.md) | A single struct plus error, not multi-value returns |
 | [ADR-0007](0007-shell-out-to-cosign-for-sigstore-verification.md) | Shell out to cosign for sigstore verification |
+| [ADR-0008](0008-test-tiers-by-who-observes-the-behavior.md) | Test tiers by who observes the behavior |
 
 Before entering plan mode on a non-trivial design, read this index and see
 [AGENTS.md](../../AGENTS.md)'s "Before planning a design" section.

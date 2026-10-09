@@ -648,3 +648,44 @@ func (s Step) Up(ctx context.Context, req UpRequest) (UpResult, error) { ... }
 // four.
 func (s Step) Up(ctx context.Context, req UpRequest) (map[string]string, []string, time.Time, error) { ... }
 ```
+
+## GO-020: An integration or e2e suite's doc comment ends with its tier
+
+An integration or end-to-end suite keeps the usual first sentence of a doc comment, which starts with the type name. For an e2e suite, that sentence says in plain words which user task the suite covers. The comment ends with a paragraph naming the tier: `Tier: integration.` or `Tier: e2e.` A shared base or helper type is exempt. So is a unit test: a test not gated by the `integration` or `e2e` build tag is a unit test. [ADR-0008](adr/0008-test-tiers-by-who-observes-the-behavior.md) defines the tiers.
+
+**DO:**
+```go
+// RelaySuite drives one relay container against a real docker daemon.
+//
+// Tier: integration.
+type RelaySuite struct { ... }
+
+// LifecycleSuite covers a user running kevin run: the printed addresses,
+// teardown on Ctrl-C, --keep, and recovery after a crash.
+//
+// Tier: e2e.
+type LifecycleSuite struct { ... }
+```
+
+**DO NOT:**
+```go
+// Tier: integration. RelaySuite drives one relay container.
+//
+// A leading marker breaks the Go doc convention that a comment starts with
+// the name it documents.
+type RelaySuite struct { ... }
+
+// LifecycleSuite covers the lifecycle.
+//
+// With no tier, a reader can't tell whether this belongs in e2e or should be
+// an integration test.
+type LifecycleSuite struct { ... }
+
+// LifecycleSuite tests several things.
+//
+// The tier is there, but the first sentence names no user task, so a reader
+// can't tell what the suite is for or what would belong in it.
+//
+// Tier: e2e.
+type LifecycleSuite struct { ... }
+```

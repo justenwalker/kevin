@@ -63,6 +63,10 @@ Tool versions (buf, templ, golangci-lint, gofumpt, gci, protoc plugins,
 goreleaser) are pinned in `tools.mod`/`tools.sum` via Go's tool directive,
 not installed globally.
 
+Add a changie entry (`go tool -modfile=tools.mod changie new`) for each
+user-visible change; `release` batches `.changes/unreleased/` into
+`CHANGELOG.md` and the GitHub release notes, and fails if it is empty.
+
 ```sh
 GITHUB_TOKEN=$(gh auth token) ./build/gnob release vX.Y.Z
 ```
@@ -111,10 +115,19 @@ leaves no tag or GitHub release behind.
 
 ## Testing
 
+- **Tiers** ([ADR-0008](docs/adr/0008-test-tiers-by-who-observes-the-behavior.md)):
+  a test belongs to the tier of whoever would notice it breaking. Unit: one
+  package, fakes, no daemon. Integration: one component against a real
+  dependency, in-process, asserting the seam, internals, and failure and
+  recovery. E2E (`tests/e2e`, `./build/gnob e2e`): the built binary, one flow
+  per user task, asserting only what a user sees. Apply the ADR's decision
+  rule before adding a test, and do not repeat in e2e what a lower tier proves.
+  Integration and e2e suite doc comments end with their tier
+  ([GO-020](docs/GO_CONVENTIONS.md#go-020-an-integration-or-e2e-suites-doc-comment-ends-with-its-tier)).
 - Unit tests: `go test -race -cover ./...` (what `gnob test` runs).
 - A single package/test: `go test ./internal/dag/... -run TestName -v`.
 - Integration tests are gated behind the `integration` build tag (see files
-  named `integration_test.go` or `*_integration_test.go` in `cmd/kevin-relay`,
+  named `integration_test.go` or `*_integration_test.go` in
   `internal/plugins/kubernetes`, `internal/plugins/container`, `internal/relay`,
   `internal/engine`, `internal/docker`, `internal/podman`) and generally require Docker (the k3d and minikube
   driver suites also need a real `k3d` or `minikube` binary on `PATH`). Run with
@@ -142,7 +155,8 @@ leaves no tag or GitHub release behind.
   as a symptom that looks unrelated to whatever's actually being tested: a
   step's `Up` fails immediately with something like `authentication
   handshake failed: tls: first record does not look like a TLS handshake`,
-  or just hangs. `tests/e2e` (`go test -tags e2e ./tests/e2e/...`) never
+  or just hangs. `tests/e2e` (its own Go module:
+  `go test -C tests/e2e -tags e2e ./...`) never
   hits this - every suite injects the override itself, see
   `relayDevImageOnce` in `tests/e2e/e2e_test.go` - only manual testing
   needs to set it by hand (see docs/MANUAL_TESTING.md's prerequisites).
