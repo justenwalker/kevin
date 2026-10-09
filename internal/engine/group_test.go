@@ -37,6 +37,6 @@ func TestRegisterScopeStepsHidesGroupNeedsFromMembers(t *testing.T) {
 
 	assert.Equal(t, []string{"net"}, byName["db"].Needs, "the group's own row still draws the shared needs edge")
 	assert.Empty(t, byName["db.primary"].Needs, "a member must not redraw its group's shared needs")
-	assert.Equal(t, []string{"primary", "setup.cluster"}, byName["db.replica"].Needs,
-		"a sibling reference and a need unique to this member survive - only the group-shared one is dropped")
+	assert.Equal(t, []string{"db.primary", "setup.cluster"}, byName["db.replica"].Needs,
+		"a sibling reference (as its qualified step name) and a need unique to this member survive - only the group-shared one is dropped")
 }

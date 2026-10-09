@@ -88,6 +88,19 @@ func subtractNeeds(needs, exclude []string) []string {
 	return out
 }
 
+// qualifySiblings returns needs with each bare sibling member name replaced
+// by its "<group>.<member>" step name, the one a console row is keyed by.
+func (r *run) qualifySiblings(group string, needs []string) []string {
+	out := make([]string, len(needs))
+	for i, n := range needs {
+		out[i] = n
+		if qualified := memberName(group, n); r.steps[qualified].Uses != "" {
+			out[i] = qualified
+		}
+	}
+	return out
+}
+
 // registerScopeSteps adds every step and group in r's own scope to store,
 // each with the display fields its console row needs. A group's own row
 // comes from its Group metadata directly, with no plugin to ask about
@@ -130,6 +143,7 @@ func (r *run) registerScopeSteps(store *session.Store) error {
 			// own "setup.<name>") is real information the group's row
 			// doesn't carry, so it still reaches the console.
 			needs = subtractNeeds(needs, r.groups[group].Needs)
+			needs = r.qualifySiblings(group, needs)
 		}
 		store.AddStep(name, label, kindLabel, ref.Plugin, r.caps[ref.Plugin].Icon, needs,
 			isCompactStep(kindLabel, ref.Plugin, ref.Step), group, false)
