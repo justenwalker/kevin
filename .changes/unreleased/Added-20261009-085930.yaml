@@ -1,0 +1,3 @@
+kind: Added
+body: '`container`: `user`, `workdir`, `cpus`, and `memory` fields.'
+time: 2026-10-09T08:59:30.567678-04:00

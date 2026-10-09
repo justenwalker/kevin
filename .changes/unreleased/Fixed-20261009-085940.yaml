@@ -1,0 +1,3 @@
+kind: Fixed
+body: A second interrupt forces quit, and shutdown is capped at 5 minutes.
+time: 2026-10-09T08:59:40.651068-04:00

@@ -1,0 +1,3 @@
+kind: Fixed
+body: Port forwards and proxy listeners are closed on rerun and on error.
+time: 2026-10-09T08:59:38.073941-04:00

@@ -1,0 +1,3 @@
+kind: Fixed
+body: The `run` pidfile is claimed under a lock.
+time: 2026-10-09T08:59:36.837951-04:00

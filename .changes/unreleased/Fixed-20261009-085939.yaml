@@ -1,0 +1,3 @@
+kind: Fixed
+body: Started child processes are reaped.
+time: 2026-10-09T08:59:39.304194-04:00

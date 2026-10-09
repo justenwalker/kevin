@@ -354,6 +354,12 @@ const versionFile = "internal/version/VERSION"
 // {{% version %}} shortcode) to avoid hardcoding the version in prose.
 const docsVersionFile = "docs/site/data/version.yaml"
 
+const (
+	// changie's directory, and the changelog it generates.
+	changesDir    = ".changes"
+	changelogFile = "CHANGELOG.md"
+)
+
 var Release = GnobMakeTarget{
 	Name: "release",
 	Desc: "cut a version release with GoReleaser",
@@ -361,7 +367,8 @@ var Release = GnobMakeTarget{
 		"publishes the release: cross-built kevin, the multi-arch\n" +
 		"kevin-relay image on ghcr.io, and the GitHub release. Requires\n" +
 		"GITHUB_TOKEN (repo + write:packages scope) exported and `docker\n" +
-		"login ghcr.io` already done - gnob does neither for you.",
+		"login ghcr.io` already done - gnob does neither for you. Fails\n" +
+		"if .changes/unreleased has no changie entries.",
 	Body: func(ctx context.Context, mf *GnobMakefile) error {
 		args := mf.TargetArgs()
 		if len(args) != 1 || !releaseVersionPattern.MatchString(args[0]) {
@@ -385,6 +392,18 @@ var Release = GnobMakeTarget{
 			return fmt.Errorf("release: tag %s already exists", version)
 		}
 
+		if err := tool(ctx, "changie", "batch", version, "--allow-no-changes=false", "--dry-run"); err != nil {
+			return fmt.Errorf("release: no changie entries to release: %w", err)
+		}
+
+		if err := tool(ctx, "changie", "batch", version); err != nil {
+			return fmt.Errorf("release: batch changie entries: %w", err)
+		}
+		if err := tool(ctx, "changie", "merge"); err != nil {
+			return fmt.Errorf("release: merge %s: %w", changelogFile, err)
+		}
+		releaseNotes := filepath.Join(changesDir, version+".md")
+
 		if err := os.WriteFile(versionFile, []byte(version+"\n"), 0o644); err != nil {
 			return fmt.Errorf("release: write %s: %w", versionFile, err)
 		}
@@ -392,8 +411,8 @@ var Release = GnobMakeTarget{
 		if err := os.WriteFile(docsVersionFile, []byte(docsVersion), 0o644); err != nil {
 			return fmt.Errorf("release: write %s: %w", docsVersionFile, err)
 		}
-		if err := run(ctx, nil, "git", "add", versionFile, docsVersionFile); err != nil {
-			return fmt.Errorf("release: stage %s and %s: %w", versionFile, docsVersionFile, err)
+		if err := run(ctx, nil, "git", "add", changesDir, versionFile, docsVersionFile, changelogFile); err != nil {
+			return fmt.Errorf("release: stage release files: %w", err)
 		}
 		if err := run(ctx, nil, "git", "commit", "-m", "Release "+version); err != nil {
 			return fmt.Errorf("release: commit %s: %w", versionFile, err)
@@ -402,7 +421,7 @@ var Release = GnobMakeTarget{
 			return fmt.Errorf("release: create tag %s: %w", version, err)
 		}
 
-		if err := tool(ctx, "goreleaser", "release", "--clean", "--skip=publish"); err != nil {
+		if err := tool(ctx, "goreleaser", "release", "--clean", "--skip=publish", "--release-notes", releaseNotes); err != nil {
 			return fmt.Errorf("release: dry-run build failed, nothing pushed, tag %s left local-only: %w", version, err)
 		}
 
@@ -410,7 +429,7 @@ var Release = GnobMakeTarget{
 			return fmt.Errorf("release: push the release commit: %w", err)
 		}
 
-		return tool(ctx, "goreleaser", "release", "--clean")
+		return tool(ctx, "goreleaser", "release", "--clean", "--release-notes", releaseNotes)
 	},
 }
 
@@ -566,7 +585,12 @@ var Lint = GnobMakeTarget{
 	Desc:     "run golangci-lint",
 	LongDesc: "Runs golangci-lint with the repository configuration.",
 	Body: func(ctx context.Context, _ *GnobMakefile) error {
-		return tool(ctx, "golangci-lint", "run", "./...")
+		if err := tool(ctx, "golangci-lint", "run", "./..."); err != nil {
+			return err
+		}
+		// tests/e2e is its own module, so ./... above never reaches it.
+		return goRun(ctx, "-C", "tests/e2e", "tool", "-modfile=../../tools.mod",
+			"golangci-lint", "run", "--config", "../../.golangci.yaml", "./...")
 	},
 }
 
@@ -587,10 +611,14 @@ var Fmt = GnobMakeTarget{
 var Tidy = GnobMakeTarget{
 	Name: "tidy",
 	Desc: "tidy the module",
-	LongDesc: "Runs go mod tidy. tools.mod is not tidied: it holds only tool\n" +
-		"directives, and is maintained with `go get -modfile=tools.mod -tool <pkg>`.",
+	LongDesc: "Runs go mod tidy in the root module and in tests/e2e. tools.mod is\n" +
+		"not tidied: it holds only tool directives, and is maintained with\n" +
+		"`go get -modfile=tools.mod -tool <pkg>`.",
 	Body: func(ctx context.Context, _ *GnobMakefile) error {
-		return goRun(ctx, "mod", "tidy")
+		if err := goRun(ctx, "mod", "tidy"); err != nil {
+			return err
+		}
+		return goRun(ctx, "-C", "tests/e2e", "mod", "tidy")
 	},
 }
 
@@ -611,8 +639,7 @@ var Clean = GnobMakeTarget{
 var E2E = GnobMakeTarget{
 	Name: "e2e",
 	Desc: "run the end-to-end test suite",
-	LongDesc: "Runs the tests behind the e2e build tag - the automatable\n" +
-		"parts of docs/MANUAL_TESTING.md, driven through the real kevin\n" +
+	LongDesc: "Runs the tests behind the e2e build tag, driving the real kevin\n" +
 		"binary. Needs a running Docker daemon and takes several minutes.",
 	Body: func(ctx context.Context, _ *GnobMakefile) error {
 		dir, err := coverageRawDir("e2e")
@@ -620,7 +647,7 @@ var E2E = GnobMakeTarget{
 			return err
 		}
 		return run(ctx, cmd.WithEnvVars(map[string]string{"GOCOVERDIR": dir}),
-			"go", "test", "-tags", "e2e", "-race", "-v", "-timeout", "900s", "./tests/e2e/...")
+			"go", "-C", "tests/e2e", "test", "-tags", "e2e", "-race", "-v", "-timeout", "1500s", "./...")
 	},
 }
 

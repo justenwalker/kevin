@@ -73,18 +73,6 @@ dockers_v2:
       - linux/amd64
       - linux/arm64
 
-changelog:
-  sort: asc
-  groups:
-    - title: Features
-      regexp: '^.*?feat(\(.+\))??!?:.+$'
-      order: 0
-    - title: Fixes
-      regexp: '^.*?fix(\(.+\))??!?:.+$'
-      order: 1
-    - title: Other
-      order: 999
-
 release:
   github:
     owner: justenwalker
