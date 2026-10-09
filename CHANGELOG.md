@@ -4,7 +4,28 @@ All notable changes to kevin are listed here, newest first. kevin is
 pre-1.0, so any release may contain breaking changes; they are marked
 under Breaking.
 
-## v0.0.13 (2026-10-02)
+## v0.0.14 (2026-10-09)
+
+### Added
+
+- `kevin rerun` command.
+- `watch` step field: rerun a step when its files change, debounced per step.
+- `timeout` step field: fail a step whose `Up` runs too long.
+- `container`: build the image from a local Dockerfile.
+- `container`: `user`, `workdir`, `cpus`, and `memory` fields.
+- `KEVIN_PLUGIN_CA_FILE` trusts extra roots when fetching plugin packages.
+
+### Fixed
+
+- A container that exits with code 0 now fails its step.
+- A step fails when its UDP relay forward cannot be set up.
+- Project and container names stay unique and Docker-valid.
+- The `run` pidfile is claimed under a lock.
+- Port forwards and proxy listeners are closed on rerun and on error.
+- Started child processes are reaped.
+- A second interrupt forces quit, and shutdown is capped at 5 minutes.
+- A rerun of an unknown step is rejected.
+- Console: dependency arrows are drawn between group members.## v0.0.13 (2026-10-02)
 
 ### Added
 
