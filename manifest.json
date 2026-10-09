@@ -1,0 +1,15 @@
+{
+  "name": "kevin",
+  "short_name": "kevin",
+  "start_url": "/kevin/",
+  "scope": "/kevin/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "/kevin/favicon.svg",
+      "sizes": "512x512"
+    }
+  ]
+}
