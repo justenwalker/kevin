@@ -9,47 +9,21 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/justenwalker/kevin/internal/runapi"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/steplog"
 )
 
-// StepSummary is one step's status, as list_steps and get_step report it.
-type StepSummary struct {
-	Name       string   `json:"name"               jsonschema:"the step's name, from kevin.cue"`
-	Label      string   `json:"label,omitempty"    jsonschema:"the step's display label, if it has one different from name"`
-	State      string   `json:"state"              jsonschema:"one of: pending, running, ready, failed, skipped, removing, removed"`
-	Message    string   `json:"message,omitempty"  jsonschema:"the state's detail text, e.g. an error message when state is failed"`
-	Kind       string   `json:"kind,omitempty"     jsonschema:"the step type's kind: resource, action, or probe"`
-	Provider   string   `json:"provider,omitempty" jsonschema:"the plugin that backs this step, e.g. builtin"`
-	Needs      []string `json:"needs,omitempty"    jsonschema:"names of the steps this one depends on"`
-	Idempotent bool     `json:"idempotent"         jsonschema:"whether rerun_step's cascade may re-run this step as a side effect of rerunning something it depends on"`
-}
-
-// StepSummaryOf builds one step's summary, as list_steps, get_step, and
-// the console's status endpoint all report it.
-func StepSummaryOf(s session.Step) StepSummary {
-	return StepSummary{
-		Name:       s.Name,
-		Label:      s.Label,
-		State:      string(s.State),
-		Message:    s.Message,
-		Kind:       s.Kind,
-		Provider:   s.Provider,
-		Needs:      s.Needs,
-		Idempotent: s.Idempotent,
-	}
-}
-
 // ListStepsOutput is the result of list_steps.
 type ListStepsOutput struct {
-	Steps []StepSummary `json:"steps" jsonschema:"every step in the environment, in the order kevin.cue's DAG brought them up"`
+	Steps []runapi.StepSummary `json:"steps" jsonschema:"every step in the environment, in the order kevin.cue's DAG brought them up"`
 }
 
 func (s *Server) listSteps(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, ListStepsOutput, error) {
 	steps := s.view.Snapshot().Steps
-	out := make([]StepSummary, len(steps))
+	out := make([]runapi.StepSummary, len(steps))
 	for i, st := range steps {
-		out[i] = StepSummaryOf(st)
+		out[i] = runapi.StepSummaryOf(st)
 	}
 	return nil, ListStepsOutput{Steps: out}, nil
 }
@@ -82,7 +56,7 @@ type LogLine struct {
 
 // GetStepOutput is the result of get_step.
 type GetStepOutput struct {
-	StepSummary
+	runapi.StepSummary
 
 	Details []DetailRow `json:"details,omitempty" jsonschema:"the step's card rows - an exposed address, a routed hostname, a generated credential path, etc."`
 	Inputs  []DetailRow `json:"inputs,omitempty"  jsonschema:"the step's resolved with: config, one row per top-level field, after \\${needs...}/\\${setup...} substitution - what was actually sent to the plugin's Up call"`
@@ -136,7 +110,7 @@ func stepOutput(st session.Step, logsPath string, since steplog.Cursor) (GetStep
 		logs[i] = LogLine{Time: e.Time, Stream: e.Stream, Text: e.Text}
 	}
 	return GetStepOutput{
-		StepSummary: StepSummaryOf(st),
+		StepSummary: runapi.StepSummaryOf(st),
 		Details:     toDetailRows(st.Details),
 		Inputs:      toDetailRows(st.Inputs),
 		Outputs:     toDetailRows(st.Outputs),
@@ -152,59 +126,32 @@ type RerunStepInput struct {
 	Cascade bool   `json:"cascade,omitempty" jsonschema:"also re-run this step's dependents: an already-completed dependent only if its step type is idempotent, a never-completed one always"`
 }
 
-// DeniedRequest is one proxy request the environment blocked.
-type DeniedRequest struct {
-	Time   time.Time `json:"time"   jsonschema:"when the proxy blocked the request"`
-	Method string    `json:"method" jsonschema:"the request's HTTP method"`
-	Host   string    `json:"host"   jsonschema:"the host the request targeted"`
-	Path   string    `json:"path"   jsonschema:"the request's path"`
-}
-
 // RerunStepOutput is the result of rerun_step.
 type RerunStepOutput struct {
-	Name    string          `json:"name"              jsonschema:"the step that was targeted"`
-	Steps   []GetStepOutput `json:"steps,omitempty"   jsonschema:"full status, details, and logs for every step whose state actually changed - name itself, plus any dependents cascade brought along"`
-	Denials []DeniedRequest `json:"denials,omitempty" jsonschema:"proxy requests the environment blocked while this rerun was in flight - a likely cause when a step failed reaching a host it needed"`
+	Name    string                 `json:"name"              jsonschema:"the step that was targeted"`
+	Steps   []GetStepOutput        `json:"steps,omitempty"   jsonschema:"full status, details, and logs for every step whose state actually changed - name itself, plus any dependents cascade brought along"`
+	Denials []runapi.DeniedRequest `json:"denials,omitempty" jsonschema:"proxy requests the environment blocked while this rerun was in flight - a likely cause when a step failed reaching a host it needed"`
 }
 
 func (s *Server) rerunStep(ctx context.Context, _ *mcp.CallToolRequest, in RerunStepInput) (*mcp.CallToolResult, RerunStepOutput, error) {
-	before := stepStates(s.view.Snapshot().Steps)
-	start := time.Now()
-	if err := s.rerun(ctx, in.Name, in.Cascade); err != nil {
+	result, err := s.control.Rerun(ctx, runapi.RerunRequest{Step: in.Name, Cascade: in.Cascade})
+	if err != nil {
 		return nil, RerunStepOutput{}, fmt.Errorf("mcpserver: rerun %s: %w", in.Name, err)
 	}
 
-	v := s.view.Snapshot()
-	var steps []GetStepOutput
-	for _, st := range v.Steps {
-		if before[st.Name] != st.State {
-			out, err := stepOutput(st, s.logsPath, "")
-			if err != nil {
-				return nil, RerunStepOutput{}, fmt.Errorf("mcpserver: rerun %s: %w", in.Name, err)
-			}
-			steps = append(steps, out)
+	byName := make(map[string]session.Step)
+	for _, st := range s.view.Snapshot().Steps {
+		byName[st.Name] = st
+	}
+	steps := make([]GetStepOutput, 0, len(result.Changed))
+	for _, changed := range result.Changed {
+		out, err := stepOutput(byName[changed.Name], s.logsPath, "")
+		if err != nil {
+			return nil, RerunStepOutput{}, fmt.Errorf("mcpserver: rerun %s: %w", in.Name, err)
 		}
+		steps = append(steps, out)
 	}
-	return nil, RerunStepOutput{Name: in.Name, Steps: steps, Denials: deniedSince(v.Requests, start)}, nil
-}
-
-// deniedSince returns the requests the proxy denied at or after start,
-// oldest first - v.Requests itself is newest-first.
-func deniedSince(requests []session.Request, start time.Time) []DeniedRequest {
-	denied := session.DeniedSince(requests, start)
-	out := make([]DeniedRequest, 0, len(denied))
-	for _, r := range denied {
-		out = append(out, DeniedRequest{Time: r.Time, Method: r.Method, Host: r.Host, Path: r.Path})
-	}
-	return out
-}
-
-func stepStates(steps []session.Step) map[string]session.State {
-	states := make(map[string]session.State, len(steps))
-	for _, st := range steps {
-		states[st.Name] = st.State
-	}
-	return states
+	return nil, RerunStepOutput{Name: in.Name, Steps: steps, Denials: result.Denied}, nil
 }
 
 // ExportStepInput names the step to export.
@@ -219,7 +166,7 @@ type ExportStepOutput struct {
 }
 
 func (s *Server) exportStep(ctx context.Context, _ *mcp.CallToolRequest, in ExportStepInput) (*mcp.CallToolResult, ExportStepOutput, error) {
-	values, err := s.export(ctx, in.Name)
+	values, err := s.control.Export(ctx, in.Name)
 	if err != nil {
 		return nil, ExportStepOutput{}, fmt.Errorf("mcpserver: export %s: %w", in.Name, err)
 	}
@@ -275,7 +222,7 @@ func (s *Server) getProxyInfo(_ context.Context, _ *mcp.CallToolRequest, _ struc
 
 // toolHandler builds the raw ToolHandler for a plugin-declared tool: pull
 // the kevin-injected "step" property out of the call's arguments, forward
-// the rest to s.callTool, and translate the result into a CallToolResult.
+// the rest to s.control.CallTool, and translate the result into a CallToolResult.
 func (s *Server) toolHandler(def ToolDef) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := make(map[string]json.RawMessage)
@@ -296,7 +243,7 @@ func (s *Server) toolHandler(def ToolDef) mcp.ToolHandler {
 			return nil, fmt.Errorf("mcpserver: %s: %w", def.Name, err)
 		}
 
-		result, err := s.callTool(ctx, step, def.Name, rest)
+		result, err := s.control.CallTool(ctx, step, def.Name, rest)
 		if err != nil {
 			return nil, err
 		}

@@ -252,16 +252,14 @@ func Run(ctx context.Context, opts Options) error {
 		LogsPath: filepath.Join(workspace, LogsFile),
 		View:     store,
 		Proxy:    server.proxy,
-		Rerun:    r.RerunStep,
-		Export:   r.exportStep,
+		Control:  r,
 		Tools:    tools,
-		CallTool: r.callTool,
 	})
 	view := console.New(console.Config{
 		Project: cfg.Project,
 		Network: network,
 		Store:   store,
-		Rerun:   r.RerunStep,
+		Rerun:   r.Rerun,
 	})
 
 	mux := http.NewServeMux()
@@ -729,6 +727,22 @@ const progressTick = 500 * time.Millisecond
 // median of past runs, and a real run may still take longer.
 const progressCap = 0.95
 
+// setupEnvironment is the plugin environment for work on the setup scope
+// when no proxy or relay is running: Teardown, and a command that only
+// exports steps.
+func setupEnvironment(cfg *config.Config, engineName string) *pb.Environment {
+	return &pb.Environment{
+		Project:    cfg.Project,
+		Workspace:  filepath.Join(cfg.Dir, WorkspaceDir, cfg.Name),
+		Network:    NetworkName(cfg.Project),
+		CaPath:     ca.RootCertPath(),
+		Domain:     cfg.Domain,
+		ProjectDir: cfg.Dir,
+		Scope:      config.ScopeSetup.String(),
+		Engine:     engineName,
+	}
+}
+
 // Teardown removes the steps of the setup scope. It runs Down for every step,
 // in reverse dependency order, whether or not the step is present. A Down must
 // be idempotent, thus a step that is gone already is not an error.
@@ -750,13 +764,7 @@ func Teardown(ctx context.Context, opts Options) error {
 
 	steps := cfg.Steps(config.ScopeSetup)
 	workspace := filepath.Join(cfg.Dir, WorkspaceDir, cfg.Name)
-	env := &pb.Environment{
-		Project:   cfg.Project,
-		Workspace: workspace,
-		Network:   NetworkName(cfg.Project),
-		Scope:     config.ScopeSetup.String(),
-		Engine:    opts.Engine,
-	}
+	env := setupEnvironment(cfg, opts.Engine)
 	if err = ConfigureAll(ctx, cfg.Plugins, plugins, env); err != nil {
 		return err
 	}
@@ -1754,9 +1762,9 @@ func (r *run) RerunStep(ctx context.Context, name string, cascade bool) error {
 	return err
 }
 
-// exportStep asks name's plugin how to reach what it created, against this
+// Export asks name's plugin how to reach what it created, against this
 // session's already-running plugin client.
-func (r *run) exportStep(ctx context.Context, name string) (map[string]output.Value, error) {
+func (r *run) Export(ctx context.Context, name string) (output.Map, error) {
 	step, ok := r.steps[name]
 	if !ok {
 		return nil, fmt.Errorf("engine: no step named %q", name)
@@ -1783,10 +1791,10 @@ func (r *run) exportStep(ctx context.Context, name string) (map[string]output.Va
 	return output.FromProto(resp.GetOut()), nil
 }
 
-// callTool runs tool - a namespaced name from collectTools - against the
+// CallTool runs tool - a namespaced name from collectTools - against the
 // step named name. It rejects a step whose actual type doesn't match the
 // tool's declared owner.
-func (r *run) callTool(ctx context.Context, name, tool string, args json.RawMessage) (mcpserver.ToolResult, error) {
+func (r *run) CallTool(ctx context.Context, name, tool string, args json.RawMessage) (mcpserver.ToolResult, error) {
 	route, ok := r.toolRoutes[tool]
 	if !ok {
 		return mcpserver.ToolResult{}, fmt.Errorf("engine: no such tool %q", tool)
@@ -2059,9 +2067,9 @@ type exportedStep struct {
 }
 
 // exportCrossScopeStep asks a setup-scope step's plugin how to reach what
-// it created - the same request exportStep makes against this session's
+// it created - the same request Export makes against this session's
 // already-running plugin, sent with the setup step's own unrendered with
-// block, the same as exportStep. setupName is the name
+// block, the same as Export. setupName is the name
 // with the "setup." prefix already stripped.
 func (r *run) exportCrossScopeStep(ctx context.Context, setupName string) (exportedStep, error) {
 	v, err, _ := r.exportGroup.Do(setupName, func() (any, error) {
@@ -2079,27 +2087,44 @@ func (r *run) exportCrossScopeStep(ctx context.Context, setupName string) (expor
 
 // doExportCrossScopeStep is exportCrossScopeStep's uncached call.
 func (r *run) doExportCrossScopeStep(ctx context.Context, setupName string) (exportedStep, error) {
-	step := r.cfg.Setup[setupName]
+	return r.doExportStep(ctx, config.ScopeSetup, setupName)
+}
+
+// doExportStep asks the plugin of the named step of scope how to reach what
+// the step created. An env step's own setup needs are exported first, so its
+// with block renders.
+func (r *run) doExportStep(ctx context.Context, scope config.Scope, name string) (exportedStep, error) {
+	step, ok := r.cfg.Steps(scope)[name]
+	if !ok {
+		return exportedStep{}, fmt.Errorf("no such step in scope %q", scope)
+	}
 	ref := step.Uses
 	client, ok := r.plugins[ref.Plugin]
 	if !ok {
 		return exportedStep{}, fmt.Errorf("plugin %q not loaded", ref.Plugin)
 	}
 	if !stepExports(r.caps[ref.Plugin], ref.Step) {
-		return exportedStep{}, fmt.Errorf("setup step %q (%s) does not implement export", setupName, ref)
+		return exportedStep{}, fmt.Errorf("%s step %q (%s) does not implement export", scope, name, ref)
 	}
-	with, err := expr.Render(step.With, setupName, expr.Scopes{Project: r.project, Vars: r.cfg.VariableValues})
+	var setupDeps map[string]output.Map
+	if scope == config.ScopeEnv {
+		var err error
+		if setupDeps, _, err = r.crossScopeDeps(ctx, name); err != nil {
+			return exportedStep{}, err
+		}
+	}
+	with, err := expr.Render(step.With, name, expr.Scopes{Setup: setupDeps, Project: r.project, Vars: r.cfg.VariableValues})
 	if err != nil {
-		return exportedStep{}, fmt.Errorf("setup step %q: %w", setupName, err)
+		return exportedStep{}, fmt.Errorf("%s step %q: %w", scope, name, err)
 	}
-	if validateErr := r.validateRenderedWith(setupName, step, with); validateErr != nil {
+	if validateErr := r.validateRenderedWith(name, step, with); validateErr != nil {
 		return exportedStep{}, validateErr
 	}
 	resp, err := client.Export(ctx, &pb.ExportRequest{
-		Step: setupName, Type: ref.Step, Env: r.env, Config: with,
+		Step: name, Type: ref.Step, Env: r.env, Config: with,
 	})
 	if err != nil {
-		return exportedStep{}, fmt.Errorf("export setup step %q: %w", setupName, err)
+		return exportedStep{}, fmt.Errorf("export %s step %q: %w", scope, name, err)
 	}
 	return exportedStep{Outputs: output.FromProto(resp.GetOut()), Containers: resp.GetContainers()}, nil
 }

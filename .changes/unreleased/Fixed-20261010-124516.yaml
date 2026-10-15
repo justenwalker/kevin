@@ -1,0 +1,3 @@
+kind: Fixed
+body: kevin do resolves a setup group that a command's step needs. kevin do gives plugins the same environment fields (CA path, domain, project directory, scope) as kevin run. kevin teardown gets them too.
+time: 2026-10-10T12:45:16.938101-04:00

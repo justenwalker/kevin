@@ -28,6 +28,7 @@ import (
 	"github.com/justenwalker/kevin/internal/browser"
 	"github.com/justenwalker/kevin/internal/logging"
 	"github.com/justenwalker/kevin/internal/mcpserver"
+	"github.com/justenwalker/kevin/internal/runapi"
 	"github.com/justenwalker/kevin/internal/session"
 )
 
@@ -39,35 +40,6 @@ var static embed.FS
 // clientBuffer is how far one browser may fall behind before the server
 // drops it. A dropped client reconnects and gets the state again.
 const clientBuffer = 256
-
-type (
-	// State aliases session.State, so the rest of this package - and its
-	// templates - can keep referring to it as console.State.
-	State = session.State
-
-	// Step aliases session.Step.
-	Step = session.Step
-
-	// Detail aliases session.Detail.
-	Detail = session.Detail
-
-	// Line aliases session.Line.
-	Line = session.Line
-
-	// Request aliases session.Request.
-	Request = session.Request
-)
-
-// The states of a step.
-const (
-	Pending  = session.Pending
-	Running  = session.Running
-	Ready    = session.Ready
-	Failed   = session.Failed
-	Skipped  = session.Skipped
-	Removing = session.Removing
-	Removed  = session.Removed
-)
 
 // View is everything the page needs to render.
 type View struct {
@@ -91,7 +63,7 @@ type Server struct {
 	project string // the project name
 	network string // the docker network the project runs on
 	store   *session.Store
-	rerunFn func(ctx context.Context, step string, cascade bool) error
+	rerunFn func(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error)
 
 	clientsMu sync.Mutex // guards clients
 	clients   map[chan []byte]struct{}
@@ -105,9 +77,9 @@ type Config struct {
 	Network string
 	// Store holds the session state the console renders and streams.
 	Store *session.Store
-	// Rerun is the func the page's rerun buttons call. Without one, a
-	// rerun request reports an error and changes nothing.
-	Rerun func(ctx context.Context, step string, cascade bool) error
+	// Rerun is the func the page's rerun buttons and the rerun endpoint call.
+	// Without one, a rerun request reports an error and changes nothing.
+	Rerun func(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error)
 }
 
 // New builds a console for one project, streaming store's changes to every
@@ -160,7 +132,8 @@ func (s *Server) View(host string) View {
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /static/", http.FileServerFS(static))
 	mux.HandleFunc("GET /events", s.events)
-	mux.HandleFunc("GET /api/status", s.status)
+	mux.HandleFunc("GET "+runapi.StatusPath, s.status)
+	mux.HandleFunc("POST "+runapi.RerunPath, s.apiRerun)
 	mux.HandleFunc("POST /steps/{name}/rerun", s.rerun)
 	mux.HandleFunc("GET /{$}", s.page)
 }
@@ -194,7 +167,7 @@ func (s *Server) rerun(w http.ResponseWriter, r *http.Request) {
 
 	name := r.PathValue("name")
 	cascade, _ := strconv.ParseBool(r.FormValue("cascade"))
-	if err := s.rerunFn(r.Context(), name, cascade); err != nil {
+	if _, err := s.rerunFn(r.Context(), runapi.RerunRequest{Step: name, Cascade: cascade}); err != nil {
 		log.Ctx(r.Context()).Debug("rerun step", "step", name, "error", err)
 		// A step that ran and failed already reported it over the SSE
 		// stream (RerunStep's own doc comment); this handler has nothing

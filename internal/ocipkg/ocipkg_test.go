@@ -260,13 +260,13 @@ func TestPush(t *testing.T) {
 		tarPath := filepath.Join(dir, "pkg.tar.gz")
 		require.NoError(t, os.WriteFile(tarPath, []byte("x"), 0o600))
 
-		_, err := Push(t.Context(), "registry.example.com/acme/plugin", tarPath)
+		_, err := PushPackage(t.Context(), "registry.example.com/acme/plugin", tarPath)
 		require.ErrorIs(t, err, ErrBadReference)
 	})
 
 	t.Run("rejects a bad reference", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		_, err := Push(t.Context(), "not a valid ref!!", "irrelevant")
+		_, err := PushPackage(t.Context(), "not a valid ref!!", "irrelevant")
 		require.ErrorIs(t, err, ErrBadReference)
 	})
 
@@ -363,12 +363,6 @@ func TestPushSignature(t *testing.T) {
 		assert.Equal(t, sigContent, got)
 	})
 
-	t.Run("rejects a bad reference", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
-		_, err := PushSignature(t.Context(), "not a valid ref!!", "irrelevant", SignatureMediaType)
-		require.ErrorIs(t, err, ErrBadReference)
-	})
-
 	t.Run("reports a package tag the registry cannot resolve", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		dir := t.TempDir()
@@ -443,8 +437,9 @@ func TestPublicAPIAgainstALocalRegistry(t *testing.T) {
 	sigPath := filepath.Join(dir, "pkg.tar.gz.minisig")
 	require.NoError(t, os.WriteFile(sigPath, sigContent, 0o600))
 
-	_, err := Push(t.Context(), ref, tarPath)
+	pushed, err := PushPackage(t.Context(), ref, tarPath)
 	require.NoError(t, err)
+	require.Len(t, pushed.Signatures, 1, "the .minisig next to the package is published too")
 
 	pkgEntry, err := Fetch(t.Context(), ref)
 	pkgPath, pkgDigest := pkgEntry.Path, pkgEntry.Digest
@@ -454,10 +449,82 @@ func TestPublicAPIAgainstALocalRegistry(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, content, got)
 
-	_, err = PushSignature(t.Context(), ref, sigPath, SignatureMediaType)
-	require.NoError(t, err)
-
 	sig, err := FetchSignature(t.Context(), ref, pkgDigest, SignatureMediaType)
 	require.NoError(t, err)
 	assert.Equal(t, sigContent, sig)
+}
+
+func TestPushPackage(t *testing.T) {
+	ref := ociref.Reference{Repository: testRepo, Tag: "v1"}
+	writeTar := func(t *testing.T) string {
+		t.Helper()
+		tarPath := filepath.Join(t.TempDir(), "pkg.tar.gz")
+		require.NoError(t, os.WriteFile(tarPath, []byte("plugin package bytes"), 0o600))
+		return tarPath
+	}
+
+	t.Run("pushes the package alone when no signature file exists", func(t *testing.T) {
+		got, err := pushPackage(t.Context(), ocimem.New(), ref, writeTar(t))
+
+		require.NoError(t, err)
+		assert.NotEmpty(t, got.Digest)
+		assert.Empty(t, got.Signatures)
+	})
+
+	t.Run("publishes each sibling signature after the package", func(t *testing.T) {
+		tarPath := writeTar(t)
+		require.NoError(t, os.WriteFile(tarPath+".minisig", []byte("sig"), 0o600))
+		require.NoError(t, os.WriteFile(tarPath+".sigstore.json", []byte("{}"), 0o600))
+
+		got, err := pushPackage(t.Context(), ocimem.New(), ref, tarPath)
+
+		require.NoError(t, err)
+		assert.Len(t, got.Signatures, 2)
+	})
+
+	t.Run("reports the package it pushed when a signature fails", func(t *testing.T) {
+		tarPath := writeTar(t)
+		// A directory where the signature file should be fails the read after
+		// the package push has succeeded.
+		require.NoError(t, os.Mkdir(tarPath+".minisig", 0o750))
+
+		got, err := pushPackage(t.Context(), ocimem.New(), ref, tarPath)
+
+		require.Error(t, err)
+		assert.NotEmpty(t, got.Digest)
+	})
+}
+
+func TestFoundSignatureSiblings(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []string
+		want  []string
+	}{
+		{name: "none", want: []string{}},
+		{name: "minisign alone", files: []string{".minisig"}, want: []string{SignatureMediaType}},
+		{name: "sigstore alone", files: []string{".sigstore.json"}, want: []string{SigstoreSignatureMediaType}},
+		{
+			name:  "both, in scheme order",
+			files: []string{".sigstore.json", ".minisig"},
+			want:  []string{SignatureMediaType, SigstoreSignatureMediaType},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tarPath := filepath.Join(t.TempDir(), "pkg.tar.gz")
+			for _, suffix := range tt.files {
+				require.NoError(t, os.WriteFile(tarPath+suffix, []byte("x"), 0o600))
+			}
+
+			found, err := foundSignatureSiblings(tarPath)
+
+			require.NoError(t, err)
+			got := make([]string, 0, len(found))
+			for _, sib := range found {
+				got = append(got, sib.mediaType)
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

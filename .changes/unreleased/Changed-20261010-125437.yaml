@@ -1,0 +1,3 @@
+kind: Changed
+body: The rerun_step MCP tool reports a step that ran and failed as a result with its status and logs, not as a tool error. It now reports the steps whose message changed, as well as those whose state did.
+time: 2026-10-10T12:54:37.464606-04:00

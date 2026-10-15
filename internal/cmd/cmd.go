@@ -3,7 +3,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -23,6 +22,7 @@ import (
 	"github.com/justenwalker/kevin/internal/ocipkg"
 	"github.com/justenwalker/kevin/internal/pluginpkg"
 	"github.com/justenwalker/kevin/internal/plugins"
+	"github.com/justenwalker/kevin/internal/runstate"
 	"github.com/justenwalker/kevin/internal/version"
 	"github.com/justenwalker/kevin/plugin"
 	"github.com/justenwalker/kevin/protos/pb"
@@ -213,12 +213,12 @@ func runCommand(opts *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			stateDir := runStateDir(opts.dir, opts.name)
-			if err := checkNotRunning(stateDir); err != nil {
+			state := runStateFor(opts.dir, opts.name)
+			if err := state.CheckNotRunning(); err != nil {
 				return err
 			}
 			if detach {
-				return runInBackground(cmd.Context(), command.DefaultStarter, stateDir, backgroundArgs{
+				return runInBackground(cmd.Context(), command.DefaultStarter, state, backgroundArgs{
 					dir:     opts.dir,
 					name:    opts.name,
 					tags:    opts.tags,
@@ -230,7 +230,7 @@ func runCommand(opts *options) *cobra.Command {
 					vars:    opts.vars,
 				})
 			}
-			return runForeground(cmd.Context(), opts, engineName, stateDir, keep, open)
+			return runForeground(cmd.Context(), opts, engineName, state, keep, open)
 		},
 	}
 	cmd.Flags().BoolVar(&keep, "keep", false, "leave the environment in place on exit")
@@ -242,11 +242,11 @@ func runCommand(opts *options) *cobra.Command {
 // runForeground writes this process's own pidfile before starting the
 // engine and removes it (and the address file) on the way out, whatever
 // the exit path. A --detach child reaches this same function once exec'd.
-func runForeground(ctx context.Context, opts *options, engineName, stateDir string, keep, open bool) error {
-	if err := claimPID(stateDir, os.Getpid()); err != nil {
+func runForeground(ctx context.Context, opts *options, engineName string, state runstate.State, keep, open bool) error {
+	if err := state.Claim(os.Getpid()); err != nil {
 		return err
 	}
-	defer removeRunState(stateDir)
+	defer state.Remove()
 	return engine.Run(ctx, engine.Options{
 		Dir:     opts.dir,
 		Name:    opts.name,
@@ -260,7 +260,7 @@ func runForeground(ctx context.Context, opts *options, engineName, stateDir stri
 		Open:    open,
 		OnEnvironment: func(env *pb.Environment) {
 			printEnvironmentInfo(os.Stderr, env)
-			_ = writeRunAddrs(stateDir, env)
+			_ = state.WriteAddrs(runstate.Addrs{ConsoleAddr: env.GetConsoleAddr(), HTTPProxyAddr: env.GetHttpProxyAddr()})
 		},
 	})
 }
@@ -309,7 +309,7 @@ func stopCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			return stopRun(cmd.Context(), cmd.OutOrStdout(), runStateDir(opts.dir, opts.name))
+			return runStateFor(opts.dir, opts.name).Stop(cmd.Context(), cmd.OutOrStdout())
 		},
 	}
 }
@@ -477,81 +477,47 @@ func pluginPushCommand(opts *options) *cobra.Command {
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.ran = true
-			digest, err := ocipkg.Push(cmd.Context(), args[1], args[0])
+			ref, tarPath := args[1], args[0]
+			result, err := ocipkg.PushPackage(cmd.Context(), ref, tarPath)
+			w := cmd.OutOrStdout()
+			if result.Digest != "" {
+				if _, werr := fmt.Fprintf(w, "%s@%s\n", ref, result.Digest); werr != nil {
+					return fmt.Errorf("cmd: push: %w", werr)
+				}
+			}
+			for _, sigDigest := range result.Signatures {
+				if _, werr := fmt.Fprintf(w, "%s@%s (signature)\n", ref, sigDigest); werr != nil {
+					return fmt.Errorf("cmd: push: %w", werr)
+				}
+			}
 			if err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s@%s\n", args[1], digest); err != nil {
-				return fmt.Errorf("cmd: push: %w", err)
+			if len(result.Signatures) == 0 {
+				return printSignHint(w, tarPath)
 			}
-			return pushSignatureIfPresent(cmd, args[1], args[0])
+			return nil
 		},
 	}
 }
 
-// signatureSibling is a scheme-recognized detached signature file
-// [pushSignatureIfPresent] looks for next to a plugin package tar, and the
-// OCI media type it publishes under.
-type signatureSibling struct {
-	suffix    string
-	mediaType string
-	signHint  string
+// signHints are the commands that make the sibling signature file
+// [ocipkg.PushPackage] publishes, one per signature scheme.
+var signHints = []string{
+	"minisign -Sm %s",
+	"cosign sign-blob --bundle %[1]s.sigstore.json %[1]s",
 }
 
-// signatureSiblings are the sibling files [pushSignatureIfPresent] checks
-// for, one per signature scheme.
-var signatureSiblings = []signatureSibling{
-	{suffix: ".minisig", mediaType: ocipkg.SignatureMediaType, signHint: "minisign -Sm %s"},
-	{suffix: ".sigstore.json", mediaType: ocipkg.SigstoreSignatureMediaType, signHint: "cosign sign-blob --bundle %[1]s.sigstore.json %[1]s"},
-}
-
-// foundSignatureSiblings reports which of signatureSiblings has a file
-// present next to tarPath, in signatureSiblings order.
-func foundSignatureSiblings(tarPath string) ([]signatureSibling, error) {
-	var found []signatureSibling
-	for _, sib := range signatureSiblings {
-		if _, err := os.Stat(tarPath + sib.suffix); err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				return nil, fmt.Errorf("cmd: push: stat %q: %w", tarPath+sib.suffix, err)
-			}
-			continue
-		}
-		found = append(found, sib)
+// printSignHint tells the user how to sign tarPath. Signing stays opt-in, so
+// a push with no signature file succeeds with this hint.
+func printSignHint(w io.Writer, tarPath string) error {
+	hints := make([]string, len(signHints))
+	for i, h := range signHints {
+		hints[i] = fmt.Sprintf("%q", fmt.Sprintf(h, tarPath))
 	}
-	return found, nil
-}
-
-// pushSignatureIfPresent uploads tarPath's sibling signature file, one per
-// recognized scheme (see signatureSiblings), as ref's detached signature.
-// Signing stays opt-in: no sibling file present prints a hint instead of
-// failing the push. The OCI fallback tag both schemes publish to holds one
-// manifest per digest, so pushing more than one sibling for the same
-// package leaves only the last one pushed live.
-func pushSignatureIfPresent(cmd *cobra.Command, ref, tarPath string) error {
-	found, err := foundSignatureSiblings(tarPath)
-	if err != nil {
-		return err
-	}
-	if len(found) == 0 {
-		hints := make([]string, len(signatureSiblings))
-		for i, sib := range signatureSiblings {
-			hints[i] = fmt.Sprintf("%q", fmt.Sprintf(sib.signHint, tarPath))
-		}
-		_, err := fmt.Fprintf(cmd.OutOrStdout(), "no signature found for %s - sign with %s to publish one\n",
-			tarPath, strings.Join(hints, " or "))
-		if err != nil {
-			return fmt.Errorf("cmd: push: %w", err)
-		}
-		return nil
-	}
-	for _, sib := range found {
-		digest, err := ocipkg.PushSignature(cmd.Context(), ref, tarPath+sib.suffix, sib.mediaType)
-		if err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s@%s (signature)\n", ref, digest); err != nil {
-			return fmt.Errorf("cmd: push: %w", err)
-		}
+	if _, err := fmt.Fprintf(w, "no signature found for %s - sign with %s to publish one\n",
+		tarPath, strings.Join(hints, " or ")); err != nil {
+		return fmt.Errorf("cmd: push: %w", err)
 	}
 	return nil
 }

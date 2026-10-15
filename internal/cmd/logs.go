@@ -11,6 +11,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/engine"
+	"github.com/justenwalker/kevin/internal/runstate"
 	"github.com/justenwalker/kevin/internal/steplog"
 )
 
@@ -36,7 +37,7 @@ func logsCommand(opts *options) *cobra.Command {
 				step = args[0]
 			}
 			logsPath := filepath.Join(opts.dir, engine.WorkspaceDir, config.SlugName(opts.name), engine.LogsFile)
-			return printLogs(cmd.Context(), cmd.OutOrStdout(), logsPath, runStateDir(opts.dir, opts.name), step, follow)
+			return printLogs(cmd.Context(), cmd.OutOrStdout(), logsPath, runStateFor(opts.dir, opts.name), step, follow)
 		},
 	}
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, `keep tailing new output until the run stops ("kevin status" reports it not running)`)
@@ -45,9 +46,9 @@ func logsCommand(opts *options) *cobra.Command {
 
 // printLogs prints step's recorded output (every step's, interleaved, if
 // step is ""). With follow, it keeps polling logsPath for new entries
-// until ctx is done or stateDir's pidfile says the run has stopped - one
+// until ctx is done or the run state says the run has stopped - one
 // final read once that happens, not an indefinite tail.
-func printLogs(ctx context.Context, w io.Writer, logsPath, stateDir, step string, follow bool) error {
+func printLogs(ctx context.Context, w io.Writer, logsPath string, state runstate.State, step string, follow bool) error {
 	entries, cursor, err := steplog.ReadSince(logsPath, step, "")
 	if err != nil {
 		return fmt.Errorf("cmd: logs: %w", err)
@@ -70,17 +71,10 @@ func printLogs(ctx context.Context, w io.Writer, logsPath, stateDir, step string
 		}
 		writeLogEntries(w, entries)
 
-		if len(entries) == 0 && !runIsAlive(stateDir) {
+		if len(entries) == 0 && !state.Alive() {
 			return nil
 		}
 	}
-}
-
-// runIsAlive reports whether stateDir's pidfile names a live process -
-// pid 0 (no pidfile) is never alive, unlike a bare pidAlive(0) on Unix.
-func runIsAlive(stateDir string) bool {
-	pid := readPID(stateDir)
-	return pid != 0 && pidAlive(pid)
 }
 
 func writeLogEntries(w io.Writer, entries []steplog.Entry) {

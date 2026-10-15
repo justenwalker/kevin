@@ -20,8 +20,8 @@ the same way `internal/docker`, `internal/command/kubectl`, and `internal/comman
 already do for their own external tools (see ADR-0005). Signing itself stays
 a manual step the user runs with the `cosign` CLI directly - `kevin plugin
 push` only detects and uploads whatever signature file is already there
-(see [`internal/cmd/cmd.go`](../../internal/cmd/cmd.go)'s
-`pushSignatureIfPresent`) - extending the same principle that keeps
+(see [`internal/ocipkg`](../../internal/ocipkg/ocipkg.go)'s
+`PushPackage`) - extending the same principle that keeps
 minisign key material out of kevin's own binary to cover OIDC tokens and
 Fulcio-issued certificates too.
 

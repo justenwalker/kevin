@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -16,6 +15,7 @@ import (
 	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/proxy"
+	"github.com/justenwalker/kevin/internal/runapi"
 	"github.com/justenwalker/kevin/internal/session"
 )
 
@@ -93,8 +93,8 @@ func appendLogLine(t *testing.T, path, step, text string) {
 // newTestServer builds a Server against fake session state and connects an
 // MCP client to it over Streamable HTTP.
 func newTestServer(t *testing.T,
-	rerun func(ctx context.Context, step string, cascade bool) error,
-	export func(ctx context.Context, step string) (map[string]output.Value, error),
+	rerun func(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error),
+	export func(ctx context.Context, step string) (output.Map, error),
 	tools []mcpserver.ToolDef,
 	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (mcpserver.ToolResult, error),
 ) *mcp.ClientSession {
@@ -105,8 +105,8 @@ func newTestServer(t *testing.T,
 // newTestServerWithView is newTestServer for a test that needs to mutate the
 // session view (e.g. from a rerun stub) after the Server is built.
 func newTestServerWithView(t *testing.T, view *session.View,
-	rerun func(ctx context.Context, step string, cascade bool) error,
-	export func(ctx context.Context, step string) (map[string]output.Value, error),
+	rerun func(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error),
+	export func(ctx context.Context, step string) (output.Map, error),
 	tools []mcpserver.ToolDef,
 	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (mcpserver.ToolResult, error),
 ) *mcp.ClientSession {
@@ -118,8 +118,8 @@ func newTestServerWithView(t *testing.T, view *session.View,
 // append to the durable log file (e.g. a since-cursor test) after the
 // Server is built.
 func newTestServerWithLogs(t *testing.T, view *session.View, logsPath string,
-	rerun func(ctx context.Context, step string, cascade bool) error,
-	export func(ctx context.Context, step string) (map[string]output.Value, error),
+	rerun func(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error),
+	export func(ctx context.Context, step string) (output.Map, error),
 	tools []mcpserver.ToolDef,
 	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (mcpserver.ToolResult, error),
 ) *mcp.ClientSession {
@@ -138,10 +138,8 @@ func newTestServerWithLogs(t *testing.T, view *session.View, logsPath string,
 		LogsPath: logsPath,
 		View:     fakeView{v: view},
 		Proxy:    px,
-		Rerun:    rerun,
-		Export:   export,
+		Control:  fakeControl{rerun: rerun, export: export, callTool: dispatch},
 		Tools:    tools,
-		CallTool: dispatch,
 	})
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
@@ -259,18 +257,16 @@ func TestTools(t *testing.T) {
 	})
 
 	t.Run("rerun_step", func(t *testing.T) {
-		var gotName string
-		var gotCascade bool
-		rerun := func(_ context.Context, step string, cascade bool) error {
-			gotName, gotCascade = step, cascade
-			return nil
+		var got runapi.RerunRequest
+		rerun := func(_ context.Context, req runapi.RerunRequest) (runapi.RerunResult, error) {
+			got = req
+			return runapi.RerunResult{Step: req.Step}, nil
 		}
 		sess := newTestServer(t, rerun, noopExport, nil, nil)
 		res := callTool(t, sess, "rerun_step", mcpserver.RerunStepInput{Name: "api", Cascade: true})
 		require.False(t, res.IsError)
 
-		assert.Equal(t, "api", gotName)
-		assert.True(t, gotCascade)
+		assert.Equal(t, runapi.RerunRequest{Step: "api", Cascade: true}, got)
 		var out mcpserver.RerunStepOutput
 		decodeStructured(t, res, &out)
 		assert.Equal(t, "api", out.Name)
@@ -279,15 +275,17 @@ func TestTools(t *testing.T) {
 
 	t.Run("rerun_step reports changed step details and proxy denials", func(t *testing.T) {
 		view := defaultView()
-		rerun := func(_ context.Context, _ string, _ bool) error {
+		rerun := func(_ context.Context, req runapi.RerunRequest) (runapi.RerunResult, error) {
 			view.Steps[0].State = session.Failed
-			view.Requests = []session.Request{
-				{Time: time.Now().Add(2 * time.Hour), Denied: true, Method: "GET", Host: "second.example.com", Path: "/two"},
-				{Time: time.Now().Add(time.Hour), Denied: true, Method: "GET", Host: "blocked.example.com", Path: "/data"},
-				{Time: time.Now().Add(time.Hour), Denied: false, Host: "api.github.com"},
-				{Time: time.Now().Add(-time.Hour), Denied: true, Host: "stale.example.com"},
-			}
-			return nil
+			return runapi.RerunResult{
+				Step:    req.Step,
+				Failed:  true,
+				Changed: []runapi.StepSummary{{Name: "api", State: "failed"}},
+				Denied: []runapi.DeniedRequest{
+					{Method: "GET", Host: "blocked.example.com", Path: "/data"},
+					{Method: "GET", Host: "second.example.com", Path: "/two"},
+				},
+			}, nil
 		}
 		sess := newTestServerWithView(t, view, rerun, noopExport, nil, nil)
 		res := callTool(t, sess, "rerun_step", mcpserver.RerunStepInput{Name: "api"})
@@ -306,9 +304,9 @@ func TestTools(t *testing.T) {
 	})
 
 	t.Run("export_step", func(t *testing.T) {
-		export := func(_ context.Context, step string) (map[string]output.Value, error) {
+		export := func(_ context.Context, step string) (output.Map, error) {
 			assert.Equal(t, "api", step)
-			return map[string]output.Value{"kubeconfig": {String: "/tmp/kubeconfig"}}, nil
+			return output.Map{"kubeconfig": {String: "/tmp/kubeconfig"}}, nil
 		}
 		sess := newTestServer(t, noopRerun, export, nil, nil)
 		res := callTool(t, sess, "export_step", mcpserver.ExportStepInput{Name: "api"})
@@ -322,8 +320,8 @@ func TestTools(t *testing.T) {
 	})
 
 	t.Run("export_step masks a sensitive value and sorts rows by label", func(t *testing.T) {
-		export := func(context.Context, string) (map[string]output.Value, error) {
-			return map[string]output.Value{
+		export := func(context.Context, string) (output.Map, error) {
+			return output.Map{
 				"zebra":    {String: "z"},
 				"password": {String: "hunter2", Sensitive: true},
 			}, nil
@@ -410,8 +408,29 @@ func TestPluginTools(t *testing.T) {
 	})
 }
 
-func noopRerun(context.Context, string, bool) error { return nil }
+func noopRerun(context.Context, runapi.RerunRequest) (runapi.RerunResult, error) {
+	return runapi.RerunResult{}, nil
+}
 
-func noopExport(context.Context, string) (map[string]output.Value, error) {
-	return map[string]output.Value{}, nil
+// fakeControl is a stub of the running environment's control surface.
+type fakeControl struct {
+	rerun    func(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error)
+	export   func(ctx context.Context, step string) (output.Map, error)
+	callTool func(ctx context.Context, step, tool string, args json.RawMessage) (mcpserver.ToolResult, error)
+}
+
+func (f fakeControl) Rerun(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error) {
+	return f.rerun(ctx, req)
+}
+
+func (f fakeControl) Export(ctx context.Context, step string) (output.Map, error) {
+	return f.export(ctx, step)
+}
+
+func (f fakeControl) CallTool(ctx context.Context, step, tool string, args json.RawMessage) (mcpserver.ToolResult, error) {
+	return f.callTool(ctx, step, tool, args)
+}
+
+func noopExport(context.Context, string) (output.Map, error) {
+	return output.Map{}, nil
 }

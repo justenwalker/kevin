@@ -2,23 +2,16 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"text/tabwriter"
-	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/justenwalker/kevin/internal/console"
+	"github.com/justenwalker/kevin/internal/runapi"
+	"github.com/justenwalker/kevin/internal/runstate"
 )
-
-// statusClientTimeout bounds a kevin status request against the running
-// console - a wedged console fails fast instead of hanging the command
-// (ADR-0004).
-const statusClientTimeout = 5 * time.Second
 
 func statusCommand(opts *options) *cobra.Command {
 	return &cobra.Command{
@@ -30,47 +23,31 @@ func statusCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			return printStatus(cmd.Context(), cmd.OutOrStdout(), runStateDir(opts.dir, opts.name))
+			return printStatus(cmd.Context(), cmd.OutOrStdout(), runStateFor(opts.dir, opts.name))
 		},
 	}
 }
 
-// runningConsole returns the console address of the "kevin run" tracked in
-// stateDir. It reports ErrNotRunning without any I/O beyond the pidfile
-// when nothing is tracked, and ErrStaleRun (after clearing the leftover
-// state) when the tracked process is gone.
-func runningConsole(stateDir string) (runAddrs, error) {
-	pid := readPID(stateDir)
-	if pid == 0 {
-		return runAddrs{}, ErrNotRunning
-	}
-	if !pidAlive(pid) {
-		removeRunState(stateDir)
-		return runAddrs{}, ErrStaleRun
-	}
-	return readRunAddrs(stateDir)
-}
-
-// printStatus reports "not running" (mirroring stopRun's own messages)
+// printStatus reports "not running" (mirroring runstate.State.Stop's own messages)
 // without ever making an HTTP request when this project/environment's
 // pidfile says nothing is running, and otherwise asks the running
 // console's /api/status for current step states.
-func printStatus(ctx context.Context, w io.Writer, stateDir string) error {
-	addrs, err := runningConsole(stateDir)
-	if errors.Is(err, ErrNotRunning) {
+func printStatus(ctx context.Context, w io.Writer, state runstate.State) error {
+	addrs, err := state.Running()
+	if errors.Is(err, runstate.ErrNotRunning) {
 		_, _ = fmt.Fprintln(w, "not running")
 		return nil
 	}
-	if errors.Is(err, ErrStaleRun) {
+	if errors.Is(err, runstate.ErrStaleRun) {
 		_, _ = fmt.Fprintln(w, "not running (removed stale pid file)")
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	resp, err := fetchStatus(ctx, addrs.ConsoleAddr)
+	resp, err := runapi.Dial(addrs).Status(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("cmd: status: %w", err)
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
@@ -82,27 +59,4 @@ func printStatus(ctx context.Context, w io.Writer, stateDir string) error {
 		return fmt.Errorf("cmd: status: %w", err)
 	}
 	return nil
-}
-
-// fetchStatus asks addr's console for its current step states.
-func fetchStatus(ctx context.Context, addr string) (console.StatusResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/api/status", nil)
-	if err != nil {
-		return console.StatusResponse{}, fmt.Errorf("cmd: status: %w", err)
-	}
-	client := &http.Client{Timeout: statusClientTimeout}
-	res, err := client.Do(req)
-	if err != nil {
-		return console.StatusResponse{}, fmt.Errorf("cmd: status: %w", err)
-	}
-	defer func() { _ = res.Body.Close() }()
-	if res.StatusCode != http.StatusOK {
-		return console.StatusResponse{}, fmt.Errorf("cmd: status: console returned %s", res.Status)
-	}
-
-	var out console.StatusResponse
-	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
-		return console.StatusResponse{}, fmt.Errorf("cmd: status: decode response: %w", err)
-	}
-	return out, nil
 }

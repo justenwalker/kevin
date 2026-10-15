@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/runapi"
 	"github.com/justenwalker/kevin/internal/session"
 )
 
@@ -66,10 +67,10 @@ func TestPage(t *testing.T) {
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.SetProxyAddr("127.0.0.1:8080")
 		store.AddStep("web", "", "", "", nil, nil, false, "", false)
-		store.SetStep("web", Ready, "")
-		store.AddStepDetail("web", Detail{Value: "web.kevin.test", Href: "https://web.kevin.test"})
+		store.SetStep("web", session.Ready, "")
+		store.AddStepDetail("web", session.Detail{Value: "web.kevin.test", Href: "https://web.kevin.test"})
 		store.Log("web", "stdout", "hello")
-		store.Record(Request{Method: "GET", Host: "web.kevin.test", Path: "/", Status: 200, Routed: true})
+		store.Record(session.Request{Method: "GET", Host: "web.kevin.test", Path: "/", Status: 200, Routed: true})
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -96,7 +97,7 @@ func TestPage(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.AddStep("web", "", "", "", nil, nil, false, "", false)
-		store.SetStep("web", Running, "")
+		store.SetStep("web", session.Running, "")
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -124,8 +125,8 @@ func TestPage(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.AddStep("db", "", "", "", nil, nil, false, "", false)
-		store.SetStep("db", Ready, "")
-		store.AddStepDetail("db", Detail{
+		store.SetStep("db", session.Ready, "")
+		store.AddStepDetail("db", session.Detail{
 			Label: "admin password", Value: "hunter2", Href: "https://admin.kevin.test", Copyable: true, Sensitive: true,
 		})
 
@@ -197,8 +198,8 @@ func TestPage(t *testing.T) {
 	t.Run("a denied request renders differently from an allowed one", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.Record(Request{Method: "GET", Host: "api.kevin.test", Path: "/", Status: 200, Routed: true})
-		store.Record(Request{Method: "GET", Host: "evil.test", Path: "/", Status: 403, Denied: true})
+		store.Record(session.Request{Method: "GET", Host: "api.kevin.test", Path: "/", Status: 200, Routed: true})
+		store.Record(session.Request{Method: "GET", Host: "evil.test", Path: "/", Status: 403, Denied: true})
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -277,10 +278,10 @@ func TestStepDetailDialog(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.AddStep("db", "", "", "", nil, nil, false, "", false)
-		store.SetStep("db", Ready, "")
-		store.AddStepDetail("db", Detail{Label: "address", Value: "localhost:55432"})
-		store.SetStepInputs("db", []Detail{{Label: "image", Value: "postgres:16"}})
-		store.SetStepOutputs("db", []Detail{{Label: "endpoint", Value: "localhost:55432"}})
+		store.SetStep("db", session.Ready, "")
+		store.AddStepDetail("db", session.Detail{Label: "address", Value: "localhost:55432"})
+		store.SetStepInputs("db", []session.Detail{{Label: "image", Value: "postgres:16"}})
+		store.SetStepOutputs("db", []session.Detail{{Label: "endpoint", Value: "localhost:55432"}})
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -297,8 +298,8 @@ func TestStepDetailDialog(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.AddStep("db", "", "", "", nil, nil, false, "", false)
-		store.SetStepInputs("db", []Detail{{Label: "password", Value: "hunter2", Sensitive: true}})
-		store.SetStepOutputs("db", []Detail{{Label: "dsn", Value: "postgres://x:hunter2@db", Sensitive: true}})
+		store.SetStepInputs("db", []session.Detail{{Label: "password", Value: "hunter2", Sensitive: true}})
+		store.SetStepOutputs("db", []session.Detail{{Label: "dsn", Value: "postgres://x:hunter2@db", Sensitive: true}})
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -316,7 +317,7 @@ func TestStepItem(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.AddStep("web", "", "resource", "", nil, nil, false, "", false)
-		store.SetStep("web", Ready, "")
+		store.SetStep("web", session.Ready, "")
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -336,7 +337,7 @@ func TestRerunActions(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.AddStep("web", "", "", "", nil, nil, false, "", false)
-		store.SetStep("web", Ready, "")
+		store.SetStep("web", session.Ready, "")
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -351,7 +352,7 @@ func TestRerunActions(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.AddStep("web", "", "", "", nil, nil, false, "", false)
-		store.SetStep("web", Failed, "boom")
+		store.SetStep("web", session.Failed, "boom")
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -367,9 +368,9 @@ func TestLogsPanel(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.AddStep("web", "", "", "", nil, nil, false, "", false)
-		store.SetStep("web", Ready, "")
+		store.SetStep("web", session.Ready, "")
 		store.AddStep("db", "", "", "", nil, nil, false, "", false)
-		store.SetStep("db", Running, "")
+		store.SetStep("db", session.Running, "")
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -407,7 +408,7 @@ func TestServicesTab(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.AddStep("web", "", "", "", nil, nil, false, "", false)
-		store.SetStep("web", Ready, "")
+		store.SetStep("web", session.Ready, "")
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -423,7 +424,7 @@ func TestEvents(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.AddStep("web", "", "", "", nil, nil, false, "", false)
-		store.SetStep("web", Ready, "")
+		store.SetStep("web", session.Ready, "")
 		store.Log("web", "stdout", "already here")
 
 		frame := readFrame(t, s)
@@ -460,8 +461,8 @@ func TestEvents(t *testing.T) {
 			return len(s.clients) == 1
 		}, time.Second, 5*time.Millisecond)
 
-		store.SetStep("api", Running, "")
-		store.Record(Request{Method: "GET", Host: "api.test", Path: "/x", Status: 201, Routed: true})
+		store.SetStep("api", session.Running, "")
+		store.Record(session.Request{Method: "GET", Host: "api.test", Path: "/x", Status: 201, Routed: true})
 
 		require.Eventually(t, func() bool {
 			return strings.Contains(rec.String(), "step-api") &&
@@ -499,7 +500,7 @@ func TestEvents(t *testing.T) {
 			return len(s.clients) == 1
 		}, time.Second, 5*time.Millisecond)
 
-		store.SetStep("db", Ready, "")
+		store.SetStep("db", session.Ready, "")
 
 		require.Eventually(t, func() bool {
 			return strings.Contains(rec.String(), "group-header-db")
@@ -519,7 +520,7 @@ func TestEvents(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.AddStep("web", "", "", "", nil, nil, false, "", false)
-		store.SetStep("web", Running, "")
+		store.SetStep("web", session.Running, "")
 
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
@@ -603,7 +604,7 @@ func TestEvents(t *testing.T) {
 		// Fill the buffer and then some. The supervisor must never block on a
 		// browser that stopped reading.
 		for range clientBuffer + 10 {
-			store.SetStep("web", Running, "")
+			store.SetStep("web", session.Running, "")
 		}
 
 		s.clientsMu.Lock()
@@ -699,6 +700,9 @@ func TestRerun(t *testing.T) {
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, target, nil))
 		return rec
 	}
+	withRerun := func(fn func(context.Context, runapi.RerunRequest) (runapi.RerunResult, error)) *Server {
+		return New(Config{Project: "demo", Store: session.NewStore(), Rerun: fn})
+	}
 
 	t.Run("is unavailable without a rerun func", func(t *testing.T) {
 		s := New(Config{Project: "demo", Store: session.NewStore()})
@@ -707,40 +711,38 @@ func TestRerun(t *testing.T) {
 	})
 
 	t.Run("passes the step and the cascade flag to the rerun func", func(t *testing.T) {
-		var gotStep string
-		var gotCascade bool
-		s := New(Config{Project: "demo", Store: session.NewStore(), Rerun: func(_ context.Context, step string, cascade bool) error {
-			gotStep, gotCascade = step, cascade
-			return nil
-		}})
+		var got runapi.RerunRequest
+		s := withRerun(func(_ context.Context, req runapi.RerunRequest) (runapi.RerunResult, error) {
+			got = req
+			return runapi.RerunResult{}, nil
+		})
 
 		rec := post(s, "/steps/web/rerun?cascade=true")
 
 		assert.Equal(t, http.StatusAccepted, rec.Code)
-		assert.Equal(t, "web", gotStep)
-		assert.True(t, gotCascade)
+		assert.Equal(t, runapi.RerunRequest{Step: "web", Cascade: true}, got)
 	})
 
 	t.Run("reports a step that is already running", func(t *testing.T) {
-		s := New(Config{Project: "demo", Store: session.NewStore(), Rerun: func(context.Context, string, bool) error {
-			return session.ErrStepBusy
-		}})
+		s := withRerun(func(context.Context, runapi.RerunRequest) (runapi.RerunResult, error) {
+			return runapi.RerunResult{}, session.ErrStepBusy
+		})
 
 		assert.Equal(t, http.StatusConflict, post(s, "/steps/web/rerun").Code)
 	})
 
 	t.Run("reports a step that does not exist", func(t *testing.T) {
-		s := New(Config{Project: "demo", Store: session.NewStore(), Rerun: func(context.Context, string, bool) error {
-			return session.ErrUnknownStep
-		}})
+		s := withRerun(func(context.Context, runapi.RerunRequest) (runapi.RerunResult, error) {
+			return runapi.RerunResult{}, session.ErrUnknownStep
+		})
 
 		assert.Equal(t, http.StatusNotFound, post(s, "/steps/nope/rerun").Code)
 	})
 
 	t.Run("accepts a rerun that failed, since the stream already reported it", func(t *testing.T) {
-		s := New(Config{Project: "demo", Store: session.NewStore(), Rerun: func(context.Context, string, bool) error {
-			return errors.New("boom")
-		}})
+		s := withRerun(func(context.Context, runapi.RerunRequest) (runapi.RerunResult, error) {
+			return runapi.RerunResult{}, errors.New("boom")
+		})
 
 		assert.Equal(t, http.StatusAccepted, post(s, "/steps/web/rerun").Code)
 	})
@@ -808,7 +810,7 @@ func TestEventsWriteFailures(t *testing.T) {
 			return len(s.clients) == 1
 		}, time.Second, 5*time.Millisecond)
 
-		store.SetStep("web", Ready, "")
+		store.SetStep("web", session.Ready, "")
 
 		select {
 		case <-done:

@@ -2,22 +2,12 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/justenwalker/kevin/internal/ca"
-	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/engine"
-	"github.com/justenwalker/kevin/internal/expr"
-	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/internal/pluginhost"
-	"github.com/justenwalker/kevin/protos/pb"
 )
 
 func doCommand(opts *options) *cobra.Command {
@@ -39,8 +29,7 @@ func doCommand(opts *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			vars := config.VariableInputs{File: opts.varFile, Set: opts.vars}
-			return runDo(cmd.Context(), opts.dir, opts.name, opts.tags, vars, engineName, name, extra)
+			return runDo(cmd.Context(), opts, engineName, name, extra)
 		},
 	}
 	return cmd
@@ -61,130 +50,20 @@ func splitDoArgs(args []string, dash int) (string, []string, error) {
 	return args[0], args[dash:], nil
 }
 
-func runDo(ctx context.Context, dir, name string, tags []string, vars config.VariableInputs, engineName, cmdName string, extra []string) error {
-	loaded, err := engine.LoadAndLaunch(ctx, dir, name, tags, vars)
-	defer engine.CloseAll(loaded.Plugins)
+func runDo(ctx context.Context, opts *options, engineName, cmdName string, extra []string) error {
+	plan, err := engine.PlanCommand(ctx, engine.Options{
+		Dir:     opts.dir,
+		Name:    opts.name,
+		Tags:    opts.tags,
+		VarFile: opts.varFile,
+		Vars:    opts.vars,
+		Engine:  engineName,
+	}, cmdName)
 	if err != nil {
 		return err
 	}
-	cfg, plugins, caps := loaded.Config, loaded.Plugins, loaded.Caps
-
-	cmdDef, ok := cfg.Commands[cmdName]
-	if !ok {
-		names := make([]string, 0, len(cfg.Commands))
-		for n := range cfg.Commands {
-			names = append(names, n)
-		}
-		sort.Strings(names)
-		return fmt.Errorf("do: no command named %q, available: %s", cmdName, strings.Join(names, ", "))
-	}
-
-	env := &pb.Environment{
-		Project:    cfg.Project,
-		Workspace:  filepath.Join(cfg.Dir, engine.WorkspaceDir, cfg.Name),
-		Network:    engine.NetworkName(cfg.Project),
-		Engine:     engineName,
-		CaPath:     ca.RootCertPath(),
-		Domain:     cfg.Domain,
-		ProjectDir: cfg.Dir,
-		Scope:      config.ScopeSetup.String(),
-	}
-	if err = engine.ConfigureAll(ctx, cfg.Plugins, plugins, env); err != nil {
-		return err
-	}
-
-	needsOut, setupOut, err := resolveCommandOutputs(ctx, cfg, plugins, caps, env, cmdDef.Needs)
-	if err != nil {
-		return err
-	}
-
-	rendered, err := expr.Render(cmdDef.Run, cmdName, expr.Scopes{
-		Needs: needsOut, Setup: setupOut, Project: ca.ProjectVars(cfg.Dir, cfg.Name), Vars: cfg.VariableValues,
-	})
-	if err != nil {
+	if err := os.Chdir(plan.Dir); err != nil {
 		return fmt.Errorf("do: %w", err)
 	}
-	var run []string
-	if err := json.Unmarshal(rendered, &run); err != nil {
-		return fmt.Errorf("do: decode rendered run: %w", err)
-	}
-
-	if err := chdirToCwd(cfg.Dir, cmdDef.Cwd); err != nil {
-		return err
-	}
-
-	argv := make([]string, 0, len(run)+len(extra))
-	argv = append(argv, run...)
-	argv = append(argv, extra...)
-	return execWith(argv)
-}
-
-// chdirToCwd changes into a command's working directory: projectDir when
-// cwd is empty, otherwise cwd resolved against projectDir if relative.
-func chdirToCwd(projectDir, cwd string) error {
-	dir := cwd
-	switch {
-	case dir == "":
-		dir = projectDir
-	case !filepath.IsAbs(dir):
-		dir = filepath.Join(projectDir, dir)
-	}
-	if err := os.Chdir(dir); err != nil {
-		return fmt.Errorf("do: %w", err)
-	}
-	return nil
-}
-
-// resolveCommandOutputs exports every step needs names, bucketed by scope
-// for expr.Render: a plain entry's outputs land under its own name in
-// needsOut (read back as "${needs.<step>...}"), a "setup."-prefixed entry's
-// under setupOut (read back as "${setup.<name>...}") - the same convention
-// a step's own needs list uses. config.File.Validate already proved each of
-// these steps implements Export, so this never sees one that doesn't.
-func resolveCommandOutputs(ctx context.Context, cfg *config.Config, plugins map[string]*pluginhost.Client, caps map[string]pluginhost.Info, env *pb.Environment, needs []config.Need) (map[string]output.Map, map[string]output.Map, error) {
-	var needsOut, setupOut map[string]output.Map
-	for _, n := range needs {
-		scopeName, steps, stepName := config.ScopeEnv, cfg.Env, n.Step
-		if n.Setup {
-			scopeName, steps, stepName = config.ScopeSetup, cfg.Setup, n.Step
-		}
-		step, ok := steps[stepName]
-		if !ok {
-			return nil, nil, fmt.Errorf("do: needs %q: no such step in scope %q", n, scopeName)
-		}
-		ref := step.Uses
-		client, ok := plugins[ref.Plugin]
-		if !ok {
-			return nil, nil, fmt.Errorf("do: needs %q: plugin %q not loaded", n, ref.Plugin)
-		}
-
-		setupDeps, depsErr := setupCrossScopeDeps(ctx, cfg, plugins, caps, env, step)
-		if depsErr != nil {
-			return nil, nil, fmt.Errorf("do: needs %q: %w", n, depsErr)
-		}
-		with, renderErr := expr.Render(step.With, stepName, expr.Scopes{Setup: setupDeps, Project: ca.ProjectVars(cfg.Dir, cfg.Name), Vars: cfg.VariableValues})
-		if renderErr != nil {
-			return nil, nil, fmt.Errorf("do: needs %q: %w", n, renderErr)
-		}
-		resp, exportErr := client.Export(ctx, &pb.ExportRequest{
-			Step: stepName, Type: ref.Step, Env: env, Config: with,
-		})
-		if exportErr != nil {
-			return nil, nil, fmt.Errorf("do: needs %q: export: %w", n, exportErr)
-		}
-
-		out := output.FromProto(resp.GetOut())
-		if scopeName == config.ScopeSetup {
-			if setupOut == nil {
-				setupOut = make(map[string]output.Map)
-			}
-			setupOut[stepName] = out
-			continue
-		}
-		if needsOut == nil {
-			needsOut = make(map[string]output.Map)
-		}
-		needsOut[stepName] = out
-	}
-	return needsOut, setupOut, nil
+	return execWith(append(plan.Argv, extra...))
 }

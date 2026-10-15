@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/justenwalker/kevin/internal/runstate"
 )
 
 // syncBuffer is a bytes.Buffer safe for one writer goroutine and one
@@ -50,7 +52,7 @@ func TestPrintLogs(t *testing.T) {
 		writeNDJSONLine(t, logsPath, "db", "ready")
 
 		var buf bytes.Buffer
-		require.NoError(t, printLogs(t.Context(), &buf, logsPath, t.TempDir(), "", false))
+		require.NoError(t, printLogs(t.Context(), &buf, logsPath, runstate.At(t.TempDir()), "", false))
 		out := buf.String()
 		assert.Contains(t, out, "[stdout] starting")
 		assert.Contains(t, out, "[stdout] ready")
@@ -62,7 +64,7 @@ func TestPrintLogs(t *testing.T) {
 		writeNDJSONLine(t, logsPath, "db", "ready")
 
 		var buf bytes.Buffer
-		require.NoError(t, printLogs(t.Context(), &buf, logsPath, t.TempDir(), "db", false))
+		require.NoError(t, printLogs(t.Context(), &buf, logsPath, runstate.At(t.TempDir()), "db", false))
 		assert.NotContains(t, buf.String(), "starting")
 		assert.Contains(t, buf.String(), "ready")
 	})
@@ -72,13 +74,13 @@ func TestPrintLogs(t *testing.T) {
 		writeNDJSONLine(t, logsPath, "web", "starting")
 
 		var buf bytes.Buffer
-		require.NoError(t, printLogs(t.Context(), &buf, logsPath, t.TempDir(), "ghost", false))
+		require.NoError(t, printLogs(t.Context(), &buf, logsPath, runstate.At(t.TempDir()), "ghost", false))
 		assert.Empty(t, buf.String())
 	})
 
 	t.Run("errors clearly when no run has ever logged here", func(t *testing.T) {
 		var buf bytes.Buffer
-		err := printLogs(t.Context(), &buf, filepath.Join(t.TempDir(), "logs.ndjson"), t.TempDir(), "", false)
+		err := printLogs(t.Context(), &buf, filepath.Join(t.TempDir(), "logs.ndjson"), runstate.At(t.TempDir()), "", false)
 		require.Error(t, err)
 	})
 
@@ -89,7 +91,7 @@ func TestPrintLogs(t *testing.T) {
 
 		start := time.Now()
 		var buf bytes.Buffer
-		require.NoError(t, printLogs(t.Context(), &buf, logsPath, t.TempDir(), "", false))
+		require.NoError(t, printLogs(t.Context(), &buf, logsPath, runstate.At(t.TempDir()), "", false))
 		assert.Less(t, time.Since(start), logsPollInterval, "a non-follow read must not wait for a poll interval")
 		assert.Contains(t, buf.String(), "starting")
 	})
@@ -103,14 +105,14 @@ func TestPrintLogs(t *testing.T) {
 		logsPath := filepath.Join(dir, "logs.ndjson")
 		writeNDJSONLine(t, logsPath, "web", "first")
 
-		stateDir := t.TempDir()
-		require.NoError(t, writePID(stateDir, os.Getpid()))
+		state := runstate.At(t.TempDir())
+		require.NoError(t, state.WritePID(os.Getpid()))
 
 		var buf syncBuffer
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		done := make(chan error, 1)
-		go func() { done <- printLogs(ctx, &buf, logsPath, stateDir, "", true) }()
+		go func() { done <- printLogs(ctx, &buf, logsPath, state, "", true) }()
 
 		require.Eventually(t, func() bool { return strings.Contains(buf.String(), "first") }, time.Second, 10*time.Millisecond)
 
@@ -119,7 +121,7 @@ func TestPrintLogs(t *testing.T) {
 
 		// Simulate the run stopping: no more pidfile, so the next poll exits
 		// the loop on its own rather than needing ctx canceled.
-		removeRunState(stateDir)
+		state.Remove()
 		select {
 		case err := <-done:
 			require.NoError(t, err)
@@ -127,16 +129,4 @@ func TestPrintLogs(t *testing.T) {
 			t.Fatal("printLogs did not stop after the run went away")
 		}
 	})
-}
-
-func TestRunIsAlive(t *testing.T) {
-	assert.False(t, runIsAlive(t.TempDir()), "no pidfile")
-
-	dir := t.TempDir()
-	require.NoError(t, writePID(dir, deadPID(t)))
-	assert.False(t, runIsAlive(dir), "stale pidfile")
-
-	dir = t.TempDir()
-	require.NoError(t, writePID(dir, os.Getpid()))
-	assert.True(t, runIsAlive(dir))
 }

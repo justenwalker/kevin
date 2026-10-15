@@ -43,60 +43,60 @@ func TestProxySetup(t *testing.T) {
 func TestStepItemKinds(t *testing.T) {
 	tests := []struct {
 		name string
-		step Step
+		step session.Step
 		want []string
 		not  []string
 	}{
 		{
 			name: "a compact step is one muted line",
-			step: Step{Name: "probe", Label: "probe", Compact: true, State: Ready, Provider: "builtin", Message: "ok"},
+			step: session.Step{Name: "probe", Label: "probe", Compact: true, State: session.Ready, Provider: "builtin", Message: "ok"},
 			want: []string{`class="compact state-ready"`, `class="msg"`},
 			not:  []string{"status-line"},
 		},
 		{
 			name: "a plugin with an icon shows it",
-			step: Step{Name: "web", Label: "web", Provider: "acme", Icon: []byte("png")},
+			step: session.Step{Name: "web", Label: "web", Provider: "acme", Icon: []byte("png")},
 			want: []string{`class="plugin-icon"`, "data:image/png;base64,", `alt="acme"`},
 		},
 		{
 			name: "a plugin without an icon gets the default",
-			step: Step{Name: "web", Label: "web", Provider: "acme"},
+			step: session.Step{Name: "web", Label: "web", Provider: "acme"},
 			want: []string{"plugin-icon-default"},
 		},
 		{
 			name: "a builtin without an icon gets none",
-			step: Step{Name: "web", Label: "web", Provider: "builtin"},
+			step: session.Step{Name: "web", Label: "web", Provider: "builtin"},
 			not:  []string{"plugin-icon"},
 		},
 		{
 			name: "an action and a probe show their kind text",
-			step: Step{Name: "web", Label: "web", Kind: "action"},
+			step: session.Step{Name: "web", Label: "web", Kind: "action"},
 			want: []string{"kind-action"},
 		},
 		{
 			name: "an idempotent step carries a badge",
-			step: Step{Name: "web", Label: "web", Idempotent: true},
+			step: session.Step{Name: "web", Label: "web", Idempotent: true},
 			want: []string{"badge-idempotent"},
 		},
 		{
 			name: "a step that reads setup outputs names them",
-			step: Step{Name: "web", Label: "web", Needs: []string{"db", "setup.cluster"}},
+			step: session.Step{Name: "web", Label: "web", Needs: []string{"db", "setup.cluster"}},
 			want: []string{"reads setup: cluster", `data-needs="db"`},
 		},
 		{
 			name: "a running step shows a progress bar",
-			step: Step{Name: "web", Label: "web", State: Running, Progress: 0.5},
+			step: session.Step{Name: "web", Label: "web", State: session.Running, Progress: 0.5},
 			want: []string{`id="bar-web"`, "width:50%"},
 			not:  []string{"bar-hidden"},
 		},
 		{
 			name: "a removing step with no estimate hides its bar",
-			step: Step{Name: "web", Label: "web", State: Removing},
+			step: session.Step{Name: "web", Label: "web", State: session.Removing},
 			want: []string{"bar-hidden"},
 		},
 		{
 			name: "a failed step shows its message and one rerun button",
-			step: Step{Name: "web", Label: "web", State: Failed, Message: "boom"},
+			step: session.Step{Name: "web", Label: "web", State: session.Failed, Message: "boom"},
 			want: []string{"boom", "cascade-only"},
 		},
 	}
@@ -116,8 +116,8 @@ func TestStepItemKinds(t *testing.T) {
 
 func TestGroupItem(t *testing.T) {
 	t.Run("renders the header, the badge and every member", func(t *testing.T) {
-		group := Step{Name: "infra", Label: "infra", IsGroup: true, State: Failed, Message: "member failed", Needs: []string{"setup.cluster"}}
-		members := []Step{{Name: "db", Label: "db"}, {Name: "cache", Label: "cache", Compact: true}}
+		group := session.Step{Name: "infra", Label: "infra", IsGroup: true, State: session.Failed, Message: "member failed", Needs: []string{"setup.cluster"}}
+		members := []session.Step{{Name: "db", Label: "db"}, {Name: "cache", Label: "cache", Compact: true}}
 
 		body := renderString(t, GroupItem(group, members))
 
@@ -132,14 +132,14 @@ func TestGroupItem(t *testing.T) {
 func TestGroupInPage(t *testing.T) {
 	t.Run("nests a group's members and leaves them out of the top level", func(t *testing.T) {
 		body := renderString(t, Page(View{View: session.View{
-			Steps: []Step{
-				{Name: "infra", Label: "infra", IsGroup: true, State: Ready},
-				{Name: "db", Label: "db", Group: "infra", State: Ready},
-				{Name: "web", Label: "web", State: Running},
+			Steps: []session.Step{
+				{Name: "infra", Label: "infra", IsGroup: true, State: session.Ready},
+				{Name: "db", Label: "db", Group: "infra", State: session.Ready},
+				{Name: "web", Label: "web", State: session.Running},
 			},
-			Logs:     []Line{{Step: "web", Stream: "stdout", Text: "listening"}},
-			StepLogs: map[string][]Line{"web": {{Step: "web", Stream: "stderr", Text: "warn"}}},
-			Requests: []Request{{Method: "GET", Host: "example.com", Path: "/", Status: 200}},
+			Logs:     []session.Line{{Step: "web", Stream: "stdout", Text: "listening"}},
+			StepLogs: map[string][]session.Line{"web": {{Step: "web", Stream: "stderr", Text: "warn"}}},
+			Requests: []session.Request{{Method: "GET", Host: "example.com", Path: "/", Status: 200}},
 		}}))
 
 		assert.Contains(t, body, `class="group-members"`)
@@ -153,7 +153,7 @@ func TestGroupInPage(t *testing.T) {
 
 func TestStepUpdate(t *testing.T) {
 	t.Run("a group updates its header and card, with no detail panels", func(t *testing.T) {
-		body := renderString(t, StepUpdate(Step{Name: "infra", Label: "infra", IsGroup: true, State: Ready}))
+		body := renderString(t, StepUpdate(session.Step{Name: "infra", Label: "infra", IsGroup: true, State: session.Ready}))
 
 		assert.Contains(t, body, `id="group-header-infra"`)
 		assert.Contains(t, body, `id="card-infra"`)
@@ -161,7 +161,7 @@ func TestStepUpdate(t *testing.T) {
 	})
 
 	t.Run("a step updates its row, its panels and its card", func(t *testing.T) {
-		body := renderString(t, StepUpdate(Step{Name: "web", Label: "web", Kind: "resource", Idempotent: true, Details: []Detail{{Label: "a", Value: "b"}}}))
+		body := renderString(t, StepUpdate(session.Step{Name: "web", Label: "web", Kind: "resource", Idempotent: true, Details: []session.Detail{{Label: "a", Value: "b"}}}))
 
 		assert.Contains(t, body, `id="step-web"`)
 		assert.Contains(t, body, `id="dpanel-web-details"`)
@@ -172,31 +172,31 @@ func TestStepUpdate(t *testing.T) {
 func TestDetailRows(t *testing.T) {
 	tests := []struct {
 		name string
-		rows []Detail
+		rows []session.Detail
 		want []string
 		not  []string
 	}{
 		{name: "no rows", want: []string{"none"}},
 		{
 			name: "a plain value",
-			rows: []Detail{{Label: "image", Value: "postgres:16"}},
+			rows: []session.Detail{{Label: "image", Value: "postgres:16"}},
 			want: []string{"detail-label", "postgres:16"},
 			not:  []string{"copy-btn", "<a "},
 		},
 		{
 			name: "a link",
-			rows: []Detail{{Value: "http://x", Href: "http://x"}},
+			rows: []session.Detail{{Value: "http://x", Href: "http://x"}},
 			want: []string{`href="http://x"`, "noreferrer"},
 			not:  []string{"detail-label"},
 		},
 		{
 			name: "a copyable value",
-			rows: []Detail{{Label: "addr", Value: "localhost:1", Copyable: true}},
+			rows: []session.Detail{{Label: "addr", Value: "localhost:1", Copyable: true}},
 			want: []string{`data-copy="localhost:1"`},
 		},
 		{
 			name: "a sensitive value never shows",
-			rows: []Detail{{Label: "pw", Value: "hunter2", Href: "http://hunter2", Sensitive: true}},
+			rows: []session.Detail{{Label: "pw", Value: "hunter2", Href: "http://hunter2", Sensitive: true}},
 			want: []string{"detail-sensitive"},
 			not:  []string{"hunter2"},
 		},
@@ -222,9 +222,9 @@ func TestOutOfBand(t *testing.T) {
 		want []string
 	}{
 		{name: "progress", c: oobProgress(session.StepProgress{Name: "web", Progress: 0.25}), want: []string{`hx-target="#bar-web"`, "width:25%"}},
-		{name: "all log", c: oobLog(Line{Step: "web", Stream: "stdout", Text: "hi"}), want: []string{`hx-target="#log-all"`, "stream-stdout"}},
-		{name: "step log", c: oobStepLog(Line{Step: "web", Stream: "stderr", Text: "hi"}), want: []string{`hx-target="#log-web"`, "stream-stderr"}},
-		{name: "traffic", c: oobTraffic(Request{Method: "GET", Host: "h", Status: 404}), want: []string{`hx-target="#traffic"`, "404"}},
+		{name: "all log", c: oobLog(session.Line{Step: "web", Stream: "stdout", Text: "hi"}), want: []string{`hx-target="#log-all"`, "stream-stdout"}},
+		{name: "step log", c: oobStepLog(session.Line{Step: "web", Stream: "stderr", Text: "hi"}), want: []string{`hx-target="#log-web"`, "stream-stderr"}},
+		{name: "traffic", c: oobTraffic(session.Request{Method: "GET", Host: "h", Status: 404}), want: []string{`hx-target="#traffic"`, "404"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -239,7 +239,7 @@ func TestOutOfBand(t *testing.T) {
 
 func TestTrafficRow(t *testing.T) {
 	t.Run("shows a dash when the request has no status", func(t *testing.T) {
-		body := renderString(t, TrafficRow(Request{Method: "CONNECT", Host: "h", Denied: true, Routed: true}))
+		body := renderString(t, TrafficRow(session.Request{Method: "CONNECT", Host: "h", Denied: true, Routed: true}))
 
 		assert.Contains(t, body, "<td>-</td>")
 		assert.Contains(t, body, "denied")
@@ -249,10 +249,10 @@ func TestTrafficRow(t *testing.T) {
 func TestSnapshot(t *testing.T) {
 	t.Run("replaces every region with the current state", func(t *testing.T) {
 		body := renderString(t, Snapshot(View{View: session.View{
-			Steps:    []Step{{Name: "web", Label: "web"}},
-			Logs:     []Line{{Step: "web", Stream: "stdout", Text: "all-line"}},
-			StepLogs: map[string][]Line{"web": {{Step: "web", Stream: "stdout", Text: "web-line"}}},
-			Requests: []Request{{Method: "GET", Host: "h", Status: 200}},
+			Steps:    []session.Step{{Name: "web", Label: "web"}},
+			Logs:     []session.Line{{Step: "web", Stream: "stdout", Text: "all-line"}},
+			StepLogs: map[string][]session.Line{"web": {{Step: "web", Stream: "stdout", Text: "web-line"}}},
+			Requests: []session.Request{{Method: "GET", Host: "h", Status: 200}},
 		}}))
 
 		assert.Contains(t, body, `id="step-web"`)

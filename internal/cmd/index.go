@@ -2,12 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 
 	"github.com/spf13/cobra"
 
-	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/pkgtrust"
 	"github.com/justenwalker/kevin/internal/pluginindex"
 )
 
@@ -262,19 +259,22 @@ func pluginIndexInstallCommand(opts *options) *cobra.Command {
 				return err
 			}
 
+			result, installErr := pluginindex.Install(pluginindex.InstallRequest{
+				Plugin: p, Version: v, Dir: opts.dir, Name: opts.name, NoTrust: noTrust,
+			})
 			w := cmd.OutOrStdout()
-			if !noTrust {
-				if trustErr := trustVersion(w, p, v); trustErr != nil {
-					return trustErr
+			for _, warning := range result.Warnings {
+				if _, err := fmt.Fprintf(w, "warning\t%s\n", warning); err != nil {
+					return fmt.Errorf("cmd: index install: %w", err)
 				}
 			}
-
-			snippet, err := pluginindex.Snippet(v, p.Name)
-			if err != nil {
-				return err
+			for _, id := range result.Trusted {
+				if _, err := fmt.Fprintf(w, "trusted\t%s\n", id); err != nil {
+					return fmt.Errorf("cmd: index install: %w", err)
+				}
 			}
-			if insertErr := config.InsertPlugin(opts.dir, opts.name, snippet); insertErr != nil {
-				return insertErr
+			if installErr != nil {
+				return installErr
 			}
 			if _, err := fmt.Fprintf(w, "installed\t%s\t%s\n", p.Name, v.Version); err != nil {
 				return fmt.Errorf("cmd: index install: %w", err)
@@ -285,50 +285,6 @@ func pluginIndexInstallCommand(opts *options) *cobra.Command {
 	c.Flags().StringVar(&installVersion, "version", "", "install this exact version instead of the latest")
 	c.Flags().BoolVar(&noTrust, "no-trust", false, "skip adding the signer to the local trust store")
 	return c
-}
-
-// trustVersion trusts every entry in p.Signers whose scheme matches v's
-// signing scheme, printing what was trusted. v unsigned is a no-op; v
-// signed with no matching signer prints a warning instead of failing -
-// installing the plugins: entry is still safe to do even without trust.
-func trustVersion(w io.Writer, p pluginindex.Plugin, v pluginindex.Version) error {
-	sig := v.Source.Signing
-	if sig == nil {
-		return nil
-	}
-	signers := p.SignersFor(sig.Scheme)
-	if len(signers) == 0 {
-		if _, err := fmt.Fprintf(w, "warning\tno %s signer declared for %s\n", sig.Scheme, p.Name); err != nil {
-			return fmt.Errorf("cmd: index install: %w", err)
-		}
-		return nil
-	}
-	for _, s := range signers {
-		id, err := trustSigner(s)
-		if err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(w, "trusted\t%s\n", id); err != nil {
-			return fmt.Errorf("cmd: index install: %w", err)
-		}
-	}
-	return nil
-}
-
-// trustSigner adds s to the appropriate local trust store and reports
-// what it trusted, for display.
-func trustSigner(s pluginindex.Signer) (string, error) {
-	switch s.Scheme {
-	case config.SigningSchemeMinisign:
-		return pkgtrust.AddKeyText(s.Key)
-	case config.SigningSchemeSigstore:
-		if err := pkgtrust.AddIdentity(s.Identity, s.Issuer); err != nil {
-			return "", err
-		}
-		return s.Identity + "/" + s.Issuer, nil
-	default:
-		return "", fmt.Errorf("cmd: index install: unknown signer scheme %q", s.Scheme)
-	}
 }
 
 // pluginSearchCommand searches every configured index source's plugins by

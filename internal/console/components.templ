@@ -91,7 +91,7 @@ templ Page(v View) {
 								<label for="logtab-all">All</label>
 								for _, s := range v.Steps {
 									<label for={ "logtab-" + s.Name }>
-										if s.State == Running {
+										if s.State == session.Running {
 											<span class="log-live-dot" title="streaming"></span>
 										}
 										{ s.Name }
@@ -234,8 +234,8 @@ func pacURL(proxyAddr string) string {
 
 // stepsByGroup groups steps by their own Group field, preserving each
 // group's member order.
-func stepsByGroup(steps []Step) map[string][]Step {
-	m := make(map[string][]Step)
+func stepsByGroup(steps []session.Step) map[string][]session.Step {
+	m := make(map[string][]session.Step)
 	for _, s := range steps {
 		if s.Group != "" {
 			m[s.Group] = append(m[s.Group], s)
@@ -290,7 +290,7 @@ func kindIcon(kind string) string {
 // piece - that placeholder means "third-party plugin, no icon given";
 // builtin isn't a plugin missing an icon, it's the thing everything
 // else is being distinguished from.
-templ pluginIcon(s Step) {
+templ pluginIcon(s session.Step) {
 	if len(s.Icon) > 0 {
 		<img class="plugin-icon" src={ iconDataURI(s.Icon) } alt={ s.Provider }/>
 	} else if s.Provider != "builtin" {
@@ -303,7 +303,7 @@ templ pluginIcon(s Step) {
 // resource/action - a probe, or builtin:route) collapses to a single muted
 // line instead of the full card, so the resource/action steps that do the
 // real work keep the visual weight.
-templ StepItem(s Step) {
+templ StepItem(s session.Step) {
 	if s.Compact {
 		@compactStepItem(s)
 	} else {
@@ -311,7 +311,7 @@ templ StepItem(s Step) {
 	}
 }
 
-templ fullStepItem(s Step) {
+templ fullStepItem(s session.Step) {
 	<li id={ "step-" + s.Name } hx-swap-oob="true" class={ "state-" + string(s.State) } data-needs={ strings.Join(sameScopeNeeds(s.Needs), ",") }>
 		<span class="name" data-step={ s.Name } onclick="openDetail(this)" title="view details, inputs, and outputs">
 			@pluginIcon(s)
@@ -326,7 +326,7 @@ templ fullStepItem(s Step) {
 			@idempotentBadge(s)
 			@crossScopeBadge(s)
 		</span>
-		if s.State == Running || s.State == Removing {
+		if s.State == session.Running || s.State == session.Removing {
 			@progressBar(s.Name, s.Progress)
 		}
 		if s.Message != "" {
@@ -353,7 +353,7 @@ templ oobProgress(p session.StepProgress) {
 	</hx-partial>
 }
 
-templ compactStepItem(s Step) {
+templ compactStepItem(s session.Step) {
 	<li id={ "step-" + s.Name } hx-swap-oob="true" class={ "compact", "state-" + string(s.State) } data-needs={ strings.Join(sameScopeNeeds(s.Needs), ",") }>
 		<span class="name" data-step={ s.Name } onclick="openDetail(this)" title="view details, inputs, and outputs">
 			@pluginIcon(s)
@@ -374,7 +374,7 @@ templ compactStepItem(s Step) {
 // row, this outer <li> is never itself replaced by an OOB update - only
 // its header (see groupHeader) - so a later state change never re-collapses
 // an already-expanded group by replacing its checkbox out from under it.
-templ GroupItem(s Step, members []Step) {
+templ GroupItem(s session.Step, members []session.Step) {
 	<li id={ "step-" + s.Name } class="group" data-needs={ strings.Join(sameScopeNeeds(s.Needs), ",") }>
 		<input type="checkbox" id={ "group-toggle-" + s.Name } class="group-toggle" onchange="drawDepLines()"/>
 		<label for={ "group-toggle-" + s.Name } class="group-header">
@@ -392,7 +392,7 @@ templ GroupItem(s Step, members []Step) {
 // groupHeader is a group's own state row - the part of GroupItem an OOB
 // update replaces on its own, leaving the toggle checkbox (and so whether
 // the group reads expanded or collapsed) untouched.
-templ groupHeader(s Step) {
+templ groupHeader(s session.Step) {
 	<span id={ "group-header-" + s.Name } hx-swap-oob="true" class={ "group-header-content", "state-" + string(s.State) }>
 		<span class="disclosure">▸</span>
 		<span class="name">{ s.Label }</span>
@@ -406,7 +406,7 @@ templ groupHeader(s Step) {
 // idempotentBadge marks a step whose type is safe to call Up on again - it
 // may be swept into a cascading rerun of a step it depends on, not just
 // rerun directly.
-templ idempotentBadge(s Step) {
+templ idempotentBadge(s session.Step) {
 	if s.Idempotent {
 		<span class="badge-idempotent" title="idempotent - safe to include in a cascading rerun of a step this depends on">♻</span>
 	}
@@ -414,7 +414,7 @@ templ idempotentBadge(s Step) {
 
 // crossScopeBadge marks a step that reads one or more setup-scope steps'
 // outputs, naming them in the tooltip instead of drawing a line for each.
-templ crossScopeBadge(s Step) {
+templ crossScopeBadge(s session.Step) {
 	if names := crossScopeNeeds(s.Needs); len(names) > 0 {
 		<span class="badge-cross-scope" title={ "reads setup: " + strings.Join(names, ", ") }>↗ setup</span>
 	}
@@ -428,14 +428,14 @@ templ crossScopeBadge(s Step) {
 // itself, and a caret (a hidden checkbox + label, the same technique
 // group-toggle already uses - no JS needed) opens a small menu for the
 // cascade option. Any other state has nothing to rerun yet.
-templ rerunActions(s Step) {
-	if s.State == Failed {
+templ rerunActions(s session.Step) {
+	if s.State == session.Failed {
 		<div class="rerun-actions">
 			<div class="split cascade-only">
 				<button type="button" class="split-btn" hx-post={ "/steps/" + s.Name + "/rerun" } hx-vals="{&#34;cascade&#34;:&#34;true&#34;}" hx-swap="none" title="rerun - also retries the steps this failure skipped">⇶ rerun + skipped</button>
 			</div>
 		</div>
-	} else if s.State == Ready {
+	} else if s.State == session.Ready {
 		<div class="rerun-actions">
 			<div class="split">
 				<div class="split-controls">
@@ -461,7 +461,7 @@ templ rerunActions(s Step) {
 // rows - shared by StepCard's curated Details and the detail dialog's
 // Details/Inputs/Outputs tabs, so all four render identically (masking,
 // copy button, links).
-templ detailRows(rows []Detail) {
+templ detailRows(rows []session.Detail) {
 	if len(rows) == 0 {
 		<p class="empty-inline">none</p>
 	} else {
@@ -490,7 +490,7 @@ templ detailRows(rows []Detail) {
 // StepCard is one step's card in the Services tab. A step with no route yet
 // still gets a card - the "exposed" class just keeps it hidden until one
 // exists - so a later out of band update always has a target to land on.
-templ StepCard(s Step) {
+templ StepCard(s session.Step) {
 	<div id={ "card-" + s.Name } hx-swap-oob="true" class={ "card", templ.KV("exposed", len(s.Details) > 0) }>
 		<h3 data-step={ s.Name } onclick="openDetail(this)" title="view details, inputs, and outputs">
 			@pluginIcon(s)
@@ -511,7 +511,7 @@ templ StepCard(s Step) {
 // immediately ahead of it in stepDetailDialog, which the ".tabinput:checked
 // + .panel" rule (shared with the main tab bar) requires to be its literal
 // next sibling.
-templ detailPanel(id string, rows []Detail) {
+templ detailPanel(id string, rows []session.Detail) {
 	<div id={ id } hx-swap-oob="true" class="panel">
 		@detailRows(rows)
 	</div>
@@ -522,7 +522,7 @@ templ detailPanel(id string, rows []Detail) {
 // StepUpdate) and, interleaved with their tab radios, for the dialog's
 // first render (see stepDetailDialog). A live update only ever touches
 // these panels, never the radios, so whichever tab was open stays open.
-templ stepDetailPanels(s Step) {
+templ stepDetailPanels(s session.Step) {
 	@detailPanel("dpanel-"+s.Name+"-details", s.Details)
 	@detailPanel("dpanel-"+s.Name+"-inputs", s.Inputs)
 	@detailPanel("dpanel-"+s.Name+"-outputs", s.Outputs)
@@ -538,7 +538,7 @@ templ stepDetailPanels(s Step) {
 // that content without ever touching the radios. Not rendered for a
 // group's own row - a group has no plugin, `with` block, or outputs of its
 // own to show.
-templ stepDetailDialog(s Step) {
+templ stepDetailDialog(s session.Step) {
 	<dialog id={ "detail-" + s.Name } class="detail-dialog">
 		<div class="dialog-head">
 			@pluginIcon(s)
@@ -570,7 +570,7 @@ templ stepDetailDialog(s Step) {
 // this, one call per event, so these regions never drift out of sync. A
 // group's sidebar entry is its header alone (see groupHeader) - its outer
 // row is never replaced whole - and a group has no detail dialog at all.
-templ StepUpdate(s Step) {
+templ StepUpdate(s session.Step) {
 	if s.IsGroup {
 		@groupHeader(s)
 	} else {
@@ -581,7 +581,7 @@ templ StepUpdate(s Step) {
 }
 
 // LogLine is one line from a step.
-templ LogLine(l Line) {
+templ LogLine(l session.Line) {
 	<div class={ "line", "stream-" + l.Stream }>
 		<span class="step">{ l.Step }</span>
 		<span class="text">{ l.Text }</span>
@@ -589,7 +589,7 @@ templ LogLine(l Line) {
 }
 
 // TrafficRow is one request that passed through the proxy.
-templ TrafficRow(r Request) {
+templ TrafficRow(r session.Request) {
 	<tr class={ statusClass(r.Status), routedClass(r.Routed), templ.KV("denied", r.Denied) }>
 		<td>
 			if r.Status > 0 {
@@ -606,21 +606,21 @@ templ TrafficRow(r Request) {
 }
 
 // oobLog wraps a line so that it appends to the "All" log panel.
-templ oobLog(l Line) {
+templ oobLog(l session.Line) {
 	<hx-partial hx-target="#log-all" hx-swap="beforeend">
 		@LogLine(l)
 	</hx-partial>
 }
 
 // oobStepLog wraps a line so that it appends to that step's own log panel.
-templ oobStepLog(l Line) {
+templ oobStepLog(l session.Line) {
 	<hx-partial hx-target={ "#log-" + l.Step } hx-swap="beforeend">
 		@LogLine(l)
 	</hx-partial>
 }
 
 // oobTraffic wraps a request so that it goes to the top of the table.
-templ oobTraffic(r Request) {
+templ oobTraffic(r session.Request) {
 	<hx-partial hx-target="#traffic" hx-swap="afterbegin">
 		@TrafficRow(r)
 	</hx-partial>

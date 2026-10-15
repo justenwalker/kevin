@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -66,24 +67,92 @@ func Fetch(ctx context.Context, ref string) (pkgcache.Entry, error) {
 	return fetch(ctx, reg, r)
 }
 
-// Push builds a single-layer OCI manifest around tarPath's content - the
-// same tar (optionally gzip) format pluginpkg.Extract expects - and pushes
-// it to ref (e.g. "ghcr.io/acme/plugin:v1"), tagged. It returns the pushed
-// manifest's digest ("sha256:<hex>").
-func Push(ctx context.Context, ref, tarPath string) (string, error) {
+// PushResult is what [PushPackage] published.
+type PushResult struct {
+	// Digest is the digest of the package manifest ("sha256:<hex>").
+	Digest string
+
+	// Signatures holds the digest of each signature manifest that was
+	// published, in the order of the sibling files pushed.
+	Signatures []string
+}
+
+// signatureSibling is a detached signature file looked for next to a package
+// tar, and the OCI media type it publishes under.
+type signatureSibling struct {
+	suffix    string
+	mediaType string
+}
+
+// signatureSiblings are the sibling files PushPackage looks for, one per
+// signature scheme.
+var signatureSiblings = []signatureSibling{
+	{suffix: ".minisig", mediaType: SignatureMediaType},
+	{suffix: ".sigstore.json", mediaType: SigstoreSignatureMediaType},
+}
+
+// PushPackage builds a single-layer OCI manifest around tarPath's content -
+// the same tar (optionally gzip) format pluginpkg.Extract expects - and
+// pushes it to ref (e.g. "ghcr.io/acme/plugin:v1"), tagged. It then
+// publishes whichever of tarPath+".minisig" and tarPath+".sigstore.json"
+// exist as the package's detached signature. The fallback tag both schemes
+// publish to holds one manifest per digest, so pushing both for the same
+// package leaves only the last one live. Signing is opt-in: with no sibling
+// file the result has no Signatures.
+//
+// PushPackage returns what it published before a failure along with the
+// error.
+func PushPackage(ctx context.Context, ref, tarPath string) (PushResult, error) {
 	r, err := ociref.Parse(ref)
 	if err != nil {
-		return "", fmt.Errorf("ocipkg: %q: %w: %w", ref, ErrBadReference, err)
+		return PushResult{}, fmt.Errorf("ocipkg: %q: %w: %w", ref, ErrBadReference, err)
 	}
 	if r.Tag == "" {
-		return "", fmt.Errorf("ocipkg: %q: %w: needs a tag", ref, ErrBadReference)
+		return PushResult{}, fmt.Errorf("ocipkg: %q: %w: needs a tag", ref, ErrBadReference)
 	}
 
 	reg, err := newRegistry(r.Host, ErrPush)
 	if err != nil {
-		return "", err
+		return PushResult{}, err
 	}
-	return push(ctx, reg, r, tarPath)
+	return pushPackage(ctx, reg, r, tarPath)
+}
+
+// pushPackage does the push work against reg.
+func pushPackage(ctx context.Context, reg ociregistry.Interface, r ociref.Reference, tarPath string) (PushResult, error) {
+	siblings, err := foundSignatureSiblings(tarPath)
+	if err != nil {
+		return PushResult{}, err
+	}
+	digest, err := push(ctx, reg, r, tarPath)
+	if err != nil {
+		return PushResult{}, err
+	}
+	result := PushResult{Digest: digest}
+	for _, sib := range siblings {
+		sigDigest, err := pushSignature(ctx, reg, r, tarPath+sib.suffix, sib.mediaType)
+		if err != nil {
+			return result, err
+		}
+		result.Signatures = append(result.Signatures, sigDigest)
+	}
+	return result, nil
+}
+
+// foundSignatureSiblings reports which of signatureSiblings has a file
+// present next to tarPath, in signatureSiblings order.
+func foundSignatureSiblings(tarPath string) ([]signatureSibling, error) {
+	var found []signatureSibling
+	for _, sib := range signatureSiblings {
+		if _, err := os.Stat(tarPath + sib.suffix); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("ocipkg: stat %q: %w", tarPath+sib.suffix, err)
+			}
+			continue
+		}
+		found = append(found, sib)
+	}
+	return found, nil
 }
 
 // push does the hash/push-blob/push-manifest work against reg.
@@ -232,26 +301,6 @@ func signatureLayer(m ocispec.Manifest, mediaType string) (ocispec.Descriptor, e
 		return ocispec.Descriptor{}, fmt.Errorf("ocipkg: got %q, want %q: %w", got, mediaType, ErrMediaType)
 	}
 	return m.Layers[0], nil
-}
-
-// PushSignature publishes sigPath (a detached signature file, in the scheme
-// mediaType names - [SignatureMediaType] for a minisign .minisig file,
-// [SigstoreSignatureMediaType] for a sigstore .sigstore.json bundle) as
-// ref's package signature, tagged by the cosign-style fallback convention
-// ("sha256-<digest>.sig"), resolving ref's own package tag or digest
-// first. The fallback tag holds one manifest per digest, so pushing a
-// second scheme's signature for the same digest overwrites the first. It
-// returns the pushed signature manifest's digest.
-func PushSignature(ctx context.Context, ref, sigPath, mediaType string) (string, error) {
-	r, err := ociref.Parse(ref)
-	if err != nil {
-		return "", fmt.Errorf("ocipkg: %q: %w: %w", ref, ErrBadReference, err)
-	}
-	reg, err := newRegistry(r.Host, ErrPush)
-	if err != nil {
-		return "", err
-	}
-	return pushSignature(ctx, reg, r, sigPath, mediaType)
 }
 
 // pushSignature does the resolve/hash/push-blob/push-manifest work against

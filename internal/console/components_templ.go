@@ -196,7 +196,7 @@ func Page(v View) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if s.State == Running {
+			if s.State == session.Running {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<span class=\"log-live-dot\" title=\"streaming\"></span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -579,8 +579,8 @@ func pacURL(proxyAddr string) string {
 
 // stepsByGroup groups steps by their own Group field, preserving each
 // group's member order.
-func stepsByGroup(steps []Step) map[string][]Step {
-	m := make(map[string][]Step)
+func stepsByGroup(steps []session.Step) map[string][]session.Step {
+	m := make(map[string][]session.Step)
 	for _, s := range steps {
 		if s.Group != "" {
 			m[s.Group] = append(m[s.Group], s)
@@ -635,7 +635,7 @@ func kindIcon(kind string) string {
 // piece - that placeholder means "third-party plugin, no icon given";
 // builtin isn't a plugin missing an icon, it's the thing everything
 // else is being distinguished from.
-func pluginIcon(s Step) templ.Component {
+func pluginIcon(s session.Step) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -715,7 +715,7 @@ func pluginIcon(s Step) templ.Component {
 // resource/action - a probe, or builtin:route) collapses to a single muted
 // line instead of the full card, so the resource/action steps that do the
 // real work keep the visual weight.
-func StepItem(s Step) templ.Component {
+func StepItem(s session.Step) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -751,7 +751,7 @@ func StepItem(s Step) templ.Component {
 	})
 }
 
-func fullStepItem(s Step) templ.Component {
+func fullStepItem(s session.Step) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -929,7 +929,7 @@ func fullStepItem(s Step) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if s.State == Running || s.State == Removing {
+		if s.State == session.Running || s.State == session.Removing {
 			templ_7745c5c3_Err = progressBar(s.Name, s.Progress).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1094,7 +1094,7 @@ func oobProgress(p session.StepProgress) templ.Component {
 	})
 }
 
-func compactStepItem(s Step) templ.Component {
+func compactStepItem(s session.Step) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1251,7 +1251,7 @@ func compactStepItem(s Step) templ.Component {
 // row, this outer <li> is never itself replaced by an OOB update - only
 // its header (see groupHeader) - so a later state change never re-collapses
 // an already-expanded group by replacing its checkbox out from under it.
-func GroupItem(s Step, members []Step) templ.Component {
+func GroupItem(s session.Step, members []session.Step) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1357,7 +1357,7 @@ func GroupItem(s Step, members []Step) templ.Component {
 // groupHeader is a group's own state row - the part of GroupItem an OOB
 // update replaces on its own, leaving the toggle checkbox (and so whether
 // the group reads expanded or collapsed) untouched.
-func groupHeader(s Step) templ.Component {
+func groupHeader(s session.Step) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1469,7 +1469,7 @@ func groupHeader(s Step) templ.Component {
 // idempotentBadge marks a step whose type is safe to call Up on again - it
 // may be swept into a cascading rerun of a step it depends on, not just
 // rerun directly.
-func idempotentBadge(s Step) templ.Component {
+func idempotentBadge(s session.Step) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1502,7 +1502,7 @@ func idempotentBadge(s Step) templ.Component {
 
 // crossScopeBadge marks a step that reads one or more setup-scope steps'
 // outputs, naming them in the tooltip instead of drawing a line for each.
-func crossScopeBadge(s Step) templ.Component {
+func crossScopeBadge(s session.Step) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1554,7 +1554,7 @@ func crossScopeBadge(s Step) templ.Component {
 // itself, and a caret (a hidden checkbox + label, the same technique
 // group-toggle already uses - no JS needed) opens a small menu for the
 // cascade option. Any other state has nothing to rerun yet.
-func rerunActions(s Step) templ.Component {
+func rerunActions(s session.Step) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1575,7 +1575,7 @@ func rerunActions(s Step) templ.Component {
 			templ_7745c5c3_Var75 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		if s.State == Failed {
+		if s.State == session.Failed {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 102, "<div class=\"rerun-actions\"><div class=\"split cascade-only\"><button type=\"button\" class=\"split-btn\" hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1593,7 +1593,7 @@ func rerunActions(s Step) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-		} else if s.State == Ready {
+		} else if s.State == session.Ready {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 104, "<div class=\"rerun-actions\"><div class=\"split\"><div class=\"split-controls\"><button type=\"button\" class=\"split-btn\" hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1672,7 +1672,7 @@ func rerunActions(s Step) templ.Component {
 // rows - shared by StepCard's curated Details and the detail dialog's
 // Details/Inputs/Outputs tabs, so all four render identically (masking,
 // copy button, links).
-func detailRows(rows []Detail) templ.Component {
+func detailRows(rows []session.Detail) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1840,7 +1840,7 @@ func detailRows(rows []Detail) templ.Component {
 // StepCard is one step's card in the Services tab. A step with no route yet
 // still gets a card - the "exposed" class just keeps it hidden until one
 // exists - so a later out of band update always has a target to land on.
-func StepCard(s Step) templ.Component {
+func StepCard(s session.Step) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -2015,7 +2015,7 @@ func StepCard(s Step) templ.Component {
 // immediately ahead of it in stepDetailDialog, which the ".tabinput:checked
 // + .panel" rule (shared with the main tab bar) requires to be its literal
 // next sibling.
-func detailPanel(id string, rows []Detail) templ.Component {
+func detailPanel(id string, rows []session.Detail) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -2070,7 +2070,7 @@ func detailPanel(id string, rows []Detail) templ.Component {
 // StepUpdate) and, interleaved with their tab radios, for the dialog's
 // first render (see stepDetailDialog). A live update only ever touches
 // these panels, never the radios, so whichever tab was open stays open.
-func stepDetailPanels(s Step) templ.Component {
+func stepDetailPanels(s session.Step) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -2117,7 +2117,7 @@ func stepDetailPanels(s Step) templ.Component {
 // that content without ever touching the radios. Not rendered for a
 // group's own row - a group has no plugin, `with` block, or outputs of its
 // own to show.
-func stepDetailDialog(s Step) templ.Component {
+func stepDetailDialog(s session.Step) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -2393,7 +2393,7 @@ func stepDetailDialog(s Step) templ.Component {
 // this, one call per event, so these regions never drift out of sync. A
 // group's sidebar entry is its header alone (see groupHeader) - its outer
 // row is never replaced whole - and a group has no detail dialog at all.
-func StepUpdate(s Step) templ.Component {
+func StepUpdate(s session.Step) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -2442,7 +2442,7 @@ func StepUpdate(s Step) templ.Component {
 }
 
 // LogLine is one line from a step.
-func LogLine(l Line) templ.Component {
+func LogLine(l session.Line) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -2516,7 +2516,7 @@ func LogLine(l Line) templ.Component {
 }
 
 // TrafficRow is one request that passed through the proxy.
-func TrafficRow(r Request) templ.Component {
+func TrafficRow(r session.Request) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -2641,7 +2641,7 @@ func TrafficRow(r Request) templ.Component {
 }
 
 // oobLog wraps a line so that it appends to the "All" log panel.
-func oobLog(l Line) templ.Component {
+func oobLog(l session.Line) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -2679,7 +2679,7 @@ func oobLog(l Line) templ.Component {
 }
 
 // oobStepLog wraps a line so that it appends to that step's own log panel.
-func oobStepLog(l Line) templ.Component {
+func oobStepLog(l session.Line) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -2730,7 +2730,7 @@ func oobStepLog(l Line) templ.Component {
 }
 
 // oobTraffic wraps a request so that it goes to the top of the table.
-func oobTraffic(r Request) templ.Component {
+func oobTraffic(r session.Request) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {

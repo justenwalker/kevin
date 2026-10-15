@@ -1063,19 +1063,19 @@ func TestCallTool(t *testing.T) {
 	}
 
 	t.Run("an unknown tool", func(t *testing.T) {
-		_, err := newRun().callTool(t.Context(), "a", "nope_nope_nope", nil)
+		_, err := newRun().CallTool(t.Context(), "a", "nope_nope_nope", nil)
 
 		require.ErrorContains(t, err, `no such tool "nope_nope_nope"`)
 	})
 
 	t.Run("an unknown step", func(t *testing.T) {
-		_, err := newRun().callTool(t.Context(), "missing", "echo_echo_echo", nil)
+		_, err := newRun().CallTool(t.Context(), "missing", "echo_echo_echo", nil)
 
 		require.ErrorContains(t, err, `no step named "missing"`)
 	})
 
 	t.Run("a step of another type than the tool's owner", func(t *testing.T) {
-		_, err := newRun().callTool(t.Context(), "w", "echo_echo_echo", nil)
+		_, err := newRun().CallTool(t.Context(), "w", "echo_echo_echo", nil)
 
 		require.ErrorContains(t, err, `step "w" is a builtin:wait step, not a echo:echo step`)
 	})

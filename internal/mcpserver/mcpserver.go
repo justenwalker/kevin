@@ -12,6 +12,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/proxy"
+	"github.com/justenwalker/kevin/internal/runapi"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/version"
 )
@@ -54,10 +55,16 @@ type Server struct {
 	logsPath string
 	view     stepViewer
 	proxy    egressViewer
-	rerun    func(ctx context.Context, step string, cascade bool) error
-	export   func(ctx context.Context, step string) (map[string]output.Value, error)
+	control  controller
 	tools    []ToolDef
-	callTool func(ctx context.Context, step, tool string, args json.RawMessage) (ToolResult, error)
+}
+
+// controller is what Server asks of the running environment to act on it -
+// satisfied by the engine's run.
+type controller interface {
+	Rerun(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error)
+	Export(ctx context.Context, step string) (output.Map, error)
+	CallTool(ctx context.Context, step, tool string, args json.RawMessage) (ToolResult, error)
 }
 
 // ToolResult is what a plugin-declared tool returned.
@@ -89,15 +96,12 @@ type Options struct {
 	// Proxy answers the proxy-info tool.
 	Proxy egressViewer
 
-	// Rerun and Export are the engine's live-session hooks for the rerun_step
-	// and export_step tools.
-	Rerun  func(ctx context.Context, step string, cascade bool) error
-	Export func(ctx context.Context, step string) (map[string]output.Value, error)
+	// Control acts on the running environment for the rerun_step and
+	// export_step tools, and for every plugin-declared tool.
+	Control controller
 
-	// Tools and CallTool add every plugin-declared tool alongside the five
-	// built-in ones.
-	Tools    []ToolDef
-	CallTool func(ctx context.Context, step, tool string, args json.RawMessage) (ToolResult, error)
+	// Tools adds every plugin-declared tool alongside the five built-in ones.
+	Tools []ToolDef
 }
 
 // New builds a Server for one project.
@@ -108,10 +112,8 @@ func New(opt Options) *Server {
 		logsPath: opt.LogsPath,
 		view:     opt.View,
 		proxy:    opt.Proxy,
-		rerun:    opt.Rerun,
-		export:   opt.Export,
+		control:  opt.Control,
 		tools:    opt.Tools,
-		callTool: opt.CallTool,
 	}
 }
 
