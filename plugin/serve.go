@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	goplugin "github.com/hashicorp/go-plugin"
@@ -416,13 +417,17 @@ func outputsFromProto(m map[string]*pb.Value) map[string]Value {
 	return out
 }
 
-// emitter sends log and progress events on the open stream. One goroutine at a
-// time can call Send, and a Step needs no more than that.
+// emitter sends log and progress events on the open stream. It is safe for
+// concurrent use: gRPC allows one Send at a time, and a Step may log from
+// several goroutines, such as a child process's stdout and stderr.
 type emitter struct {
+	mu     sync.Mutex
 	stream grpc.ServerStreamingServer[pb.Event]
 }
 
 func (e *emitter) Log(stream, text string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	_ = e.stream.Send(&pb.Event{Event: &pb.Event_Log{Log: &pb.LogLine{
 		Stream:   stream,
 		Text:     text,
@@ -431,6 +436,8 @@ func (e *emitter) Log(stream, text string) {
 }
 
 func (e *emitter) Progress(label string, current, total int64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	_ = e.stream.Send(&pb.Event{Event: &pb.Event_Progress{Progress: &pb.Progress{
 		Label:   label,
 		Current: current,

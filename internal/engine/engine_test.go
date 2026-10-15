@@ -833,6 +833,40 @@ func TestStartProxyReleasesListeners(t *testing.T) {
 	}
 }
 
+// TestStartProxyOnRecord proves the callback is live from the first request.
+func TestStartProxyOnRecord(t *testing.T) {
+	t.Setenv(state.UserStateDirEnv, t.TempDir())
+	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+	authority, err := ca.NewManager("cwd", "", "proxy-record", ca.Options{}).LoadOrGenerateIntermediate()
+	require.NoError(t, err)
+
+	records := make(chan proxy.Record, 1)
+	server, err := startProxy(t.Context(), gatewayRuntime{}, authority, proxyOptions{
+		Network:  "net",
+		Listen:   freeLoopbackAddr(t),
+		Domain:   "kevin.test",
+		Deny:     true,
+		OnRecord: func(rec proxy.Record) { records <- rec },
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = server.Close() })
+
+	proxyURL, err := url.Parse("http://" + server.addr)
+	require.NoError(t, err)
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://blocked.example/", nil)
+	require.NoError(t, err)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	select {
+	case <-records:
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnRecord was not called")
+	}
+}
+
 // bindGatewayPort reserves a free port on the gateway address and reports
 // it, or skips the test - Docker Desktop's VM on macOS/Windows makes the
 // gateway address unbindable from the host at all (EADDRNOTAVAIL), the

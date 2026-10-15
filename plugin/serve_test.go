@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -654,6 +655,21 @@ func TestEmitterIgnoresASendFailure(t *testing.T) {
 	e := &emitter{stream: &fakeStream{err: assert.AnError}}
 	e.Log("stdout", "dropped")
 	e.Progress("dropped", 0, 0)
+}
+
+func TestEmitterConcurrentUse(t *testing.T) {
+	// Run with -race: unguarded Sends would race on fakeStream.events.
+	stream := &fakeStream{}
+	e := &emitter{stream: stream}
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			e.Log("stdout", "line")
+			e.Progress("step", 1, 2)
+		})
+	}
+	wg.Wait()
+	assert.Len(t, stream.events, 16)
 }
 
 // fakeStream collects the events that the server sends. The gRPC transport is

@@ -190,6 +190,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	network := NetworkName(cfg.Project)
 
+	store := session.NewStore()
 	server, err := startProxy(ctx, rt, authority, proxyOptions{
 		Network:     network,
 		Listen:      cfg.Proxy.Listen,
@@ -198,6 +199,23 @@ func Run(ctx context.Context, opts Options) error {
 		Allow:       cfg.Proxy.Egress.Allow,
 		Deny:        cfg.Proxy.Egress.Deny,
 		Passthrough: cfg.Proxy.Egress.Passthrough,
+		OnRecord: func(rec proxy.Record) {
+			req := session.Request{
+				Time:   rec.Time,
+				Method: rec.Method,
+				Host:   rec.Host,
+				Path:   rec.Path,
+				Status: rec.Status,
+				Millis: rec.Duration.Milliseconds(),
+				Routed: rec.Routed,
+				Denied: rec.Denied,
+			}
+			store.Record(req)
+			traffic.Info("request",
+				"request_time", req.Time, "method", req.Method, "host", req.Host, "path", req.Path,
+				"status", req.Status, "millis", req.Millis,
+				"routed", req.Routed, "denied", req.Denied)
+		},
 	})
 	if err != nil {
 		return err
@@ -212,25 +230,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	r.relay = rl
 
-	store := session.NewStore()
 	store.SetProxyAddr(server.addr)
-	server.proxy.OnRecord(func(rec proxy.Record) {
-		req := session.Request{
-			Time:   rec.Time,
-			Method: rec.Method,
-			Host:   rec.Host,
-			Path:   rec.Path,
-			Status: rec.Status,
-			Millis: rec.Duration.Milliseconds(),
-			Routed: rec.Routed,
-			Denied: rec.Denied,
-		}
-		store.Record(req)
-		traffic.Info("request",
-			"request_time", req.Time, "method", req.Method, "host", req.Host, "path", req.Path,
-			"status", req.Status, "millis", req.Millis,
-			"routed", req.Routed, "denied", req.Denied)
-	})
 
 	r.proxy = server.proxy
 	r.store = store
@@ -534,6 +534,10 @@ type proxyOptions struct {
 	Allow       []string
 	Deny        bool
 	Passthrough bool
+
+	// OnRecord receives one Record per request. startProxy registers it before
+	// the proxy starts serving.
+	OnRecord func(proxy.Record)
 }
 
 // startProxy binds the listener and serves on it. The listener binds before
@@ -547,6 +551,9 @@ func startProxy(ctx context.Context, rt cri.Runtime, authority *ca.CA, opts prox
 	p, err := proxy.New(authority, opts.Domain, opts.Allow, opts.Deny, opts.Passthrough)
 	if err != nil {
 		return nil, err
+	}
+	if opts.OnRecord != nil {
+		p.OnRecord(opts.OnRecord)
 	}
 
 	var lc net.ListenConfig

@@ -7,8 +7,29 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/config"
+	"github.com/justenwalker/kevin/internal/dag"
+	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/session"
 )
+
+func TestEvalGroupOutputs(t *testing.T) {
+	members := map[string]dag.Outputs{
+		"primary": {
+			"dsn":  output.Value{String: "postgres://secret", Sensitive: true},
+			"port": output.Value{String: "5432"},
+		},
+	}
+	got, err := evalGroupOutputs("db", map[string]string{
+		"dsn":  "${needs.primary.out.dsn}",
+		"port": "${needs.primary.out.port}",
+		"mode": "readwrite",
+	}, members)
+	require.NoError(t, err)
+
+	assert.Equal(t, output.Value{String: "postgres://secret", Sensitive: true}, got["dsn"], "a re-exported sensitive output stays sensitive")
+	assert.Equal(t, output.Value{String: "5432"}, got["port"])
+	assert.Equal(t, output.Value{String: "readwrite"}, got["mode"])
+}
 
 // TestRegisterScopeStepsHidesGroupNeedsFromMembers proves the console drops
 // only a member's group-shared needs (config/group.go's unionNeeds already

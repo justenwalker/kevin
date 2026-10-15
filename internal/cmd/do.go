@@ -79,10 +79,14 @@ func runDo(ctx context.Context, dir, name string, tags []string, vars config.Var
 	}
 
 	env := &pb.Environment{
-		Project:   cfg.Project,
-		Workspace: filepath.Join(cfg.Dir, engine.WorkspaceDir, cfg.Name),
-		Network:   engine.NetworkName(cfg.Project),
-		Engine:    engineName,
+		Project:    cfg.Project,
+		Workspace:  filepath.Join(cfg.Dir, engine.WorkspaceDir, cfg.Name),
+		Network:    engine.NetworkName(cfg.Project),
+		Engine:     engineName,
+		CaPath:     ca.RootCertPath(),
+		Domain:     cfg.Domain,
+		ProjectDir: cfg.Dir,
+		Scope:      config.ScopeSetup,
 	}
 	if err = engine.ConfigureAll(ctx, cfg.Plugins, plugins, env); err != nil {
 		return err

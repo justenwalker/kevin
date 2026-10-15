@@ -470,7 +470,7 @@ type NetnsTarget struct {
 }
 
 // Emitter reports progress while a step runs. Everything that a Step emits
-// reaches the supervisor at once.
+// reaches the supervisor at once. An Emitter is safe for concurrent use.
 type Emitter interface {
 	// Log records one line. The stream value is "stdout" or "stderr".
 	Log(stream, text string)

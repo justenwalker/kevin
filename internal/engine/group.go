@@ -219,9 +219,18 @@ func evalGroupOutputs(name string, outputs map[string]string, memberOutputs map[
 		return nil, fmt.Errorf("%s: outputs: %w", name, err)
 	}
 
+	scopes := expr.Scopes{Needs: memberOutputs}
 	out := make(dag.Outputs, len(result))
 	for k, v := range result {
-		out[k] = output.Value{String: v}
+		field, err := json.Marshal(outputs[k])
+		if err != nil {
+			return nil, fmt.Errorf("%s: outputs: %s: %w", name, k, err)
+		}
+		sensitive, err := expr.FieldSensitive(field, scopes, nil)
+		if err != nil {
+			return nil, fmt.Errorf("%s: outputs: %s: %w", name, k, err)
+		}
+		out[k] = output.Value{String: v, Sensitive: sensitive}
 	}
 	return out, nil
 }
