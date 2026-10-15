@@ -13,7 +13,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/command"
 	kindcmd "github.com/justenwalker/kevin/internal/command/kind"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -37,7 +37,7 @@ type kindDriver struct {
 	env        plugin.Env
 	name       string
 	kubeconfig string
-	rt         cri.Execer
+	rt         container.Execer
 	cli        kindCLI
 }
 
@@ -45,7 +45,7 @@ var _ driver = (*kindDriver)(nil)
 
 // newKindDriver returns the kind driver for one cluster. It resolves the
 // relative mount paths of the node config against the project directory.
-func newKindDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.Execer) *kindDriver {
+func newKindDriver(cfg config, env plugin.Env, name, kubeconfig string, rt container.Execer) *kindDriver {
 	resolveMountPaths(cfg.Kind.ControlPlane, env.ProjectDir)
 	for _, w := range cfg.Workers {
 		resolveMountPaths(w, env.ProjectDir)

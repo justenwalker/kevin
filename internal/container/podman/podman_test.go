@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/command/commandtest"
-	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/cri/clirt"
+	"github.com/justenwalker/kevin/internal/container"
+	"github.com/justenwalker/kevin/internal/container/clirt"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
@@ -49,7 +49,7 @@ func TestDialect(t *testing.T) {
 			})
 		c := Client{Client: clirt.Client[flavor]{Runner: runner}}
 
-		require.NoError(t, c.NetworkCreate(t.Context(), "n", cri.NetworkOptions{}))
+		require.NoError(t, c.NetworkCreate(t.Context(), "n", container.NetworkOptions{}))
 
 		assert.NotContains(t, created, "--ipv6=false")
 		assert.NotContains(t, created, "--ipv6")
@@ -64,7 +64,7 @@ func TestDialect(t *testing.T) {
 			})
 		c := Client{Client: clirt.Client[flavor]{Runner: runner}}
 
-		_, err := c.Run(t.Context(), cri.RunSpec{Name: "x", Image: "acme/widget"})
+		_, err := c.Run(t.Context(), container.RunSpec{Name: "x", Image: "acme/widget"})
 
 		require.Error(t, err)
 		assert.Contains(t, uerr.Display(err), "couldn't be found or pulled")

@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/internal/relay"
@@ -730,13 +730,13 @@ env: {}
 `)
 
 	orphan := "kevin-reap-test-orphan"
-	_, err := dockerClient.Run(t.Context(), cri.RunSpec{
+	_, err := dockerClient.Run(t.Context(), container.RunSpec{
 		Image: "busybox:stable",
 		Name:  orphan,
 		Cmd:   []string{"sleep", "300"},
 		Labels: map[string]string{
-			cri.LabelProject: "kevin-reap-test",
-			cri.LabelURN:     cri.URNLabel("kevin-reap-test", config.ScopeEnv.String(), "orphan"),
+			container.LabelProject: "kevin-reap-test",
+			container.LabelURN:     container.URNLabel("kevin-reap-test", config.ScopeEnv.String(), "orphan"),
 		},
 	})
 	require.NoError(t, err)
@@ -754,12 +754,12 @@ env: {}
 		OnEnvironment: func(step.Env) { cancel() },
 	}))
 
-	names, err := dockerClient.ListByLabel(t.Context(), cri.LabelProject, "kevin-reap-test")
+	names, err := dockerClient.ListByLabel(t.Context(), container.LabelProject, "kevin-reap-test")
 	require.NoError(t, err)
 	assert.Empty(t, names, "the orphan must be gone")
 
 	_, err = dockerClient.Inspect(t.Context(), orphan)
-	require.ErrorIs(t, err, cri.ErrNotFound)
+	require.ErrorIs(t, err, container.ErrNotFound)
 
 	assert.Contains(t, w.String(), orphan,
 		"the report must name the container, not its ID")
@@ -782,7 +782,7 @@ env: a: {uses: "echo:echo", with: message: "A"}
 	require.Error(t, runEnv(t, dir))
 
 	_, err := dockerClient.NetworkGateway(t.Context(), networkName(projectName))
-	require.ErrorIs(t, err, cri.ErrNotFound,
+	require.ErrorIs(t, err, container.ErrNotFound,
 		"Run must remove the network it created when the relay never starts")
 }
 
@@ -815,10 +815,10 @@ func TestRunStopsTheRelayWhenStartupFailsAfterwards(t *testing.T) {
 	require.Error(t, runEnv(t, dir))
 
 	_, err = dockerClient.Inspect(t.Context(), "kevin-"+projectName+"-relay")
-	require.ErrorIs(t, err, cri.ErrNotFound, "Run must stop the relay it already started")
+	require.ErrorIs(t, err, container.ErrNotFound, "Run must stop the relay it already started")
 
 	_, err = dockerClient.NetworkGateway(t.Context(), networkName(projectName))
-	require.ErrorIs(t, err, cri.ErrNotFound, "Run must remove the network once the relay is stopped")
+	require.ErrorIs(t, err, container.ErrNotFound, "Run must remove the network once the relay is stopped")
 }
 
 // TestStartProxyGatewayPort proves that opts.GatewayPort is used as-is for

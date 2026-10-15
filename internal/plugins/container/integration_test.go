@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/docker"
+	"github.com/justenwalker/kevin/internal/container"
+	"github.com/justenwalker/kevin/internal/container/docker"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -38,8 +38,8 @@ func testEnv(t *testing.T) plugin.Env {
 		Domain:  "kevin.home",
 	}
 	client := docker.Client{}
-	require.NoError(t, client.NetworkCreate(t.Context(), env.Network, cri.NetworkOptions{
-		Labels: map[string]string{cri.LabelProject: env.Project},
+	require.NoError(t, client.NetworkCreate(t.Context(), env.Network, container.NetworkOptions{
+		Labels: map[string]string{container.LabelProject: env.Project},
 	}))
 	t.Cleanup(func() {
 		_ = client.NetworkRemove(context.WithoutCancel(t.Context()), env.Network)
@@ -91,7 +91,7 @@ func TestUp(t *testing.T) {
 		require.NoError(t, typed(Container{}).Down(t.Context(), &plugin.DownRequest{Step: "web", Env: env}, &noopEmitter{}))
 
 		_, err = (docker.Client{}).Inspect(t.Context(), name)
-		require.ErrorIs(t, err, cri.ErrNotFound)
+		require.ErrorIs(t, err, container.ErrNotFound)
 
 		// Down is idempotent.
 		require.NoError(t, typed(Container{}).Down(t.Context(), &plugin.DownRequest{Step: "web", Env: env}, &noopEmitter{}))

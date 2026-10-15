@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/docker"
-	"github.com/justenwalker/kevin/internal/podman"
+	"github.com/justenwalker/kevin/internal/container/docker"
+	"github.com/justenwalker/kevin/internal/container/podman"
 	"github.com/justenwalker/kevin/internal/step"
 )
 

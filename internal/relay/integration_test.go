@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
 )
@@ -44,8 +44,8 @@ func (s *RelaySuite) SetupSuite() {
 	relaytest.UseDevImage(t)
 
 	s.network = "kevin-" + relayProject
-	s.Require().NoError(dockerClient.NetworkCreate(t.Context(), s.network, cri.NetworkOptions{
-		Labels: map[string]string{cri.LabelProject: relayProject},
+	s.Require().NoError(dockerClient.NetworkCreate(t.Context(), s.network, container.NetworkOptions{
+		Labels: map[string]string{container.LabelProject: relayProject},
 	}))
 
 	r, err := relay.Start(t.Context(), dockerClient, relay.Options{
@@ -105,7 +105,7 @@ func (s *RelaySuite) TestRelayAnswersDNSForANameUnderTheDomain() {
 	ctx := t.Context()
 
 	name := relayProject + "-nslookup"
-	_, err := dockerClient.Run(ctx, cri.RunSpec{
+	_, err := dockerClient.Run(ctx, container.RunSpec{
 		Image:   "busybox:stable",
 		Name:    name,
 		Network: s.network,

@@ -1,4 +1,4 @@
-// Package podman implements [cri.Runtime] using podman.
+// Package podman implements [container.Runtime] using podman.
 package podman
 
 import (
@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/cri/clirt"
+	"github.com/justenwalker/kevin/internal/container"
+	"github.com/justenwalker/kevin/internal/container/clirt"
 )
 
 // flavor is the podman [clirt.Dialect].
@@ -34,8 +34,8 @@ type Client struct {
 }
 
 var (
-	_ cri.Runtime       = Client{}
-	_ cri.DockerAPIHost = Client{}
+	_ container.Runtime       = Client{}
+	_ container.DockerAPIHost = Client{}
 )
 
 // socket returns the path of the Docker-compatible API socket of the podman
@@ -63,7 +63,7 @@ func socketPath(out string) (string, error) {
 	return path, nil
 }
 
-// DockerHost implements [cri.DockerAPIHost] with the unix:// URL of the
+// DockerHost implements [container.DockerAPIHost] with the unix:// URL of the
 // Docker-compatible API socket of the podman service.
 func (c Client) DockerHost(ctx context.Context) (string, error) {
 	socket, err := c.socket(ctx)

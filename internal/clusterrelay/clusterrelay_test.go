@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -38,19 +38,19 @@ func TestPodManifest(t *testing.T) {
 	})
 }
 
-// fakeRuntime is a hand-written cri.Containers double holding one container
+// fakeRuntime is a hand-written container.Containers double holding one container
 // slot, enough to drive StartForwarder and LookupForwarder.
 type fakeRuntime struct {
-	container *cri.Container
-	runs      []cri.RunSpec
+	container *container.Container
+	runs      []container.RunSpec
 	removes   int
 }
 
-var _ cri.Containers = (*fakeRuntime)(nil)
+var _ container.Containers = (*fakeRuntime)(nil)
 
-func (f *fakeRuntime) Inspect(context.Context, string) (cri.Container, error) {
+func (f *fakeRuntime) Inspect(context.Context, string) (container.Container, error) {
 	if f.container == nil {
-		return cri.Container{}, cri.ErrNotFound
+		return container.Container{}, container.ErrNotFound
 	}
 	return *f.container, nil
 }
@@ -61,14 +61,14 @@ func (f *fakeRuntime) Remove(context.Context, string) error {
 	return nil
 }
 
-func (f *fakeRuntime) Run(_ context.Context, spec cri.RunSpec) (string, error) {
+func (f *fakeRuntime) Run(_ context.Context, spec container.RunSpec) (string, error) {
 	f.runs = append(f.runs, spec)
 	ports := map[string]string{"1080/tcp": "127.0.0.1:50000"}
 	for i, p := range spec.Ports[1:] {
 		container := strings.TrimPrefix(p, "127.0.0.1::")
 		ports[container] = "127.0.0.1:" + strconv.Itoa(51000+i)
 	}
-	f.container = &cri.Container{
+	f.container = &container.Container{
 		Name: spec.Name, Running: true, Labels: spec.Labels, Ports: ports,
 	}
 	return "id", nil
@@ -99,7 +99,7 @@ func TestStartForwarder(t *testing.T) {
 			"port-forward", "--target", "node-a", "--tcp", "1080", "--udp-relay-ports", "40000-40001",
 		}, rt.runs[0].Cmd)
 		assert.Equal(t, "net", rt.runs[0].Network)
-		assert.Equal(t, "p:env:cluster", rt.runs[0].Labels[cri.LabelURN])
+		assert.Equal(t, "p:env:cluster", rt.runs[0].Labels[container.LabelURN])
 		assert.Equal(t, "127.0.0.1:50000", got.Addr)
 		assert.Len(t, got.UDPAddrs, 2)
 	})
@@ -158,14 +158,14 @@ func TestLookupForwarder(t *testing.T) {
 	})
 
 	t.Run("stopped reports nil", func(t *testing.T) {
-		rt := &fakeRuntime{container: &cri.Container{Running: false}}
+		rt := &fakeRuntime{container: &container.Container{Running: false}}
 		got, err := LookupForwarder(t.Context(), rt, "x")
 		require.NoError(t, err)
 		assert.Nil(t, got)
 	})
 
 	t.Run("running reports its addresses", func(t *testing.T) {
-		rt := &fakeRuntime{container: &cri.Container{
+		rt := &fakeRuntime{container: &container.Container{
 			Running: true,
 			Ports:   map[string]string{"1080/tcp": "127.0.0.1:50000", "40000/udp": "127.0.0.1:50001"},
 		}}
@@ -177,7 +177,7 @@ func TestLookupForwarder(t *testing.T) {
 	})
 
 	t.Run("a running container with no socks5 port is an error", func(t *testing.T) {
-		rt := &fakeRuntime{container: &cri.Container{Running: true}}
+		rt := &fakeRuntime{container: &container.Container{Running: true}}
 		_, err := LookupForwarder(t.Context(), rt, "x")
 		require.ErrorIs(t, err, ErrNoPublishedPort)
 	})

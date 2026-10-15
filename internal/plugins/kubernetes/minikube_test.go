@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	minikubecmd "github.com/justenwalker/kevin/internal/command/minikube"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -273,9 +273,9 @@ func TestMinikubeDriverCreate(t *testing.T) {
 	t.Run("docker gets an IPv4-only network before the cluster starts", func(t *testing.T) {
 		var order []string
 		rt := nodesRuntime(nil)
-		rt.networkCreate = func(_ context.Context, name string, opts cri.NetworkOptions) error {
+		rt.networkCreate = func(_ context.Context, name string, opts container.NetworkOptions) error {
 			order = append(order, "network "+name)
-			assert.Equal(t, map[string]string{cri.LabelProject: "proj"}, opts.Labels)
+			assert.Equal(t, map[string]string{container.LabelProject: "proj"}, opts.Labels)
 			return nil
 		}
 		d, _ := stubbedMinikube(t, rt, func() error {
@@ -290,7 +290,7 @@ func TestMinikubeDriverCreate(t *testing.T) {
 
 	t.Run("podman creates no network", func(t *testing.T) {
 		rt := nodesRuntime(nil)
-		rt.networkCreate = func(context.Context, string, cri.NetworkOptions) error {
+		rt.networkCreate = func(context.Context, string, container.NetworkOptions) error {
 			t.Error("podman names its own network")
 			return nil
 		}

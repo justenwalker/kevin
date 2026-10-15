@@ -6,14 +6,14 @@ import (
 	"io"
 	"strings"
 
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 )
 
 // nodeExec runs commands inside the node containers of one cluster. A driver
 // builds one from its runtime, and the cluster tool it drives supplies only
 // how kubectl is invoked inside a node.
 type nodeExec struct {
-	rt cri.Execer
+	rt container.Execer
 
 	// driver labels errors with the driver's name.
 	driver string

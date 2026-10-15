@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 )
 
 // stubRuntime is a projectRuntime that finds nothing and removes without
@@ -18,12 +18,12 @@ type stubRuntime struct{}
 
 func (stubRuntime) ListByLabel(context.Context, string, string) ([]string, error) { return nil, nil }
 
-func (stubRuntime) Run(context.Context, cri.RunSpec) (string, error) { return "", nil }
+func (stubRuntime) Run(context.Context, container.RunSpec) (string, error) { return "", nil }
 
 func (stubRuntime) Remove(context.Context, string) error { return nil }
 
-func (stubRuntime) Inspect(context.Context, string) (cri.Container, error) {
-	return cri.Container{}, nil
+func (stubRuntime) Inspect(context.Context, string) (container.Container, error) {
+	return container.Container{}, nil
 }
 
 func (stubRuntime) NetworkRemove(context.Context, string) error { return nil }
@@ -40,7 +40,7 @@ type reapRuntime struct {
 }
 
 func (f *reapRuntime) ListByLabel(_ context.Context, label, _ string) ([]string, error) {
-	if label == cri.LabelProject {
+	if label == container.LabelProject {
 		return f.names, nil
 	}
 	return nil, nil

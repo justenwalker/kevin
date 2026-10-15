@@ -21,8 +21,8 @@ import (
 
 	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/docker"
+	"github.com/justenwalker/kevin/internal/container"
+	"github.com/justenwalker/kevin/internal/container/docker"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/internal/step"
@@ -122,12 +122,12 @@ func (s *RelaySuite) TestRunStartsRelayAndCleansUpEveryResource() {
 
 	s.NotEmpty(env.Relay, "the environment must carry the relay address")
 
-	names, err := dockerClient.ListByLabel(context.Background(), cri.LabelProject, project)
+	names, err := dockerClient.ListByLabel(context.Background(), container.LabelProject, project)
 	s.Require().NoError(err)
 	s.Empty(names, "no container may carry the project label once the run ends")
 
 	_, err = dockerClient.NetworkGateway(context.Background(), networkName(project))
-	s.Require().ErrorIs(err, cri.ErrNotFound, "the network must be gone once the run ends")
+	s.Require().ErrorIs(err, container.ErrNotFound, "the network must be gone once the run ends")
 }
 
 // TestReapLeavesALiveRelayInPlace extends TestReapSkipsTheRelay to the live
@@ -139,8 +139,8 @@ func (s *RelaySuite) TestReapLeavesALiveRelayInPlace() {
 	const project = "kevin-it-super-reap"
 	network := networkName(project)
 
-	s.Require().NoError(dockerClient.NetworkCreate(ctx, network, cri.NetworkOptions{
-		Labels: map[string]string{cri.LabelProject: project},
+	s.Require().NoError(dockerClient.NetworkCreate(ctx, network, container.NetworkOptions{
+		Labels: map[string]string{container.LabelProject: project},
 	}))
 	t.Cleanup(func() { _ = dockerClient.NetworkRemove(context.WithoutCancel(context.Background()), network) })
 
@@ -156,12 +156,12 @@ func (s *RelaySuite) TestReapLeavesALiveRelayInPlace() {
 	t.Cleanup(func() { _ = rl.Close() })
 
 	orphanName := "kevin-" + project + "-orphan"
-	_, err = dockerClient.Run(ctx, cri.RunSpec{
+	_, err = dockerClient.Run(ctx, container.RunSpec{
 		Image: "busybox:stable",
 		Name:  orphanName,
 		Cmd:   []string{"sleep", "300"},
 		Labels: map[string]string{
-			cri.LabelProject: project,
+			container.LabelProject: project,
 		},
 	})
 	s.Require().NoError(err)
@@ -179,7 +179,7 @@ func (s *RelaySuite) TestReapLeavesALiveRelayInPlace() {
 	s.Require().NoError(err, "reap must leave a live relay container in place")
 
 	_, err = dockerClient.Inspect(ctx, orphanName)
-	s.Require().ErrorIs(err, cri.ErrNotFound, "reap must still remove an orphan that carries no role")
+	s.Require().ErrorIs(err, container.ErrNotFound, "reap must still remove an orphan that carries no role")
 }
 
 // echoPlugin is the path of the compiled echo plugin, built once.
@@ -236,7 +236,7 @@ func removeProject(t *testing.T, name string) {
 	t.Helper()
 	t.Cleanup(func() {
 		ctx := context.WithoutCancel(t.Context())
-		containers, _ := dockerClient.ListByLabel(ctx, cri.LabelProject, name)
+		containers, _ := dockerClient.ListByLabel(ctx, container.LabelProject, name)
 		for _, container := range containers {
 			_ = dockerClient.Remove(ctx, container)
 		}

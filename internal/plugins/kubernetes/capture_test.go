@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -74,8 +74,8 @@ func TestNodeContainers(t *testing.T) {
 			}
 			return "", nil
 		}}
-		rt := fakeRuntime{inspect: func(_ context.Context, name string) (cri.Container, error) {
-			return cri.Container{ID: name + "-id", NetnsPath: "/proc/1/ns/net"}, nil
+		rt := fakeRuntime{inspect: func(_ context.Context, name string) (container.Container, error) {
+			return container.Container{ID: name + "-id", NetnsPath: "/proc/1/ns/net"}, nil
 		}}
 
 		got, err := nodeContainers(t.Context(), rt, drv, []string{"demo-cluster-control-plane", "demo-cluster-worker"}, &capture{})
@@ -105,11 +105,11 @@ func TestNodeContainers(t *testing.T) {
 			}
 			return "", nil
 		}}
-		rt := fakeRuntime{inspect: func(_ context.Context, name string) (cri.Container, error) {
+		rt := fakeRuntime{inspect: func(_ context.Context, name string) (container.Container, error) {
 			if name == "demo-cluster-worker" {
-				return cri.Container{ID: "worker-id"}, nil
+				return container.Container{ID: "worker-id"}, nil
 			}
-			return cri.Container{ID: "control-plane-id", NetnsPath: "/proc/1/ns/net"}, nil
+			return container.Container{ID: "control-plane-id", NetnsPath: "/proc/1/ns/net"}, nil
 		}}
 
 		got, err := nodeContainers(t.Context(), rt, drv, []string{"demo-cluster-control-plane", "demo-cluster-worker"}, &capture{})
@@ -125,8 +125,8 @@ func TestNodeContainers(t *testing.T) {
 			}
 			return "", nil
 		}}
-		rt := fakeRuntime{inspect: func(context.Context, string) (cri.Container, error) {
-			return cri.Container{}, errors.New("no such container")
+		rt := fakeRuntime{inspect: func(context.Context, string) (container.Container, error) {
+			return container.Container{}, errors.New("no such container")
 		}}
 
 		_, err := nodeContainers(t.Context(), rt, drv, []string{"demo-cluster-control-plane"}, &capture{})
@@ -146,7 +146,7 @@ const nodesJSONFixture = `{
 }`
 
 func TestContainerInfoFor(t *testing.T) {
-	info := cri.Container{ID: "abc123", NetnsPath: "/proc/1/ns/net"}
+	info := container.Container{ID: "abc123", NetnsPath: "/proc/1/ns/net"}
 	exclude := []string{"10.244.0.0/16"}
 
 	t.Run("substitutes the friendly name when one was read back", func(t *testing.T) {

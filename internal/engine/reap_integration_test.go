@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/relay"
 )
 
@@ -38,23 +38,23 @@ func TestReapSkipsTheRelay(t *testing.T) {
 		t.Cleanup(func() { _ = dockerClient.Remove(context.WithoutCancel(t.Context()), name) })
 	}
 
-	_, err := dockerClient.Run(t.Context(), cri.RunSpec{
+	_, err := dockerClient.Run(t.Context(), container.RunSpec{
 		Image: "busybox:stable",
 		Name:  relayName,
 		Cmd:   []string{"sleep", "300"},
 		Labels: map[string]string{
-			cri.LabelProject: project,
-			cri.LabelRole:    relay.Role,
+			container.LabelProject: project,
+			container.LabelRole:    relay.Role,
 		},
 	})
 	require.NoError(t, err)
 
-	_, err = dockerClient.Run(t.Context(), cri.RunSpec{
+	_, err = dockerClient.Run(t.Context(), container.RunSpec{
 		Image: "busybox:stable",
 		Name:  orphanName,
 		Cmd:   []string{"sleep", "300"},
 		Labels: map[string]string{
-			cri.LabelProject: project,
+			container.LabelProject: project,
 		},
 	})
 	require.NoError(t, err)
@@ -66,7 +66,7 @@ func TestReapSkipsTheRelay(t *testing.T) {
 	require.NoError(t, err, "reap must leave a container that carries the relay role in place")
 
 	_, err = dockerClient.Inspect(t.Context(), orphanName)
-	require.ErrorIs(t, err, cri.ErrNotFound, "reap must still remove an orphan that carries no role")
+	require.ErrorIs(t, err, container.ErrNotFound, "reap must still remove an orphan that carries no role")
 
 	assert.NoError(t, dockerClient.Remove(context.WithoutCancel(t.Context()), relayName))
 }
@@ -88,26 +88,26 @@ func TestReapKeepsTheOtherScopeAlive(t *testing.T) {
 		t.Cleanup(func() { _ = dockerClient.Remove(context.WithoutCancel(t.Context()), name) })
 	}
 
-	_, err := dockerClient.Run(t.Context(), cri.RunSpec{
+	_, err := dockerClient.Run(t.Context(), container.RunSpec{
 		Image: "busybox:stable",
 		Name:  dbName,
 		Cmd:   []string{"sleep", "300"},
 		Labels: map[string]string{
-			cri.LabelProject: project,
-			cri.LabelScope:   cri.ScopeLabel(project, config.ScopeSetup.String()),
-			cri.LabelURN:     cri.URNLabel(project, config.ScopeSetup.String(), "db"),
+			container.LabelProject: project,
+			container.LabelScope:   container.ScopeLabel(project, config.ScopeSetup.String()),
+			container.LabelURN:     container.URNLabel(project, config.ScopeSetup.String(), "db"),
 		},
 	})
 	require.NoError(t, err)
 
-	_, err = dockerClient.Run(t.Context(), cri.RunSpec{
+	_, err = dockerClient.Run(t.Context(), container.RunSpec{
 		Image: "busybox:stable",
 		Name:  orphanName,
 		Cmd:   []string{"sleep", "300"},
 		Labels: map[string]string{
-			cri.LabelProject: project,
-			cri.LabelScope:   cri.ScopeLabel(project, config.ScopeEnv.String()),
-			cri.LabelURN:     cri.URNLabel(project, config.ScopeEnv.String(), "orphan"),
+			container.LabelProject: project,
+			container.LabelScope:   container.ScopeLabel(project, config.ScopeEnv.String()),
+			container.LabelURN:     container.URNLabel(project, config.ScopeEnv.String(), "orphan"),
 		},
 	})
 	require.NoError(t, err)
@@ -120,7 +120,7 @@ func TestReapKeepsTheOtherScopeAlive(t *testing.T) {
 	require.NoError(t, err, "reap must leave a live setup-scope container in place")
 
 	_, err = dockerClient.Inspect(t.Context(), orphanName)
-	require.ErrorIs(t, err, cri.ErrNotFound, "reap must still remove an orphan of its own scope")
+	require.ErrorIs(t, err, container.ErrNotFound, "reap must still remove an orphan of its own scope")
 
 	_, gwErr := dockerClient.NetworkGateway(t.Context(), network)
 	require.NoError(t, gwErr, "reap must leave the network in place while setup is still live")
@@ -142,7 +142,7 @@ func TestReapRemovesNetworkWhenOtherScopeNeverRan(t *testing.T) {
 	require.NoError(t, r.reap(t.Context()))
 
 	_, gwErr := dockerClient.NetworkGateway(t.Context(), network)
-	require.ErrorIs(t, gwErr, cri.ErrNotFound, "reap must remove the network when the setup scope was never brought up")
+	require.ErrorIs(t, gwErr, container.ErrNotFound, "reap must remove the network when the setup scope was never brought up")
 }
 
 // newTestNetwork creates a project's network, removed on cleanup, and
@@ -150,8 +150,8 @@ func TestReapRemovesNetworkWhenOtherScopeNeverRan(t *testing.T) {
 func newTestNetwork(t *testing.T, project string) string {
 	t.Helper()
 	network := networkName(project)
-	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, cri.NetworkOptions{
-		Labels: map[string]string{cri.LabelProject: project},
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, container.NetworkOptions{
+		Labels: map[string]string{container.LabelProject: project},
 	}))
 	t.Cleanup(func() {
 		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)

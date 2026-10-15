@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/justenwalker/kevin/internal/clusterrelay"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -59,7 +59,7 @@ func finishRelay(ctx context.Context, rt relayRuntime, drv driver, cfg config, f
 // saveImageToTempFile saves image to a temporary tar file and returns its
 // path - the cluster tools load an image archive from a file path, not
 // stdin, unlike every other command they run.
-func saveImageToTempFile(ctx context.Context, rt cri.Images, image string) (string, error) {
+func saveImageToTempFile(ctx context.Context, rt container.Images, image string) (string, error) {
 	src, err := rt.Save(ctx, image)
 	if err != nil {
 		return "", fmt.Errorf("kubernetes: save the relay image: %w", err)
@@ -82,7 +82,7 @@ func saveImageToTempFile(ctx context.Context, rt cri.Images, image string) (stri
 // Pod running it in SOCKS5 mode, pinned to the control-plane node - mirrors
 // patchCoreDNS's shape: act on the cluster via kubectl, wait for it to be
 // ready.
-func deployRelay(ctx context.Context, rt cri.Images, drv driver, image string, udpPoolSize int, out plugin.Emitter) error {
+func deployRelay(ctx context.Context, rt container.Images, drv driver, image string, udpPoolSize int, out plugin.Emitter) error {
 	out.Log("stdout", "loading the relay image")
 	out.Progress("loading the relay image", 0, 0)
 	tarPath, err := saveImageToTempFile(ctx, rt, image)
@@ -151,6 +151,6 @@ func exposedPortDetails(exposed []plugin.ExposedPort) []plugin.Detail {
 // relayRuntime is what deploying the in-cluster relay needs: saving its
 // image, and running and finding its forwarder container.
 type relayRuntime interface {
-	cri.Images
-	cri.Containers
+	container.Images
+	container.Containers
 }

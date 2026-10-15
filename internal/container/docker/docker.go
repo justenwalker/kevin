@@ -1,9 +1,9 @@
-// Package docker implements [cri.Runtime] using docker.
+// Package docker implements [container.Runtime] using docker.
 package docker
 
 import (
-	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/cri/clirt"
+	"github.com/justenwalker/kevin/internal/container"
+	"github.com/justenwalker/kevin/internal/container/clirt"
 )
 
 // flavor is the docker [clirt.Dialect].
@@ -28,4 +28,4 @@ type Client struct {
 	clirt.Client[flavor]
 }
 
-var _ cri.Runtime = Client{}
+var _ container.Runtime = Client{}

@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/command/commandtest"
-	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/cri/clirt"
+	"github.com/justenwalker/kevin/internal/container"
+	"github.com/justenwalker/kevin/internal/container/clirt"
 )
 
 func TestDialect(t *testing.T) {
@@ -25,7 +25,7 @@ func TestDialect(t *testing.T) {
 			})
 		c := Client{Client: clirt.Client[flavor]{Runner: runner}}
 
-		require.NoError(t, c.NetworkCreate(t.Context(), "n", cri.NetworkOptions{}))
+		require.NoError(t, c.NetworkCreate(t.Context(), "n", container.NetworkOptions{}))
 
 		assert.Contains(t, created, "--ipv6=false")
 	})

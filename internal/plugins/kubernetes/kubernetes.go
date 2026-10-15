@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/justenwalker/kevin/internal/clusterrelay"
-	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/engines"
+	"github.com/justenwalker/kevin/internal/container"
+	"github.com/justenwalker/kevin/internal/container/engines"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -274,7 +274,7 @@ func (Step) Export(ctx context.Context, cfg config, req *plugin.ExportRequest) (
 // Export - nil when there is no engine or the nodes can't be listed (the
 // cluster has been torn down since Up), matching Up's own fail-open
 // handling of a live-inspect problem it can't resolve.
-func exportContainers(ctx context.Context, rt cri.Containers, drv driver) []plugin.ContainerInfo {
+func exportContainers(ctx context.Context, rt container.Containers, drv driver) []plugin.ContainerInfo {
 	nodeList, err := drv.Nodes(ctx)
 	if err != nil || len(nodeList) == 0 {
 		// The cluster may be gone since Up - the driver reports that as an

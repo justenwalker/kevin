@@ -14,7 +14,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/command"
 	k3dcmd "github.com/justenwalker/kevin/internal/command/k3d"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -87,7 +87,7 @@ func newK3dDriver(cfg config, env plugin.Env, name, kubeconfig string, rt k3dRun
 // dockerEnv reports the DOCKER_HOST variable that points a k3d call at the
 // engine's Docker API socket, or nothing for an engine on the default one.
 func (d *k3dDriver) dockerEnv(ctx context.Context) (map[string]string, error) {
-	host, ok := d.rt.(cri.DockerAPIHost)
+	host, ok := d.rt.(container.DockerAPIHost)
 	if !ok {
 		return map[string]string{}, nil
 	}
@@ -214,8 +214,8 @@ func (d *k3dDriver) Create(ctx context.Context, spec createSpec, out plugin.Emit
 
 	// Docker can default to dual-stack networks. Create an IPv4-only network
 	// for the nodes, and let Delete remove it.
-	if err := d.rt.NetworkCreate(ctx, d.network(), cri.NetworkOptions{
-		Labels: map[string]string{cri.LabelProject: d.env.Project},
+	if err := d.rt.NetworkCreate(ctx, d.network(), container.NetworkOptions{
+		Labels: map[string]string{container.LabelProject: d.env.Project},
 	}); err != nil {
 		return nil, fmt.Errorf("kubernetes: k3d: create the network of %q: %w", d.name, err)
 	}
@@ -362,6 +362,6 @@ func (d *k3dDriver) nodeProxyEnv() map[string]string {
 // k3dRuntime is what the k3d driver asks of the container engine: it runs
 // commands in node containers and manages the cluster's network.
 type k3dRuntime interface {
-	cri.Networks
-	cri.Execer
+	container.Networks
+	container.Execer
 }

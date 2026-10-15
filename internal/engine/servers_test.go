@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/ca"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/state"
 )
@@ -60,7 +60,7 @@ func TestStartProxyReleasesListeners(t *testing.T) {
 				held, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
 				require.NoError(t, err)
 				t.Cleanup(func() { _ = held.Close() })
-				return gatewayRuntime{gateway: cri.Gateway{V4: netip.MustParseAddr("127.0.0.1")}}, mustPort(t, held.Addr().String())
+				return gatewayRuntime{gateway: container.Gateway{V4: netip.MustParseAddr("127.0.0.1")}}, mustPort(t, held.Addr().String())
 			},
 		},
 	}

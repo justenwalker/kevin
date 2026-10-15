@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
+	"github.com/justenwalker/kevin/internal/container/podman"
 	"github.com/justenwalker/kevin/internal/plugins/plugintest"
-	"github.com/justenwalker/kevin/internal/podman"
 	"github.com/justenwalker/kevin/internal/uerr"
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -218,7 +218,7 @@ func TestBuildEnv(t *testing.T) {
 
 func TestOutputs(t *testing.T) {
 	t.Run("ip comes from the shared network, not from bridge", func(t *testing.T) {
-		info := cri.Container{
+		info := container.Container{
 			IPs:   map[string]string{"kevin-demo": "172.20.0.3", "bridge": "172.17.0.2"},
 			Ports: map[string]string{"80/tcp": "127.0.0.1:8080"},
 		}
@@ -234,7 +234,7 @@ func TestOutputs(t *testing.T) {
 	})
 
 	t.Run("without an address on the shared network", func(t *testing.T) {
-		got := outputs("a", "c", cri.Container{IPs: map[string]string{}}, "kevin-demo")
+		got := outputs("a", "c", container.Container{IPs: map[string]string{}}, "kevin-demo")
 
 		assert.Equal(t, map[string]string{"id": "a", "name": "c"}, got)
 	})
@@ -270,7 +270,7 @@ func TestExposedPorts(t *testing.T) {
 			"postgres": {Port: 5432, Protocol: plugin.ProtocolTCP},
 			"dns":      {Port: 53, Protocol: plugin.ProtocolUDP},
 		}}
-		info := cri.Container{Ports: map[string]string{
+		info := container.Container{Ports: map[string]string{
 			"5432/tcp": "127.0.0.1:49001",
 			"53/udp":   "127.0.0.1:49002",
 		}}
@@ -285,7 +285,7 @@ func TestExposedPorts(t *testing.T) {
 	t.Run("reports an unpublished port", func(t *testing.T) {
 		cfg := config{Expose: map[string]expose{"postgres": {Port: 5432, Protocol: plugin.ProtocolTCP}}}
 
-		_, err := exposedPorts(cfg, cri.Container{Ports: map[string]string{}}, "db", "", nil)
+		_, err := exposedPorts(cfg, container.Container{Ports: map[string]string{}}, "db", "", nil)
 
 		require.ErrorIs(t, err, ErrNoPort)
 		assert.Contains(t, err.Error(), "5432")
@@ -296,7 +296,7 @@ func TestExposedPorts(t *testing.T) {
 	t.Run("builds a socks5 upstream for a relay entry", func(t *testing.T) {
 		cfg := config{Expose: map[string]expose{"postgres": {Port: 5432, Protocol: plugin.ProtocolTCP, Relay: true}}}
 
-		got, err := exposedPorts(cfg, cri.Container{}, "db", "127.0.0.1:54321", nil)
+		got, err := exposedPorts(cfg, container.Container{}, "db", "127.0.0.1:54321", nil)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		assert.Equal(t, plugin.ExposedPort{Name: "postgres", Protocol: plugin.ProtocolTCP, Upstream: plugin.Upstream{Relay: &plugin.RelayTarget{Relay: "127.0.0.1:54321", Target: "db:5432"}}}, got[0])
@@ -305,7 +305,7 @@ func TestExposedPorts(t *testing.T) {
 	t.Run("reports a relay entry with no relay address", func(t *testing.T) {
 		cfg := config{Expose: map[string]expose{"postgres": {Port: 5432, Protocol: plugin.ProtocolTCP, Relay: true}}}
 
-		_, err := exposedPorts(cfg, cri.Container{}, "db", "", nil)
+		_, err := exposedPorts(cfg, container.Container{}, "db", "", nil)
 
 		require.ErrorIs(t, err, ErrNoRelay)
 	})
@@ -314,7 +314,7 @@ func TestExposedPorts(t *testing.T) {
 		cfg := config{Expose: map[string]expose{"dns": {Port: 53, Protocol: plugin.ProtocolUDP, Relay: true}}}
 		udpAddrs := map[int]string{40000: "127.0.0.1:41000"}
 
-		got, err := exposedPorts(cfg, cri.Container{}, "db", "127.0.0.1:54321", udpAddrs)
+		got, err := exposedPorts(cfg, container.Container{}, "db", "127.0.0.1:54321", udpAddrs)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		assert.Equal(t, plugin.ExposedPort{
@@ -326,7 +326,7 @@ func TestExposedPorts(t *testing.T) {
 	t.Run("reports a relay+udp entry with no udp pool", func(t *testing.T) {
 		cfg := config{Expose: map[string]expose{"dns": {Port: 53, Protocol: plugin.ProtocolUDP, Relay: true}}}
 
-		_, err := exposedPorts(cfg, cri.Container{}, "db", "127.0.0.1:54321", nil)
+		_, err := exposedPorts(cfg, container.Container{}, "db", "127.0.0.1:54321", nil)
 
 		require.ErrorIs(t, err, ErrNoRelayUDPPool)
 	})
@@ -355,20 +355,20 @@ func (noopEmitter) Progress(string, int64, int64) {}
 // Up/Down's orchestration logic (deadlines, exit codes, call order) without
 // a running docker daemon.
 type fakeRuntime struct {
-	run     func(ctx context.Context, spec cri.RunSpec) (string, error)
+	run     func(ctx context.Context, spec container.RunSpec) (string, error)
 	remove  func(ctx context.Context, name string) error
-	inspect func(ctx context.Context, name string) (cri.Container, error)
-	build   func(ctx context.Context, spec cri.BuildSpec, out io.Writer) error
+	inspect func(ctx context.Context, name string) (container.Container, error)
+	build   func(ctx context.Context, spec container.BuildSpec, out io.Writer) error
 }
 
-func (f fakeRuntime) Build(ctx context.Context, spec cri.BuildSpec, out io.Writer) error {
+func (f fakeRuntime) Build(ctx context.Context, spec container.BuildSpec, out io.Writer) error {
 	if f.build == nil {
 		return nil
 	}
 	return f.build(ctx, spec, out)
 }
 
-func (f fakeRuntime) Run(ctx context.Context, spec cri.RunSpec) (string, error) {
+func (f fakeRuntime) Run(ctx context.Context, spec container.RunSpec) (string, error) {
 	return f.run(ctx, spec)
 }
 
@@ -379,7 +379,7 @@ func (f fakeRuntime) Remove(ctx context.Context, name string) error {
 	return f.remove(ctx, name)
 }
 
-func (f fakeRuntime) Inspect(ctx context.Context, name string) (cri.Container, error) {
+func (f fakeRuntime) Inspect(ctx context.Context, name string) (container.Container, error) {
 	return f.inspect(ctx, name)
 }
 
@@ -411,12 +411,12 @@ func TestUpWithFakeEngine(t *testing.T) {
 				calls = append(calls, "remove")
 				return nil
 			},
-			run: func(context.Context, cri.RunSpec) (string, error) {
+			run: func(context.Context, container.RunSpec) (string, error) {
 				calls = append(calls, "run")
 				return "abc123", nil
 			},
-			inspect: func(context.Context, string) (cri.Container, error) {
-				return cri.Container{Running: true}, nil
+			inspect: func(context.Context, string) (container.Container, error) {
+				return container.Container{Running: true}, nil
 			},
 		})
 
@@ -431,12 +431,12 @@ func TestUpWithFakeEngine(t *testing.T) {
 	t.Run("propagates a run failure without inspecting", func(t *testing.T) {
 		inspected := false
 		useFakeRuntime(t, fakeRuntime{
-			run: func(context.Context, cri.RunSpec) (string, error) {
+			run: func(context.Context, container.RunSpec) (string, error) {
 				return "", assert.AnError
 			},
-			inspect: func(context.Context, string) (cri.Container, error) {
+			inspect: func(context.Context, string) (container.Container, error) {
 				inspected = true
-				return cri.Container{}, nil
+				return container.Container{}, nil
 			},
 		})
 
@@ -459,9 +459,9 @@ func TestUpWithFakeEngine(t *testing.T) {
 
 	t.Run("fails when the container exits before it reports running", func(t *testing.T) {
 		useFakeRuntime(t, fakeRuntime{
-			run: func(context.Context, cri.RunSpec) (string, error) { return "abc123", nil },
-			inspect: func(context.Context, string) (cri.Container, error) {
-				return cri.Container{Exited: true, ExitCode: 3}, nil
+			run: func(context.Context, container.RunSpec) (string, error) { return "abc123", nil },
+			inspect: func(context.Context, string) (container.Container, error) {
+				return container.Container{Exited: true, ExitCode: 3}, nil
 			},
 		})
 
@@ -475,9 +475,9 @@ func TestUpWithFakeEngine(t *testing.T) {
 
 	t.Run("fails when the container exits with code 0", func(t *testing.T) {
 		useFakeRuntime(t, fakeRuntime{
-			run: func(context.Context, cri.RunSpec) (string, error) { return "abc123", nil },
-			inspect: func(context.Context, string) (cri.Container, error) {
-				return cri.Container{Exited: true}, nil
+			run: func(context.Context, container.RunSpec) (string, error) { return "abc123", nil },
+			inspect: func(context.Context, string) (container.Container, error) {
+				return container.Container{Exited: true}, nil
 			},
 		})
 
@@ -491,10 +491,10 @@ func TestUpWithFakeEngine(t *testing.T) {
 
 	t.Run("gives up once the start_timeout deadline passes", func(t *testing.T) {
 		useFakeRuntime(t, fakeRuntime{
-			run: func(context.Context, cri.RunSpec) (string, error) { return "abc123", nil },
-			inspect: func(context.Context, string) (cri.Container, error) {
+			run: func(context.Context, container.RunSpec) (string, error) { return "abc123", nil },
+			inspect: func(context.Context, string) (container.Container, error) {
 				// Never running, never exited: the container is stuck starting up.
-				return cri.Container{}, nil
+				return container.Container{}, nil
 			},
 		})
 
@@ -508,14 +508,14 @@ func TestUpWithFakeEngine(t *testing.T) {
 	})
 
 	t.Run("passes user, workdir, and limits to the engine", func(t *testing.T) {
-		var gotSpec cri.RunSpec
+		var gotSpec container.RunSpec
 		useFakeRuntime(t, fakeRuntime{
-			run: func(_ context.Context, spec cri.RunSpec) (string, error) {
+			run: func(_ context.Context, spec container.RunSpec) (string, error) {
 				gotSpec = spec
 				return "abc123", nil
 			},
-			inspect: func(context.Context, string) (cri.Container, error) {
-				return cri.Container{Running: true}, nil
+			inspect: func(context.Context, string) (container.Container, error) {
+				return container.Container{Running: true}, nil
 			},
 		})
 
@@ -532,14 +532,14 @@ func TestUpWithFakeEngine(t *testing.T) {
 	})
 
 	t.Run("routes a relay entry through the relay instead of publishing it", func(t *testing.T) {
-		var gotSpec cri.RunSpec
+		var gotSpec container.RunSpec
 		useFakeRuntime(t, fakeRuntime{
-			run: func(_ context.Context, spec cri.RunSpec) (string, error) {
+			run: func(_ context.Context, spec container.RunSpec) (string, error) {
 				gotSpec = spec
 				return "abc123", nil
 			},
-			inspect: func(context.Context, string) (cri.Container, error) {
-				return cri.Container{Running: true}, nil
+			inspect: func(context.Context, string) (container.Container, error) {
+				return container.Container{Running: true}, nil
 			},
 		})
 
@@ -562,9 +562,9 @@ func TestUpWithFakeEngine(t *testing.T) {
 
 	t.Run("routes a relay+udp entry through the relay's udp pool", func(t *testing.T) {
 		useFakeRuntime(t, fakeRuntime{
-			run: func(context.Context, cri.RunSpec) (string, error) { return "abc123", nil },
-			inspect: func(context.Context, string) (cri.Container, error) {
-				return cri.Container{Running: true}, nil
+			run: func(context.Context, container.RunSpec) (string, error) { return "abc123", nil },
+			inspect: func(context.Context, string) (container.Container, error) {
+				return container.Container{Running: true}, nil
 			},
 		})
 
@@ -590,9 +590,9 @@ func TestUpWithFakeEngine(t *testing.T) {
 
 	t.Run("reports the container as its one Containers entry", func(t *testing.T) {
 		useFakeRuntime(t, fakeRuntime{
-			run: func(context.Context, cri.RunSpec) (string, error) { return "abc123", nil },
-			inspect: func(context.Context, string) (cri.Container, error) {
-				return cri.Container{Running: true, NetnsPath: "/proc/123/ns/net"}, nil
+			run: func(context.Context, container.RunSpec) (string, error) { return "abc123", nil },
+			inspect: func(context.Context, string) (container.Container, error) {
+				return container.Container{Running: true, NetnsPath: "/proc/123/ns/net"}, nil
 			},
 		})
 
@@ -612,22 +612,22 @@ func TestUpWithFakeEngine(t *testing.T) {
 func TestUpBuild(t *testing.T) {
 	t.Run("builds the image, then runs the built tag", func(t *testing.T) {
 		var calls []string
-		var gotBuild cri.BuildSpec
-		var gotRun cri.RunSpec
+		var gotBuild container.BuildSpec
+		var gotRun container.RunSpec
 		useFakeRuntime(t, fakeRuntime{
-			build: func(_ context.Context, spec cri.BuildSpec, out io.Writer) error {
+			build: func(_ context.Context, spec container.BuildSpec, out io.Writer) error {
 				calls = append(calls, "build")
 				gotBuild = spec
 				_, _ = io.WriteString(out, "step 1/2\n")
 				return nil
 			},
-			run: func(_ context.Context, spec cri.RunSpec) (string, error) {
+			run: func(_ context.Context, spec container.RunSpec) (string, error) {
 				calls = append(calls, "run")
 				gotRun = spec
 				return "abc123", nil
 			},
-			inspect: func(context.Context, string) (cri.Container, error) {
-				return cri.Container{Running: true}, nil
+			inspect: func(context.Context, string) (container.Container, error) {
+				return container.Container{Running: true}, nil
 			},
 		})
 		emitter := &noopEmitter{}
@@ -645,7 +645,7 @@ func TestUpBuild(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, []string{"build", "run"}, calls)
-		assert.Equal(t, cri.BuildSpec{
+		assert.Equal(t, container.BuildSpec{
 			Context:    "/proj/api",
 			Dockerfile: "/proj/api/Dockerfile.dev",
 			Tag:        "kevin-demo-api:latest",
@@ -654,20 +654,20 @@ func TestUpBuild(t *testing.T) {
 			Labels:     gotRun.Labels,
 		}, gotBuild)
 		assert.Equal(t, "kevin-demo-api:latest", gotRun.Image)
-		assert.Equal(t, "Demo:env:api", gotRun.Labels[cri.LabelURN])
-		assert.Equal(t, "Demo", gotRun.Labels[cri.LabelProject])
+		assert.Equal(t, "Demo:env:api", gotRun.Labels[container.LabelURN])
+		assert.Equal(t, "Demo", gotRun.Labels[container.LabelProject])
 	})
 
 	t.Run("defaults the Dockerfile and keeps an absolute context", func(t *testing.T) {
-		var gotBuild cri.BuildSpec
+		var gotBuild container.BuildSpec
 		useFakeRuntime(t, fakeRuntime{
-			build: func(_ context.Context, spec cri.BuildSpec, _ io.Writer) error {
+			build: func(_ context.Context, spec container.BuildSpec, _ io.Writer) error {
 				gotBuild = spec
 				return nil
 			},
-			run: func(context.Context, cri.RunSpec) (string, error) { return "abc123", nil },
-			inspect: func(context.Context, string) (cri.Container, error) {
-				return cri.Container{Running: true}, nil
+			run: func(context.Context, container.RunSpec) (string, error) { return "abc123", nil },
+			inspect: func(context.Context, string) (container.Container, error) {
+				return container.Container{Running: true}, nil
 			},
 		})
 
@@ -683,15 +683,15 @@ func TestUpBuild(t *testing.T) {
 	})
 
 	t.Run("keeps an absolute Dockerfile", func(t *testing.T) {
-		var gotBuild cri.BuildSpec
+		var gotBuild container.BuildSpec
 		useFakeRuntime(t, fakeRuntime{
-			build: func(_ context.Context, spec cri.BuildSpec, _ io.Writer) error {
+			build: func(_ context.Context, spec container.BuildSpec, _ io.Writer) error {
 				gotBuild = spec
 				return nil
 			},
-			run: func(context.Context, cri.RunSpec) (string, error) { return "abc123", nil },
-			inspect: func(context.Context, string) (cri.Container, error) {
-				return cri.Container{Running: true}, nil
+			run: func(context.Context, container.RunSpec) (string, error) { return "abc123", nil },
+			inspect: func(context.Context, string) (container.Container, error) {
+				return container.Container{Running: true}, nil
 			},
 		})
 
@@ -708,8 +708,8 @@ func TestUpBuild(t *testing.T) {
 	t.Run("does not run a container when the build fails", func(t *testing.T) {
 		ran := false
 		useFakeRuntime(t, fakeRuntime{
-			build: func(context.Context, cri.BuildSpec, io.Writer) error { return io.ErrUnexpectedEOF },
-			run: func(context.Context, cri.RunSpec) (string, error) {
+			build: func(context.Context, container.BuildSpec, io.Writer) error { return io.ErrUnexpectedEOF },
+			run: func(context.Context, container.RunSpec) (string, error) {
 				ran = true
 				return "abc123", nil
 			},
@@ -747,8 +747,8 @@ func TestDownWithFakeEngine(t *testing.T) {
 func TestExportWithFakeEngine(t *testing.T) {
 	t.Run("reports the container name and outputs", func(t *testing.T) {
 		useFakeRuntime(t, fakeRuntime{
-			inspect: func(context.Context, string) (cri.Container, error) {
-				return cri.Container{ID: "abc123", Running: true, IPs: map[string]string{"net": "10.0.0.2"}}, nil
+			inspect: func(context.Context, string) (container.Container, error) {
+				return container.Container{ID: "abc123", Running: true, IPs: map[string]string{"net": "10.0.0.2"}}, nil
 			},
 		})
 
@@ -767,8 +767,8 @@ func TestExportWithFakeEngine(t *testing.T) {
 
 	t.Run("fails when the container is not running", func(t *testing.T) {
 		useFakeRuntime(t, fakeRuntime{
-			inspect: func(context.Context, string) (cri.Container, error) {
-				return cri.Container{Running: false}, nil
+			inspect: func(context.Context, string) (container.Container, error) {
+				return container.Container{Running: false}, nil
 			},
 		})
 
@@ -778,13 +778,13 @@ func TestExportWithFakeEngine(t *testing.T) {
 
 	t.Run("fails when the container was never created", func(t *testing.T) {
 		useFakeRuntime(t, fakeRuntime{
-			inspect: func(context.Context, string) (cri.Container, error) {
-				return cri.Container{}, cri.ErrNotFound
+			inspect: func(context.Context, string) (container.Container, error) {
+				return container.Container{}, container.ErrNotFound
 			},
 		})
 
 		_, err := typed(Container{}).Export(t.Context(), &plugin.ExportRequest{Step: "web"})
-		require.ErrorIs(t, err, cri.ErrNotFound)
+		require.ErrorIs(t, err, container.ErrNotFound)
 	})
 }
 

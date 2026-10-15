@@ -15,7 +15,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/command"
 	minikubecmd "github.com/justenwalker/kevin/internal/command/minikube"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -275,8 +275,8 @@ func (d *minikubeDriver) createNodes(ctx context.Context, spec createSpec, out p
 	// minikube cannot parse a dual-stack docker network and falls back to the
 	// default bridge, so create an IPv4-only one for it to use.
 	if d.env.Engine != plugin.EnginePodman {
-		if err := d.rt.NetworkCreate(ctx, d.network(), cri.NetworkOptions{
-			Labels: map[string]string{cri.LabelProject: d.env.Project},
+		if err := d.rt.NetworkCreate(ctx, d.network(), container.NetworkOptions{
+			Labels: map[string]string{container.LabelProject: d.env.Project},
 		}); err != nil {
 			return nil, fmt.Errorf("kubernetes: minikube: create the network of %q: %w", d.name, err)
 		}

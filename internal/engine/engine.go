@@ -23,7 +23,7 @@ import (
 	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/console"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/logging"
 	"github.com/justenwalker/kevin/internal/mcpserver"
@@ -298,7 +298,7 @@ type relayStart struct {
 }
 
 // startRelay starts the relay.
-func startRelay(ctx context.Context, rt cri.Containers, cfg *config.Config, start relayStart) (*relay.Relay, error) {
+func startRelay(ctx context.Context, rt container.Containers, cfg *config.Config, start relayStart) (*relay.Relay, error) {
 	rl, err := relay.Start(ctx, rt, relay.Options{
 		Project:       cfg.Project,
 		Network:       networkName(cfg.Project),
@@ -347,8 +347,8 @@ func prepare(ctx context.Context, cfg *config.Config, rt networkPreparer) (strin
 	if err := rt.Available(ctx); err != nil {
 		return "", nil, err
 	}
-	if err := rt.NetworkCreate(ctx, networkName(cfg.Project), cri.NetworkOptions{
-		Labels: map[string]string{cri.LabelProject: cfg.Project},
+	if err := rt.NetworkCreate(ctx, networkName(cfg.Project), container.NetworkOptions{
+		Labels: map[string]string{container.LabelProject: cfg.Project},
 		IPv6:   true,
 	}); err != nil {
 		return "", nil, err

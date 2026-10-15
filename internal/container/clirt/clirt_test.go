@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/command/commandtest"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
@@ -32,10 +32,10 @@ type testFlavor struct{}
 
 func (testFlavor) Dialect() Dialect { return testDialect }
 
-var _ cri.Runtime = Client[testFlavor]{}
+var _ container.Runtime = Client[testFlavor]{}
 
 func TestFriendlyRunErr(t *testing.T) {
-	spec := cri.RunSpec{Name: "web", Image: "acme/widget:latest"}
+	spec := container.RunSpec{Name: "web", Image: "acme/widget:latest"}
 	tests := []struct {
 		name    string
 		err     error
@@ -81,13 +81,13 @@ func TestFriendlyRunErr(t *testing.T) {
 
 func TestRunArgs(t *testing.T) {
 	t.Run("orders every flag before the image", func(t *testing.T) {
-		args := runArgs(cri.RunSpec{
+		args := runArgs(container.RunSpec{
 			Image:    "nginx:1",
 			Name:     "kevin-demo-api",
 			Network:  "kevin-demo",
 			Alias:    "api",
 			Pull:     true,
-			Labels:   map[string]string{cri.LabelURN: "demo:env:api", cri.LabelProject: "demo"},
+			Labels:   map[string]string{container.LabelURN: "demo:env:api", container.LabelProject: "demo"},
 			Env:      map[string]string{"B": "2", "A": "1"},
 			Ports:    []string{"8080:80"},
 			Volumes:  []string{"/ca:/etc/ssl/kevin:ro"},
@@ -122,7 +122,7 @@ func TestRunArgs(t *testing.T) {
 	})
 
 	t.Run("overrides the entrypoint, keeping only the first element as the flag", func(t *testing.T) {
-		args := runArgs(cri.RunSpec{
+		args := runArgs(container.RunSpec{
 			Image:      "amazon/aws-cli",
 			Name:       "c",
 			Entrypoint: []string{"sh", "-c"},
@@ -139,7 +139,7 @@ func TestRunArgs(t *testing.T) {
 	})
 
 	t.Run("sets user, workdir, and limits", func(t *testing.T) {
-		args := runArgs(cri.RunSpec{
+		args := runArgs(container.RunSpec{
 			Image:   "busybox",
 			Name:    "c",
 			User:    "1000:1000",
@@ -161,7 +161,7 @@ func TestRunArgs(t *testing.T) {
 	t.Run("is stable across calls", func(t *testing.T) {
 		// A map has no order. The arguments must not change between two
 		// runs, or a diff of the command line becomes noise.
-		spec := cri.RunSpec{
+		spec := container.RunSpec{
 			Image:  "busybox",
 			Name:   "c",
 			Labels: map[string]string{"z": "1", "a": "2", "m": "3"},
@@ -175,7 +175,7 @@ func TestRunArgs(t *testing.T) {
 	})
 
 	t.Run("omits what is not set", func(t *testing.T) {
-		args := runArgs(cri.RunSpec{Image: "busybox", Name: "c"})
+		args := runArgs(container.RunSpec{Image: "busybox", Name: "c"})
 
 		assert.Equal(t, []string{"run", "--detach", "--name", "c", "busybox"}, args)
 		assert.NotContains(t, args, "--network")
@@ -247,20 +247,20 @@ func TestGatewayFromInspect(t *testing.T) {
 	tests := []struct {
 		name    string
 		out     string
-		want    cri.Gateway
+		want    container.Gateway
 		wantErr error
 	}{
-		{name: "a single ipv4 gateway", out: "172.20.0.1 \n", want: cri.Gateway{V4: netip.MustParseAddr("172.20.0.1")}},
+		{name: "a single ipv4 gateway", out: "172.20.0.1 \n", want: container.Gateway{V4: netip.MustParseAddr("172.20.0.1")}},
 		{
 			name: "an ipv4 gateway before an ipv6 gateway", out: "172.20.0.1 fe80::1 ",
-			want: cri.Gateway{V4: netip.MustParseAddr("172.20.0.1"), V6: netip.MustParseAddr("fe80::1")},
+			want: container.Gateway{V4: netip.MustParseAddr("172.20.0.1"), V6: netip.MustParseAddr("fe80::1")},
 		},
 		{
 			name: "an ipv6 gateway before an ipv4 gateway", out: "fe80::1 172.20.0.1 ",
-			want: cri.Gateway{V4: netip.MustParseAddr("172.20.0.1"), V6: netip.MustParseAddr("fe80::1")},
+			want: container.Gateway{V4: netip.MustParseAddr("172.20.0.1"), V6: netip.MustParseAddr("fe80::1")},
 		},
-		{name: "no gateway", out: "", wantErr: cri.ErrNoGateway},
-		{name: "only an ipv6 gateway", out: "fe80::1 ", want: cri.Gateway{V6: netip.MustParseAddr("fe80::1")}},
+		{name: "no gateway", out: "", wantErr: container.ErrNoGateway},
+		{name: "only an ipv6 gateway", out: "fe80::1 ", want: container.Gateway{V6: netip.MustParseAddr("fe80::1")}},
 	}
 
 	for _, tt := range tests {
@@ -278,17 +278,17 @@ func TestGatewayFromInspect(t *testing.T) {
 
 func TestDefaultRouteArgs(t *testing.T) {
 	t.Run("routes through the ipv4 gateway", func(t *testing.T) {
-		gw := cri.Gateway{V4: netip.MustParseAddr("192.168.1.1"), V6: netip.MustParseAddr("fd00::1")}
+		gw := container.Gateway{V4: netip.MustParseAddr("192.168.1.1"), V6: netip.MustParseAddr("fd00::1")}
 
 		assert.Equal(t, []string{"ip", "route", "replace", "default", "via", "192.168.1.1"}, defaultRouteArgs(gw))
 	})
 
 	t.Run("an ipv6-only gateway has no route to set", func(t *testing.T) {
-		assert.Nil(t, defaultRouteArgs(cri.Gateway{V6: netip.MustParseAddr("fd00::1")}))
+		assert.Nil(t, defaultRouteArgs(container.Gateway{V6: netip.MustParseAddr("fd00::1")}))
 	})
 
 	t.Run("no gateway has no route to set", func(t *testing.T) {
-		assert.Nil(t, defaultRouteArgs(cri.Gateway{}))
+		assert.Nil(t, defaultRouteArgs(container.Gateway{}))
 	})
 }
 
@@ -296,13 +296,13 @@ func TestNetworkCreateArgs(t *testing.T) {
 	labels := map[string]string{"kevin.project": "demo"}
 
 	t.Run("without IPv6 the network is IPv4-only, whatever the daemon defaults to", func(t *testing.T) {
-		got := networkCreateArgs(testDialect, "kevin-demo", cri.NetworkOptions{Labels: labels})
+		got := networkCreateArgs(testDialect, "kevin-demo", container.NetworkOptions{Labels: labels})
 
 		assert.Equal(t, []string{"network", "create", "--ipv6=false", "--label", "kevin.project=demo", "kevin-demo"}, got)
 	})
 
 	t.Run("with IPv6 the network is dual-stack", func(t *testing.T) {
-		got := networkCreateArgs(testDialect, "kevin-demo", cri.NetworkOptions{IPv6: true, Labels: labels})
+		got := networkCreateArgs(testDialect, "kevin-demo", container.NetworkOptions{IPv6: true, Labels: labels})
 
 		assert.Equal(t, []string{"network", "create", "--ipv6", "--label", "kevin.project=demo", "kevin-demo"}, got)
 	})
@@ -310,13 +310,13 @@ func TestNetworkCreateArgs(t *testing.T) {
 
 func TestBuildArgs(t *testing.T) {
 	t.Run("orders every flag before the context", func(t *testing.T) {
-		args := buildArgs(cri.BuildSpec{
+		args := buildArgs(container.BuildSpec{
 			Context:    "/proj/api",
 			Dockerfile: "/proj/api/Dockerfile.dev",
 			Tag:        "kevin-demo-api:latest",
 			Args:       map[string]string{"B": "2", "A": "1"},
 			Target:     "dev",
-			Labels:     map[string]string{cri.LabelURN: "demo:env:api", cri.LabelProject: "demo"},
+			Labels:     map[string]string{container.LabelURN: "demo:env:api", container.LabelProject: "demo"},
 		})
 
 		assert.Equal(t, []string{
@@ -332,7 +332,7 @@ func TestBuildArgs(t *testing.T) {
 	})
 
 	t.Run("omits what is not set", func(t *testing.T) {
-		args := buildArgs(cri.BuildSpec{Context: ".", Tag: "t"})
+		args := buildArgs(container.BuildSpec{Context: ".", Tag: "t"})
 
 		assert.Equal(t, []string{"build", "--tag", "t", "."}, args)
 	})
@@ -368,7 +368,7 @@ func TestClientBuild(t *testing.T) {
 			})
 
 		var out strings.Builder
-		err := Client[testFlavor]{Runner: runner}.Build(t.Context(), cri.BuildSpec{Context: ".", Tag: "t"}, &out)
+		err := Client[testFlavor]{Runner: runner}.Build(t.Context(), container.BuildSpec{Context: ".", Tag: "t"}, &out)
 		require.NoError(t, err)
 		assert.Equal(t, "out\nerr\n", out.String())
 	})
@@ -377,7 +377,7 @@ func TestClientBuild(t *testing.T) {
 		runner := commandtest.NewMockRunner(t)
 		runner.EXPECT().Run(mock.Anything, mock.Anything).Return(errors.New("exit status 1"))
 
-		err := Client[testFlavor]{Runner: runner}.Build(t.Context(), cri.BuildSpec{Context: ".", Tag: "t"}, io.Discard)
+		err := Client[testFlavor]{Runner: runner}.Build(t.Context(), container.BuildSpec{Context: ".", Tag: "t"}, io.Discard)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), `docker: build "t"`)
 	})
@@ -392,7 +392,7 @@ func TestClientRunner(t *testing.T) {
 				assert.Contains(t, cmd.Args, "busybox:stable")
 			}))
 
-		id, err := Client[testFlavor]{Runner: runner}.Run(t.Context(), cri.RunSpec{Image: "busybox:stable", Name: "x"})
+		id, err := Client[testFlavor]{Runner: runner}.Run(t.Context(), container.RunSpec{Image: "busybox:stable", Name: "x"})
 		require.NoError(t, err)
 		assert.Equal(t, "abc123", id)
 	})
@@ -402,7 +402,7 @@ func TestClientRunner(t *testing.T) {
 		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
 			reply("", "port is already allocated\n", errors.New("exit status 125"), nil))
 
-		_, err := Client[testFlavor]{Runner: runner}.Run(t.Context(), cri.RunSpec{Image: "busybox:stable", Name: "x"})
+		_, err := Client[testFlavor]{Runner: runner}.Run(t.Context(), container.RunSpec{Image: "busybox:stable", Name: "x"})
 		require.Error(t, err)
 		assert.Contains(t, uerr.Display(err), "already in use")
 	})
@@ -432,7 +432,7 @@ func TestClientRunner(t *testing.T) {
 		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(reply("", "", nil, nil)).Once()
 
 		_, err := Client[testFlavor]{Runner: runner}.Exec(t.Context(), "x", "echo")
-		require.ErrorIs(t, err, cri.ErrNotFound)
+		require.ErrorIs(t, err, container.ErrNotFound)
 	})
 
 	t.Run("ExecInput passes -i and feeds stdin", func(t *testing.T) {
@@ -512,7 +512,7 @@ func TestClientAvailable(t *testing.T) {
 
 		err := Client[shFlavor]{Runner: runner}.Available(t.Context())
 
-		require.ErrorIs(t, err, cri.ErrUnavailable)
+		require.ErrorIs(t, err, container.ErrUnavailable)
 		assert.Equal(t, "start it", uerr.Display(err))
 	})
 }

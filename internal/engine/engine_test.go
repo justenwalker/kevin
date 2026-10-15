@@ -26,7 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
@@ -499,11 +499,11 @@ func TestEnvironment(t *testing.T) {
 
 // gatewayRuntime is a gatewayLookup double whose network has a fixed gateway.
 type gatewayRuntime struct {
-	gateway    cri.Gateway
+	gateway    container.Gateway
 	gatewayErr error
 }
 
-func (g gatewayRuntime) NetworkGateway(context.Context, string) (cri.Gateway, error) {
+func (g gatewayRuntime) NetworkGateway(context.Context, string) (container.Gateway, error) {
 	return g.gateway, g.gatewayErr
 }
 

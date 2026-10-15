@@ -21,8 +21,8 @@ import (
 	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/command"
 	minikubecmd "github.com/justenwalker/kevin/internal/command/minikube"
-	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/podman"
+	"github.com/justenwalker/kevin/internal/container"
+	"github.com/justenwalker/kevin/internal/container/podman"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/state"
@@ -97,8 +97,8 @@ func (s *MinikubeSuite) SetupSuite() {
 	relaytest.UseDevImage(t)
 
 	s.network = "kevin-" + minikubeProject
-	s.Require().NoError(dockerClient.NetworkCreate(t.Context(), s.network, cri.NetworkOptions{
-		Labels: map[string]string{cri.LabelProject: minikubeProject},
+	s.Require().NoError(dockerClient.NetworkCreate(t.Context(), s.network, container.NetworkOptions{
+		Labels: map[string]string{container.LabelProject: minikubeProject},
 	}))
 
 	t.Setenv(state.UserStateDirEnv, t.TempDir())
@@ -159,7 +159,7 @@ func (s *MinikubeSuite) TearDownSuite() {
 		s.NoError(err)
 		s.Empty(nodes, "Down must remove every node, the worker included")
 		_, gwErr := dockerClient.NetworkGateway(ctx, "kevin-minikube-"+s.clusterName)
-		s.ErrorIs(gwErr, cri.ErrNotFound, "Down must remove the network that Create made")
+		s.ErrorIs(gwErr, container.ErrNotFound, "Down must remove the network that Create made")
 	}
 
 	if s.relay != nil {
@@ -411,8 +411,8 @@ func TestMinikubeOnPodman(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(mountDir, "probe.txt"), []byte("from the host"), 0o600))
 
 	network := "kevin-minikube-podman-it"
-	require.NoError(t, client.NetworkCreate(t.Context(), network, cri.NetworkOptions{
-		Labels: map[string]string{cri.LabelProject: "minikube-podman-it"},
+	require.NoError(t, client.NetworkCreate(t.Context(), network, container.NetworkOptions{
+		Labels: map[string]string{container.LabelProject: "minikube-podman-it"},
 	}))
 	t.Cleanup(func() { _ = client.NetworkRemove(context.WithoutCancel(t.Context()), network) })
 
@@ -497,7 +497,7 @@ func TestMinikubeOnPodman(t *testing.T) {
 	require.NoError(t, down(), "Down under podman")
 	for _, node := range nodes {
 		_, inspectErr := client.Inspect(t.Context(), node)
-		require.ErrorIs(t, inspectErr, cri.ErrNotFound, "node %s survived Down", node)
+		require.ErrorIs(t, inspectErr, container.ErrNotFound, "node %s survived Down", node)
 	}
 	left, err := client.ListByLabel(t.Context(), minikubeNodeLabel, "true")
 	require.NoError(t, err)

@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/engines"
+	"github.com/justenwalker/kevin/internal/container"
+	"github.com/justenwalker/kevin/internal/container/engines"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -106,9 +106,9 @@ func (Container) Up(ctx context.Context, cfg config, req *plugin.UpRequest, out 
 	}
 
 	labels := map[string]string{
-		cri.LabelProject: req.Env.Project,
-		cri.LabelScope:   cri.ScopeLabel(req.Env.Project, req.Env.Scope.String()),
-		cri.LabelURN:     cri.URNLabel(req.Env.Project, req.Env.Scope.String(), req.Step),
+		container.LabelProject: req.Env.Project,
+		container.LabelScope:   container.ScopeLabel(req.Env.Project, req.Env.Scope.String()),
+		container.LabelURN:     container.URNLabel(req.Env.Project, req.Env.Scope.String(), req.Step),
 	}
 
 	image := cfg.Image
@@ -123,7 +123,7 @@ func (Container) Up(ctx context.Context, cfg config, req *plugin.UpRequest, out 
 	}
 	deadline := time.Now().Add(timeout)
 
-	spec := cri.RunSpec{
+	spec := container.RunSpec{
 		Image:      image,
 		Name:       name,
 		Network:    req.Env.Network,
@@ -180,10 +180,10 @@ func imageTag(project, step string) string {
 	return strings.ToLower("kevin-" + project + "-" + step + ":latest")
 }
 
-// buildSpec turns a build entry into a [cri.BuildSpec]. The context resolves
+// buildSpec turns a build entry into a [container.BuildSpec]. The context resolves
 // against projectDir when it is relative, and the Dockerfile against the
 // context, unless it is absolute.
-func buildSpec(b *buildConfig, tag, projectDir string, labels map[string]string) cri.BuildSpec {
+func buildSpec(b *buildConfig, tag, projectDir string, labels map[string]string) container.BuildSpec {
 	dir := b.Context
 	if !filepath.IsAbs(dir) {
 		dir = filepath.Join(projectDir, dir)
@@ -192,7 +192,7 @@ func buildSpec(b *buildConfig, tag, projectDir string, labels map[string]string)
 	if !filepath.IsAbs(dockerfile) {
 		dockerfile = filepath.Join(dir, dockerfile)
 	}
-	return cri.BuildSpec{
+	return container.BuildSpec{
 		Context:    dir,
 		Dockerfile: dockerfile,
 		Tag:        tag,
@@ -206,7 +206,7 @@ func buildSpec(b *buildConfig, tag, projectDir string, labels map[string]string)
 // manages, for the relay's transparent capture and for any dependent
 // step's UpRequest.Containers - empty when the container has no network
 // namespace of its own (info.NetnsPath is only set once it's running).
-func containerInfo(id, name string, info cri.Container) []plugin.ContainerInfo {
+func containerInfo(id, name string, info container.Container) []plugin.ContainerInfo {
 	return []plugin.ContainerInfo{{ID: id, Name: name, NetnsPath: info.NetnsPath}}
 }
 
@@ -256,7 +256,7 @@ func stepDetails(exposed []plugin.ExposedPort) []plugin.Detail {
 // Iterates cfg.Expose in name order, so the reported list (and the card/log
 // output built from it) stays stable run to run despite Go's randomized
 // map iteration.
-func exposedPorts(cfg config, info cri.Container, step, relaySOCKS5Addr string, relaySOCKS5UDPAddrs map[int]string) ([]plugin.ExposedPort, error) {
+func exposedPorts(cfg config, info container.Container, step, relaySOCKS5Addr string, relaySOCKS5UDPAddrs map[int]string) ([]plugin.ExposedPort, error) {
 	out := make([]plugin.ExposedPort, 0, len(cfg.Expose))
 	for _, name := range slices.Sorted(maps.Keys(cfg.Expose)) {
 		e := cfg.Expose[name]
@@ -334,8 +334,8 @@ func (Container) Export(ctx context.Context, _ config, req *plugin.ExportRequest
 // engineRuntime is what the container step asks of the container engine:
 // building an image, and running, inspecting and removing a container.
 type engineRuntime interface {
-	cri.Containers
-	cri.Images
+	container.Containers
+	container.Images
 }
 
 // newRuntime picks the container engine that env names.
@@ -369,14 +369,14 @@ func buildEnv(cfg config, req *plugin.UpRequest) map[string]string {
 // waitRunning polls until the container runs.
 // Returns [ErrExited] when the container stops first.
 // Returns [context.DeadlineExceeded] when the deadline passes.
-func waitRunning(ctx context.Context, runtime cri.Containers, name string, deadline time.Time, out plugin.Emitter) (cri.Container, error) {
+func waitRunning(ctx context.Context, runtime container.Containers, name string, deadline time.Time, out plugin.Emitter) (container.Container, error) {
 	out.Progress("waiting for "+name, 0, 0)
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	for {
 		info, err := runtime.Inspect(ctx, name)
 		if err != nil {
-			return cri.Container{}, err
+			return container.Container{}, err
 		}
 		if info.Running {
 			return info, nil
@@ -388,14 +388,14 @@ func waitRunning(ctx context.Context, runtime cri.Containers, name string, deadl
 		select {
 		case <-time.After(pollInterval):
 		case <-ctx.Done():
-			return cri.Container{}, ctx.Err() //nolint:wrapcheck // context.Canceled/DeadlineExceeded is the idiomatic bare sentinel
+			return container.Container{}, ctx.Err() //nolint:wrapcheck // context.Canceled/DeadlineExceeded is the idiomatic bare sentinel
 		}
 	}
 }
 
 // outputs builds the values that a dependent step reads.
 // A published port appears as "host_<port>", such as "host_80".
-func outputs(id, name string, info cri.Container, network string) map[string]string {
+func outputs(id, name string, info container.Container, network string) map[string]string {
 	values := map[string]string{
 		"id":   id,
 		"name": name,

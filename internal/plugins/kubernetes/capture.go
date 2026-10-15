@@ -7,7 +7,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -25,7 +25,7 @@ func wantsCapture(env plugin.Env) bool {
 // fails - see podAndServiceCIDRs.
 // out may be nil - Export has no Emitter to log the fail-open case
 // through, unlike Up.
-func nodeContainers(ctx context.Context, rt cri.Containers, drv driver, allNodes []string, out plugin.Emitter) ([]plugin.ContainerInfo, error) {
+func nodeContainers(ctx context.Context, rt container.Containers, drv driver, allNodes []string, out plugin.Emitter) ([]plugin.ContainerInfo, error) {
 	exclude, err := podAndServiceCIDRs(ctx, drv)
 	if err != nil {
 		// A verified exclusion list is what makes capture safe at all - not
@@ -60,7 +60,7 @@ func nodeContainers(ctx context.Context, rt cri.Containers, drv driver, allNodes
 // containerInfoFor builds one node's ContainerInfo. name takes node's
 // kevin.node label value from names when it has one, the raw container
 // name otherwise.
-func containerInfoFor(node string, info cri.Container, exclude []string, names map[string]string) plugin.ContainerInfo {
+func containerInfoFor(node string, info container.Container, exclude []string, names map[string]string) plugin.ContainerInfo {
 	name := node
 	if friendly, ok := names[node]; ok {
 		name = friendly

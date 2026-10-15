@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/clusterrelay"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -174,17 +174,17 @@ func TestFinishRelay(t *testing.T) {
 
 	t.Run("starts the forwarder against the control-plane node and reports its address", func(t *testing.T) {
 		t.Setenv(relay.UDPPoolSizeEnvVar, "0")
-		var spec cri.RunSpec
+		var spec container.RunSpec
 		rt := fakeRuntime{
-			run: func(_ context.Context, s cri.RunSpec) (string, error) {
+			run: func(_ context.Context, s container.RunSpec) (string, error) {
 				spec = s
 				return "id", nil
 			},
-			inspect: func(context.Context, string) (cri.Container, error) {
+			inspect: func(context.Context, string) (container.Container, error) {
 				if spec.Name == "" {
-					return cri.Container{}, cri.ErrNotFound
+					return container.Container{}, container.ErrNotFound
 				}
-				return cri.Container{Running: true, Ports: map[string]string{"1080/tcp": "127.0.0.1:54321"}}, nil
+				return container.Container{Running: true, Ports: map[string]string{"1080/tcp": "127.0.0.1:54321"}}, nil
 			},
 		}
 		fwd := clusterrelay.ForwarderSpec{Name: "kevin-demo-relay-fwd", Network: "net"}

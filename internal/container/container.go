@@ -1,7 +1,7 @@
-// Package cri is the contract that every container engine implements. It
-// carries no engine-specific code: internal/docker is one implementation of
-// [Runtime].
-package cri
+// Package container is the contract that every container engine implements. It
+// carries no engine-specific code: internal/container/docker is one
+// implementation of [Runtime].
+package container
 
 import (
 	"context"
@@ -260,8 +260,8 @@ type DockerAPIHost interface {
 	DockerHost(ctx context.Context) (string, error)
 }
 
-// Runtime is a container engine: every role together. internal/docker
-// implements Runtime by shelling out to the docker binary; internal/podman
+// Runtime is a container engine: every role together. internal/container/docker
+// implements Runtime by shelling out to the docker binary; internal/container/podman
 // implements it by shelling out to podman. A caller that needs only some of
 // the roles takes just those, so its test fake stays small.
 type Runtime interface {

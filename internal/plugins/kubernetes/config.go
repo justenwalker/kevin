@@ -1,13 +1,13 @@
 package kubernetes
 
 import (
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/plugin"
 )
 
 // nodeLabelKey is the Kubernetes node label that names each node: the
 // control-plane node gets controlPlaneNodeName, a worker its with.workers key.
-const nodeLabelKey = cri.LabelPrefix + "node"
+const nodeLabelKey = container.LabelPrefix + "node"
 
 // controlPlaneNodeName is the nodeLabelKey value of the control-plane node.
 const controlPlaneNodeName = "control-plane"

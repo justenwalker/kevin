@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 )
 
 // UDPPoolSizeEnvVar overrides the number of UDP relay ports the relay
@@ -68,7 +68,7 @@ func udpRelayPortsArg(n int, args []string) []string {
 // published when it was created, regardless of the caller's own current
 // UDPPoolSizeEnvVar (a container reused across a pool-size change keeps
 // its original pool; see docs/site/content/docs/concepts/relay.md).
-func UDPAddrsFromInfo(info cri.Container) map[int]string {
+func UDPAddrsFromInfo(info container.Container) map[int]string {
 	var addrs map[int]string
 	for port, addr := range info.Ports {
 		name, ok := strings.CutSuffix(port, "/udp")

@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/relay"
 )
 
@@ -16,11 +16,11 @@ import (
 // and a still-live resource of the other scope (see otherScopeLive),
 // leaving the shared project network in place when it finds one.
 func (r *run) reap(ctx context.Context) error {
-	names, err := r.runtime.ListByLabel(ctx, cri.LabelProject, r.cfg.Project)
+	names, err := r.runtime.ListByLabel(ctx, container.LabelProject, r.cfg.Project)
 	if err != nil {
 		return err
 	}
-	relays, err := r.runtime.ListByLabel(ctx, cri.LabelRole, relay.Role)
+	relays, err := r.runtime.ListByLabel(ctx, container.LabelRole, relay.Role)
 	if err != nil {
 		return err
 	}
@@ -63,7 +63,7 @@ func (r *run) otherScopeLive(ctx context.Context) (map[string]struct{}, error) {
 		otherScope = config.ScopeEnv
 	}
 
-	names, err := r.runtime.ListByLabel(ctx, cri.LabelScope, cri.ScopeLabel(r.cfg.Project, otherScope.String()))
+	names, err := r.runtime.ListByLabel(ctx, container.LabelScope, container.ScopeLabel(r.cfg.Project, otherScope.String()))
 	if err != nil {
 		return nil, err
 	}

@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 )
 
 func TestUDPPoolSize(t *testing.T) {
@@ -61,7 +61,7 @@ func TestUDPRelayPortsArg(t *testing.T) {
 
 func TestUDPAddrsFromInfo(t *testing.T) {
 	t.Run("extracts every udp port, trimming the /udp suffix", func(t *testing.T) {
-		info := cri.Container{Ports: map[string]string{
+		info := container.Container{Ports: map[string]string{
 			"1080/tcp":  "127.0.0.1:54321",
 			"40000/udp": "127.0.0.1:41000",
 			"40001/udp": "127.0.0.1:41001",
@@ -70,7 +70,7 @@ func TestUDPAddrsFromInfo(t *testing.T) {
 	})
 
 	t.Run("reports nil when the container publishes no udp port", func(t *testing.T) {
-		info := cri.Container{Ports: map[string]string{"1080/tcp": "127.0.0.1:54321"}}
+		info := container.Container{Ports: map[string]string{"1080/tcp": "127.0.0.1:54321"}}
 		assert.Nil(t, UDPAddrsFromInfo(info))
 	})
 }

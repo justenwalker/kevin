@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 )
 
 func TestExec(t *testing.T) {
@@ -20,7 +20,7 @@ func TestExec(t *testing.T) {
 		c := Client{}
 
 		name := "kevin-docker-exec-test"
-		_, err := c.Run(t.Context(), cri.RunSpec{
+		_, err := c.Run(t.Context(), container.RunSpec{
 			Image: "busybox:stable",
 			Name:  name,
 			Cmd:   []string{"sh", "-c", "sleep 300"},
@@ -39,7 +39,7 @@ func TestExec(t *testing.T) {
 
 		_, err := c.Exec(t.Context(), "kevin-docker-exec-test-absent", "echo", "hello")
 		require.Error(t, err)
-		assert.ErrorIs(t, err, cri.ErrNotFound)
+		assert.ErrorIs(t, err, container.ErrNotFound)
 	})
 }
 
@@ -49,7 +49,7 @@ func TestExecInput(t *testing.T) {
 		c := Client{}
 
 		name := "kevin-docker-exec-input-test"
-		_, err := c.Run(t.Context(), cri.RunSpec{
+		_, err := c.Run(t.Context(), container.RunSpec{
 			Image: "busybox:stable",
 			Name:  name,
 			Cmd:   []string{"sh", "-c", "sleep 300"},
@@ -68,11 +68,11 @@ func TestNetworkConnect(t *testing.T) {
 	c := Client{}
 
 	network := "kevin-docker-network-connect-test"
-	require.NoError(t, c.NetworkCreate(t.Context(), network, cri.NetworkOptions{}))
+	require.NoError(t, c.NetworkCreate(t.Context(), network, container.NetworkOptions{}))
 	t.Cleanup(func() { _ = c.NetworkRemove(context.WithoutCancel(t.Context()), network) })
 
 	name := "kevin-docker-network-connect-test-container"
-	_, err := c.Run(t.Context(), cri.RunSpec{
+	_, err := c.Run(t.Context(), container.RunSpec{
 		Image:  "busybox:stable",
 		Name:   name,
 		Cmd:    []string{"sh", "-c", "sleep 300"},
@@ -104,11 +104,11 @@ func TestNetworkRemoveToleratesActiveEndpoints(t *testing.T) {
 	c := Client{}
 
 	network := "kevin-docker-network-remove-in-use-test"
-	require.NoError(t, c.NetworkCreate(t.Context(), network, cri.NetworkOptions{}))
+	require.NoError(t, c.NetworkCreate(t.Context(), network, container.NetworkOptions{}))
 	t.Cleanup(func() { _ = c.NetworkRemove(context.WithoutCancel(t.Context()), network) })
 
 	name := "kevin-docker-network-remove-in-use-test-container"
-	_, err := c.Run(t.Context(), cri.RunSpec{
+	_, err := c.Run(t.Context(), container.RunSpec{
 		Image:   "busybox:stable",
 		Name:    name,
 		Network: network,
@@ -126,7 +126,7 @@ func TestNetworkRemoveToleratesActiveEndpoints(t *testing.T) {
 	require.NoError(t, c.NetworkRemove(t.Context(), network))
 
 	_, err = c.NetworkGateway(t.Context(), network)
-	assert.ErrorIs(t, err, cri.ErrNotFound, "the network must be gone once nothing is left on it")
+	assert.ErrorIs(t, err, container.ErrNotFound, "the network must be gone once nothing is left on it")
 }
 
 func TestNetworkGateway(t *testing.T) {
@@ -135,7 +135,7 @@ func TestNetworkGateway(t *testing.T) {
 
 	t.Run("returns the network's ipv4 gateway", func(t *testing.T) {
 		network := "kevin-docker-network-gateway-test"
-		require.NoError(t, c.NetworkCreate(t.Context(), network, cri.NetworkOptions{}))
+		require.NoError(t, c.NetworkCreate(t.Context(), network, container.NetworkOptions{}))
 		t.Cleanup(func() { _ = c.NetworkRemove(context.WithoutCancel(t.Context()), network) })
 
 		gw, err := c.NetworkGateway(t.Context(), network)
@@ -146,7 +146,7 @@ func TestNetworkGateway(t *testing.T) {
 
 	t.Run("returns both gateways for a dual-stack network", func(t *testing.T) {
 		network := "kevin-docker-network-gateway-v6-test"
-		require.NoError(t, c.NetworkCreate(t.Context(), network, cri.NetworkOptions{IPv6: true}))
+		require.NoError(t, c.NetworkCreate(t.Context(), network, container.NetworkOptions{IPv6: true}))
 		t.Cleanup(func() { _ = c.NetworkRemove(context.WithoutCancel(t.Context()), network) })
 
 		gw, err := c.NetworkGateway(t.Context(), network)
@@ -157,7 +157,7 @@ func TestNetworkGateway(t *testing.T) {
 
 	t.Run("reports ErrNotFound for a missing network", func(t *testing.T) {
 		_, err := c.NetworkGateway(t.Context(), "kevin-docker-network-gateway-test-absent")
-		assert.ErrorIs(t, err, cri.ErrNotFound)
+		assert.ErrorIs(t, err, container.ErrNotFound)
 	})
 }
 
@@ -166,7 +166,7 @@ func TestListByLabel(t *testing.T) {
 	c := Client{}
 
 	name := "kevin-docker-list-by-label-test"
-	_, err := c.Run(t.Context(), cri.RunSpec{
+	_, err := c.Run(t.Context(), container.RunSpec{
 		Image:  "busybox:stable",
 		Name:   name,
 		Cmd:    []string{"sh", "-c", "sleep 300"},

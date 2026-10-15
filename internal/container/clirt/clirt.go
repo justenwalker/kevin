@@ -1,4 +1,4 @@
-// Package clirt implements [cri.Runtime] by shelling out to a docker-compatible
+// Package clirt implements [container.Runtime] by shelling out to a docker-compatible
 // container engine CLI. The docker and podman packages differ only in the
 // [Dialect] they supply.
 package clirt
@@ -17,7 +17,7 @@ import (
 	"strings"
 
 	"github.com/justenwalker/kevin/internal/command"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
@@ -72,16 +72,16 @@ func (Client[F]) dialect() Dialect {
 func (c Client[F]) Available(ctx context.Context) error {
 	d := c.dialect()
 	if _, err := exec.LookPath(d.Binary); err != nil {
-		return uerr.Wrap(fmt.Errorf("%s: %w: %w", d.Binary, cri.ErrUnavailable, err), "%s", d.NotInstalledHint)
+		return uerr.Wrap(fmt.Errorf("%s: %w: %w", d.Binary, container.ErrUnavailable, err), "%s", d.NotInstalledHint)
 	}
 	if _, err := c.Output(ctx, nil, "info", "--format", d.VersionTemplate); err != nil {
-		return uerr.Wrap(fmt.Errorf("%s: the daemon does not answer: %w", d.Binary, cri.ErrUnavailable), "%s", d.NotRunningHint)
+		return uerr.Wrap(fmt.Errorf("%s: the daemon does not answer: %w", d.Binary, container.ErrUnavailable), "%s", d.NotRunningHint)
 	}
 	return nil
 }
 
-// NetworkCreate implements [cri.Runtime] for the engine.
-func (c Client[F]) NetworkCreate(ctx context.Context, name string, opts cri.NetworkOptions) error {
+// NetworkCreate implements [container.Runtime] for the engine.
+func (c Client[F]) NetworkCreate(ctx context.Context, name string, opts container.NetworkOptions) error {
 	if ok, err := c.networkExists(ctx, name); err != nil {
 		return err
 	} else if ok {
@@ -100,7 +100,7 @@ func (c Client[F]) NetworkCreate(ctx context.Context, name string, opts cri.Netw
 }
 
 // networkCreateArgs builds the engine arguments that create the network name.
-func networkCreateArgs(d Dialect, name string, opts cri.NetworkOptions) []string {
+func networkCreateArgs(d Dialect, name string, opts container.NetworkOptions) []string {
 	labels := labelArgs(opts.Labels)
 	args := make([]string, 0, len(labels)+4)
 	args = append(args, "network", "create")
@@ -118,7 +118,7 @@ func networkCreateArgs(d Dialect, name string, opts cri.NetworkOptions) []string
 	return append(args, name)
 }
 
-// NetworkRemove implements [cri.Runtime] for the engine. A network that still
+// NetworkRemove implements [container.Runtime] for the engine. A network that still
 // carries a live container is left in place rather than treated as an error.
 func (c Client[F]) NetworkRemove(ctx context.Context, name string) error {
 	if _, err := c.Output(ctx, nil, "network", "rm", name); err != nil {
@@ -161,30 +161,30 @@ func (c Client[F]) networkExists(ctx context.Context, name string) (bool, error)
 }
 
 // NetworkGateway returns the gateway addresses of a network.
-// NetworkGateway returns [cri.ErrNotFound] when the network does not exist,
-// and [cri.ErrNoGateway] when the network carries no gateway in either
+// NetworkGateway returns [container.ErrNotFound] when the network does not exist,
+// and [container.ErrNoGateway] when the network carries no gateway in either
 // address family.
-func (c Client[F]) NetworkGateway(ctx context.Context, name string) (cri.Gateway, error) {
+func (c Client[F]) NetworkGateway(ctx context.Context, name string) (container.Gateway, error) {
 	out, err := c.Output(ctx, nil, "network", "inspect", name,
 		"--format", c.dialect().GatewayTemplate)
 	if err != nil {
 		if ok, existsErr := c.networkExists(ctx, name); existsErr == nil && !ok {
-			return cri.Gateway{}, fmt.Errorf("%s: inspect network %q: %w", c.dialect().Binary, name, cri.ErrNotFound)
+			return container.Gateway{}, fmt.Errorf("%s: inspect network %q: %w", c.dialect().Binary, name, container.ErrNotFound)
 		}
-		return cri.Gateway{}, fmt.Errorf("%s: inspect network %q: %w", c.dialect().Binary, name, err)
+		return container.Gateway{}, fmt.Errorf("%s: inspect network %q: %w", c.dialect().Binary, name, err)
 	}
 
 	gateway, err := gatewayFromInspect(out)
 	if err != nil {
-		return cri.Gateway{}, fmt.Errorf("%s: inspect network %q: %w", c.dialect().Binary, name, err)
+		return container.Gateway{}, fmt.Errorf("%s: inspect network %q: %w", c.dialect().Binary, name, err)
 	}
 	return gateway, nil
 }
 
 // gatewayFromInspect finds the first IPv4 and first IPv6 address in the
 // space-separated list that a gateway template produces.
-func gatewayFromInspect(out string) (cri.Gateway, error) {
-	var gw cri.Gateway
+func gatewayFromInspect(out string) (container.Gateway, error) {
+	var gw container.Gateway
 	for field := range strings.FieldsSeq(out) {
 		addr, err := netip.ParseAddr(field)
 		if err != nil {
@@ -201,7 +201,7 @@ func gatewayFromInspect(out string) (cri.Gateway, error) {
 		}
 	}
 	if !gw.V4.IsValid() && !gw.V6.IsValid() {
-		return cri.Gateway{}, cri.ErrNoGateway
+		return container.Gateway{}, container.ErrNoGateway
 	}
 	return gw, nil
 }
@@ -233,7 +233,7 @@ func (c Client[F]) NetworkConnect(ctx context.Context, network, container string
 
 // defaultRouteArgs builds the ip command that points the default route of a
 // container at gw. It returns nil when gw has no IPv4 address.
-func defaultRouteArgs(gw cri.Gateway) []string {
+func defaultRouteArgs(gw container.Gateway) []string {
 	if !gw.V4.IsValid() {
 		return nil
 	}
@@ -258,7 +258,7 @@ func (c Client[F]) containerOnNetwork(ctx context.Context, container, network st
 
 // runArgs builds the engine arguments for a spec. The arguments are stable
 // across calls for one spec.
-func runArgs(spec cri.RunSpec) []string {
+func runArgs(spec container.RunSpec) []string {
 	args := []string{"run", "--detach", "--name", spec.Name}
 
 	if spec.Network != "" {
@@ -309,7 +309,7 @@ func runArgs(spec cri.RunSpec) []string {
 }
 
 // processArgs builds the flags for the user, working directory, and limits.
-func processArgs(spec cri.RunSpec) []string {
+func processArgs(spec container.RunSpec) []string {
 	var args []string
 	if spec.User != "" {
 		args = append(args, "--user", spec.User)
@@ -344,7 +344,7 @@ func sortedKeys(m map[string]string) []string {
 }
 
 // buildArgs builds the engine arguments for an image build.
-func buildArgs(spec cri.BuildSpec) []string {
+func buildArgs(spec container.BuildSpec) []string {
 	args := []string{"build", "--tag", spec.Tag}
 	if spec.Dockerfile != "" {
 		args = append(args, "--file", spec.Dockerfile)
@@ -359,9 +359,9 @@ func buildArgs(spec cri.BuildSpec) []string {
 	return append(args, spec.Context)
 }
 
-// Build implements [cri.Runtime] for the engine. The output of the build, on
+// Build implements [container.Runtime] for the engine. The output of the build, on
 // both streams, goes to out as it arrives.
-func (c Client[F]) Build(ctx context.Context, spec cri.BuildSpec, out io.Writer) error {
+func (c Client[F]) Build(ctx context.Context, spec container.BuildSpec, out io.Writer) error {
 	args := buildArgs(spec)
 	//nolint:gosec // every argument comes from the environment definition
 	cmd := exec.CommandContext(ctx, c.dialect().Binary, args...)
@@ -373,8 +373,8 @@ func (c Client[F]) Build(ctx context.Context, spec cri.BuildSpec, out io.Writer)
 	return nil
 }
 
-// Run implements [cri.Runtime] for the engine.
-func (c Client[F]) Run(ctx context.Context, spec cri.RunSpec) (string, error) {
+// Run implements [container.Runtime] for the engine.
+func (c Client[F]) Run(ctx context.Context, spec container.RunSpec) (string, error) {
 	out, err := c.Output(ctx, nil, runArgs(spec)...)
 	if err != nil {
 		return "", friendlyRunErr(c.dialect(), fmt.Errorf("%s: run %q: %w", c.dialect().Binary, spec.Name, err), spec)
@@ -387,7 +387,7 @@ func (c Client[F]) Run(ctx context.Context, spec cri.RunSpec) (string, error) {
 // use, or an image that couldn't be found or pulled. It returns err
 // unchanged for anything else: guessing at an unfamiliar engine error is
 // worse than showing its raw text.
-func friendlyRunErr(d Dialect, err error, spec cri.RunSpec) error {
+func friendlyRunErr(d Dialect, err error, spec container.RunSpec) error {
 	msg := err.Error()
 	switch {
 	case containsAny(msg, d.PortInUse):
@@ -404,7 +404,7 @@ func containsAny(s string, substrs []string) bool {
 	return slices.ContainsFunc(substrs, func(sub string) bool { return strings.Contains(s, sub) })
 }
 
-// Remove implements [cri.Runtime] for the engine.
+// Remove implements [container.Runtime] for the engine.
 func (c Client[F]) Remove(ctx context.Context, name string) error {
 	if _, err := c.Output(ctx, nil, "rm", "--force", "--volumes", name); err != nil {
 		if ok, existsErr := c.containerExists(ctx, name); existsErr == nil && !ok {
@@ -452,30 +452,30 @@ type inspectResult struct {
 	}
 }
 
-// Inspect implements [cri.Runtime] for the engine.
-func (c Client[F]) Inspect(ctx context.Context, name string) (cri.Container, error) {
+// Inspect implements [container.Runtime] for the engine.
+func (c Client[F]) Inspect(ctx context.Context, name string) (container.Container, error) {
 	out, err := c.Output(ctx, nil, "inspect", "--type", "container", "--format", "{{json .}}", name)
 	if err != nil {
 		if ok, existsErr := c.containerExists(ctx, name); existsErr == nil && !ok {
-			return cri.Container{}, fmt.Errorf("%s: inspect %q: %w", c.dialect().Binary, name, cri.ErrNotFound)
+			return container.Container{}, fmt.Errorf("%s: inspect %q: %w", c.dialect().Binary, name, container.ErrNotFound)
 		}
-		return cri.Container{}, fmt.Errorf("%s: inspect %q: %w", c.dialect().Binary, name, err)
+		return container.Container{}, fmt.Errorf("%s: inspect %q: %w", c.dialect().Binary, name, err)
 	}
 
 	var raw inspectResult
 	if jsonErr := json.Unmarshal([]byte(out), &raw); jsonErr != nil {
-		return cri.Container{}, fmt.Errorf("%s: inspect %q: decode: %w", c.dialect().Binary, name, jsonErr)
+		return container.Container{}, fmt.Errorf("%s: inspect %q: decode: %w", c.dialect().Binary, name, jsonErr)
 	}
 
 	return fromInspect(raw), nil
 }
 
-func fromInspect(raw inspectResult) cri.Container {
-	c := cri.Container{
+func fromInspect(raw inspectResult) container.Container {
+	c := container.Container{
 		ID:       raw.ID,
 		Name:     strings.TrimPrefix(raw.Name, "/"),
 		Running:  raw.State.Running,
-		Exited:   cri.StatusExited(raw.State.Status),
+		Exited:   container.StatusExited(raw.State.Status),
 		ExitCode: raw.State.ExitCode,
 		IPs:      map[string]string{},
 		IPv6:     map[string]string{},
@@ -530,21 +530,21 @@ func (c Client[F]) Exec(ctx context.Context, container string, args ...string) (
 
 // ExecInput runs a command inside a container, with stdin feeding the
 // command, and returns its standard output.
-func (c Client[F]) ExecInput(ctx context.Context, container string, stdin io.Reader, args ...string) (string, error) {
+func (c Client[F]) ExecInput(ctx context.Context, name string, stdin io.Reader, args ...string) (string, error) {
 	full := make([]string, 0, len(args)+3)
 	full = append(full, "exec")
 	if stdin != nil {
 		full = append(full, "-i")
 	}
-	full = append(full, container)
+	full = append(full, name)
 	full = append(full, args...)
 
 	out, err := c.Output(ctx, stdin, full...)
 	if err != nil {
-		if ok, existsErr := c.containerExists(ctx, container); existsErr == nil && !ok {
-			return "", fmt.Errorf("%s: exec %q: %w", c.dialect().Binary, container, cri.ErrNotFound)
+		if ok, existsErr := c.containerExists(ctx, name); existsErr == nil && !ok {
+			return "", fmt.Errorf("%s: exec %q: %w", c.dialect().Binary, name, container.ErrNotFound)
 		}
-		return "", fmt.Errorf("%s: exec %q: %w", c.dialect().Binary, container, err)
+		return "", fmt.Errorf("%s: exec %q: %w", c.dialect().Binary, name, err)
 	}
 	return out, nil
 }

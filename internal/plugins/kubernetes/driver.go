@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -108,10 +108,10 @@ const (
 // and inspects a cluster's containers, runs commands in them, and manages the
 // cluster's network. The minikube driver needs all of it.
 type driverRuntime interface {
-	cri.Containers
-	cri.Lister
-	cri.Networks
-	cri.Execer
+	container.Containers
+	container.Lister
+	container.Networks
+	container.Execer
 }
 
 // newDriver builds the driver that cfg names for one cluster. rt may be nil

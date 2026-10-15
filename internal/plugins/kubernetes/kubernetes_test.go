@@ -16,8 +16,8 @@ import (
 	"github.com/justenwalker/kevin/internal/clusterrelay"
 	"github.com/justenwalker/kevin/internal/command"
 	kindcmd "github.com/justenwalker/kevin/internal/command/kind"
-	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/docker"
+	"github.com/justenwalker/kevin/internal/container"
+	"github.com/justenwalker/kevin/internal/container/docker"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -47,14 +47,14 @@ func (c *capture) Progress(string, int64, int64) {}
 type fakeRuntime struct {
 	exec      func(ctx context.Context, container string, args ...string) (string, error)
 	execInput func(ctx context.Context, container string, stdin io.Reader, args ...string) (string, error)
-	inspect   func(ctx context.Context, container string) (cri.Container, error)
-	run       func(ctx context.Context, spec cri.RunSpec) (string, error)
+	inspect   func(ctx context.Context, container string) (container.Container, error)
+	run       func(ctx context.Context, spec container.RunSpec) (string, error)
 	save      func(ctx context.Context, image string) (io.ReadCloser, error)
 
 	listByLabel func(ctx context.Context, key, value string) ([]string, error)
 
 	networkConnect func(ctx context.Context, network, container string) error
-	networkCreate  func(ctx context.Context, name string, opts cri.NetworkOptions) error
+	networkCreate  func(ctx context.Context, name string, opts container.NetworkOptions) error
 	networkRemove  func(ctx context.Context, name string) error
 }
 
@@ -77,14 +77,14 @@ func (f fakeRuntime) ExecInput(ctx context.Context, container string, stdin io.R
 	return f.execInput(ctx, container, stdin, args...)
 }
 
-func (f fakeRuntime) Inspect(ctx context.Context, name string) (cri.Container, error) {
+func (f fakeRuntime) Inspect(ctx context.Context, name string) (container.Container, error) {
 	if f.inspect == nil {
-		return cri.Container{}, nil
+		return container.Container{}, nil
 	}
 	return f.inspect(ctx, name)
 }
 
-func (f fakeRuntime) Run(ctx context.Context, spec cri.RunSpec) (string, error) {
+func (f fakeRuntime) Run(ctx context.Context, spec container.RunSpec) (string, error) {
 	if f.run == nil {
 		return "", nil
 	}
@@ -93,7 +93,7 @@ func (f fakeRuntime) Run(ctx context.Context, spec cri.RunSpec) (string, error) 
 
 func (fakeRuntime) Remove(context.Context, string) error { return nil }
 
-func (fakeRuntime) Build(context.Context, cri.BuildSpec, io.Writer) error { return nil }
+func (fakeRuntime) Build(context.Context, container.BuildSpec, io.Writer) error { return nil }
 
 func (f fakeRuntime) Save(ctx context.Context, image string) (io.ReadCloser, error) {
 	if f.save == nil {
@@ -102,7 +102,7 @@ func (f fakeRuntime) Save(ctx context.Context, image string) (io.ReadCloser, err
 	return f.save(ctx, image)
 }
 
-func (f fakeRuntime) NetworkCreate(ctx context.Context, name string, opts cri.NetworkOptions) error {
+func (f fakeRuntime) NetworkCreate(ctx context.Context, name string, opts container.NetworkOptions) error {
 	if f.networkCreate == nil {
 		return nil
 	}
@@ -123,8 +123,8 @@ func (f fakeRuntime) NetworkConnect(ctx context.Context, network, container stri
 	return f.networkConnect(ctx, network, container)
 }
 
-func (fakeRuntime) NetworkGateway(context.Context, string) (cri.Gateway, error) {
-	return cri.Gateway{}, nil
+func (fakeRuntime) NetworkGateway(context.Context, string) (container.Gateway, error) {
+	return container.Gateway{}, nil
 }
 
 func (f fakeRuntime) ListByLabel(ctx context.Context, key, value string) ([]string, error) {
@@ -262,8 +262,8 @@ func TestFinishClusterSetup(t *testing.T) {
 		}
 		return "", nil
 	}}
-	happyRT := fakeRuntime{inspect: func(_ context.Context, name string) (cri.Container, error) {
-		return cri.Container{ID: name + "-id", NetnsPath: "/proc/1/ns/net"}, nil
+	happyRT := fakeRuntime{inspect: func(_ context.Context, name string) (container.Container, error) {
+		return container.Container{ID: name + "-id", NetnsPath: "/proc/1/ns/net"}, nil
 	}}
 
 	t.Run("with every opt-out set, does nothing", func(t *testing.T) {
@@ -293,8 +293,8 @@ func TestFinishClusterSetup(t *testing.T) {
 
 	t.Run("propagates a capture inspect failure", func(t *testing.T) {
 		env := plugin.Env{Relay: "10.244.0.5:53"}
-		rt := fakeRuntime{inspect: func(context.Context, string) (cri.Container, error) {
-			return cri.Container{}, errors.New("no such container")
+		rt := fakeRuntime{inspect: func(context.Context, string) (container.Container, error) {
+			return container.Container{}, errors.New("no such container")
 		}}
 		_, err := finishClusterSetup(t.Context(), rt, happyDriver, config{}, env, nodes, clusterrelay.ForwarderSpec{}, &capture{})
 		require.Error(t, err)

@@ -3,7 +3,7 @@ package engine
 import (
 	"context"
 
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/relay"
@@ -38,21 +38,21 @@ type trafficRelay interface {
 // gatewayLookup is what the proxy needs of the container engine: the
 // gateway address of the project network.
 type gatewayLookup interface {
-	NetworkGateway(ctx context.Context, name string) (cri.Gateway, error)
+	NetworkGateway(ctx context.Context, name string) (container.Gateway, error)
 }
 
 // networkPreparer is what Run needs before any step: a reachable engine and
 // the project network.
 type networkPreparer interface {
-	cri.Prober
-	NetworkCreate(ctx context.Context, name string, opts cri.NetworkOptions) error
+	container.Prober
+	NetworkCreate(ctx context.Context, name string, opts container.NetworkOptions) error
 }
 
 // projectRuntime is what a run asks of the container engine once its network
 // exists: finding and removing the project's containers and its network.
 type projectRuntime interface {
-	cri.Lister
-	cri.Containers
+	container.Lister
+	container.Containers
 	NetworkRemove(ctx context.Context, name string) error
 }
 
@@ -64,7 +64,7 @@ type hostRuntime interface {
 }
 
 var (
-	_ hostRuntime  = cri.Runtime(nil)
+	_ hostRuntime  = container.Runtime(nil)
 	_ stepPlugin   = (*pluginhost.Client)(nil)
 	_ routeTable   = (*proxy.Proxy)(nil)
 	_ trafficRelay = (*relay.Relay)(nil)

@@ -129,7 +129,7 @@ leaves no tag or GitHub release behind.
 - Integration tests are gated behind the `integration` build tag (see files
   named `integration_test.go` or `*_integration_test.go` in
   `internal/plugins/kubernetes`, `internal/plugins/container`, `internal/relay`,
-  `internal/engine`, `internal/docker`, `internal/podman`) and generally require Docker (the k3d and minikube
+  `internal/engine`, `internal/container/docker`, `internal/container/podman`) and generally require Docker (the k3d and minikube
   driver suites also need a real `k3d` or `minikube` binary on `PATH`). Run with
   `go test -tags integration ./...`.
 - Try a real environment end-to-end:
@@ -331,10 +331,10 @@ Key model to hold in your head when changing any of this:
 - **Container engine via CLI, not SDK.** kevin shells out to `docker` (or
   `podman`, when the `--engine`/`KEVIN_ENGINE` flag or env var names it, or
   auto-detection picks it - which engine to drive is a host choice, never a
-  `kevin.cue` one - `internal/docker` and `internal/podman` are each a
-  `clirt.Dialect` over the shared client in `internal/cri/clirt`, podman
+  `kevin.cue` one - `internal/container/docker` and `internal/container/podman` are each a
+  `clirt.Dialect` over the shared client in `internal/container/clirt`, podman
   adding `DockerHost`, both behind the `cri.Runtime` contract in
-  `internal/cri`, selected by `internal/engines`) and parses JSON output
+  `internal/container`, selected by `internal/container/engines`) and parses JSON output
   rather than importing
   `github.com/docker/docker`, to avoid that dependency tree. Kubernetes
   support is a plugin (`internal/plugins/kubernetes`) whose `kind` driver

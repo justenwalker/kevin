@@ -1,4 +1,4 @@
-// Package engines picks a [cri.Runtime] by engine, so every caller that
+// Package engines picks a [container.Runtime] by engine, so every caller that
 // resolves the host's selected container engine (the container and kind
 // plugins, the engine package's own network/proxy setup, the relay, "kevin
 // doctor") does it the same way instead of duplicating the switch.
@@ -8,9 +8,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/docker"
-	"github.com/justenwalker/kevin/internal/podman"
+	"github.com/justenwalker/kevin/internal/container"
+	"github.com/justenwalker/kevin/internal/container/docker"
+	"github.com/justenwalker/kevin/internal/container/podman"
 	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -28,17 +28,17 @@ func Parse(name string) (step.Engine, error) {
 	}
 }
 
-// For returns the [cri.Runtime] for a host-side engine.
-func For(e step.Engine) cri.Runtime {
+// For returns the [container.Runtime] for a host-side engine.
+func For(e step.Engine) container.Runtime {
 	if e == step.EnginePodman {
 		return podman.Client{}
 	}
 	return docker.Client{}
 }
 
-// Of returns the [cri.Runtime] for a plugin's engine. It cannot fail: a
+// Of returns the [container.Runtime] for a plugin's engine. It cannot fail: a
 // [plugin.Engine] only holds engines kevin implements.
-func Of(e plugin.Engine) cri.Runtime {
+func Of(e plugin.Engine) container.Runtime {
 	if e == plugin.EnginePodman {
 		return podman.Client{}
 	}

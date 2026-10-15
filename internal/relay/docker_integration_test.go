@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/docker"
+	"github.com/justenwalker/kevin/internal/container"
+	"github.com/justenwalker/kevin/internal/container/docker"
 	"github.com/justenwalker/kevin/internal/relay"
 )
 
@@ -51,8 +51,8 @@ func TestStartAndClose(t *testing.T) {
 	image := fixtureImage(t)
 
 	network := "kevin-relay-test"
-	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, cri.NetworkOptions{
-		Labels: map[string]string{cri.LabelProject: "relay-test"},
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, container.NetworkOptions{
+		Labels: map[string]string{container.LabelProject: "relay-test"},
 	}))
 	t.Cleanup(func() {
 		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
@@ -75,9 +75,9 @@ func TestStartAndClose(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, name, info.Name, "the relay container must carry the project prefix and the relay suffix")
 	assert.True(t, info.Running, "the relay container must be running")
-	assert.Equal(t, "relay-test", info.Labels[cri.LabelProject], "the relay container must carry the project label")
+	assert.Equal(t, "relay-test", info.Labels[container.LabelProject], "the relay container must carry the project label")
 
-	labels, err := dockerClient.ListByLabel(t.Context(), cri.LabelRole, relay.Role)
+	labels, err := dockerClient.ListByLabel(t.Context(), container.LabelRole, relay.Role)
 	require.NoError(t, err)
 	assert.Contains(t, labels, name, "the relay container must carry the role label")
 
@@ -95,7 +95,7 @@ func TestStartAndClose(t *testing.T) {
 
 	require.NoError(t, r.Close())
 	_, err = dockerClient.Inspect(t.Context(), name)
-	require.ErrorIs(t, err, cri.ErrNotFound, "Close must remove the container")
+	require.ErrorIs(t, err, container.ErrNotFound, "Close must remove the container")
 
 	// Close is idempotent.
 	require.NoError(t, r.Close())
@@ -106,8 +106,8 @@ func TestStartReusesRunningContainer(t *testing.T) {
 	image := fixtureImage(t)
 
 	network := "kevin-relay-reuse-test"
-	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, cri.NetworkOptions{
-		Labels: map[string]string{cri.LabelProject: "relay-reuse-test"},
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, container.NetworkOptions{
+		Labels: map[string]string{container.LabelProject: "relay-reuse-test"},
 	}))
 	t.Cleanup(func() {
 		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
@@ -151,8 +151,8 @@ func TestStartReplacesADriftedContainer(t *testing.T) {
 	image := fixtureImage(t)
 
 	network := "kevin-relay-drift-test"
-	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, cri.NetworkOptions{
-		Labels: map[string]string{cri.LabelProject: "relay-drift-test"},
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, container.NetworkOptions{
+		Labels: map[string]string{container.LabelProject: "relay-drift-test"},
 	}))
 	t.Cleanup(func() {
 		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
@@ -196,8 +196,8 @@ func TestLookup(t *testing.T) {
 	image := fixtureImage(t)
 
 	network := "kevin-relay-lookup-test"
-	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, cri.NetworkOptions{
-		Labels: map[string]string{cri.LabelProject: "relay-lookup-test"},
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, container.NetworkOptions{
+		Labels: map[string]string{container.LabelProject: "relay-lookup-test"},
 	}))
 	t.Cleanup(func() {
 		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)

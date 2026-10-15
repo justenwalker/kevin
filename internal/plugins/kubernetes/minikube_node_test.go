@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 )
 
 func TestMinikubeDriverTrustCA(t *testing.T) {
@@ -122,9 +122,9 @@ func TestMinikubeDriverRefreshAccess(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "kubeconfig")
 		require.NoError(t, os.WriteFile(path, []byte(kubeconfig), 0o600))
 		return &minikubeDriver{name: "demo", kubeconfig: path, rt: fakeRuntime{
-			inspect: func(_ context.Context, name string) (cri.Container, error) {
+			inspect: func(_ context.Context, name string) (container.Container, error) {
 				assert.Equal(t, "demo", name)
-				return cri.Container{Ports: ports}, nil
+				return container.Container{Ports: ports}, nil
 			},
 		}}
 	}

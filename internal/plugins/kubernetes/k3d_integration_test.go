@@ -18,8 +18,8 @@ import (
 	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/command"
 	k3dcmd "github.com/justenwalker/kevin/internal/command/k3d"
-	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/podman"
+	"github.com/justenwalker/kevin/internal/container"
+	"github.com/justenwalker/kevin/internal/container/podman"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/state"
@@ -91,8 +91,8 @@ func (s *K3dSuite) SetupSuite() {
 	relaytest.UseDevImage(t)
 
 	s.network = "kevin-" + k3dProject
-	s.Require().NoError(dockerClient.NetworkCreate(t.Context(), s.network, cri.NetworkOptions{
-		Labels: map[string]string{cri.LabelProject: k3dProject},
+	s.Require().NoError(dockerClient.NetworkCreate(t.Context(), s.network, container.NetworkOptions{
+		Labels: map[string]string{container.LabelProject: k3dProject},
 	}))
 
 	t.Setenv(state.UserStateDirEnv, t.TempDir())
@@ -150,7 +150,7 @@ func (s *K3dSuite) TearDownSuite() {
 		s.NoError(err)
 		s.Empty(nodes, "Down must remove every node")
 		_, gwErr := dockerClient.NetworkGateway(ctx, "kevin-k3d-"+s.clusterName)
-		s.ErrorIs(gwErr, cri.ErrNotFound, "Down must remove the network that Create made")
+		s.ErrorIs(gwErr, container.ErrNotFound, "Down must remove the network that Create made")
 	}
 
 	if s.relay != nil {
@@ -405,7 +405,7 @@ func TestK3dOnPodman(t *testing.T) {
 		t.Fatalf("Down under podman: %v", err)
 	}
 	for _, node := range nodes {
-		if _, inspectErr := client.Inspect(t.Context(), node); !errors.Is(inspectErr, cri.ErrNotFound) {
+		if _, inspectErr := client.Inspect(t.Context(), node); !errors.Is(inspectErr, container.ErrNotFound) {
 			t.Errorf("node %s survived Down: %v", node, inspectErr)
 		}
 	}

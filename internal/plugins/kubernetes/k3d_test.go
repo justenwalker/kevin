@@ -15,7 +15,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/command"
 	k3dcmd "github.com/justenwalker/kevin/internal/command/k3d"
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -307,7 +307,7 @@ func TestK3dDriverCreate(t *testing.T) {
 
 	t.Run("creates the network before the cluster", func(t *testing.T) {
 		var network string
-		d, _ := stubbed(t, fakeRuntime{networkCreate: func(_ context.Context, name string, _ cri.NetworkOptions) error {
+		d, _ := stubbed(t, fakeRuntime{networkCreate: func(_ context.Context, name string, _ container.NetworkOptions) error {
 			network = name
 			return nil
 		}}, nil, server)

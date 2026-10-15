@@ -8,13 +8,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 )
 
 func TestJoinProjectNetwork(t *testing.T) {
-	onNetwork := func(network string) func(context.Context, string) (cri.Container, error) {
-		return func(context.Context, string) (cri.Container, error) {
-			return cri.Container{IPs: map[string]string{network: "10.0.0.2"}}, nil
+	onNetwork := func(network string) func(context.Context, string) (container.Container, error) {
+		return func(context.Context, string) (container.Container, error) {
+			return container.Container{IPs: map[string]string{network: "10.0.0.2"}}, nil
 		}
 	}
 
@@ -58,15 +58,15 @@ func TestJoinProjectNetwork(t *testing.T) {
 	})
 
 	t.Run("an inspect failure is an error", func(t *testing.T) {
-		rt := fakeRuntime{inspect: func(context.Context, string) (cri.Container, error) {
-			return cri.Container{}, errors.New("no such container")
+		rt := fakeRuntime{inspect: func(context.Context, string) (container.Container, error) {
+			return container.Container{}, errors.New("no such container")
 		}}
 		require.Error(t, joinProjectNetwork(t.Context(), rt, []string{"demo-cluster"}, "kevin-demo"))
 	})
 
 	t.Run("a node on the project network and its own network passes", func(t *testing.T) {
-		rt := fakeRuntime{inspect: func(context.Context, string) (cri.Container, error) {
-			return cri.Container{IPs: map[string]string{"kevin-demo": "10.0.0.2", "kind": "172.18.0.2"}}, nil
+		rt := fakeRuntime{inspect: func(context.Context, string) (container.Container, error) {
+			return container.Container{IPs: map[string]string{"kevin-demo": "10.0.0.2", "kind": "172.18.0.2"}}, nil
 		}}
 		require.NoError(t, joinProjectNetwork(t.Context(), rt, []string{"demo-cluster"}, "kevin-demo"))
 	})

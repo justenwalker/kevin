@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -73,7 +73,7 @@ func ForwarderName(cluster string) string {
 // StartForwarder runs the forwarder container for spec and reports its host
 // addresses. It reuses a running container that was started for the same
 // Target and UDP pool size, and replaces any other one under the same name.
-func StartForwarder(ctx context.Context, rt cri.Containers, spec ForwarderSpec) (Forwarder, error) {
+func StartForwarder(ctx context.Context, rt container.Containers, spec ForwarderSpec) (Forwarder, error) {
 	poolSize, err := relay.UDPPoolSize()
 	if err != nil {
 		return Forwarder{}, fmt.Errorf("clusterrelay: %w", err)
@@ -84,7 +84,7 @@ func StartForwarder(ctx context.Context, rt cri.Containers, spec ForwarderSpec) 
 	switch {
 	case err == nil && info.Running && info.Labels[targetLabel] == spec.Target && info.Labels[poolLabel] == pool:
 		return forwarderFromInfo(info)
-	case err != nil && !errors.Is(err, cri.ErrNotFound):
+	case err != nil && !errors.Is(err, container.ErrNotFound):
 		return Forwarder{}, fmt.Errorf("clusterrelay: inspect %s: %w", spec.Name, err)
 	}
 
@@ -99,17 +99,17 @@ func StartForwarder(ctx context.Context, rt cri.Containers, spec ForwarderSpec) 
 			ports = append(ports, fmt.Sprintf("127.0.0.1::%d/udp", UDPNodePortBase+i))
 		}
 	}
-	_, err = rt.Run(ctx, cri.RunSpec{
+	_, err = rt.Run(ctx, container.RunSpec{
 		Image:   spec.Image,
 		Name:    spec.Name,
 		Network: spec.Network,
 		Labels: map[string]string{
-			cri.LabelProject: spec.Project,
-			cri.LabelRole:    Role,
-			cri.LabelScope:   cri.ScopeLabel(spec.Project, spec.Scope.String()),
-			cri.LabelURN:     cri.URNLabel(spec.Project, spec.Scope.String(), spec.Step),
-			targetLabel:      spec.Target,
-			poolLabel:        pool,
+			container.LabelProject: spec.Project,
+			container.LabelRole:    Role,
+			container.LabelScope:   container.ScopeLabel(spec.Project, spec.Scope.String()),
+			container.LabelURN:     container.URNLabel(spec.Project, spec.Scope.String(), spec.Step),
+			targetLabel:            spec.Target,
+			poolLabel:              pool,
 		},
 		Cmd:   cmd,
 		Ports: ports,
@@ -126,10 +126,10 @@ func StartForwarder(ctx context.Context, rt cri.Containers, spec ForwarderSpec) 
 
 // LookupForwarder reports the running forwarder named name, or (nil, nil)
 // when it is absent or stopped.
-func LookupForwarder(ctx context.Context, rt cri.Containers, name string) (*Forwarder, error) {
+func LookupForwarder(ctx context.Context, rt container.Containers, name string) (*Forwarder, error) {
 	info, err := rt.Inspect(ctx, name)
 	if err != nil {
-		if errors.Is(err, cri.ErrNotFound) {
+		if errors.Is(err, container.ErrNotFound) {
 			return nil, nil //nolint:nilnil // "no such forwarder" is a documented, valid result
 		}
 		return nil, fmt.Errorf("clusterrelay: inspect %s: %w", name, err)
@@ -146,7 +146,7 @@ func LookupForwarder(ctx context.Context, rt cri.Containers, name string) (*Forw
 
 // forwarderFromInfo reads the published relay ports off an inspected
 // forwarder container.
-func forwarderFromInfo(info cri.Container) (Forwarder, error) {
+func forwarderFromInfo(info container.Container) (Forwarder, error) {
 	addr, ok := info.Ports[strconv.Itoa(NodePort)+"/tcp"]
 	if !ok {
 		return Forwarder{}, fmt.Errorf("clusterrelay: %s: %w", info.Name, ErrNoPublishedPort)

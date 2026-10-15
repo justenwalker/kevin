@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/container"
 )
 
 // joinProjectNetwork connects every node to the project network, which then
@@ -28,7 +28,7 @@ func joinProjectNetwork(ctx context.Context, rt networkRuntime, nodes []string, 
 
 // verifyNetworkMembership returns [ErrNetworkMismatch] when container is not
 // on network.
-func verifyNetworkMembership(ctx context.Context, rt cri.Containers, container, network string) error {
+func verifyNetworkMembership(ctx context.Context, rt container.Containers, container, network string) error {
 	info, err := rt.Inspect(ctx, container)
 	if err != nil {
 		return fmt.Errorf("kubernetes: inspect %s: %w", container, err)
@@ -42,6 +42,6 @@ func verifyNetworkMembership(ctx context.Context, rt cri.Containers, container, 
 // networkRuntime is what joining a cluster's nodes to the project network
 // needs: connecting them, and inspecting them to verify the join.
 type networkRuntime interface {
-	cri.Networks
-	cri.Containers
+	container.Networks
+	container.Containers
 }
