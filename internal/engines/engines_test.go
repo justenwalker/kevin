@@ -12,33 +12,26 @@ import (
 
 func TestNew(t *testing.T) {
 	t.Run("empty name means docker", func(t *testing.T) {
-		rt, err := New("", nil)
+		rt, err := New("")
 		require.NoError(t, err)
 		assert.IsType(t, docker.Client{}, rt)
 	})
 
 	t.Run("docker", func(t *testing.T) {
-		rt, err := New("docker", nil)
+		rt, err := New("docker")
 		require.NoError(t, err)
 		assert.IsType(t, docker.Client{}, rt)
 	})
 
 	t.Run("podman", func(t *testing.T) {
-		rt, err := New("podman", nil)
+		rt, err := New("podman")
 		require.NoError(t, err)
 		assert.IsType(t, podman.Client{}, rt)
 	})
 
-	t.Run("a config decode error returns a nil runtime", func(t *testing.T) {
-		for _, name := range []string{"docker", "podman"} {
-			rt, err := New(name, []byte{0xff})
-			require.Error(t, err)
-			assert.Nil(t, rt)
-		}
-	})
-
-	t.Run("an unknown engine reports ErrUnsupported", func(t *testing.T) {
-		_, err := New("bogus", nil)
+	t.Run("an unknown engine reports ErrUnsupported with no runtime", func(t *testing.T) {
+		rt, err := New("bogus")
+		assert.Nil(t, rt)
 		require.ErrorIs(t, err, ErrUnsupported)
 	})
 }
@@ -51,17 +44,13 @@ func TestDetect(t *testing.T) {
 	ctx := t.Context()
 	name, err := Detect(ctx)
 
-	dockerClient, dockerErr := docker.New(nil)
-	require.NoError(t, dockerErr)
-	if dockerClient.Available(ctx) == nil {
+	if (docker.Client{}).Available(ctx) == nil {
 		require.NoError(t, err)
 		assert.Equal(t, "docker", name, "docker wins the tie-break when both are available")
 		return
 	}
 
-	podmanClient, podmanErr := podman.New(nil)
-	require.NoError(t, podmanErr)
-	if podmanClient.Available(ctx) == nil {
+	if (podman.Client{}).Available(ctx) == nil {
 		require.NoError(t, err)
 		assert.Equal(t, "podman", name)
 		return

@@ -96,15 +96,23 @@ type customCoreDNS interface {
 	CoreDNSCustom()
 }
 
+// The names of the drivers, as the with block spells them and as errors label
+// them.
+const (
+	driverKind     = "kind"
+	driverK3d      = "k3d"
+	driverMinikube = "minikube"
+)
+
 // newDriver builds the driver that cfg names for one cluster. rt may be nil
 // for a caller that only removes or inspects the cluster.
 func newDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.Runtime) (driver, error) { //nolint:ireturn // the driver is the seam: which one is only known from the with block
 	switch cfg.Driver {
-	case "kind":
+	case driverKind:
 		return newKindDriver(cfg, env, name, kubeconfig, rt), nil
-	case "k3d":
+	case driverK3d:
 		return newK3dDriver(cfg, env, name, kubeconfig, rt)
-	case "minikube":
+	case driverMinikube:
 		return newMinikubeDriver(cfg, env, name, kubeconfig, rt)
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnknownDriver, cfg.Driver)

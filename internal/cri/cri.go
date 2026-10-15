@@ -178,26 +178,17 @@ type Gateway struct {
 	V6 netip.Addr
 }
 
-// Runtime is a container engine. internal/docker implements Runtime by
-// shelling out to the docker binary; internal/podman implements it by
-// shelling out to podman.
-//
-// Runtime carries the container lifecycle, the shared project network every
-// step joins, and the escape hatches (Exec, Save, NetworkConnect,
-// Available, NetworkGateway, ListByLabel) a caller needs to drive a
-// container it created outside of Run - such as kind's own node containers,
-// or to find and remove every resource of a project without a state file.
-type Runtime interface {
+// Prober checks that the engine can be used.
+type Prober interface {
 	// Available reports whether the engine command runs and its daemon
 	// answers. Available returns ErrUnavailable when it does not.
 	Available(ctx context.Context) error
+}
 
+// Containers is the container lifecycle.
+type Containers interface {
 	// Run creates a container and returns the container ID.
 	Run(ctx context.Context, spec RunSpec) (string, error)
-
-	// Build builds an image from a local Dockerfile and streams the output
-	// of the build to out.
-	Build(ctx context.Context, spec BuildSpec, out io.Writer) error
 
 	// Remove stops and deletes a container. Remove is idempotent: a
 	// container that is absent is not an error.
@@ -206,7 +197,11 @@ type Runtime interface {
 	// Inspect reports the state of one container. Inspect returns
 	// ErrNotFound when the container is absent.
 	Inspect(ctx context.Context, name string) (Container, error)
+}
 
+// Execer runs commands inside a container that exists already, such as one of
+// kind's node containers.
+type Execer interface {
 	// Exec runs a command inside a container and returns its standard
 	// output.
 	Exec(ctx context.Context, container string, args ...string) (string, error)
@@ -214,11 +209,21 @@ type Runtime interface {
 	// ExecInput runs a command inside a container, with stdin feeding the
 	// command, and returns its standard output.
 	ExecInput(ctx context.Context, container string, stdin io.Reader, args ...string) (string, error)
+}
+
+// Images builds and exports images.
+type Images interface {
+	// Build builds an image from a local Dockerfile and streams the output
+	// of the build to out.
+	Build(ctx context.Context, spec BuildSpec, out io.Writer) error
 
 	// Save streams a container image as a tar archive. The caller must
 	// close the returned reader.
 	Save(ctx context.Context, image string) (io.ReadCloser, error)
+}
 
+// Networks manages the shared project network every step joins.
+type Networks interface {
 	// NetworkCreate creates the network that every step of a project
 	// joins. The call succeeds when the network exists already.
 	NetworkCreate(ctx context.Context, name string, opts NetworkOptions) error
@@ -239,7 +244,31 @@ type Runtime interface {
 	// ErrNoGateway when the network carries no gateway in either address
 	// family.
 	NetworkGateway(ctx context.Context, name string) (Gateway, error)
+}
 
+// Lister finds containers without a state file.
+type Lister interface {
 	// ListByLabel returns the names of the containers that carry a label.
 	ListByLabel(ctx context.Context, key, value string) ([]string, error)
+}
+
+// DockerAPIHost is a runtime whose engine serves the Docker API on a socket
+// other than the default one, such as podman. A tool that talks the Docker API
+// itself, like k3d, needs that address to reach the engine.
+type DockerAPIHost interface {
+	// DockerHost returns the unix:// URL of the engine's Docker API socket.
+	DockerHost(ctx context.Context) (string, error)
+}
+
+// Runtime is a container engine: every role together. internal/docker
+// implements Runtime by shelling out to the docker binary; internal/podman
+// implements it by shelling out to podman. A caller that needs only some of
+// the roles takes just those, so its test fake stays small.
+type Runtime interface {
+	Prober
+	Containers
+	Execer
+	Images
+	Networks
+	Lister
 }

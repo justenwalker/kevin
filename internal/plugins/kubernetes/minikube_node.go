@@ -51,14 +51,8 @@ func (d *minikubeDriver) TrustCA(ctx context.Context, allNodes []string, caPEM s
 	out.Log("stdout", "checking that the nodes hold the kevin root certificate")
 	out.Progress("trusting the kevin ca", 0, 0)
 
-	for _, node := range allNodes {
-		installed, err := d.rt.Exec(ctx, node, "cat", minikubeCAPath)
-		if err != nil {
-			return fmt.Errorf("kubernetes: minikube: read the kevin root certificate on %s: %w", node, err)
-		}
-		if !strings.Contains(normalizePEM(installed), normalizePEM(caPEM)) {
-			return fmt.Errorf("kubernetes: minikube: %s: %w", node, ErrNotTrusted)
-		}
+	if err := d.nodes().verifyFileHolds(ctx, allNodes, minikubeCAPath, caPEM); err != nil {
+		return err
 	}
 
 	out.Log("stdout", "the nodes trust the kevin root certificate")
@@ -68,12 +62,7 @@ func (d *minikubeDriver) TrustCA(ctx context.Context, allNodes []string, caPEM s
 // PointDNSAtRelay rewrites every node's own /etc/resolv.conf to name relay
 // as its only nameserver.
 func (d *minikubeDriver) PointDNSAtRelay(ctx context.Context, allNodes []string, relay string) error {
-	for _, node := range allNodes {
-		if _, err := d.rt.Exec(ctx, node, "sh", "-c", "echo nameserver "+relay+" > /etc/resolv.conf"); err != nil {
-			return fmt.Errorf("kubernetes: minikube: point %s's dns at the relay: %w", node, err)
-		}
-	}
-	return nil
+	return d.nodes().PointDNSAtRelay(ctx, allNodes, relay)
 }
 
 // minikubeAPIPort is the container port that the API server listens on.

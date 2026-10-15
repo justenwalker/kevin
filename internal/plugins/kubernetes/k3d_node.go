@@ -2,8 +2,6 @@ package kubernetes
 
 import (
 	"context"
-	"fmt"
-	"strings"
 
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -15,14 +13,8 @@ func (d *k3dDriver) TrustCA(ctx context.Context, allNodes []string, caPEM string
 	out.Log("stdout", "checking that the nodes hold the kevin root certificate")
 	out.Progress("trusting the kevin ca", 0, 0)
 
-	for _, node := range allNodes {
-		mounted, err := d.rt.Exec(ctx, node, "cat", k3dCAPath)
-		if err != nil {
-			return fmt.Errorf("kubernetes: k3d: read the kevin root certificate on %s: %w", node, err)
-		}
-		if !strings.Contains(normalizePEM(mounted), normalizePEM(caPEM)) {
-			return fmt.Errorf("kubernetes: k3d: %s: %w", node, ErrNotTrusted)
-		}
+	if err := d.nodes().verifyFileHolds(ctx, allNodes, k3dCAPath, caPEM); err != nil {
+		return err
 	}
 
 	out.Log("stdout", "the nodes trust the kevin root certificate")
@@ -32,10 +24,5 @@ func (d *k3dDriver) TrustCA(ctx context.Context, allNodes []string, caPEM string
 // PointDNSAtRelay rewrites every node's own /etc/resolv.conf to name relay
 // as its only nameserver.
 func (d *k3dDriver) PointDNSAtRelay(ctx context.Context, allNodes []string, relay string) error {
-	for _, node := range allNodes {
-		if _, err := d.rt.Exec(ctx, node, "sh", "-c", "echo nameserver "+relay+" > /etc/resolv.conf"); err != nil {
-			return fmt.Errorf("kubernetes: k3d: point %s's dns at the relay: %w", node, err)
-		}
-	}
-	return nil
+	return d.nodes().PointDNSAtRelay(ctx, allNodes, relay)
 }

@@ -97,7 +97,7 @@ type proxyOptions struct {
 // startProxy also binds a second listener on the gateway address of
 // opts.Network, when the host can bind that address. A container on that
 // network reaches the proxy there. The proxy never binds 0.0.0.0.
-func startProxy(ctx context.Context, rt cri.Runtime, authority *ca.CA, opts proxyOptions) (*proxyServer, error) {
+func startProxy(ctx context.Context, rt cri.Networks, authority *ca.CA, opts proxyOptions) (*proxyServer, error) {
 	p, err := proxy.New(authority, proxy.Options{
 		Domain:      opts.Domain,
 		Allow:       opts.Allow,

@@ -64,7 +64,7 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 		return nil, fmt.Errorf("kubernetes: create the kubeconfig directory: %w", err)
 	}
 
-	rt, err := engines.New(req.Env.Engine, req.Env.EngineConfig)
+	rt, err := engines.New(req.Env.Engine)
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: %w", err)
 	}
@@ -169,7 +169,7 @@ type clusterSetup struct {
 // finishClusterSetup installs the trust CA, patches CoreDNS, registers
 // egress capture, and finishes the relay, each only when the config wants
 // it.
-func finishClusterSetup(ctx context.Context, rt cri.Runtime, drv driver, cfg config, env plugin.Env, nodes []string, fwd clusterrelay.ForwarderSpec, out plugin.Emitter) (clusterSetup, error) {
+func finishClusterSetup(ctx context.Context, rt relayRuntime, drv driver, cfg config, env plugin.Env, nodes []string, fwd clusterrelay.ForwarderSpec, out plugin.Emitter) (clusterSetup, error) {
 	// The proxy intercepts TLS for a pull. A node trusts the kevin root
 	// certificate, so the pull verifies.
 	if wantsTrustCA(cfg, env) {
@@ -226,7 +226,7 @@ func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitte
 	kubeconfig := filepath.Join(req.Env.Workspace, "kubeconfig", name)
 
 	// An unusable engine leaves rt nil: the driver still removes the cluster.
-	rt, _ := engines.New(req.Env.Engine, req.Env.EngineConfig)
+	rt, _ := engines.New(req.Env.Engine)
 	drv, err := newDriver(cfg, req.Env, name, kubeconfig, rt)
 	if err != nil {
 		return err
@@ -271,7 +271,7 @@ func (Step) Export(ctx context.Context, req *plugin.ExportRequest) (*plugin.Expo
 
 	// An unusable engine leaves rt nil: Export still reports Out, without
 	// containers.
-	rt, _ := engines.New(req.Env.Engine, req.Env.EngineConfig)
+	rt, _ := engines.New(req.Env.Engine)
 	drv, err := newDriver(cfg, req.Env, name, kubeconfig, rt)
 	if err != nil {
 		return nil, err
@@ -302,7 +302,7 @@ func (Step) Export(ctx context.Context, req *plugin.ExportRequest) (*plugin.Expo
 // Export - nil when there is no engine or the nodes can't be listed (the
 // cluster has been torn down since Up), matching Up's own fail-open
 // handling of a live-inspect problem it can't resolve.
-func exportContainers(ctx context.Context, rt cri.Runtime, drv driver) []plugin.ContainerInfo {
+func exportContainers(ctx context.Context, rt cri.Containers, drv driver) []plugin.ContainerInfo {
 	if rt == nil {
 		return nil
 	}

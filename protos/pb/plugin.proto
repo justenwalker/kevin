@@ -163,11 +163,6 @@ message Environment {
   // or "podman". Empty means "docker".
   string engine = 11;
 
-  // EngineConfig is the marshaled bytes of the config message for Engine,
-  // such as DockerEngineConfig. Engine says which message to unmarshal
-  // into.
-  bytes engine_config = 12;
-
   // Scope is which DAG this step belongs to: "setup" or "env". A plugin
   // should carry it as the "kevin.scope" label alongside
   // "kevin.project"/"kevin.urn".
@@ -185,16 +180,6 @@ message Environment {
   // the container/pod that needs it exists - see ExposedPort.relay_udp_addrs.
   map<string, string> relay_socks5_udp_addrs = 15;
 }
-
-// DockerEngineConfig is the engine_config message for the "docker" engine.
-// It carries no fields today: the docker CLI wrapper needs nothing beyond
-// Network. Add fields here as real Docker-specific settings arise, such as
-// a non-default socket path.
-message DockerEngineConfig {}
-
-// PodmanEngineConfig is the engine_config message for the "podman" engine.
-// It carries no fields today, for the same reason as DockerEngineConfig.
-message PodmanEngineConfig {}
 
 // Value is one output value - a step's published output, an upstream
 // dependency's value, or a console Detail's content.

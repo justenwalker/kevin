@@ -29,7 +29,7 @@ type relayResult struct {
 // routed endpoint, once the cluster is up. fwd names the forwarder; its
 // Target is the control-plane node. Callers must only call this when
 // wantsRelay(cfg) holds.
-func finishRelay(ctx context.Context, rt cri.Runtime, drv driver, cfg config, fwd clusterrelay.ForwarderSpec, out plugin.Emitter) (relayResult, error) {
+func finishRelay(ctx context.Context, rt relayRuntime, drv driver, cfg config, fwd clusterrelay.ForwarderSpec, out plugin.Emitter) (relayResult, error) {
 	poolSize, err := relay.UDPPoolSize()
 	if err != nil {
 		return relayResult{}, fmt.Errorf("kubernetes: %w", err)
@@ -59,7 +59,7 @@ func finishRelay(ctx context.Context, rt cri.Runtime, drv driver, cfg config, fw
 // saveImageToTempFile saves image to a temporary tar file and returns its
 // path - the cluster tools load an image archive from a file path, not
 // stdin, unlike every other command they run.
-func saveImageToTempFile(ctx context.Context, rt cri.Runtime, image string) (string, error) {
+func saveImageToTempFile(ctx context.Context, rt cri.Images, image string) (string, error) {
 	src, err := rt.Save(ctx, image)
 	if err != nil {
 		return "", fmt.Errorf("kubernetes: save the relay image: %w", err)
@@ -82,7 +82,7 @@ func saveImageToTempFile(ctx context.Context, rt cri.Runtime, image string) (str
 // Pod running it in SOCKS5 mode, pinned to the control-plane node - mirrors
 // patchCoreDNS's shape: act on the cluster via kubectl, wait for it to be
 // ready.
-func deployRelay(ctx context.Context, rt cri.Runtime, drv driver, image string, udpPoolSize int, out plugin.Emitter) error {
+func deployRelay(ctx context.Context, rt cri.Images, drv driver, image string, udpPoolSize int, out plugin.Emitter) error {
 	out.Log("stdout", "loading the relay image")
 	out.Progress("loading the relay image", 0, 0)
 	tarPath, err := saveImageToTempFile(ctx, rt, image)
@@ -147,4 +147,11 @@ func exposedPortDetails(exposed []plugin.ExposedPort) []plugin.Detail {
 		details = append(details, ep.Detail())
 	}
 	return details
+}
+
+// relayRuntime is what deploying the in-cluster relay needs: saving its
+// image, and running and finding its forwarder container.
+type relayRuntime interface {
+	cri.Images
+	cri.Containers
 }

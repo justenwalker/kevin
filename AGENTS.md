@@ -331,8 +331,9 @@ Key model to hold in your head when changing any of this:
 - **Container engine via CLI, not SDK.** kevin shells out to `docker` (or
   `podman`, when the `--engine`/`KEVIN_ENGINE` flag or env var names it, or
   auto-detection picks it - which engine to drive is a host choice, never a
-  `kevin.cue` one - `internal/podman` mirrors `internal/docker`
-  method-for-method, both behind the `cri.Runtime` contract in
+  `kevin.cue` one - `internal/docker` and `internal/podman` are each a
+  `clirt.Dialect` over the shared client in `internal/cri/clirt`, podman
+  adding `DockerHost`, both behind the `cri.Runtime` contract in
   `internal/cri`, selected by `internal/engines`) and parses JSON output
   rather than importing
   `github.com/docker/docker`, to avoid that dependency tree. Kubernetes

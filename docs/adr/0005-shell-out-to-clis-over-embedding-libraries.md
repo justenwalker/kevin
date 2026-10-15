@@ -15,9 +15,9 @@ reasons.
 
 Talk to the container engine and to Kubernetes tooling by shelling out to
 their CLIs and parsing the output (JSON where the CLI supports it), not by
-importing their Go client libraries. `internal/podman` shells out to
-`podman` the same way `internal/docker` shells out to `docker` - the same
-rule, a second engine. The one deliberate exception is OCI registry access
+importing their Go client libraries. `internal/docker` and
+`internal/podman` both shell out to their binary through the shared client in
+`internal/cri/clirt` - the same rule, a second engine. The one deliberate exception is OCI registry access
 (`internal/ocipkg`), which imports `cuelabs.dev/go/oci/ociregistry` rather
 than shelling out to `docker pull` - see Consequences for why that one
 doesn't violate the rule.
@@ -34,13 +34,13 @@ variables scoped to each `kind` child process's own `exec.Cmd.Env`, not to
 kevin's own process environment (which other steps and the engine itself
 also read) - shelling out is the only way to get that isolation.
 
-**DO** (`internal/docker/docker.go:474`):
+**DO** (`Client.Output` in `internal/cri/clirt/clirt.go`):
 ```go
-// run calls the docker binary and returns the standard output.
+// Output calls the engine binary and returns the standard output.
 // A nil stdin gives the command no standard input.
-func run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
+func (c Client[F]) Output(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
 	//nolint:gosec // every argument comes from the environment definition
-	cmd := exec.CommandContext(ctx, Binary, args...)
+	cmd := exec.CommandContext(ctx, c.dialect().Binary, args...)
 	...
 }
 ```

@@ -350,7 +350,7 @@ func (Container) Export(ctx context.Context, req *plugin.ExportRequest) (*plugin
 
 // newRuntime picks the container engine that env names.
 var newRuntime = func(env plugin.Env) (cri.Runtime, error) { // a var so tests can substitute a fake engine
-	rt, err := engines.New(env.Engine, env.EngineConfig)
+	rt, err := engines.New(env.Engine)
 	if err != nil {
 		if errors.Is(err, engines.ErrUnsupported) {
 			return nil, plugin.Wrap(
@@ -388,7 +388,7 @@ func buildEnv(cfg config, req *plugin.UpRequest) map[string]string {
 // waitRunning polls until the container runs.
 // Returns [ErrExited] when the container stops first.
 // Returns [context.DeadlineExceeded] when the deadline passes.
-func waitRunning(ctx context.Context, runtime cri.Runtime, name string, deadline time.Time, out plugin.Emitter) (cri.Container, error) {
+func waitRunning(ctx context.Context, runtime cri.Containers, name string, deadline time.Time, out plugin.Emitter) (cri.Container, error) {
 	out.Progress("waiting for "+name, 0, 0)
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()

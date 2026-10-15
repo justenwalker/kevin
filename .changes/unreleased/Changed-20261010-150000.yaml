@@ -1,0 +1,3 @@
+kind: Changed
+body: 'Plugin authors: plugin.Env.EngineConfig is removed. It was always empty, so read plugin.Env.Engine alone to learn which container engine is in use.'
+time: 2026-10-10T15:00:00.000000-04:00

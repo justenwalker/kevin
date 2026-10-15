@@ -76,11 +76,6 @@ type Env struct {
 	// "docker" or "podman". Empty means "docker".
 	Engine string
 
-	// EngineConfig is the marshaled bytes of the config message for Engine,
-	// such as pb.DockerEngineConfig. Engine says which message to
-	// unmarshal into.
-	EngineConfig []byte
-
 	// CAPath is the host path to the kevin root CA certificate file. Empty
 	// means no CA is available.
 	CAPath string

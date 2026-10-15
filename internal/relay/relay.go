@@ -195,7 +195,7 @@ type Relay struct {
 	socks5Addr     string
 	socks5UDPAddrs map[string]string
 	controlAddr    string
-	runtime        cri.Runtime
+	runtime        cri.Containers
 
 	conn   *grpc.ClientConn
 	client pb.RelayControlClient
@@ -204,7 +204,7 @@ type Relay struct {
 // Start creates the relay container, or reuses one already running for
 // opts.Project whose recorded Domain/ProxyAddr still match (see reusable),
 // then dials its control channel. rt is the project's configured engine.
-func Start(ctx context.Context, rt cri.Runtime, opts Options) (*Relay, error) {
+func Start(ctx context.Context, rt cri.Containers, opts Options) (*Relay, error) {
 	name := containerName(opts.Project)
 
 	r, err := reusable(ctx, rt, name, opts)
@@ -226,7 +226,7 @@ func Start(ctx context.Context, rt cri.Runtime, opts Options) (*Relay, error) {
 
 // create removes any absent, stopped, or drifted container behind name,
 // then starts a fresh relay container for opts.
-func create(ctx context.Context, client cri.Runtime, name string, opts Options) (*Relay, error) {
+func create(ctx context.Context, client cri.Containers, name string, opts Options) (*Relay, error) {
 	// Absent, stopped, or drifted - remove it first, so Run does not fail on
 	// the name.
 	if err := client.Remove(ctx, name); err != nil {
@@ -326,14 +326,14 @@ func fakeIPArgs(opts Options, args []string) []string {
 // the read-only counterpart to Start, for a caller (kevin teardown) that
 // wants to close an existing relay but must never bring one up itself. rt
 // is the project's configured engine.
-func Lookup(ctx context.Context, rt cri.Runtime, project, network string) (*Relay, error) {
+func Lookup(ctx context.Context, rt cri.Containers, project, network string) (*Relay, error) {
 	return lookup(ctx, rt, containerName(project), network)
 }
 
 // lookup reports the running relay container named name on network, or
 // (nil, nil) when it is absent or not running - a crash can leave a
 // stopped container behind, which Start's caller must still replace.
-func lookup(ctx context.Context, client cri.Runtime, name, network string) (*Relay, error) {
+func lookup(ctx context.Context, client cri.Containers, name, network string) (*Relay, error) {
 	info, err := inspectRunning(ctx, client, name)
 	if err != nil || info == nil {
 		return nil, err
@@ -343,7 +343,7 @@ func lookup(ctx context.Context, client cri.Runtime, name, network string) (*Rel
 
 // reusable reports the relay container already running for name when its
 // recorded Domain/ProxyAddr match opts, or (nil, nil) otherwise.
-func reusable(ctx context.Context, client cri.Runtime, name string, opts Options) (*Relay, error) {
+func reusable(ctx context.Context, client cri.Containers, name string, opts Options) (*Relay, error) {
 	info, err := inspectRunning(ctx, client, name)
 	if err != nil || info == nil {
 		return nil, err
@@ -356,7 +356,7 @@ func reusable(ctx context.Context, client cri.Runtime, name string, opts Options
 
 // inspectRunning reports name's container info, or (nil, nil) when it is
 // absent or not running - a crash can leave a stopped container behind.
-func inspectRunning(ctx context.Context, client cri.Runtime, name string) (*cri.Container, error) {
+func inspectRunning(ctx context.Context, client cri.Containers, name string) (*cri.Container, error) {
 	info, err := client.Inspect(ctx, name)
 	if err != nil {
 		if errors.Is(err, cri.ErrNotFound) {
@@ -373,7 +373,7 @@ func inspectRunning(ctx context.Context, client cri.Runtime, name string) (*cri.
 // relayFromInfo builds a Relay from name's inspected container info,
 // reporting the address and published ports every caller (Start, lookup,
 // reusable) needs.
-func relayFromInfo(rt cri.Runtime, name, network string, info cri.Container) (*Relay, error) {
+func relayFromInfo(rt cri.Containers, name, network string, info cri.Container) (*Relay, error) {
 	addr, ok := info.IPs[network]
 	if !ok {
 		return nil, fmt.Errorf("relay: %w", ErrNoAddress)

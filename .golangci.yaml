@@ -76,7 +76,7 @@ linters:
       case:
         rules:
           # Plugin with-block config mirrors kevin.cue, which is snake_case.
-          # internal/docker's inspectResult carries no json tags at all: its
+          # internal/cri/clirt's inspectResult carries no json tags at all: its
           # field names already match the Docker API's PascalCase exactly,
           # or case-insensitively (ID/"Id"), which encoding/json matches
           # without a tag.
@@ -98,15 +98,13 @@ linters:
           - all
       # inspectResult carries no json tags at all: encoding/json matches its
       # field names against Docker's inspect JSON exactly, or
-      # case-insensitively (ID/"Id"), with no tag needed. internal/podman's
-      # inspectResult is the same struct, for the same reason - podman's
-      # container inspect output matches the same field names.
-      - path: 'internal/(docker|podman)/'
+      # case-insensitively (ID/"Id"), with no tag needed. Podman's container
+      # inspect output matches the same field names.
+      - path: 'internal/cri/clirt/'
         linters:
           - musttag
-      # cri.Runtime is the full container-engine contract every engine
-      # (docker, podman, ...) implements - one interface, not a bloated
-      # API surface a caller only uses part of.
+      # cri.Runtime composes the role interfaces into the full container-engine
+      # contract every engine (docker, podman, ...) implements.
       - path: 'internal/cri/'
         linters:
           - interfacebloat

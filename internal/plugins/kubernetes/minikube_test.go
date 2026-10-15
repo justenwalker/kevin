@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	minikubecmd "github.com/justenwalker/kevin/internal/command/minikube"
@@ -218,28 +219,36 @@ func TestMinikubeDriverNodes(t *testing.T) {
 }
 
 // stubbedMinikube builds a driver whose minikube calls only record
-// themselves, with a workspace and a cache under t.TempDir.
-func stubbedMinikube(t *testing.T, rt cri.Runtime) (*minikubeDriver, *[]string) {
+// themselves, with a workspace and a cache under t.TempDir. A non-nil start
+// replaces the recording start call.
+func stubbedMinikube(t *testing.T, rt cri.Runtime, start func() error) (*minikubeDriver, *[]string) {
 	t.Helper()
 	root := t.TempDir()
 	var calls []string
+	cli := newMockminikubeCLI(t)
 	d := &minikubeDriver{
 		name:       "demo",
 		kubeconfig: filepath.Join(root, "kubeconfig"),
 		env:        plugin.Env{Workspace: filepath.Join(root, "ws"), Project: "proj"},
 		rt:         rt,
+		cli:        cli,
 		cacheDir:   func() (string, error) { return filepath.Join(root, "cache"), nil },
 	}
-	d.deleteProfile = func(_ context.Context, name, home string, _ io.Writer) error {
-		assert.Equal(t, d.home(), home)
-		calls = append(calls, "delete "+name)
-		return nil
-	}
-	d.start = func(_ context.Context, spec minikubecmd.StartSpec, _, _ io.Writer) error {
-		assert.Equal(t, "demo", spec.Name)
-		calls = append(calls, "start")
-		return nil
-	}
+	cli.EXPECT().Delete(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, name, home string, _ io.Writer) error {
+			assert.Equal(t, d.home(), home)
+			calls = append(calls, "delete "+name)
+			return nil
+		}).Maybe()
+	cli.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, spec minikubecmd.StartSpec, _, _ io.Writer) error {
+			if start != nil {
+				return start()
+			}
+			assert.Equal(t, "demo", spec.Name)
+			calls = append(calls, "start")
+			return nil
+		}).Maybe()
 	return d, &calls
 }
 
@@ -252,7 +261,7 @@ func TestMinikubeDriverCreate(t *testing.T) {
 	}
 
 	t.Run("removes the old cluster, then starts a new one", func(t *testing.T) {
-		d, calls := stubbedMinikube(t, nodesRuntime(nil))
+		d, calls := stubbedMinikube(t, nodesRuntime(nil), nil)
 
 		nodes, err := d.Create(t.Context(), createSpec{}, &capture{})
 		require.NoError(t, err)
@@ -269,11 +278,10 @@ func TestMinikubeDriverCreate(t *testing.T) {
 			assert.Equal(t, map[string]string{cri.LabelProject: "proj"}, opts.Labels)
 			return nil
 		}
-		d, _ := stubbedMinikube(t, rt)
-		d.start = func(context.Context, minikubecmd.StartSpec, io.Writer, io.Writer) error {
+		d, _ := stubbedMinikube(t, rt, func() error {
 			order = append(order, "start")
 			return nil
-		}
+		})
 
 		_, err := d.Create(t.Context(), createSpec{}, &capture{})
 		require.NoError(t, err)
@@ -286,7 +294,7 @@ func TestMinikubeDriverCreate(t *testing.T) {
 			t.Error("podman names its own network")
 			return nil
 		}
-		d, _ := stubbedMinikube(t, rt)
+		d, _ := stubbedMinikube(t, rt, nil)
 		d.env.Engine = enginePodman
 
 		_, err := d.Create(t.Context(), createSpec{}, &capture{})
@@ -303,7 +311,7 @@ func TestMinikubeDriverCreate(t *testing.T) {
 			return "", nil
 		}
 
-		d, _ := stubbedMinikube(t, rt)
+		d, _ := stubbedMinikube(t, rt, nil)
 		_, err := d.Create(t.Context(), createSpec{}, &capture{})
 		require.NoError(t, err)
 		assert.Zero(t, dropIns)
@@ -316,17 +324,16 @@ func TestMinikubeDriverCreate(t *testing.T) {
 	})
 
 	t.Run("the certificate is written only with trust_ca", func(t *testing.T) {
-		d, _ := stubbedMinikube(t, nodesRuntime(nil))
-		d.env.CAPath = filepath.Join(t.TempDir(), "ca.pem")
-		require.NoError(t, os.WriteFile(d.env.CAPath, []byte(testCAPEM), 0o600))
-		cert := filepath.Join(d.home(), "certs", "kevin-root.pem")
-
 		var seen bool
-		d.start = func(context.Context, minikubecmd.StartSpec, io.Writer, io.Writer) error {
+		var cert string
+		d, _ := stubbedMinikube(t, nodesRuntime(nil), func() error {
 			_, err := os.Stat(cert)
 			seen = err == nil
 			return nil
-		}
+		})
+		d.env.CAPath = filepath.Join(t.TempDir(), "ca.pem")
+		require.NoError(t, os.WriteFile(d.env.CAPath, []byte(testCAPEM), 0o600))
+		cert = filepath.Join(d.home(), "certs", "kevin-root.pem")
 
 		_, err := d.Create(t.Context(), createSpec{}, &capture{})
 		require.NoError(t, err)
@@ -342,13 +349,13 @@ func TestMinikubeDriverCreate(t *testing.T) {
 	})
 
 	t.Run("the cache is linked in the home", func(t *testing.T) {
-		d, _ := stubbedMinikube(t, nodesRuntime(nil))
 		var target string
-		d.start = func(context.Context, minikubecmd.StartSpec, io.Writer, io.Writer) error {
+		var d *minikubeDriver
+		d, _ = stubbedMinikube(t, nodesRuntime(nil), func() error {
 			var err error
 			target, err = os.Readlink(filepath.Join(d.home(), "cache"))
 			return err
-		}
+		})
 
 		_, err := d.Create(t.Context(), createSpec{}, &capture{})
 		require.NoError(t, err)
@@ -358,16 +365,13 @@ func TestMinikubeDriverCreate(t *testing.T) {
 	})
 
 	t.Run("no runtime is an error", func(t *testing.T) {
-		d, _ := stubbedMinikube(t, nil)
+		d, _ := stubbedMinikube(t, nil, nil)
 		_, err := d.Create(t.Context(), createSpec{}, &capture{})
 		require.ErrorIs(t, err, ErrNoRuntime)
 	})
 
 	t.Run("a failure removes the cluster", func(t *testing.T) {
-		d, calls := stubbedMinikube(t, fakeRuntime{})
-		d.start = func(context.Context, minikubecmd.StartSpec, io.Writer, io.Writer) error {
-			return errors.New("start failed")
-		}
+		d, calls := stubbedMinikube(t, fakeRuntime{}, func() error { return errors.New("start failed") })
 
 		_, err := d.Create(t.Context(), createSpec{}, &capture{})
 		require.Error(t, err)
@@ -375,11 +379,8 @@ func TestMinikubeDriverCreate(t *testing.T) {
 	})
 
 	t.Run("retain keeps the cluster after a failure", func(t *testing.T) {
-		d, calls := stubbedMinikube(t, fakeRuntime{})
+		d, calls := stubbedMinikube(t, fakeRuntime{}, func() error { return errors.New("start failed") })
 		d.cfg.Retain = true
-		d.start = func(context.Context, minikubecmd.StartSpec, io.Writer, io.Writer) error {
-			return errors.New("start failed")
-		}
 
 		_, err := d.Create(t.Context(), createSpec{}, &capture{})
 		require.Error(t, err)
@@ -387,7 +388,7 @@ func TestMinikubeDriverCreate(t *testing.T) {
 	})
 
 	t.Run("a cluster with no nodes is an error", func(t *testing.T) {
-		d, _ := stubbedMinikube(t, fakeRuntime{})
+		d, _ := stubbedMinikube(t, fakeRuntime{}, nil)
 
 		_, err := d.Create(t.Context(), createSpec{}, &capture{})
 		require.ErrorIs(t, err, ErrNoNodes)
@@ -406,7 +407,7 @@ func TestMinikubeDriverDelete(t *testing.T) {
 				return nil
 			},
 		}
-		d, calls := stubbedMinikube(t, rt)
+		d, calls := stubbedMinikube(t, rt, nil)
 		cache, err := d.cacheDir()
 		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(cache, 0o755))
@@ -421,15 +422,17 @@ func TestMinikubeDriverDelete(t *testing.T) {
 	})
 
 	t.Run("without a runtime it leaves the network", func(t *testing.T) {
-		d, calls := stubbedMinikube(t, nil)
+		d, calls := stubbedMinikube(t, nil, nil)
 
 		require.NoError(t, d.Delete(t.Context(), &capture{}))
 		assert.Equal(t, []string{"delete demo"}, *calls)
 	})
 
 	t.Run("a failing delete is an error", func(t *testing.T) {
-		d, _ := stubbedMinikube(t, nil)
-		d.deleteProfile = func(context.Context, string, string, io.Writer) error { return errors.New("delete failed") }
+		cli := newMockminikubeCLI(t)
+		cli.EXPECT().Delete(mock.Anything, "demo", mock.Anything, mock.Anything).Return(errors.New("delete failed"))
+		d, _ := stubbedMinikube(t, nil, nil)
+		d.cli = cli
 
 		require.Error(t, d.Delete(t.Context(), &capture{}))
 	})
@@ -509,22 +512,17 @@ func TestMinikubeDriverLabelNodes(t *testing.T) {
 
 func TestMinikubeDriverLoadImage(t *testing.T) {
 	t.Run("loads the archive into the cluster", func(t *testing.T) {
-		var name, home, path string
-		d := &minikubeDriver{name: "demo", env: plugin.Env{Workspace: "/ws"}}
-		d.loadImage = func(_ context.Context, n, h, p string, _ io.Writer) error {
-			name, home, path = n, h, p
-			return nil
-		}
+		cli := newMockminikubeCLI(t)
+		cli.EXPECT().ImageLoad(mock.Anything, "demo", "/ws/minikube/demo/.minikube", "/tmp/relay.tar", mock.Anything).Return(nil)
+		d := &minikubeDriver{name: "demo", env: plugin.Env{Workspace: "/ws"}, cli: cli}
 
 		require.NoError(t, d.LoadImage(t.Context(), "/tmp/relay.tar", &capture{}))
-		assert.Equal(t, "demo", name)
-		assert.Equal(t, "/ws/minikube/demo/.minikube", home)
-		assert.Equal(t, "/tmp/relay.tar", path)
 	})
 
 	t.Run("a failing load is an error", func(t *testing.T) {
-		d := &minikubeDriver{name: "demo"}
-		d.loadImage = func(context.Context, string, string, string, io.Writer) error { return errors.New("load failed") }
+		cli := newMockminikubeCLI(t)
+		cli.EXPECT().ImageLoad(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("load failed"))
+		d := &minikubeDriver{name: "demo", cli: cli}
 
 		require.Error(t, d.LoadImage(t.Context(), "/tmp/relay.tar", &capture{}))
 	})

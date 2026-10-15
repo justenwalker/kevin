@@ -37,8 +37,7 @@ func testEnv(t *testing.T) plugin.Env {
 		Network: "kevin-plugin-test",
 		Domain:  "kevin.home",
 	}
-	client, err := docker.New(nil)
-	require.NoError(t, err)
+	client := docker.Client{}
 	require.NoError(t, client.NetworkCreate(t.Context(), env.Network, cri.NetworkOptions{
 		Labels: map[string]string{cri.LabelProject: env.Project},
 	}))

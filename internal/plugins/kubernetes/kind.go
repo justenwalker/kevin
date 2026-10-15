@@ -37,7 +37,7 @@ type kindDriver struct {
 	env        plugin.Env
 	name       string
 	kubeconfig string
-	rt         cri.Runtime
+	rt         cri.Execer
 	cli        kindCLI
 }
 
@@ -45,7 +45,7 @@ var _ driver = (*kindDriver)(nil)
 
 // newKindDriver returns the kind driver for one cluster. It resolves the
 // relative mount paths of the node config against the project directory.
-func newKindDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.Runtime) *kindDriver {
+func newKindDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.Execer) *kindDriver {
 	resolveMountPaths(cfg.Kind.ControlPlane, env.ProjectDir)
 	for _, w := range cfg.Workers {
 		resolveMountPaths(w, env.ProjectDir)
@@ -218,29 +218,20 @@ func resolveMountPaths(node map[string]any, projectDir string) {
 // adminKubeconfig is the kubeconfig that a node carries for its own cluster.
 const adminKubeconfig = "/etc/kubernetes/admin.conf"
 
+// nodes returns the node commands of d.
+func (d *kindDriver) nodes() nodeExec {
+	return nodeExec{rt: d.rt, driver: driverKind, controlPlane: d.ControlPlane(), kubectlArgv: kubectlArgs}
+}
+
 // Kubectl runs kubectl inside the control-plane node.
 func (d *kindDriver) Kubectl(ctx context.Context, args ...string) (string, error) {
-	if d.rt == nil {
-		return "", fmt.Errorf("kubernetes: kind: kubectl: %w", ErrNoRuntime)
-	}
-	out, err := d.rt.Exec(ctx, d.ControlPlane(), kubectlArgs(args)...)
-	if err != nil {
-		return "", fmt.Errorf("kubernetes: kind: kubectl: %w", err)
-	}
-	return out, nil
+	return d.nodes().Kubectl(ctx, args...)
 }
 
 // KubectlInput runs kubectl inside the control-plane node, with stdin
 // feeding the command.
 func (d *kindDriver) KubectlInput(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
-	if d.rt == nil {
-		return "", fmt.Errorf("kubernetes: kind: kubectl: %w", ErrNoRuntime)
-	}
-	out, err := d.rt.ExecInput(ctx, d.ControlPlane(), stdin, kubectlArgs(args)...)
-	if err != nil {
-		return "", fmt.Errorf("kubernetes: kind: kubectl: %w", err)
-	}
-	return out, nil
+	return d.nodes().KubectlInput(ctx, stdin, args...)
 }
 
 // kubectlArgs prepends the kubectl command and the admin kubeconfig flag to

@@ -65,10 +65,5 @@ func (d *kindDriver) verifyTrusted(ctx context.Context, container, caPEM string)
 // PointDNSAtRelay rewrites every node's own /etc/resolv.conf to name relay
 // as its only nameserver.
 func (d *kindDriver) PointDNSAtRelay(ctx context.Context, allNodes []string, relay string) error {
-	for _, node := range allNodes {
-		if _, err := d.rt.Exec(ctx, node, "sh", "-c", "echo nameserver "+relay+" > /etc/resolv.conf"); err != nil {
-			return fmt.Errorf("kubernetes: kind: point %s's dns at the relay: %w", node, err)
-		}
-	}
-	return nil
+	return d.nodes().PointDNSAtRelay(ctx, allNodes, relay)
 }

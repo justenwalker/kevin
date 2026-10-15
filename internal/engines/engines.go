@@ -13,22 +13,14 @@ import (
 	"github.com/justenwalker/kevin/internal/podman"
 )
 
-// New builds the [cri.Runtime] that name identifies, decoding configBytes as
-// that engine's own config message. An empty name means "docker".
-func New(name string, configBytes []byte) (cri.Runtime, error) {
+// New builds the [cri.Runtime] that name identifies. An empty name means
+// "docker".
+func New(name string) (cri.Runtime, error) {
 	switch name {
 	case "", "docker":
-		rt, err := docker.New(configBytes)
-		if err != nil {
-			return nil, err
-		}
-		return rt, nil
+		return docker.Client{}, nil
 	case "podman":
-		rt, err := podman.New(configBytes)
-		if err != nil {
-			return nil, err
-		}
-		return rt, nil
+		return podman.Client{}, nil
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnsupported, name)
 	}
@@ -43,7 +35,7 @@ func New(name string, configBytes []byte) (cri.Runtime, error) {
 // other engine, not report false.
 func Detect(ctx context.Context) (string, error) {
 	for _, name := range []string{"docker", "podman"} {
-		rt, err := New(name, nil)
+		rt, err := New(name)
 		if err != nil {
 			continue
 		}

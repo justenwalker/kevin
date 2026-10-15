@@ -26,6 +26,14 @@ const minikubeNodeLabel = "created_by.minikube.sigs.k8s.io"
 // whose path holds the Kubernetes version.
 const minikubeKubectlScript = `exec /var/lib/minikube/binaries/*/kubectl --kubeconfig ` + adminKubeconfig + ` "$@"`
 
+// minikubeCLI is the part of the minikube command line that minikubeDriver
+// calls.
+type minikubeCLI interface {
+	Start(ctx context.Context, spec minikubecmd.StartSpec, stdout, stderr io.Writer) error
+	Delete(ctx context.Context, name, home string, stderr io.Writer) error
+	ImageLoad(ctx context.Context, name, home, path string, stderr io.Writer) error
+}
+
 // minikubeDriver creates the cluster with the minikube command. minikube
 // runs each node as a container, so a command in a node goes through the
 // container runtime.
@@ -34,15 +42,12 @@ type minikubeDriver struct {
 	env        plugin.Env
 	name       string
 	kubeconfig string
-	rt         cri.Runtime
+	rt         minikubeRuntime
+	cli        minikubeCLI
 
-	// The minikube calls that Create, Delete and LoadImage make, and the
-	// lookup of the cache that every cluster shares, held as values so that a
-	// test can stub them.
-	start         func(ctx context.Context, spec minikubecmd.StartSpec, stdout, stderr io.Writer) error
-	deleteProfile func(ctx context.Context, name, home string, stderr io.Writer) error
-	loadImage     func(ctx context.Context, name, home, path string, stderr io.Writer) error
-	cacheDir      func() (string, error)
+	// cacheDir looks up the cache that every cluster shares, held as a value
+	// so that a test can point it at a temporary directory.
+	cacheDir func() (string, error)
 }
 
 var _ driver = (*minikubeDriver)(nil)
@@ -51,7 +56,7 @@ var _ driver = (*minikubeDriver)(nil)
 // [ErrMinikubeWorkerSettings] when a worker carries node settings, and
 // [ErrMinikubeMounts] when mounts has more than one entry. rt may be nil,
 // and then Delete leaves the network of the cluster in place.
-func newMinikubeDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.Runtime) (*minikubeDriver, error) {
+func newMinikubeDriver(cfg config, env plugin.Env, name, kubeconfig string, rt minikubeRuntime) (*minikubeDriver, error) {
 	for worker, settings := range cfg.Workers {
 		if len(settings) > 0 {
 			return nil, fmt.Errorf("worker %q: %w", worker, ErrMinikubeWorkerSettings)
@@ -60,13 +65,10 @@ func newMinikubeDriver(cfg config, env plugin.Env, name, kubeconfig string, rt c
 	if len(cfg.Mounts) > 1 {
 		return nil, fmt.Errorf("%d entries: %w", len(cfg.Mounts), ErrMinikubeMounts)
 	}
-	client := minikubecmd.New(command.Default)
 	return &minikubeDriver{
 		cfg: cfg, env: env, name: name, kubeconfig: kubeconfig, rt: rt,
-		start:         client.Start,
-		deleteProfile: client.Delete,
-		loadImage:     client.ImageLoad,
-		cacheDir:      minikubeCacheDir,
+		cli:      minikubecmd.New(command.Default),
+		cacheDir: minikubeCacheDir,
 	}, nil
 }
 
@@ -261,12 +263,10 @@ func (d *minikubeDriver) Create(ctx context.Context, spec createSpec, out plugin
 		return nil, fmt.Errorf("kubernetes: minikube: prepare the state of %q: %w", d.name, err)
 	}
 
-	nodes, err := d.createNodes(ctx, spec, out)
+	nodes, err := createOrRollBack(ctx, d.cfg.Retain,
+		func(ctx context.Context) ([]string, error) { return d.createNodes(ctx, spec, out) },
+		func(ctx context.Context) error { return d.Delete(ctx, out) })
 	if err != nil {
-		if !d.cfg.Retain {
-			// A failed Up gets no Down. The error is reported below.
-			_ = d.Delete(context.WithoutCancel(ctx), out)
-		}
 		return nil, err
 	}
 
@@ -290,7 +290,7 @@ func (d *minikubeDriver) createNodes(ctx context.Context, spec createSpec, out p
 	out.Log("stdout", "creating cluster "+d.name)
 	out.Progress("creating "+d.name, 0, 0)
 	start := d.startSpec(spec)
-	if err := d.start(ctx, start, plugin.NewLineWriter(out, "stdout"), plugin.NewLineWriter(out, "stderr")); err != nil {
+	if err := d.cli.Start(ctx, start, plugin.NewLineWriter(out, "stdout"), plugin.NewLineWriter(out, "stderr")); err != nil {
 		return nil, fmt.Errorf("kubernetes: minikube: create the cluster %q: %w", d.name, err)
 	}
 
@@ -320,7 +320,7 @@ func (d *minikubeDriver) Delete(ctx context.Context, out plugin.Emitter) error {
 		return fmt.Errorf("kubernetes: minikube: prepare the state of %q: %w", d.name, err)
 	}
 	stderr := plugin.NewLineWriter(out, "stderr")
-	if err := d.deleteProfile(ctx, d.name, d.home(), stderr); err != nil {
+	if err := d.cli.Delete(ctx, d.name, d.home(), stderr); err != nil {
 		return fmt.Errorf("kubernetes: minikube: delete the cluster %q: %w", d.name, err)
 	}
 
@@ -332,7 +332,7 @@ func (d *minikubeDriver) Delete(ctx context.Context, out plugin.Emitter) error {
 			return err
 		}
 		for _, node := range leftover {
-			if err = d.deleteProfile(ctx, node, d.home(), stderr); err != nil {
+			if err = d.cli.Delete(ctx, node, d.home(), stderr); err != nil {
 				return fmt.Errorf("kubernetes: minikube: delete the node %q: %w", node, err)
 			}
 		}
@@ -355,29 +355,20 @@ func (d *minikubeDriver) Context() string { return d.name }
 // its Kubernetes node after the cluster.
 func (d *minikubeDriver) ControlPlane() string { return d.name }
 
+// nodes returns the node commands of d.
+func (d *minikubeDriver) nodes() nodeExec {
+	return nodeExec{rt: d.rt, driver: driverMinikube, controlPlane: d.ControlPlane(), kubectlArgv: minikubeKubectlArgs}
+}
+
 // Kubectl runs kubectl inside the control-plane node.
 func (d *minikubeDriver) Kubectl(ctx context.Context, args ...string) (string, error) {
-	if d.rt == nil {
-		return "", fmt.Errorf("kubernetes: minikube: kubectl: %w", ErrNoRuntime)
-	}
-	out, err := d.rt.Exec(ctx, d.ControlPlane(), minikubeKubectlArgs(args)...)
-	if err != nil {
-		return "", fmt.Errorf("kubernetes: minikube: kubectl: %w", err)
-	}
-	return out, nil
+	return d.nodes().Kubectl(ctx, args...)
 }
 
 // KubectlInput runs kubectl inside the control-plane node, with stdin
 // feeding the command.
 func (d *minikubeDriver) KubectlInput(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
-	if d.rt == nil {
-		return "", fmt.Errorf("kubernetes: minikube: kubectl: %w", ErrNoRuntime)
-	}
-	out, err := d.rt.ExecInput(ctx, d.ControlPlane(), stdin, minikubeKubectlArgs(args)...)
-	if err != nil {
-		return "", fmt.Errorf("kubernetes: minikube: kubectl: %w", err)
-	}
-	return out, nil
+	return d.nodes().KubectlInput(ctx, stdin, args...)
 }
 
 // minikubeKubectlArgs wraps args in the shell command that finds kubectl in
@@ -390,8 +381,18 @@ func minikubeKubectlArgs(args []string) []string {
 
 // LoadImage loads the image archive at path into the nodes.
 func (d *minikubeDriver) LoadImage(ctx context.Context, path string, out plugin.Emitter) error {
-	if err := d.loadImage(ctx, d.name, d.home(), path, plugin.NewLineWriter(out, "stderr")); err != nil {
+	if err := d.cli.ImageLoad(ctx, d.name, d.home(), path, plugin.NewLineWriter(out, "stderr")); err != nil {
 		return fmt.Errorf("kubernetes: minikube: load the image archive: %w", err)
 	}
 	return nil
+}
+
+// minikubeRuntime is what the minikube driver asks of the container engine:
+// it lists and inspects a cluster's containers, runs commands in them, and
+// manages the cluster's network.
+type minikubeRuntime interface {
+	cri.Containers
+	cri.Lister
+	cri.Networks
+	cri.Execer
 }

@@ -40,7 +40,7 @@ func bootstrap(ctx context.Context, opts Options) (*host, error) {
 		loaded.Close()
 		return nil, err
 	}
-	rt, err := engines.New(opts.Engine, nil)
+	rt, err := engines.New(opts.Engine)
 	if err != nil {
 		loaded.Close()
 		return nil, err

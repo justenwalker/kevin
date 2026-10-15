@@ -88,7 +88,7 @@ func loadProjectConfig(w io.Writer, opts *options) (*config.Config, error) {
 // checkEngine probes name, the engine --engine/KEVIN_ENGINE selected or
 // auto-detection found - never a project fact, so this needs no cfg.
 func checkEngine(ctx context.Context, w io.Writer, name string) bool {
-	rt, err := engines.New(name, nil)
+	rt, err := engines.New(name)
 	if err != nil {
 		printCheck(w, name, false, false, uerr.Display(err))
 		return false

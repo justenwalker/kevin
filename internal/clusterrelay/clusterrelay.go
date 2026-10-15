@@ -72,7 +72,7 @@ func ForwarderName(cluster string) string {
 // StartForwarder runs the forwarder container for spec and reports its host
 // addresses. It reuses a running container that was started for the same
 // Target and UDP pool size, and replaces any other one under the same name.
-func StartForwarder(ctx context.Context, rt cri.Runtime, spec ForwarderSpec) (Forwarder, error) {
+func StartForwarder(ctx context.Context, rt cri.Containers, spec ForwarderSpec) (Forwarder, error) {
 	poolSize, err := relay.UDPPoolSize()
 	if err != nil {
 		return Forwarder{}, fmt.Errorf("clusterrelay: %w", err)
@@ -125,7 +125,7 @@ func StartForwarder(ctx context.Context, rt cri.Runtime, spec ForwarderSpec) (Fo
 
 // LookupForwarder reports the running forwarder named name. The bool is
 // false when it is absent or stopped.
-func LookupForwarder(ctx context.Context, rt cri.Runtime, name string) (Forwarder, bool, error) {
+func LookupForwarder(ctx context.Context, rt cri.Containers, name string) (Forwarder, bool, error) {
 	info, err := rt.Inspect(ctx, name)
 	if err != nil {
 		if errors.Is(err, cri.ErrNotFound) {

@@ -17,7 +17,7 @@ const containerdPollInterval = 200 * time.Millisecond
 // waitContainerdReady polls a node until containerd answers again.
 // waitContainerdReady returns ErrContainerdNotReady when the timeout passes
 // first.
-func waitContainerdReady(ctx context.Context, rt cri.Runtime, container string) error {
+func waitContainerdReady(ctx context.Context, rt cri.Execer, container string) error {
 	deadline := time.Now().Add(containerdReadyTimeout)
 	for {
 		if _, err := rt.Exec(ctx, container, "ctr", "version"); err == nil {

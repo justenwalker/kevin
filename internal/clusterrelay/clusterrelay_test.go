@@ -2,7 +2,6 @@ package clusterrelay
 
 import (
 	"context"
-	"io"
 	"strconv"
 	"strings"
 	"testing"
@@ -38,7 +37,7 @@ func TestPodManifest(t *testing.T) {
 	})
 }
 
-// fakeRuntime is a hand-written cri.Runtime double holding one container
+// fakeRuntime is a hand-written cri.Containers double holding one container
 // slot, enough to drive StartForwarder and LookupForwarder.
 type fakeRuntime struct {
 	container *cri.Container
@@ -46,7 +45,7 @@ type fakeRuntime struct {
 	removes   int
 }
 
-var _ cri.Runtime = (*fakeRuntime)(nil)
+var _ cri.Containers = (*fakeRuntime)(nil)
 
 func (f *fakeRuntime) Inspect(context.Context, string) (cri.Container, error) {
 	if f.container == nil {
@@ -73,32 +72,6 @@ func (f *fakeRuntime) Run(_ context.Context, spec cri.RunSpec) (string, error) {
 	}
 	return "id", nil
 }
-
-func (*fakeRuntime) Available(context.Context) error { return nil }
-
-func (*fakeRuntime) Exec(context.Context, string, ...string) (string, error) { return "", nil }
-
-func (*fakeRuntime) ExecInput(context.Context, string, io.Reader, ...string) (string, error) {
-	return "", nil
-}
-
-func (*fakeRuntime) Build(context.Context, cri.BuildSpec, io.Writer) error { return nil }
-
-func (*fakeRuntime) Save(context.Context, string) (io.ReadCloser, error) {
-	return io.NopCloser(strings.NewReader("")), nil
-}
-
-func (*fakeRuntime) NetworkCreate(context.Context, string, cri.NetworkOptions) error { return nil }
-
-func (*fakeRuntime) NetworkRemove(context.Context, string) error { return nil }
-
-func (*fakeRuntime) NetworkConnect(context.Context, string, string) error { return nil }
-
-func (*fakeRuntime) NetworkGateway(context.Context, string) (cri.Gateway, error) {
-	return cri.Gateway{}, nil
-}
-
-func (*fakeRuntime) ListByLabel(context.Context, string, string) ([]string, error) { return nil, nil }
 
 func testSpec(target string) ForwarderSpec {
 	return ForwarderSpec{

@@ -25,7 +25,7 @@ func wantsCapture(env plugin.Env) bool {
 // fails - see podAndServiceCIDRs.
 // out may be nil - Export has no Emitter to log the fail-open case
 // through, unlike Up.
-func nodeContainers(ctx context.Context, rt cri.Runtime, drv driver, allNodes []string, out plugin.Emitter) ([]plugin.ContainerInfo, error) {
+func nodeContainers(ctx context.Context, rt cri.Containers, drv driver, allNodes []string, out plugin.Emitter) ([]plugin.ContainerInfo, error) {
 	exclude, err := podAndServiceCIDRs(ctx, drv)
 	if err != nil {
 		// A verified exclusion list is what makes capture safe at all - not

@@ -379,7 +379,7 @@ func (r *run) finalStepErr() error {
 }
 
 // startRelay starts the relay.
-func startRelay(ctx context.Context, rt cri.Runtime, cfg *config.Config, network, gatewayAddr string, scope config.Scope, authority *ca.CA) (*relay.Relay, error) {
+func startRelay(ctx context.Context, rt cri.Containers, cfg *config.Config, network, gatewayAddr string, scope config.Scope, authority *ca.CA) (*relay.Relay, error) {
 	rl, err := relay.Start(ctx, rt, relay.Options{
 		Project:       cfg.Project,
 		Network:       network,

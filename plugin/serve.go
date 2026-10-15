@@ -319,7 +319,6 @@ func envFromProto(e *pb.Environment) Env {
 		Workspace:           e.GetWorkspace(),
 		Network:             e.GetNetwork(),
 		Engine:              e.GetEngine(),
-		EngineConfig:        e.GetEngineConfig(),
 		CAPath:              e.GetCaPath(),
 		HTTPProxyAddr:       e.GetHttpProxyAddr(),
 		ConsoleAddr:         e.GetConsoleAddr(),

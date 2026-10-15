@@ -11,7 +11,7 @@ import (
 // carries the default route of the node, and checks that each node is on it.
 // A node keeps the network its cluster tool created for it. An empty network
 // skips the step: no network was asked for.
-func joinProjectNetwork(ctx context.Context, rt cri.Runtime, nodes []string, network string) error {
+func joinProjectNetwork(ctx context.Context, rt networkRuntime, nodes []string, network string) error {
 	if network == "" {
 		return nil
 	}
@@ -28,7 +28,7 @@ func joinProjectNetwork(ctx context.Context, rt cri.Runtime, nodes []string, net
 
 // verifyNetworkMembership returns [ErrNetworkMismatch] when container is not
 // on network.
-func verifyNetworkMembership(ctx context.Context, rt cri.Runtime, container, network string) error {
+func verifyNetworkMembership(ctx context.Context, rt cri.Containers, container, network string) error {
 	info, err := rt.Inspect(ctx, container)
 	if err != nil {
 		return fmt.Errorf("kubernetes: inspect %s: %w", container, err)
@@ -37,4 +37,11 @@ func verifyNetworkMembership(ctx context.Context, rt cri.Runtime, container, net
 		return fmt.Errorf("kubernetes: %s: %w: %q", container, ErrNetworkMismatch, network)
 	}
 	return nil
+}
+
+// networkRuntime is what joining a cluster's nodes to the project network
+// needs: connecting them, and inspecting them to verify the join.
+type networkRuntime interface {
+	cri.Networks
+	cri.Containers
 }
