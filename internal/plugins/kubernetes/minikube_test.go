@@ -163,7 +163,7 @@ func TestMinikubeDriverNames(t *testing.T) {
 }
 
 func TestMinikubeDriverNodes(t *testing.T) {
-	list := func(names ...string) cri.Runtime {
+	list := func(names ...string) driverRuntime {
 		return fakeRuntime{listByLabel: func(_ context.Context, key, value string) ([]string, error) {
 			assert.Equal(t, "created_by.minikube.sigs.k8s.io", key)
 			assert.Equal(t, "true", value)
@@ -221,7 +221,7 @@ func TestMinikubeDriverNodes(t *testing.T) {
 // stubbedMinikube builds a driver whose minikube calls only record
 // themselves, with a workspace and a cache under t.TempDir. A non-nil start
 // replaces the recording start call.
-func stubbedMinikube(t *testing.T, rt cri.Runtime, start func() error) (*minikubeDriver, *[]string) {
+func stubbedMinikube(t *testing.T, rt driverRuntime, start func() error) (*minikubeDriver, *[]string) {
 	t.Helper()
 	root := t.TempDir()
 	var calls []string

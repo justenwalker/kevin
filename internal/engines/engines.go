@@ -1,4 +1,4 @@
-// Package engines picks a [cri.Runtime] by name, so every caller that
+// Package engines picks a [cri.Runtime] by engine, so every caller that
 // resolves the host's selected container engine (the container and kind
 // plugins, the engine package's own network/proxy setup, the relay, "kevin
 // doctor") does it the same way instead of duplicating the switch.
@@ -11,20 +11,29 @@ import (
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/docker"
 	"github.com/justenwalker/kevin/internal/podman"
+	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/plugin"
 )
 
-// New builds the [cri.Runtime] that name identifies. An empty name means
+// Parse returns the [step.Engine] that name selects. An empty name means
 // "docker".
-func New(name string) (cri.Runtime, error) {
+func Parse(name string) (step.Engine, error) {
 	switch name {
 	case "", "docker":
-		return docker.Client{}, nil
+		return step.EngineDocker, nil
 	case "podman":
-		return podman.Client{}, nil
+		return step.EnginePodman, nil
 	default:
-		return nil, fmt.Errorf("%w: %q", ErrUnsupported, name)
+		return step.EngineDocker, fmt.Errorf("%w: %q", ErrUnsupported, name)
 	}
+}
+
+// For returns the [cri.Runtime] for a host-side engine.
+func For(e step.Engine) cri.Runtime {
+	if e == step.EnginePodman {
+		return podman.Client{}
+	}
+	return docker.Client{}
 }
 
 // Of returns the [cri.Runtime] for a plugin's engine. It cannot fail: a
@@ -43,15 +52,11 @@ func Of(e plugin.Engine) cri.Runtime {
 // PATH: a binary present with no running daemon is common (Docker Desktop
 // not started, a podman machine not up) and should fall through to the
 // other engine, not report false.
-func Detect(ctx context.Context) (string, error) {
-	for _, name := range []string{"docker", "podman"} {
-		rt, err := New(name)
-		if err != nil {
-			continue
-		}
-		if rt.Available(ctx) == nil {
-			return name, nil
+func Detect(ctx context.Context) (step.Engine, error) {
+	for _, e := range []step.Engine{step.EngineDocker, step.EnginePodman} {
+		if For(e).Available(ctx) == nil {
+			return e, nil
 		}
 	}
-	return "", ErrNoEngine
+	return step.EngineDocker, ErrNoEngine
 }

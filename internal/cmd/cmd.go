@@ -73,11 +73,11 @@ type options struct {
 	ran bool
 }
 
-// resolveEngineName returns the engine --engine/KEVIN_ENGINE named, or
+// resolveEngine returns the engine --engine/KEVIN_ENGINE named, or
 // whichever engine is actually reachable on this host when neither is set.
-func resolveEngineName(ctx context.Context, opts *options) (string, error) {
+func resolveEngine(ctx context.Context, opts *options) (step.Engine, error) {
 	if opts.engine != "" {
-		return opts.engine, nil
+		return engines.Parse(opts.engine)
 	}
 	return engines.Detect(ctx)
 }
@@ -211,7 +211,7 @@ func runCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			engineName, err := resolveEngineName(cmd.Context(), opts)
+			eng, err := resolveEngine(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
@@ -224,7 +224,7 @@ func runCommand(opts *options) *cobra.Command {
 					dir:     opts.dir,
 					name:    opts.name,
 					tags:    opts.tags,
-					engine:  engineName,
+					engine:  eng.String(),
 					debug:   opts.debug,
 					keep:    keep,
 					open:    open,
@@ -232,7 +232,7 @@ func runCommand(opts *options) *cobra.Command {
 					vars:    opts.vars,
 				})
 			}
-			return runForeground(cmd.Context(), opts, engineName, state, keep, open)
+			return runForeground(cmd.Context(), opts, eng, state, keep, open)
 		},
 	}
 	cmd.Flags().BoolVar(&keep, "keep", false, "leave the environment in place on exit")
@@ -244,7 +244,7 @@ func runCommand(opts *options) *cobra.Command {
 // runForeground writes this process's own pidfile before starting the
 // engine and removes it (and the address file) on the way out, whatever
 // the exit path. A --detach child reaches this same function once exec'd.
-func runForeground(ctx context.Context, opts *options, engineName string, state runstate.State, keep, open bool) error {
+func runForeground(ctx context.Context, opts *options, eng step.Engine, state runstate.State, keep, open bool) error {
 	if err := state.Claim(os.Getpid()); err != nil {
 		return err
 	}
@@ -255,7 +255,7 @@ func runForeground(ctx context.Context, opts *options, engineName string, state 
 		Tags:    opts.tags,
 		VarFile: opts.varFile,
 		Vars:    opts.vars,
-		Engine:  engineName,
+		Engine:  eng,
 		Scope:   config.ScopeEnv,
 		Keep:    keep,
 		Debug:   opts.debug,
@@ -278,7 +278,7 @@ func setupCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			engineName, err := resolveEngineName(cmd.Context(), opts)
+			eng, err := resolveEngine(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
@@ -288,7 +288,7 @@ func setupCommand(opts *options) *cobra.Command {
 				Tags:    opts.tags,
 				VarFile: opts.varFile,
 				Vars:    opts.vars,
-				Engine:  engineName,
+				Engine:  eng,
 				Scope:   config.ScopeSetup,
 				Keep:    true,
 				NoWait:  true,
@@ -325,13 +325,13 @@ func teardownCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			engineName, err := resolveEngineName(cmd.Context(), opts)
+			eng, err := resolveEngine(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
 			return engine.Teardown(cmd.Context(), engine.Options{
 				Dir: opts.dir, Name: opts.name, Tags: opts.tags, VarFile: opts.varFile, Vars: opts.vars,
-				Engine: engineName, Debug: opts.debug,
+				Engine: eng, Debug: opts.debug,
 			})
 		},
 	}
@@ -372,8 +372,10 @@ func validateCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			loaded, err := pluginload.Load(cmd.Context(), opts.dir, opts.name, opts.tags,
-				config.VariableInputs{File: opts.varFile, Set: opts.vars})
+			loaded, err := pluginload.Load(cmd.Context(), pluginload.Options{
+				Dir: opts.dir, Name: opts.name, Tags: opts.tags,
+				Vars: config.VariableInputs{File: opts.varFile, Set: opts.vars},
+			})
 			loaded.Close()
 			if err != nil {
 				return err

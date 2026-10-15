@@ -11,6 +11,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/engines"
+	"github.com/justenwalker/kevin/internal/step"
 	trustinstall "github.com/justenwalker/kevin/internal/trust"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
@@ -37,11 +38,11 @@ func doctorCommand(opts *options) *cobra.Command {
 				ok = false
 			}
 
-			engineName, err := resolveEngineName(cmd.Context(), opts)
+			eng, err := resolveEngine(cmd.Context(), opts)
 			if err != nil {
 				printCheck(w, "engine", false, false, uerr.Display(err))
 				ok = false
-			} else if !checkEngine(cmd.Context(), w, engineName) {
+			} else if !checkEngine(cmd.Context(), w, eng) {
 				ok = false
 			}
 
@@ -85,15 +86,11 @@ func loadProjectConfig(w io.Writer, opts *options) (*config.Config, error) {
 	return cfg, nil
 }
 
-// checkEngine probes name, the engine --engine/KEVIN_ENGINE selected or
+// checkEngine probes eng, the engine --engine/KEVIN_ENGINE selected or
 // auto-detection found - never a project fact, so this needs no cfg.
-func checkEngine(ctx context.Context, w io.Writer, name string) bool {
-	rt, err := engines.New(name)
-	if err != nil {
-		printCheck(w, name, false, false, uerr.Display(err))
-		return false
-	}
-	if err := rt.Available(ctx); err != nil {
+func checkEngine(ctx context.Context, w io.Writer, eng step.Engine) bool {
+	name := eng.String()
+	if err := engines.For(eng).Available(ctx); err != nil {
 		printCheck(w, name, false, false, uerr.Display(err))
 		return false
 	}

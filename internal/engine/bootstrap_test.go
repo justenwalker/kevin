@@ -8,13 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/cri"
 )
 
-// scopeRuntime is a cri.Runtime double whose ListByLabel reports a fixed set
-// of containers for the other scope.
+// scopeRuntime is a projectRuntime double whose ListByLabel reports a fixed
+// set of containers for the other scope.
 type scopeRuntime struct {
-	cri.Runtime
+	stubRuntime
 
 	otherLive []string
 	err       error
@@ -25,7 +24,7 @@ func (f *scopeRuntime) ListByLabel(context.Context, string, string) ([]string, e
 }
 
 func TestStopRelayIfAlone(t *testing.T) {
-	newRun := func(rt cri.Runtime) *run {
+	newRun := func(rt projectRuntime) *run {
 		return &run{cfg: &config.Config{Project: "p"}, runtime: rt, scope: config.ScopeEnv}
 	}
 

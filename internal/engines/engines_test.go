@@ -8,32 +8,37 @@ import (
 
 	"github.com/justenwalker/kevin/internal/docker"
 	"github.com/justenwalker/kevin/internal/podman"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
-func TestNew(t *testing.T) {
+func TestParse(t *testing.T) {
 	t.Run("empty name means docker", func(t *testing.T) {
-		rt, err := New("")
+		e, err := Parse("")
 		require.NoError(t, err)
-		assert.IsType(t, docker.Client{}, rt)
+		assert.Equal(t, step.EngineDocker, e)
 	})
 
 	t.Run("docker", func(t *testing.T) {
-		rt, err := New("docker")
+		e, err := Parse("docker")
 		require.NoError(t, err)
-		assert.IsType(t, docker.Client{}, rt)
+		assert.Equal(t, step.EngineDocker, e)
 	})
 
 	t.Run("podman", func(t *testing.T) {
-		rt, err := New("podman")
+		e, err := Parse("podman")
 		require.NoError(t, err)
-		assert.IsType(t, podman.Client{}, rt)
+		assert.Equal(t, step.EnginePodman, e)
 	})
 
-	t.Run("an unknown engine reports ErrUnsupported with no runtime", func(t *testing.T) {
-		rt, err := New("bogus")
-		assert.Nil(t, rt)
+	t.Run("an unknown engine reports ErrUnsupported", func(t *testing.T) {
+		_, err := Parse("bogus")
 		require.ErrorIs(t, err, ErrUnsupported)
 	})
+}
+
+func TestFor(t *testing.T) {
+	assert.IsType(t, docker.Client{}, For(step.EngineDocker))
+	assert.IsType(t, podman.Client{}, For(step.EnginePodman))
 }
 
 // TestDetect checks Detect's docker-first tie-break and ErrNoEngine fallback
@@ -46,13 +51,13 @@ func TestDetect(t *testing.T) {
 
 	if (docker.Client{}).Available(ctx) == nil {
 		require.NoError(t, err)
-		assert.Equal(t, "docker", name, "docker wins the tie-break when both are available")
+		assert.Equal(t, step.EngineDocker, name, "docker wins the tie-break when both are available")
 		return
 	}
 
 	if (podman.Client{}).Available(ctx) == nil {
 		require.NoError(t, err)
-		assert.Equal(t, "podman", name)
+		assert.Equal(t, step.EnginePodman, name)
 		return
 	}
 

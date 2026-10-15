@@ -12,24 +12,26 @@ import (
 	"github.com/justenwalker/kevin/internal/cri"
 )
 
-// newTestNetwork creates a project's network, removed on cleanup, and
-// returns its name.
-func newTestNetwork(t *testing.T, project string) string {
-	t.Helper()
-	network := NetworkName(project)
-	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, cri.NetworkOptions{
-		Labels: map[string]string{cri.LabelProject: project},
-	}))
-	t.Cleanup(func() {
-		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
-	})
-	return network
+// stubRuntime is a projectRuntime that finds nothing and removes without
+// error. Doubles embed it and override what they observe.
+type stubRuntime struct{}
+
+func (stubRuntime) ListByLabel(context.Context, string, string) ([]string, error) { return nil, nil }
+
+func (stubRuntime) Run(context.Context, cri.RunSpec) (string, error) { return "", nil }
+
+func (stubRuntime) Remove(context.Context, string) error { return nil }
+
+func (stubRuntime) Inspect(context.Context, string) (cri.Container, error) {
+	return cri.Container{}, nil
 }
 
-// reapRuntime is a cri.Runtime double for reap: Remove fails for one name,
-// and every Remove and NetworkRemove call is recorded.
+func (stubRuntime) NetworkRemove(context.Context, string) error { return nil }
+
+// reapRuntime is a projectRuntime double for reap: Remove fails for one
+// name, and every Remove and NetworkRemove call is recorded.
 type reapRuntime struct {
-	cri.Runtime
+	stubRuntime
 
 	names      []string
 	failOn     string

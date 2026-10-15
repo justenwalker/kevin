@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/engines"
 	"github.com/justenwalker/kevin/internal/pluginload"
 	"github.com/justenwalker/kevin/internal/session"
@@ -19,7 +18,7 @@ import (
 type host struct {
 	pluginload.Loaded
 
-	Runtime   cri.Runtime
+	Runtime   hostRuntime
 	Workspace string
 
 	// Events is where step output goes, resolved from [Options.Events].
@@ -33,19 +32,17 @@ type host struct {
 // bootstrap started is already stopped.
 func bootstrap(ctx context.Context, opts Options) (*host, error) {
 	live := wantsLiveUI(ctx, opts)
-	loaded, err := pluginload.Load(ctx, opts.Dir, opts.Name, opts.Tags, config.VariableInputs{File: opts.VarFile, Set: opts.Vars})
-	if err != nil {
-		loaded.Close()
-		return nil, err
-	}
-	rt, err := engines.New(opts.Engine)
+	loaded, err := pluginload.Load(ctx, pluginload.Options{
+		Dir: opts.Dir, Name: opts.Name, Tags: opts.Tags,
+		Vars: config.VariableInputs{File: opts.VarFile, Set: opts.Vars},
+	})
 	if err != nil {
 		loaded.Close()
 		return nil, err
 	}
 	return &host{
 		Loaded:    loaded,
-		Runtime:   rt,
+		Runtime:   engines.For(opts.Engine),
 		Workspace: state.For(loaded.Config.Dir, loaded.Config.Name).Workspace(),
 		Events:    eventsWriter(opts, live),
 		live:      live,

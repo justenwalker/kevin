@@ -1,0 +1,3 @@
+kind: Fixed
+body: 'A plugin receives the scope of the step it acts on, including when kevin run or kevin do exports a step of the other scope.'
+time: 2026-10-11T10:30:00.000000-04:00

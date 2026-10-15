@@ -331,8 +331,15 @@ func (Container) Export(ctx context.Context, _ config, req *plugin.ExportRequest
 	}, nil
 }
 
+// engineRuntime is what the container step asks of the container engine:
+// building an image, and running, inspecting and removing a container.
+type engineRuntime interface {
+	cri.Containers
+	cri.Images
+}
+
 // newRuntime picks the container engine that env names.
-var newRuntime = func(env plugin.Env) cri.Runtime { // a var so tests can substitute a fake engine
+var newRuntime = func(env plugin.Env) engineRuntime { // a var so tests can substitute a fake engine
 	return engines.Of(env.Engine)
 }
 

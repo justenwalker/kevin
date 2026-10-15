@@ -21,7 +21,7 @@ func TestStatus(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.SetProxyAddr("127.0.0.1:8080")
-		store.AddStep("web", "Web", "resource", "builtin", nil, nil, false, "", false)
+		store.AddStep(session.Step{Name: "web", Label: "Web", Kind: "resource", Provider: "builtin"})
 		store.SetStep("web", session.Ready, "")
 
 		rec := httptest.NewRecorder()

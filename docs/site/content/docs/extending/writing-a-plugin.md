@@ -143,12 +143,12 @@ Each `ToolDef` has a name and an `InputSchema`, a JSON Schema of type `object`. 
 
 ## Request data
 
-Every request has a `plugin.Env`, the same for every step in a run:
+Every request has a `plugin.Env`:
 
 | Field | Value |
 |:------|:------|
 | `Project` | Project name. |
-| `Scope` | `plugin.ScopeSetup` or `plugin.ScopeEnv`. Call `.String()` for `"setup"` or `"env"`. |
+| `Scope` | The scope of the step the request names: `plugin.ScopeSetup` or `plugin.ScopeEnv`. Call `.String()` for `"setup"` or `"env"`. An export of a setup step during `kevin run` or `kevin do` carries `ScopeSetup`. |
 | `Workspace` | The project's `.kevin` state directory. |
 | `ProjectDir` | The project directory. Resolve relative paths in `with` against it. |
 | `Network` | Name of the project network. |

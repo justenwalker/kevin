@@ -12,11 +12,16 @@ import (
 	cueerrors "cuelang.org/go/cue/errors"
 )
 
-// groupMemberSep joins a group's own name to a member's bare name for the
+// GroupMemberSep joins a group's own name to a member's bare name for the
 // member's engine-internal DAG node name ("<group><sep><member>"). No user
 // key or needs entry may contain it outside that join: it is the only
 // source of a dotted step name.
-const groupMemberSep = "."
+const GroupMemberSep = "."
+
+// MemberName builds a group member's DAG node name.
+func MemberName(group, member string) string {
+	return group + GroupMemberSep + member
+}
 
 // clipPath returns p with its selector slice's capacity trimmed to its
 // length, so a later Append on the result always allocates its own backing
@@ -68,7 +73,7 @@ func isGroupEntry(raw json.RawMessage) (bool, error) {
 // name (or "setup.<bare name>"), never a flattened member name.
 func validateNeedsSyntax(needs []Need) error {
 	for _, n := range needs {
-		if strings.Contains(n.Step, groupMemberSep) {
+		if strings.Contains(n.Step, GroupMemberSep) {
 			return fmt.Errorf("%w: %q", ErrUnaddressableMember, n.String())
 		}
 	}
@@ -123,7 +128,7 @@ func (f *File) decodeScope(scopeName Scope) (scopeEntries, error) {
 
 	for _, name := range names {
 		entryPath := clipPath(scopePath.Append(cue.Str(name)))
-		if strings.Contains(name, groupMemberSep) {
+		if strings.Contains(name, GroupMemberSep) {
 			return scopeEntries{}, f.reservedKeyErr(entryPath)
 		}
 
@@ -196,7 +201,7 @@ func (f *File) decodeGroup(scopeName Scope, name string, groupPath cue.Path, raw
 	stepsPath := clipPath(groupPath.Append(cue.Str("steps")))
 	for _, member := range members {
 		memberPath := clipPath(stepsPath.Append(cue.Str(member)))
-		if strings.Contains(member, groupMemberSep) {
+		if strings.Contains(member, GroupMemberSep) {
 			return f.reservedKeyErr(memberPath)
 		}
 		step, err := f.decodeStep(g.Steps[member], memberPath, fmt.Sprintf("%s.%s.steps.%s", scopeName, name, member))
@@ -209,7 +214,7 @@ func (f *File) decodeGroup(scopeName Scope, name string, groupPath cue.Path, raw
 		}
 		step.Needs = unionNeeds(step.Needs, g.Needs)
 
-		flat := name + groupMemberSep + member
+		flat := MemberName(name, member)
 		entries.Steps[flat] = step
 		entries.Paths[flat] = memberPath
 	}

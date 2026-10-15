@@ -69,13 +69,12 @@ const (
 	EnginePodman
 )
 
-// EngineNamed returns the engine that name selects: podman for "podman", and
-// docker for anything else, which includes an empty name.
-func EngineNamed(name string) Engine {
-	if name == "podman" {
-		return EnginePodman
+// String returns the engine's CLI name.
+func (e Engine) String() string {
+	if e == EnginePodman {
+		return "podman"
 	}
-	return EngineDocker
+	return "docker"
 }
 
 // UpRequest asks a plugin to bring one step up.

@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 func TestPrintCheck(t *testing.T) {
@@ -82,21 +84,14 @@ func TestLoadProjectConfig(t *testing.T) {
 func TestCheckEngine(t *testing.T) {
 	t.Run("probes the named engine", func(t *testing.T) {
 		var buf bytes.Buffer
-		checkEngine(t.Context(), &buf, "docker")
+		checkEngine(t.Context(), &buf, step.EngineDocker)
 		assert.Contains(t, buf.String(), "docker: ")
 	})
 
 	t.Run("probes podman when that's the resolved engine", func(t *testing.T) {
 		var buf bytes.Buffer
-		checkEngine(t.Context(), &buf, "podman")
+		checkEngine(t.Context(), &buf, step.EnginePodman)
 		assert.Contains(t, buf.String(), "podman: ")
-	})
-
-	t.Run("reports an unsupported engine", func(t *testing.T) {
-		var buf bytes.Buffer
-		ok := checkEngine(t.Context(), &buf, "bogus")
-		assert.False(t, ok)
-		assert.Contains(t, buf.String(), "bogus: fail")
 	})
 }
 

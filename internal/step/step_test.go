@@ -30,8 +30,7 @@ func TestProtocolString(t *testing.T) {
 	assert.Equal(t, "udp", UDP.String())
 }
 
-func TestEngineNamed(t *testing.T) {
-	assert.Equal(t, EnginePodman, EngineNamed("podman"))
-	assert.Equal(t, EngineDocker, EngineNamed("docker"))
-	assert.Equal(t, EngineDocker, EngineNamed(""))
+func TestEngineString(t *testing.T) {
+	assert.Equal(t, "docker", EngineDocker.String())
+	assert.Equal(t, "podman", EnginePodman.String())
 }

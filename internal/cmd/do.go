@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/justenwalker/kevin/internal/engine"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 func doCommand(opts *options) *cobra.Command {
@@ -25,11 +26,11 @@ func doCommand(opts *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			engineName, err := resolveEngineName(cmd.Context(), opts)
+			eng, err := resolveEngine(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
-			return runDo(cmd.Context(), opts, engineName, name, extra)
+			return runDo(cmd.Context(), opts, eng, name, extra)
 		},
 	}
 	return cmd
@@ -50,14 +51,14 @@ func splitDoArgs(args []string, dash int) (string, []string, error) {
 	return args[0], args[dash:], nil
 }
 
-func runDo(ctx context.Context, opts *options, engineName, cmdName string, extra []string) error {
+func runDo(ctx context.Context, opts *options, eng step.Engine, cmdName string, extra []string) error {
 	plan, err := engine.PlanCommand(ctx, engine.Options{
 		Dir:     opts.dir,
 		Name:    opts.name,
 		Tags:    opts.tags,
 		VarFile: opts.varFile,
 		Vars:    opts.vars,
-		Engine:  engineName,
+		Engine:  eng,
 	}, cmdName)
 	if err != nil {
 		return err

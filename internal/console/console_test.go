@@ -66,7 +66,7 @@ func TestPage(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.SetProxyAddr("127.0.0.1:8080")
-		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		store.AddStep(session.Step{Name: "web"})
 		store.SetStep("web", session.Ready, "")
 		store.AddStepDetail("web", session.Detail{Value: "web.kevin.test", Href: "https://web.kevin.test"})
 		store.Log("web", "stdout", "hello")
@@ -96,7 +96,7 @@ func TestPage(t *testing.T) {
 	t.Run("gives a running step's progress bar a stable id, hidden until an estimate exists", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		store.AddStep(session.Step{Name: "web"})
 		store.SetStep("web", session.Running, "")
 
 		rec := httptest.NewRecorder()
@@ -124,7 +124,7 @@ func TestPage(t *testing.T) {
 	t.Run("a sensitive detail is masked but stays copyable", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("db", "", "", "", nil, nil, false, "", false)
+		store.AddStep(session.Step{Name: "db"})
 		store.SetStep("db", session.Ready, "")
 		store.AddStepDetail("db", session.Detail{
 			Label: "admin password", Value: "hunter2", Href: "https://admin.kevin.test", Copyable: true, Sensitive: true,
@@ -146,8 +146,8 @@ func TestPage(t *testing.T) {
 	t.Run("a step item carries needs for the dependency lines", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("a", "", "", "", nil, nil, false, "", false)
-		store.AddStep("b", "", "", "", nil, []string{"a"}, false, "", false)
+		store.AddStep(session.Step{Name: "a"})
+		store.AddStep(session.Step{Name: "b", Needs: []string{"a"}})
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -160,10 +160,10 @@ func TestPage(t *testing.T) {
 	t.Run("a cross-scope need gets a badge, not a dependency line", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("a", "", "", "", nil, nil, false, "", false)
-		store.AddStep("b", "", "", "", nil, []string{"a", "setup.cluster"}, false, "", false)
-		store.AddStep("p", "", "probe", "", nil, []string{"setup.cluster"}, true, "", false)
-		store.AddStep("g", "", "group", "", nil, []string{"setup.cluster"}, false, "", true)
+		store.AddStep(session.Step{Name: "a"})
+		store.AddStep(session.Step{Name: "b", Needs: []string{"a", "setup.cluster"}})
+		store.AddStep(session.Step{Name: "p", Kind: "probe", Needs: []string{"setup.cluster"}, Compact: true})
+		store.AddStep(session.Step{Name: "g", Kind: "group", Needs: []string{"setup.cluster"}, IsGroup: true})
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -178,8 +178,8 @@ func TestPage(t *testing.T) {
 	t.Run("a group nests its members, collapsed by default", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("db", "", "group", "", nil, []string{"net"}, false, "", true)
-		store.AddStep("db.primary", "", "", "echo", nil, nil, false, "db", false)
+		store.AddStep(session.Step{Name: "db", Kind: "group", Needs: []string{"net"}, IsGroup: true})
+		store.AddStep(session.Step{Name: "db.primary", Provider: "echo", Group: "db"})
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -277,7 +277,7 @@ func TestStepDetailDialog(t *testing.T) {
 	t.Run("a step gets a detail dialog with its details, inputs, and outputs", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("db", "", "", "", nil, nil, false, "", false)
+		store.AddStep(session.Step{Name: "db"})
 		store.SetStep("db", session.Ready, "")
 		store.AddStepDetail("db", session.Detail{Label: "address", Value: "localhost:55432"})
 		store.SetStepInputs("db", []session.Detail{{Label: "image", Value: "postgres:16"}})
@@ -297,7 +297,7 @@ func TestStepDetailDialog(t *testing.T) {
 	t.Run("a sensitive input or output is masked", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("db", "", "", "", nil, nil, false, "", false)
+		store.AddStep(session.Step{Name: "db"})
 		store.SetStepInputs("db", []session.Detail{{Label: "password", Value: "hunter2", Sensitive: true}})
 		store.SetStepOutputs("db", []session.Detail{{Label: "dsn", Value: "postgres://x:hunter2@db", Sensitive: true}})
 
@@ -316,7 +316,7 @@ func TestStepItem(t *testing.T) {
 	t.Run("a step's kind and state render as plain text, not chips", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("web", "", "resource", "", nil, nil, false, "", false)
+		store.AddStep(session.Step{Name: "web", Kind: "resource"})
 		store.SetStep("web", session.Ready, "")
 
 		rec := httptest.NewRecorder()
@@ -336,7 +336,7 @@ func TestRerunActions(t *testing.T) {
 	t.Run("a ready step gets a split button with a cascade menu", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		store.AddStep(session.Step{Name: "web"})
 		store.SetStep("web", session.Ready, "")
 
 		rec := httptest.NewRecorder()
@@ -351,7 +351,7 @@ func TestRerunActions(t *testing.T) {
 	t.Run("a failed step gets one plain cascade button, no menu", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		store.AddStep(session.Step{Name: "web"})
 		store.SetStep("web", session.Failed, "boom")
 
 		rec := httptest.NewRecorder()
@@ -367,9 +367,9 @@ func TestLogsPanel(t *testing.T) {
 	t.Run("lists steps as a vertical list, marking a running one", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		store.AddStep(session.Step{Name: "web"})
 		store.SetStep("web", session.Ready, "")
-		store.AddStep("db", "", "", "", nil, nil, false, "", false)
+		store.AddStep(session.Step{Name: "db"})
 		store.SetStep("db", session.Running, "")
 
 		rec := httptest.NewRecorder()
@@ -407,7 +407,7 @@ func TestServicesTab(t *testing.T) {
 	t.Run("carries an empty-state hint, shown only while no card is exposed", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		store.AddStep(session.Step{Name: "web"})
 		store.SetStep("web", session.Ready, "")
 
 		rec := httptest.NewRecorder()
@@ -423,7 +423,7 @@ func TestEvents(t *testing.T) {
 	t.Run("sends a snapshot at once", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		store.AddStep(session.Step{Name: "web"})
 		store.SetStep("web", session.Ready, "")
 		store.Log("web", "stdout", "already here")
 
@@ -480,7 +480,7 @@ func TestEvents(t *testing.T) {
 	t.Run("a group's state change swaps only its header, not the whole row", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("db", "", "group", "", nil, nil, false, "", true)
+		store.AddStep(session.Step{Name: "db", Kind: "group", IsGroup: true})
 
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
@@ -519,7 +519,7 @@ func TestEvents(t *testing.T) {
 	t.Run("a progress tick patches only the bar, not the whole row", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		store.AddStep(session.Step{Name: "web"})
 		store.SetStep("web", session.Running, "")
 
 		ctx, cancel := context.WithCancel(t.Context())
@@ -796,7 +796,7 @@ func TestEventsWriteFailures(t *testing.T) {
 	t.Run("stops when a later event cannot be written", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Store: store})
-		store.AddStep("web", "", "", "", nil, nil, false, "", false)
+		store.AddStep(session.Step{Name: "web"})
 		w := &failingWriter{ResponseRecorder: httptest.NewRecorder(), failAfter: 1}
 
 		done := make(chan struct{})

@@ -21,6 +21,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/mcpserver"
+	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/state"
@@ -327,7 +328,7 @@ setup: cluster: {uses: "echo:echo"}
 `)
 	t.Cleanup(func() {
 		_ = dockerClient.Remove(context.WithoutCancel(t.Context()), "kevin-engine-relay-persist-test-relay")
-		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), NetworkName("engine-relay-persist-test"))
+		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), networkName("engine-relay-persist-test"))
 	})
 
 	require.NoError(t, Run(t.Context(), Options{Dir: dir, Scope: config.ScopeSetup, Keep: true, NoWait: true}))
@@ -780,7 +781,7 @@ env: a: {uses: "echo:echo", with: message: "A"}
 `)
 	require.Error(t, runEnv(t, dir))
 
-	_, err := dockerClient.NetworkGateway(t.Context(), NetworkName(projectName))
+	_, err := dockerClient.NetworkGateway(t.Context(), networkName(projectName))
 	require.ErrorIs(t, err, cri.ErrNotFound,
 		"Run must remove the network it created when the relay never starts")
 }
@@ -816,7 +817,7 @@ func TestRunStopsTheRelayWhenStartupFailsAfterwards(t *testing.T) {
 	_, err = dockerClient.Inspect(t.Context(), "kevin-"+projectName+"-relay")
 	require.ErrorIs(t, err, cri.ErrNotFound, "Run must stop the relay it already started")
 
-	_, err = dockerClient.NetworkGateway(t.Context(), NetworkName(projectName))
+	_, err = dockerClient.NetworkGateway(t.Context(), networkName(projectName))
 	require.ErrorIs(t, err, cri.ErrNotFound, "Run must remove the network once the relay is stopped")
 }
 
@@ -830,7 +831,7 @@ func TestStartProxyGatewayPort(t *testing.T) {
 		cfg := &config.Config{Project: "kevin-gwport-pin-test", Dir: t.TempDir()}
 		_, authority, err := prepare(t.Context(), cfg, dockerClient)
 		require.NoError(t, err)
-		network := NetworkName(cfg.Project)
+		network := networkName(cfg.Project)
 		t.Cleanup(func() {
 			_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
 		})
@@ -854,5 +855,38 @@ func TestStartProxyGatewayPort(t *testing.T) {
 		t.Cleanup(func() { _ = server.Close() })
 
 		assert.Equal(t, wantPort, mustPort(t, server.gatewayAddr))
+	})
+}
+
+// TestRunRejectsInvalidPluginConfiguration covers the ways Run fails once a
+// real plugin process has answered Info: a schema violation, a plugin that
+// names itself differently, and a workspace that cannot be created.
+//
+// Tier: integration.
+func TestRunRejectsInvalidPluginConfiguration(t *testing.T) {
+	t.Run("rejects config the plugin schema does not allow", func(t *testing.T) {
+		dir := project(t, `
+env: a: {uses: "echo:echo", with: nonsense: true}
+`)
+
+		w := &watcher{}
+		err := Run(t.Context(), Options{
+			Dir:    dir,
+			Scope:  config.ScopeEnv,
+			Events: w,
+		})
+		require.ErrorIs(t, err, config.ErrInvalid)
+		assert.Contains(t, err.Error(), "env.a.with")
+		assert.Empty(t, w.String(), "no step can run when the environment is not valid")
+	})
+
+	t.Run("reports a plugin name mismatch", func(t *testing.T) {
+		bin, err := echoPlugin()
+		require.NoError(t, err)
+		dir := configDir(t, proxyBlock(t)+"plugins: notecho: cmd: "+strconv.Quote(bin)+"\nenv: a: uses: \"notecho:echo\"\n")
+
+		err = runEnv(t, dir)
+		require.ErrorIs(t, err, pluginhost.ErrNameMismatch)
+		assert.Contains(t, err.Error(), "notecho")
 	})
 }

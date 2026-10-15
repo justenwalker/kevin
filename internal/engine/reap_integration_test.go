@@ -144,3 +144,17 @@ func TestReapRemovesNetworkWhenOtherScopeNeverRan(t *testing.T) {
 	_, gwErr := dockerClient.NetworkGateway(t.Context(), network)
 	require.ErrorIs(t, gwErr, cri.ErrNotFound, "reap must remove the network when the setup scope was never brought up")
 }
+
+// newTestNetwork creates a project's network, removed on cleanup, and
+// returns its name.
+func newTestNetwork(t *testing.T, project string) string {
+	t.Helper()
+	network := networkName(project)
+	require.NoError(t, dockerClient.NetworkCreate(t.Context(), network, cri.NetworkOptions{
+		Labels: map[string]string{cri.LabelProject: project},
+	}))
+	t.Cleanup(func() {
+		_ = dockerClient.NetworkRemove(context.WithoutCancel(t.Context()), network)
+	})
+	return network
+}

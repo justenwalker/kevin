@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/session"
@@ -40,7 +41,7 @@ func (r *run) downNeeds(completed map[string]output.Map) map[string][]string {
 		var deps []string
 		if grp, ok := r.groups[name]; ok {
 			for _, member := range grp.Members {
-				dotted := memberName(name, member)
+				dotted := config.MemberName(name, member)
 				if _, ok := completed[dotted]; ok {
 					deps = append(deps, dotted)
 				}
@@ -84,11 +85,11 @@ func (r *run) downStep(ctx context.Context, name string, deps []string, complete
 	for _, dep := range deps {
 		depOutputs[dep] = completed[dep]
 	}
-	setupDeps, _, err := r.crossScopeDeps(ctx, name)
+	cross, err := r.crossScopeDeps(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	with, renderErr := r.renderWith(name, cfgStep, depOutputs, setupDeps)
+	with, renderErr := r.renderWith(name, cfgStep, depOutputs, cross.Outputs)
 	if renderErr != nil {
 		return nil, renderErr
 	}

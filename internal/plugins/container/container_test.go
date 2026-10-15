@@ -351,7 +351,7 @@ type noopEmitter struct{}
 func (noopEmitter) Log(string, string)            {}
 func (noopEmitter) Progress(string, int64, int64) {}
 
-// fakeRuntime is a hand-written cri.Runtime double. It lets a test drive
+// fakeRuntime is a hand-written engineRuntime double. It lets a test drive
 // Up/Down's orchestration logic (deadlines, exit codes, call order) without
 // a running docker daemon.
 type fakeRuntime struct {
@@ -383,36 +383,16 @@ func (f fakeRuntime) Inspect(ctx context.Context, name string) (cri.Container, e
 	return f.inspect(ctx, name)
 }
 
-func (fakeRuntime) NetworkCreate(context.Context, string, cri.NetworkOptions) error { return nil }
-
-func (fakeRuntime) NetworkRemove(context.Context, string) error { return nil }
-
-func (fakeRuntime) NetworkConnect(context.Context, string, string) error { return nil }
-
-func (fakeRuntime) NetworkGateway(context.Context, string) (cri.Gateway, error) {
-	return cri.Gateway{}, nil
-}
-
-func (fakeRuntime) ListByLabel(context.Context, string, string) ([]string, error) { return nil, nil }
-
-func (fakeRuntime) Available(context.Context) error { return nil }
-
-func (fakeRuntime) Exec(context.Context, string, ...string) (string, error) { return "", nil }
-
-func (fakeRuntime) ExecInput(context.Context, string, io.Reader, ...string) (string, error) {
-	return "", nil
-}
-
 func (fakeRuntime) Save(context.Context, string) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader("")), nil
 }
 
 // useFakeRuntime substitutes rt for the real engine selection for the
 // duration of the test.
-func useFakeRuntime(t *testing.T, rt cri.Runtime) {
+func useFakeRuntime(t *testing.T, rt engineRuntime) {
 	t.Helper()
 	orig := newRuntime
-	newRuntime = func(plugin.Env) cri.Runtime { return rt }
+	newRuntime = func(plugin.Env) engineRuntime { return rt }
 	t.Cleanup(func() { newRuntime = orig })
 }
 

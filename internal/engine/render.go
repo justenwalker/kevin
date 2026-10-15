@@ -55,23 +55,18 @@ func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[stri
 // plugin types "int").
 func (r *run) applySchema(name string, step config.Step, with json.RawMessage) (json.RawMessage, error) {
 	ref := step.Uses
-	for _, st := range r.caps[ref.Plugin].Steps {
-		if st.Name == ref.Step {
-			return config.ApplySchema(name+".with", with, st.Schema)
-		}
+	st, ok := r.caps[ref.Plugin].Step(ref.Step)
+	if !ok {
+		return with, nil
 	}
-	return with, nil
+	return config.ApplySchema(name+".with", with, st.Schema)
 }
 
 // stepSchema returns info's step type name's raw schema.cue bytes, or nil
 // if name names no step this plugin offers.
 func stepSchema(info pluginhost.Info, name string) []byte {
-	for _, st := range info.Steps {
-		if st.Name == name {
-			return st.Schema
-		}
-	}
-	return nil
+	st, _ := info.Step(name)
+	return st.Schema
 }
 
 // sensitiveWithFields reports which of schema's #Config fields carry a

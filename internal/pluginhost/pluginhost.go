@@ -167,6 +167,17 @@ type Info struct {
 	Icon []byte
 }
 
+// Step returns the step type name, and false when the plugin offers none by
+// that name.
+func (i Info) Step(name string) (StepInfo, bool) {
+	for _, st := range i.Steps {
+		if st.Name == name {
+			return st, true
+		}
+	}
+	return StepInfo{}, false
+}
+
 // Info reports the plugin identity, the configuration schema, and the step
 // types the plugin offers.
 func (c *Client) Info(ctx context.Context) (Info, error) {

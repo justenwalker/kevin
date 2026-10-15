@@ -13,9 +13,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,95 +25,15 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/docker"
-	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pluginhost"
-	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/internal/step"
 )
-
-// echoPlugin is the path of the compiled echo plugin. Every test uses it.
-var echoPlugin = sync.OnceValues(buildEchoPlugin)
-
-// dockerClient inspects docker resources directly in tests, regardless of
-// which engine the code path under test resolved - every test here runs
-// against the default (docker) engine.
-var dockerClient = docker.Client{}
-
-func buildEchoPlugin() (string, error) {
-	dir, err := os.MkdirTemp("", "kevin-plugin-*")
-	if err != nil {
-		return "", err
-	}
-	bin := filepath.Join(dir, "kevin-plugin-echo")
-	cmd := exec.CommandContext(context.Background(), "go", "build", "-o", bin,
-		"github.com/justenwalker/kevin/cmd/kevin-plugin-echo")
-	if out, buildErr := cmd.CombinedOutput(); buildErr != nil {
-		return "", fmt.Errorf("build echo plugin: %w: %s", buildErr, out)
-	}
-	return bin, nil
-}
-
-// project writes a kevin.cue into a temporary directory, and returns the
-// directory. proxy.listen, proxy.gateway_port, and console.listen are all
-// required fields with no default, so project fills them in with freshly
-// reserved ports - a case that needs to control them itself uses configDir
-// instead, with proxyBlock to fill in the same required fields.
-// project writes a kevin.cue fixture under a fresh t.TempDir and returns
-// its directory. Unless body sets its own project field (a handful of
-// tests need one fixed across a t.Cleanup or a second process), it gets a
-// name unique to this call: project defaults to the directory's own base
-// name otherwise (config.projectName), which is just t.TempDir's per-call
-// sequence number ("001", "002", ...) - identical across nearly every
-// subtest in this file, so every one of them would create, use, and tear
-// down a Docker network of the exact same name back to back. Real usage
-// never recreates a network under the same name in rapid succession;
-// hammering that pattern hundreds of times a test run is what surfaces
-// Docker's own daemon-side removal/recreate race, not a bug in the code
-// under test.
-func project(t *testing.T, body string) string {
-	t.Helper()
-	bin, err := echoPlugin()
-	require.NoError(t, err)
-
-	dir := t.TempDir()
-	src := "plugins: echo: cmd: " + strconv.Quote(bin) + "\n" + proxyBlock(t)
-	if !strings.Contains(body, "project:") {
-		name := config.SlugName(t.Name()) + "-" + filepath.Base(dir)
-		src += "project: " + strconv.Quote(name) + "\n"
-		removeProject(t, name)
-	} else if m := projectField.FindStringSubmatch(body); m != nil {
-		removeProject(t, m[1])
-	}
-	src += body
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(src), 0o600))
-	return dir
-}
-
-// projectField finds the name of a quoted project field in a fixture body.
-var projectField = regexp.MustCompile(`(?m)^\s*project:\s*"([^"]+)"`)
-
-// removeProject removes, when t ends, the containers and the network that a
-// run with Keep leaves behind for the project called name. A failure is
-// ignored: the run may have removed them already.
-func removeProject(t *testing.T, name string) {
-	t.Helper()
-	t.Cleanup(func() {
-		ctx := context.WithoutCancel(t.Context())
-		containers, _ := dockerClient.ListByLabel(ctx, cri.LabelProject, name)
-		for _, container := range containers {
-			_ = dockerClient.Remove(ctx, container)
-		}
-		_ = dockerClient.NetworkRemove(ctx, NetworkName(name))
-	})
-}
 
 // proxyBlock is a "proxy: {listen: ..., gateway_port: ..., egress: deny:
 // ...}\nconsole: listen: ...\n" CUE snippet naming freshly reserved, free
@@ -413,11 +331,9 @@ func TestExportCrossScopeStepRetriesAfterFailure(t *testing.T) {
 	assert.Equal(t, output.Value{String: "from-setup"}, exported.Outputs["greeting"])
 }
 
-// TestRunRejectsInvalidConfiguration covers every way Run must fail before it
-// ever launches a plugin or touches docker: a bad reference, a schema
-// violation, a reserved namespace, a filesystem problem. None of these needs
-// requireDocker - pluginload.Load or prepare's own validation rejects the
-// config first.
+// TestRunRejectsInvalidConfiguration covers the ways Run fails before any
+// plugin runs or docker is touched: a plugin that will not start, a reserved
+// namespace, an unknown plugin, a missing file, an unwritable workspace.
 func TestRunRejectsInvalidConfiguration(t *testing.T) {
 	t.Run("reports a plugin that will not start", func(t *testing.T) {
 		dir := configDir(t, proxyBlock(t)+`
@@ -444,56 +360,10 @@ env: a: uses: "echo:echo"
 			"a declared plugin that no step references must never start")
 	})
 
-	t.Run("an unknown same-scope needs name", func(t *testing.T) {
-		dir := project(t, `
-env: app: {uses: "echo:echo", needs: ["missing"]}
-`)
-		err := runEnv(t, dir)
-
-		require.ErrorContains(t, err, `app: needs "missing": no such step in scope "env"`)
-	})
-
-	t.Run("an unknown setup-scope needs name", func(t *testing.T) {
-		dir := project(t, `
-env: app: {uses: "echo:echo", needs: ["setup.missing"]}
-`)
-		err := runEnv(t, dir)
-
-		require.ErrorContains(t, err, `app: needs "setup.missing": no such step in scope "setup"`)
-	})
-
 	t.Run("a run without a scope", func(t *testing.T) {
-		err := Run(t.Context(), Options{Dir: project(t, `env: a: uses: "echo:echo"`)})
+		err := Run(t.Context(), Options{})
 
 		require.ErrorContains(t, err, "needs a scope")
-	})
-
-	t.Run("the setup prefix outside the env scope", func(t *testing.T) {
-		dir := project(t, `
-setup: {
-	a: {uses: "echo:echo", needs: ["setup.b"]}
-	b: {uses: "echo:echo"}
-}
-`)
-		err := Run(t.Context(), Options{Dir: dir, Scope: config.ScopeSetup})
-
-		require.ErrorContains(t, err, `a: needs "setup.b": only an env step can use a "setup." dependency`)
-	})
-
-	t.Run("rejects config the plugin schema does not allow", func(t *testing.T) {
-		dir := project(t, `
-env: a: {uses: "echo:echo", with: nonsense: true}
-`)
-
-		w := &watcher{}
-		err := Run(t.Context(), Options{
-			Dir:    dir,
-			Scope:  config.ScopeEnv,
-			Events: w,
-		})
-		require.ErrorIs(t, err, config.ErrInvalid)
-		assert.Contains(t, err.Error(), "env.a.with")
-		assert.Empty(t, w.String(), "no step can run when the environment is not valid")
 	})
 
 	t.Run("rejects a reserved namespace before launching anything", func(t *testing.T) {
@@ -506,18 +376,8 @@ env: a: uses: "kevin:thing"
 			"a reserved namespace must fail before the engine ever launches the entry")
 	})
 
-	t.Run("reports a plugin name mismatch", func(t *testing.T) {
-		bin, err := echoPlugin()
-		require.NoError(t, err)
-		dir := configDir(t, proxyBlock(t)+"plugins: notecho: cmd: "+strconv.Quote(bin)+"\nenv: a: uses: \"notecho:echo\"\n")
-
-		err = runEnv(t, dir)
-		require.ErrorIs(t, err, pluginhost.ErrNameMismatch)
-		assert.Contains(t, err.Error(), "notecho")
-	})
-
 	t.Run("rejects a step naming an undeclared plugin", func(t *testing.T) {
-		dir := project(t, `
+		dir := configDir(t, proxyBlock(t)+`
 env: a: uses: "nope:echo"
 `)
 		require.ErrorIs(t, runEnv(t, dir), config.ErrUnknownPlugin)
@@ -530,7 +390,7 @@ env: a: uses: "nope:echo"
 	// "reports a workspace creation failure" forces MkdirAll to fail: a file
 	// sits where the workspace directory must go.
 	t.Run("reports a workspace creation failure", func(t *testing.T) {
-		dir := project(t, `env: {}`)
+		dir := configDir(t, proxyBlock(t)+"env: {}\n")
 		require.NoError(t, os.WriteFile(filepath.Join(dir, state.WorkspaceDir), []byte("not a directory"), 0o600))
 
 		err := runEnv(t, dir)
@@ -580,160 +440,6 @@ func TestRunOnEvent(t *testing.T) {
 	}
 }
 
-func TestInputRows(t *testing.T) {
-	t.Run("no with block reports no rows", func(t *testing.T) {
-		rows, err := inputRows(nil, nil, expr.Scopes{}, nil, nil)
-		require.NoError(t, err)
-		assert.Nil(t, rows)
-	})
-
-	t.Run("a field only the schema's defaults added is not an input", func(t *testing.T) {
-		raw := json.RawMessage(`{"image":"postgres:16"}`)
-		rendered := json.RawMessage(`{"image":"postgres:16","wait":"5m"}`)
-
-		rows, err := inputRows(raw, rendered, expr.Scopes{}, nil, nil)
-
-		require.NoError(t, err)
-		assert.Equal(t, []session.Detail{{Label: "image", Value: "postgres:16", Copyable: true}}, rows)
-	})
-
-	t.Run("one row per top-level field, sorted, with the rendered value, and a copy button since neither is sensitive", func(t *testing.T) {
-		raw := json.RawMessage(`{"image":"postgres:16","port":"${needs.db.out.port}"}`)
-		rendered := json.RawMessage(`{"image":"postgres:16","port":"5432"}`)
-		rows, err := inputRows(raw, rendered, expr.Scopes{Needs: map[string]output.Map{
-			"db": {"port": output.Value{String: "5432"}},
-		}}, nil, nil)
-		require.NoError(t, err)
-		assert.Equal(t, []session.Detail{
-			{Label: "image", Value: "postgres:16", Copyable: true},
-			{Label: "port", Value: "5432", Copyable: true},
-		}, rows)
-	})
-
-	t.Run("a field referencing a sensitive value is marked Sensitive and not Copyable", func(t *testing.T) {
-		raw := json.RawMessage(`{"password":"${needs.db.out.password}"}`)
-		rendered := json.RawMessage(`{"password":"hunter2"}`)
-		rows, err := inputRows(raw, rendered, expr.Scopes{Needs: map[string]output.Map{
-			"db": {"password": output.Value{String: "hunter2", Sensitive: true}},
-		}}, nil, nil)
-		require.NoError(t, err)
-		assert.Equal(t, []session.Detail{{Label: "password", Value: "hunter2", Sensitive: true, Copyable: false}}, rows)
-	})
-
-	t.Run("a field the schema marks sensitive is redacted even as a literal with no marker at all", func(t *testing.T) {
-		raw := json.RawMessage(`{"password":"hunter2"}`)
-		rows, err := inputRows(raw, raw, expr.Scopes{}, map[string]bool{"password": true}, nil)
-		require.NoError(t, err)
-		assert.Equal(t, []session.Detail{{Label: "password", Value: "hunter2", Sensitive: true, Copyable: false}}, rows)
-	})
-
-	t.Run("a field referencing a sensitive variable is redacted", func(t *testing.T) {
-		raw := json.RawMessage(`{"token":"${vars.api_key}"}`)
-		rendered := json.RawMessage(`{"token":"sk-123"}`)
-		rows, err := inputRows(raw, rendered, expr.Scopes{Vars: map[string]any{"api_key": "sk-123"}}, nil, map[string]bool{"api_key": true})
-		require.NoError(t, err)
-		assert.Equal(t, []session.Detail{{Label: "token", Value: "sk-123", Sensitive: true, Copyable: false}}, rows)
-	})
-
-	t.Run("a non-string field keeps its compact JSON form", func(t *testing.T) {
-		raw := json.RawMessage(`{"ports":[5432,5433]}`)
-		rows, err := inputRows(raw, raw, expr.Scopes{}, nil, nil)
-		require.NoError(t, err)
-		assert.Equal(t, []session.Detail{{Label: "ports", Value: "[5432,5433]", Copyable: true}}, rows)
-	})
-}
-
-// TestApplySchema proves applySchema catches a rendered with block that
-// doesn't actually satisfy its step type's schema - the case config-validate
-// time couldn't yet, since a bare "${...}" marker's real value (a declared
-// variable's, or a needs/setup-sourced one) is only known once it's
-// rendered - and fills in the schema's defaults for a plugin.
-func TestApplySchema(t *testing.T) {
-	caps := map[string]pluginhost.Info{
-		"myplugin": {Steps: []pluginhost.StepInfo{
-			{Name: "mystep", Schema: []byte(`#Config: {port: int, wait: string | *"5m"}`)},
-		}},
-	}
-	step := config.Step{Uses: config.StepRef{Plugin: "myplugin", Step: "mystep"}, With: json.RawMessage(`{"port":"${vars.port}"}`)}
-
-	t.Run("a rendered value matching the schema passes, with defaults filled in", func(t *testing.T) {
-		r := &run{caps: caps}
-		got, err := r.applySchema("app", step, json.RawMessage(`{"port":3}`))
-		require.NoError(t, err)
-		assert.JSONEq(t, `{"port":3,"wait":"5m"}`, string(got))
-	})
-
-	t.Run("a value the user set beats the default", func(t *testing.T) {
-		r := &run{caps: caps}
-		got, err := r.applySchema("app", step, json.RawMessage(`{"port":3,"wait":"1s"}`))
-		require.NoError(t, err)
-		assert.JSONEq(t, `{"port":3,"wait":"1s"}`, string(got))
-	})
-
-	t.Run("a rendered value of the wrong type fails", func(t *testing.T) {
-		r := &run{caps: caps}
-		_, err := r.applySchema("app", step, json.RawMessage(`{"port":"not-an-int"}`))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "app.with")
-	})
-
-	t.Run("an empty with block still gets the defaults", func(t *testing.T) {
-		r := &run{caps: map[string]pluginhost.Info{"myplugin": {Steps: []pluginhost.StepInfo{
-			{Name: "mystep", Schema: []byte(`#Config: {wait: string | *"5m"}`)},
-		}}}}
-		got, err := r.applySchema("app", config.Step{Uses: step.Uses}, nil)
-		require.NoError(t, err)
-		assert.JSONEq(t, `{"wait":"5m"}`, string(got))
-	})
-
-	t.Run("an unknown plugin passes the block through", func(t *testing.T) {
-		r := &run{caps: map[string]pluginhost.Info{}}
-		got, err := r.applySchema("app", step, json.RawMessage(`{"port":"not-an-int"}`))
-		require.NoError(t, err)
-		assert.JSONEq(t, `{"port":"not-an-int"}`, string(got))
-	})
-}
-
-func TestSensitiveWithFields(t *testing.T) {
-	t.Run("no schema reports no fields", func(t *testing.T) {
-		fields, err := sensitiveWithFields(nil)
-		require.NoError(t, err)
-		assert.Nil(t, fields)
-	})
-
-	t.Run("only a @sensitive() field is reported", func(t *testing.T) {
-		schema := []byte(`#Config: {
-			image?: string
-			password?: string @sensitive()
-		}`)
-		fields, err := sensitiveWithFields(schema)
-		require.NoError(t, err)
-		assert.Equal(t, map[string]bool{"password": true}, fields)
-	})
-
-	t.Run("a malformed schema errors", func(t *testing.T) {
-		_, err := sensitiveWithFields([]byte(`#Config: {`))
-		require.Error(t, err)
-	})
-}
-
-func TestOutputRows(t *testing.T) {
-	t.Run("no outputs reports no rows", func(t *testing.T) {
-		assert.Nil(t, outputRows(nil))
-	})
-
-	t.Run("one row per output, sorted, sensitive rows not copyable", func(t *testing.T) {
-		rows := outputRows(map[string]output.Value{
-			"endpoint": {String: "localhost:55432"},
-			"password": {String: "hunter2", Sensitive: true},
-		})
-		assert.Equal(t, []session.Detail{
-			{Label: "endpoint", Value: "localhost:55432", Copyable: true},
-			{Label: "password", Value: "hunter2", Sensitive: true, Copyable: false},
-		}, rows)
-	})
-}
-
 func TestProxyEnvKeepsInternalTrafficOffTheProxy(t *testing.T) {
 	env := proxyEnv("127.0.0.1:18080", "kevin-demo", []string{"web", "api"})
 
@@ -761,14 +467,38 @@ func TestProxyEnvKeepsInternalTrafficOffTheProxy(t *testing.T) {
 }
 
 func TestNetworkNameCarriesTheProject(t *testing.T) {
-	assert.Equal(t, "kevin-demo", NetworkName("demo"))
-	assert.NotEqual(t, NetworkName("a"), NetworkName("b"))
+	assert.Equal(t, "kevin-demo", networkName("demo"))
+	assert.NotEqual(t, networkName("a"), networkName("b"))
 }
 
-// gatewayRuntime is a cri.Runtime double whose network has a fixed gateway.
-type gatewayRuntime struct {
-	cri.Runtime
+func TestEnvironment(t *testing.T) {
+	cfg := &config.Config{Project: "demo", Dir: t.TempDir(), Domain: "kevin.test"}
+	live := &liveServices{ProxyAddr: "127.0.0.1:8080", ConsoleAddr: "127.0.0.1:9090", Relay: "10.0.0.2:1"}
 
+	t.Run("a session adds only the live fields", func(t *testing.T) {
+		bare := environment(cfg, step.EnginePodman, config.ScopeEnv, nil)
+		full := environment(cfg, step.EnginePodman, config.ScopeEnv, live)
+
+		assert.Empty(t, bare.HTTPProxyAddr)
+		assert.Empty(t, bare.ProxyEnv)
+		assert.Equal(t, "127.0.0.1:8080", full.HTTPProxyAddr)
+		assert.Equal(t, "10.0.0.2:1", full.Relay)
+
+		full.HTTPProxyAddr, full.ConsoleAddr, full.ProxyEnv, full.Relay = "", "", nil, ""
+		assert.Equal(t, bare, full)
+	})
+
+	t.Run("carries the scope and engine it is given", func(t *testing.T) {
+		env := environment(cfg, step.EnginePodman, config.ScopeSetup, nil)
+
+		assert.Equal(t, config.ScopeSetup, env.Scope)
+		assert.Equal(t, step.EnginePodman, env.Engine)
+		assert.Equal(t, networkName("demo"), env.Network)
+	})
+}
+
+// gatewayRuntime is a gatewayLookup double whose network has a fixed gateway.
+type gatewayRuntime struct {
 	gateway    cri.Gateway
 	gatewayErr error
 }
@@ -786,91 +516,6 @@ func freeLoopbackAddr(t *testing.T) string {
 	addr := ln.Addr().String()
 	require.NoError(t, ln.Close())
 	return addr
-}
-
-// TestStartProxyReleasesListeners proves that a failed startProxy leaves no
-// listener bound, using a loopback gateway so no docker daemon is needed.
-func TestStartProxyReleasesListeners(t *testing.T) {
-	t.Setenv(state.UserStateDirEnv, t.TempDir())
-	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
-	authority, err := ca.NewManager("cwd", "", "proxy-release", ca.Options{}).LoadOrGenerateIntermediate()
-	require.NoError(t, err)
-
-	tests := []struct {
-		name string
-		rt   func(t *testing.T) (gatewayRuntime, int)
-	}{
-		{
-			name: "the gateway lookup fails",
-			rt: func(*testing.T) (gatewayRuntime, int) {
-				return gatewayRuntime{gatewayErr: assert.AnError}, 0
-			},
-		},
-		{
-			name: "the gateway port is already in use",
-			rt: func(t *testing.T) (gatewayRuntime, int) {
-				t.Helper()
-				var lc net.ListenConfig
-				held, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
-				require.NoError(t, err)
-				t.Cleanup(func() { _ = held.Close() })
-				return gatewayRuntime{gateway: cri.Gateway{V4: netip.MustParseAddr("127.0.0.1")}}, mustPort(t, held.Addr().String())
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			rt, port := tt.rt(t)
-			listen := freeLoopbackAddr(t)
-
-			_, err := startProxy(t.Context(), rt, authority, proxyOptions{
-				Network:     "net",
-				Listen:      listen,
-				GatewayPort: port,
-				Domain:      "kevin.test",
-			})
-			require.Error(t, err)
-
-			var lc net.ListenConfig
-			again, err := lc.Listen(t.Context(), "tcp", listen)
-			require.NoError(t, err, "the primary listener must be released")
-			require.NoError(t, again.Close())
-		})
-	}
-}
-
-// TestStartProxyOnRecord proves the callback is live from the first request.
-func TestStartProxyOnRecord(t *testing.T) {
-	t.Setenv(state.UserStateDirEnv, t.TempDir())
-	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
-	authority, err := ca.NewManager("cwd", "", "proxy-record", ca.Options{}).LoadOrGenerateIntermediate()
-	require.NoError(t, err)
-
-	records := make(chan proxy.Record, 1)
-	server, err := startProxy(t.Context(), gatewayRuntime{}, authority, proxyOptions{
-		Network:  "net",
-		Listen:   freeLoopbackAddr(t),
-		Domain:   "kevin.test",
-		Deny:     true,
-		OnRecord: func(rec proxy.Record) { records <- rec },
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = server.Close() })
-
-	proxyURL, err := url.Parse("http://" + server.addr)
-	require.NoError(t, err)
-	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://blocked.example/", nil)
-	require.NoError(t, err)
-	resp, err := client.Do(req)
-	require.NoError(t, err)
-	require.NoError(t, resp.Body.Close())
-
-	select {
-	case <-records:
-	case <-time.After(5 * time.Second):
-		t.Fatal("OnRecord was not called")
-	}
 }
 
 // bindGatewayPort reserves a free port on the gateway address and reports
@@ -913,39 +558,6 @@ func TestEventsWriter(t *testing.T) {
 
 	t.Run("falls back to stderr when not live", func(t *testing.T) {
 		assert.Equal(t, os.Stderr, eventsWriter(Options{}, false))
-	})
-}
-
-func TestProxyRoute(t *testing.T) {
-	tests := []struct {
-		name string
-		mode step.RouteMode
-		want proxy.RouteMode
-	}{
-		{name: "mitm", mode: step.RouteModeMITM, want: proxy.RouteModeMITM},
-		{name: "passthrough", mode: step.RouteModePassthrough, want: proxy.RouteModePassthrough},
-		{name: "raw", mode: step.RouteModeRaw, want: proxy.RouteModeRaw},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := proxyRoute(step.Route{Host: "a.test", Mode: tt.mode})
-
-			assert.Equal(t, tt.want, got.Mode)
-		})
-	}
-
-	t.Run("a relay upstream names the target and the relay", func(t *testing.T) {
-		got := proxyRoute(step.Route{Host: "a.test", Upstream: step.Upstream{Relay: &step.RelayTarget{Relay: "r:1080", Target: "svc:80"}}})
-
-		assert.Equal(t, "svc:80", got.Upstream)
-		assert.Equal(t, "r:1080", got.Relay)
-	})
-
-	t.Run("a direct upstream has no relay", func(t *testing.T) {
-		got := proxyRoute(step.Route{Host: "a.test", Upstream: step.Upstream{Addr: "127.0.0.1:80"}})
-
-		assert.Equal(t, "127.0.0.1:80", got.Upstream)
-		assert.Empty(t, got.Relay)
 	})
 }
 
@@ -1011,62 +623,6 @@ func TestCloseStepForwards(t *testing.T) {
 	})
 }
 
-func TestExposePort(t *testing.T) {
-	// busyPort is a loopback port that stays bound for the test, so a TCP
-	// forward pinned to it cannot listen.
-	busyPort := func(t *testing.T) int {
-		t.Helper()
-		var lc net.ListenConfig
-		ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
-		require.NoError(t, err)
-		t.Cleanup(func() { _ = ln.Close() })
-		addr, ok := ln.Addr().(*net.TCPAddr)
-		require.True(t, ok)
-		return addr.Port
-	}
-	// A relay nothing listens on makes a UDP forward fail while it dials.
-	newEP := func(protocol step.Protocol, hostPort int) step.ExposedPort {
-		return step.ExposedPort{
-			Name: "u", Protocol: protocol, HostPort: hostPort,
-			Upstream: step.Upstream{Relay: &step.RelayTarget{Relay: "127.0.0.1:1", Target: "svc:80"}},
-		}
-	}
-
-	t.Run("a failed UDP forward is an error", func(t *testing.T) {
-		var events bytes.Buffer
-		r := &run{events: &events}
-		err := r.exposePort(t.Context(), "udp", newEP(step.UDP, 0), output.Map{})
-		require.ErrorContains(t, err, "local forward for u")
-	})
-
-	t.Run("a failed TCP forward is only a warning", func(t *testing.T) {
-		var events bytes.Buffer
-		r := &run{events: &events}
-		require.NoError(t, r.exposePort(t.Context(), "web", newEP(step.TCP, busyPort(t)), output.Map{}))
-		assert.Contains(t, events.String(), "warning: local forward for u")
-	})
-
-	t.Run("a direct upstream opens no forward", func(t *testing.T) {
-		var events bytes.Buffer
-		r := &run{events: &events}
-		ep := step.ExposedPort{Name: "db", Upstream: step.Upstream{Addr: "127.0.0.1:5432"}}
-		out := output.Map{}
-
-		require.NoError(t, r.exposePort(t.Context(), "db", ep, out))
-
-		assert.Equal(t, output.Map{"expose_db": {String: "127.0.0.1:5432"}}, out)
-	})
-
-	t.Run("exposePorts marks the step failed", func(t *testing.T) {
-		var events bytes.Buffer
-		store := session.NewStore()
-		r := &run{events: &events, store: store}
-		eps := []step.ExposedPort{newEP(step.UDP, 0)}
-		require.Error(t, r.exposePorts(t.Context(), "udp", eps, output.Map{}))
-		assert.Contains(t, events.String(), "failed: ")
-	})
-}
-
 func TestMergeStepProperty(t *testing.T) {
 	ref := config.StepRef{Plugin: "echo", Step: "echo"}
 
@@ -1097,36 +653,6 @@ func TestMergeStepProperty(t *testing.T) {
 	})
 }
 
-func TestCallTool(t *testing.T) {
-	newRun := func() *run {
-		return &run{
-			toolRoutes: map[string]toolRoute{"echo_echo_echo": {plugin: "echo", step: "echo", tool: "echo"}},
-			steps: map[string]config.Step{
-				"a": {Uses: config.StepRef{Plugin: "echo", Step: "echo"}},
-				"w": {Uses: config.StepRef{Plugin: "builtin", Step: "wait"}},
-			},
-		}
-	}
-
-	t.Run("an unknown tool", func(t *testing.T) {
-		_, err := newRun().CallTool(t.Context(), "a", "nope_nope_nope", nil)
-
-		require.ErrorContains(t, err, `no such tool "nope_nope_nope"`)
-	})
-
-	t.Run("an unknown step", func(t *testing.T) {
-		_, err := newRun().CallTool(t.Context(), "missing", "echo_echo_echo", nil)
-
-		require.ErrorContains(t, err, `no step named "missing"`)
-	})
-
-	t.Run("a step of another type than the tool's owner", func(t *testing.T) {
-		_, err := newRun().CallTool(t.Context(), "w", "echo_echo_echo", nil)
-
-		require.ErrorContains(t, err, `step "w" is a builtin:wait step, not a echo:echo step`)
-	})
-}
-
 // newUpRun builds a run whose single step "a" uses the given plugin, relay
 // and route table, with no process, proxy or docker daemon behind them.
 func newUpRun(t *testing.T, plugin stepPlugin, routes routeTable, rl trafficRelay) *run {
@@ -1145,74 +671,4 @@ func newUpRun(t *testing.T, plugin stepPlugin, routes routeTable, rl trafficRela
 	r.store = session.NewStore()
 	require.NoError(t, r.registerScopeSteps(r.store))
 	return r
-}
-
-func TestUpStep(t *testing.T) {
-	t.Run("publishes a step's result to the proxy, relay and session", func(t *testing.T) {
-		plugin := newMockstepPlugin(t)
-		routes := newMockrouteTable(t)
-		rl := newMocktrafficRelay(t)
-		r := newUpRun(t, plugin, routes, rl)
-
-		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(step.Result{
-			Outputs: output.Map{"url": {String: "http://a"}},
-			Routes: []step.Route{
-				{Host: "a.kevin.test", Upstream: step.Upstream{Addr: "127.0.0.1:8080"}, TLS: true},
-				{Host: "fake.example.com", Upstream: step.Upstream{Addr: "127.0.0.1:9090"}, Intercept: &step.Intercept{Ports: []int{443}}},
-			},
-			EgressAllow: []string{"registry.example.com"},
-			Faults:      []step.Fault{{ID: "f1"}},
-		}, nil)
-		routes.EXPECT().AddRoutes([]proxy.Route{{Host: "a.kevin.test", Upstream: "127.0.0.1:8080", TLS: true, Mode: proxy.RouteModeMITM}}).Return()
-		routes.EXPECT().AddRoutes([]proxy.Route{{Host: "fake.example.com", Upstream: "127.0.0.1:9090", Mode: proxy.RouteModeMITM}}).Return()
-		routes.EXPECT().AllowEgress([]string{"registry.example.com"}).Return()
-		rl.EXPECT().EnsureListener(mock.Anything, "fake.example.com", []int{443}).Return(nil)
-		rl.EXPECT().ApplyFault(mock.Anything, mock.Anything).Return(nil)
-
-		out, err := r.upStep(t.Context(), "a", nil)
-
-		require.NoError(t, err)
-		assert.Equal(t, output.Map{"url": {String: "http://a"}}, out)
-		assert.Equal(t, []string{"f1"}, r.state.faults["a"])
-		assert.Equal(t, session.Ready, r.store.Snapshot().Steps[0].State)
-	})
-
-	t.Run("a relay failure fails the step", func(t *testing.T) {
-		plugin := newMockstepPlugin(t)
-		routes := newMockrouteTable(t)
-		rl := newMocktrafficRelay(t)
-		r := newUpRun(t, plugin, routes, rl)
-		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(step.Result{
-			Routes: []step.Route{{Host: "fake.example.com", Upstream: step.Upstream{Addr: "127.0.0.1:9090"}, Intercept: &step.Intercept{Ports: []int{443}}}},
-		}, nil)
-		routes.EXPECT().AddRoutes(mock.Anything).Return()
-		rl.EXPECT().EnsureListener(mock.Anything, "fake.example.com", []int{443}).Return(assert.AnError)
-
-		_, err := r.upStep(t.Context(), "a", nil)
-
-		require.ErrorIs(t, err, assert.AnError)
-		assert.Equal(t, session.Failed, r.store.Snapshot().Steps[0].State)
-	})
-
-	t.Run("a failed Up publishes nothing", func(t *testing.T) {
-		plugin := newMockstepPlugin(t)
-		r := newUpRun(t, plugin, newMockrouteTable(t), newMocktrafficRelay(t))
-		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(step.Result{}, assert.AnError)
-
-		_, err := r.upStep(t.Context(), "a", nil)
-
-		require.ErrorIs(t, err, assert.AnError)
-		assert.Equal(t, session.Failed, r.store.Snapshot().Steps[0].State)
-	})
-
-	t.Run("a step that is already running reports ErrStepBusy", func(t *testing.T) {
-		r := newUpRun(t, newMockstepPlugin(t), newMockrouteTable(t), newMocktrafficRelay(t))
-		unlock, ok := r.state.TryLock("a")
-		require.True(t, ok)
-		defer unlock()
-
-		_, err := r.upStep(t.Context(), "a", nil)
-
-		require.ErrorIs(t, err, session.ErrStepBusy)
-	})
 }

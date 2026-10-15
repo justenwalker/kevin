@@ -227,11 +227,11 @@ func dialTCP(ctx context.Context, address string) error {
 }
 
 func tcpDialer(address string) (proxy.ContextDialer, string, error) { //nolint:ireturn // a plain dial and a SOCKS5 dial are genuinely different concrete types, same as registry.Lookup
-	relay, target, ok := portforward.SplitSOCKS5(address)
+	rt, ok := portforward.SplitSOCKS5(address)
 	if !ok {
 		return &net.Dialer{}, address, nil
 	}
-	d, err := proxy.SOCKS5("tcp", relay, nil, proxy.Direct)
+	d, err := proxy.SOCKS5("tcp", rt.Relay, nil, proxy.Direct)
 	if err != nil {
 		return nil, "", fmt.Errorf("wait: socks5 dialer: %w", err)
 	}
@@ -239,7 +239,7 @@ func tcpDialer(address string) (proxy.ContextDialer, string, error) { //nolint:i
 	if !ok {
 		return nil, "", errors.New("wait: socks5 dialer does not support DialContext")
 	}
-	return cd, target, nil
+	return cd, rt.Target, nil
 }
 
 func probeHTTP(ctx context.Context, cfg httpConfig) error {

@@ -29,23 +29,19 @@ func collectTools(ctx context.Context, steps map[string]config.Step, caps map[st
 	var defs []mcpserver.ToolDef
 	for _, cfgStep := range steps {
 		ref := cfgStep.Uses
-		for _, st := range caps[ref.Plugin].Steps {
-			if st.Name != ref.Step {
+		st, _ := caps[ref.Plugin].Step(ref.Step)
+		for _, t := range st.Tools {
+			name := ref.Plugin + "_" + ref.Step + "_" + t.Name
+			if _, ok := routes[name]; ok {
 				continue
 			}
-			for _, t := range st.Tools {
-				name := ref.Plugin + "_" + ref.Step + "_" + t.Name
-				if _, ok := routes[name]; ok {
-					continue
-				}
-				schema, mergeErr := mergeStepProperty(t.InputSchema, ref)
-				if mergeErr != nil {
-					log.Ctx(ctx).Warn("skipping mcp tool with an invalid input schema", "tool", name, "error", mergeErr)
-					continue
-				}
-				routes[name] = toolRoute{plugin: ref.Plugin, step: ref.Step, tool: t.Name}
-				defs = append(defs, mcpserver.ToolDef{Name: name, Description: t.Description, InputSchema: schema})
+			schema, mergeErr := mergeStepProperty(t.InputSchema, ref)
+			if mergeErr != nil {
+				log.Ctx(ctx).Warn("skipping mcp tool with an invalid input schema", "tool", name, "error", mergeErr)
+				continue
 			}
+			routes[name] = toolRoute{plugin: ref.Plugin, step: ref.Step, tool: t.Name}
+			defs = append(defs, mcpserver.ToolDef{Name: name, Description: t.Description, InputSchema: schema})
 		}
 	}
 	return defs, routes
@@ -102,10 +98,11 @@ func (r *run) CallTool(ctx context.Context, name, tool string, args json.RawMess
 		return mcpserver.ToolResult{}, fmt.Errorf("engine: plugin %q not loaded", ref.Plugin)
 	}
 
-	setupDeps, _, err := r.crossScopeDeps(ctx, name)
+	cross, err := r.crossScopeDeps(ctx, name)
 	if err != nil {
 		return mcpserver.ToolResult{}, err
 	}
+	setupDeps := cross.Outputs
 	deps := r.sameScopeDeps(name)
 	with, err := r.renderWith(name, cfgStep, deps, setupDeps)
 	if err != nil {

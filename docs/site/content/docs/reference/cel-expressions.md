@@ -70,8 +70,8 @@ registry: "${has(env.REGISTRY_HOST) ? env.REGISTRY_HOST : \"localhost:5000\"}"
 | `root_cert` | Host path of kevin's root CA certificate file. |
 | `ca_cert` | Host path of this project's intermediate CA certificate file. |
 | `ca_key` | Host path of this project's intermediate CA private key file. |
-| `http_proxy_addr` | `host:port` of kevin's own HTTP(S) proxy, reachable from the host. |
-| `relay` | Address of the relay container on the container network. |
+| `http_proxy_addr` | `host:port` of kevin's own HTTP(S) proxy, reachable from the host. Absent in a `commands` `run`, because `kevin do` starts no proxy. |
+| `relay` | Address of the relay container on the container network. Absent in a `commands` `run`. |
 
 Use these for a tool that takes a CA file or proxy address only as a flag:
 

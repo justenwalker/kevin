@@ -28,15 +28,25 @@ type Spec struct {
 	RelayUDPAddrs map[int]string
 }
 
+// RelayTarget is a host:port reached through a relay's SOCKS5 listener.
+type RelayTarget struct {
+	// Relay is the host-reachable address of the relay's SOCKS5 listener.
+	Relay string
+
+	// Target is the host:port to reach through it.
+	Target string
+}
+
 // SplitSOCKS5 splits a "socks5://<relay>/<target>" address into its relay
 // and target parts. ok is false when address carries no socks5:// prefix or
 // no target after the relay.
-func SplitSOCKS5(address string) (string, string, bool) {
+func SplitSOCKS5(address string) (RelayTarget, bool) {
 	rest, ok := strings.CutPrefix(address, "socks5://")
 	if !ok {
-		return "", "", false
+		return RelayTarget{}, false
 	}
-	return strings.Cut(rest, "/")
+	relay, target, ok := strings.Cut(rest, "/")
+	return RelayTarget{Relay: relay, Target: target}, ok
 }
 
 // listenAddr is the loopback address a forward for spec listens on.

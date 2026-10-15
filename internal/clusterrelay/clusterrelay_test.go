@@ -150,17 +150,17 @@ func TestStartForwarder(t *testing.T) {
 }
 
 func TestLookupForwarder(t *testing.T) {
-	t.Run("absent reports false", func(t *testing.T) {
-		_, ok, err := LookupForwarder(t.Context(), &fakeRuntime{}, "x")
+	t.Run("absent reports nil", func(t *testing.T) {
+		got, err := LookupForwarder(t.Context(), &fakeRuntime{}, "x")
 		require.NoError(t, err)
-		assert.False(t, ok)
+		assert.Nil(t, got)
 	})
 
-	t.Run("stopped reports false", func(t *testing.T) {
+	t.Run("stopped reports nil", func(t *testing.T) {
 		rt := &fakeRuntime{container: &cri.Container{Running: false}}
-		_, ok, err := LookupForwarder(t.Context(), rt, "x")
+		got, err := LookupForwarder(t.Context(), rt, "x")
 		require.NoError(t, err)
-		assert.False(t, ok)
+		assert.Nil(t, got)
 	})
 
 	t.Run("running reports its addresses", func(t *testing.T) {
@@ -168,16 +168,16 @@ func TestLookupForwarder(t *testing.T) {
 			Running: true,
 			Ports:   map[string]string{"1080/tcp": "127.0.0.1:50000", "40000/udp": "127.0.0.1:50001"},
 		}}
-		got, ok, err := LookupForwarder(t.Context(), rt, "x")
+		got, err := LookupForwarder(t.Context(), rt, "x")
 		require.NoError(t, err)
-		assert.True(t, ok)
+		require.NotNil(t, got)
 		assert.Equal(t, "127.0.0.1:50000", got.Addr)
 		assert.Equal(t, map[int]string{40000: "127.0.0.1:50001"}, got.UDPAddrs)
 	})
 
 	t.Run("a running container with no socks5 port is an error", func(t *testing.T) {
 		rt := &fakeRuntime{container: &cri.Container{Running: true}}
-		_, _, err := LookupForwarder(t.Context(), rt, "x")
+		_, err := LookupForwarder(t.Context(), rt, "x")
 		require.ErrorIs(t, err, ErrNoPublishedPort)
 	})
 }

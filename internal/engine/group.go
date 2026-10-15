@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/justenwalker/kevin/internal/config"
@@ -13,41 +12,11 @@ import (
 	"github.com/justenwalker/kevin/internal/session"
 )
 
-// groupSep joins a group's own name to a member's bare name for the
-// member's engine-internal DAG node name - [config.File]'s own flattening
-// convention, matched here exactly since it's also how the engine looks a
-// member's outputs back up in a group's deps map.
-const groupSep = "."
-
-// memberName builds a group member's engine-internal DAG node name.
-func memberName(group, member string) string {
-	return group + groupSep + member
-}
-
-// resolveNeed resolves one of name's own needs entries to its real DAG
-// node name. A group member's needs may name a sibling member by that
-// sibling's own bare name (config.Group's own convention: the group joins
-// that edge internally, a member never spells out its group's name) -
-// resolved here to "<group>.<sibling>". Anything else (a plain step, or a
-// group's own bare name) already is its own node name. ok is false when
-// dep names neither - config-load validation guarantees this never
-// happens for a value that actually reached here, but graph()/downNeeds()
-// still need a filter to drop a cross-scope "setup.<name>" entry, resolved
-// separately by crossScopeDeps.
+// resolveNeed resolves one of name's own needs entries to its DAG node name,
+// or reports false for a cross-scope "setup." entry, which crossScopeDeps
+// resolves separately.
 func (r *run) resolveNeed(name string, dep config.Need) (string, bool) {
-	if dep.Setup {
-		return "", false
-	}
-	if group, _, ok := strings.Cut(name, groupSep); ok && slices.Contains(r.groups[group].Members, dep.Step) {
-		return memberName(group, dep.Step), true
-	}
-	if _, ok := r.steps[dep.Step]; ok {
-		return dep.Step, true
-	}
-	if _, ok := r.groups[dep.Step]; ok {
-		return dep.Step, true
-	}
-	return "", false
+	return config.ResolveNeed(name, dep, r.steps, r.groups)
 }
 
 // localizeDeps rewrites deps for CEL rendering from a group member's own
@@ -56,11 +25,11 @@ func (r *run) resolveNeed(name string, dep config.Need) (string, bool) {
 // matching the bare name the member's with block and its own needs list
 // both use to refer to it. A non-member name passes through unchanged.
 func localizeDeps(name string, deps map[string]output.Map) map[string]output.Map {
-	group, _, ok := strings.Cut(name, groupSep)
+	group, _, ok := strings.Cut(name, config.GroupMemberSep)
 	if !ok || len(deps) == 0 {
 		return deps
 	}
-	prefix := group + groupSep
+	prefix := group + config.GroupMemberSep
 	out := make(map[string]output.Map, len(deps))
 	for k, v := range deps {
 		out[k] = v
@@ -105,7 +74,7 @@ func (r *run) qualifySiblings(group string, needs []config.Need) []config.Need {
 		if n.Setup {
 			continue
 		}
-		if qualified := memberName(group, n.Step); r.hasStep(qualified) {
+		if qualified := config.MemberName(group, n.Step); r.hasStep(qualified) {
 			out[i] = config.Need{Step: qualified}
 		}
 	}
@@ -123,7 +92,7 @@ func (r *run) registerScopeSteps(store *session.Store) error {
 	// read roughly as installation order, a dependency after what it needs.
 	for _, name := range r.graph().TopoSort() {
 		if grp, ok := r.groups[name]; ok {
-			store.AddStep(name, grp.Label, "group", "", nil, config.NeedStrings(grp.Needs), false, "", true)
+			store.AddStep(session.Step{Name: name, Label: grp.Label, Kind: "group", Needs: config.NeedStrings(grp.Needs), IsGroup: true})
 			// A group is a pure recompute, always safe to sweep into a
 			// cascading rerun.
 			store.SetStepIdempotent(name, true)
@@ -135,7 +104,7 @@ func (r *run) registerScopeSteps(store *session.Store) error {
 		kindLabel := stepKind(r.caps[ref.Plugin], ref.Step).String()
 
 		group, label := "", step.Label
-		if g, member, ok := strings.Cut(name, groupSep); ok {
+		if g, member, ok := strings.Cut(name, config.GroupMemberSep); ok {
 			group = g
 			if label == "" {
 				label = member
@@ -153,8 +122,11 @@ func (r *run) registerScopeSteps(store *session.Store) error {
 			needs = subtractNeeds(needs, r.groups[group].Needs)
 			needs = r.qualifySiblings(group, needs)
 		}
-		store.AddStep(name, label, kindLabel, ref.Plugin, r.caps[ref.Plugin].Icon, config.NeedStrings(needs),
-			isCompactStep(kindLabel, ref.Plugin, ref.Step), group, false)
+		store.AddStep(session.Step{
+			Name: name, Label: label, Kind: kindLabel, Provider: ref.Plugin,
+			Icon: r.caps[ref.Plugin].Icon, Needs: config.NeedStrings(needs),
+			Compact: isCompactStep(kindLabel, ref.Plugin, ref.Step), Group: group,
+		})
 		store.SetStepIdempotent(name, stepIdempotent(r.caps[ref.Plugin], ref.Step))
 	}
 	return nil
@@ -168,7 +140,7 @@ func (r *run) upGroup(ctx context.Context, name string, grp config.Group, deps m
 
 	memberOutputs := make(map[string]output.Map, len(grp.Members))
 	for _, member := range grp.Members {
-		memberOutputs[member] = deps[memberName(name, member)]
+		memberOutputs[member] = deps[config.MemberName(name, member)]
 	}
 	outputs, err := evalGroupOutputs(name, grp.Outputs, memberOutputs)
 	if err != nil {
@@ -189,7 +161,7 @@ func (r *run) upGroup(ctx context.Context, name string, grp config.Group, deps m
 func (r *run) doExportCrossScopeGroup(ctx context.Context, name string, grp config.Group) (exportedStep, error) {
 	memberOutputs := make(map[string]output.Map, len(grp.Members))
 	for _, member := range grp.Members {
-		exported, err := r.doExportCrossScopeStep(ctx, memberName(name, member))
+		exported, err := r.doExportCrossScopeStep(ctx, config.MemberName(name, member))
 		if err != nil {
 			return exportedStep{}, err
 		}

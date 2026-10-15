@@ -408,3 +408,21 @@ func TestErrorsAreSentinels(t *testing.T) {
 	assert.Contains(t, ErrNoResult.Error(), "pluginhost")
 	assert.Contains(t, ErrNameMismatch.Error(), "pluginhost")
 }
+
+func TestInfoStep(t *testing.T) {
+	info := Info{Steps: []StepInfo{{Name: "a", Down: true}, {Name: "b"}}}
+
+	t.Run("finds a step type by name", func(t *testing.T) {
+		st, ok := info.Step("a")
+
+		require.True(t, ok)
+		assert.True(t, st.Down)
+	})
+
+	t.Run("reports a missing step type", func(t *testing.T) {
+		st, ok := info.Step("c")
+
+		assert.False(t, ok)
+		assert.Equal(t, StepInfo{}, st)
+	})
+}

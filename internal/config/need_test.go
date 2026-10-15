@@ -38,3 +38,30 @@ func TestNeed(t *testing.T) {
 		assert.Empty(t, NeedStrings(nil))
 	})
 }
+
+func TestResolveNeed(t *testing.T) {
+	steps := map[string]Step{"web": {}, "db.primary": {}, "db.replica": {}}
+	groups := map[string]Group{"db": {Members: []string{"primary", "replica"}}}
+
+	tests := []struct {
+		name string
+		from string
+		dep  Need
+		want string
+		ok   bool
+	}{
+		{name: "a plain step", from: "web", dep: Need{Step: "web"}, want: "web", ok: true},
+		{name: "a group by its own name", from: "web", dep: Need{Step: "db"}, want: "db", ok: true},
+		{name: "a sibling by its bare name", from: "db.replica", dep: Need{Step: "primary"}, want: "db.primary", ok: true},
+		{name: "a setup entry", from: "web", dep: Need{Setup: true, Step: "web"}},
+		{name: "an unknown name", from: "web", dep: Need{Step: "missing"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := ResolveNeed(tt.from, tt.dep, steps, groups)
+
+			assert.Equal(t, tt.ok, ok)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

@@ -73,6 +73,30 @@ commands: psql: {
 		assert.Equal(t, r.cfg.Dir, plan.Dir)
 	})
 
+	t.Run("each export carries the scope of the step it names", func(t *testing.T) {
+		scopes := map[string]config.Scope{}
+		plugin := newMockstepPlugin(t)
+		plugin.EXPECT().Export(mock.Anything, mock.Anything).RunAndReturn(
+			func(_ context.Context, req step.ExportRequest) (step.ExportResult, error) {
+				scopes[req.Step] = req.Env.Scope
+				return exportOf(map[string]string{"addr": "x"}), nil
+			})
+		r := commandRun(t, `
+setup: db: uses: "echo:echo"
+env: web: uses: "echo:echo"
+commands: psql: {
+	needs: ["web", "setup.db"]
+	run: ["psql", "${needs.web.out.addr}", "${setup.db.out.addr}"]
+}
+`, plugin)
+		r.env.Scope = config.ScopeEnv
+
+		_, err := r.planCommand(t.Context(), "psql")
+
+		require.NoError(t, err)
+		assert.Equal(t, map[string]config.Scope{"web": config.ScopeEnv, "db": config.ScopeSetup}, scopes)
+	})
+
 	t.Run("resolves a setup group an env step needs", func(t *testing.T) {
 		plugin := newMockstepPlugin(t)
 		plugin.EXPECT().Export(mock.Anything, mock.Anything).RunAndReturn(

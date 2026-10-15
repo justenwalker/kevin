@@ -27,7 +27,7 @@ func dialServer(t *testing.T, h http.Handler) *runapi.Client {
 // Integration tier: console and client together, no container engine.
 func TestClient(t *testing.T) {
 	store := session.NewStore()
-	store.AddStep("web", "Web", "resource", "builtin", nil, nil, false, "", false)
+	store.AddStep(session.Step{Name: "web", Label: "Web", Kind: "resource", Provider: "builtin"})
 	store.SetStep("web", session.Ready, "")
 	rerun := func(req runapi.RerunRequest) (runapi.RerunResult, error) {
 		switch req.Step {

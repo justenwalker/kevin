@@ -24,11 +24,11 @@ func (r *run) Export(ctx context.Context, name string) (output.Map, error) {
 	if !ok {
 		return nil, fmt.Errorf("engine: plugin %q not loaded", ref.Plugin)
 	}
-	setupDeps, _, err := r.crossScopeDeps(ctx, name)
+	cross, err := r.crossScopeDeps(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	with, err := r.renderWith(name, cfgStep, r.sameScopeDeps(name), setupDeps)
+	with, err := r.renderWith(name, cfgStep, r.sameScopeDeps(name), cross.Outputs)
 	if err != nil {
 		return nil, err
 	}
@@ -43,12 +43,8 @@ func (r *run) Export(ctx context.Context, name string) (output.Map, error) {
 
 // stepExports reports whether info's step type name implements Export.
 func stepExports(info pluginhost.Info, name string) bool {
-	for _, st := range info.Steps {
-		if st.Name == name {
-			return st.Export
-		}
-	}
-	return false
+	st, _ := info.Step(name)
+	return st.Export
 }
 
 // exportedStep is what exportCrossScopeStep resolves for one setup-scope
@@ -102,10 +98,11 @@ func (r *run) doExportStep(ctx context.Context, scope config.Scope, name string)
 	}
 	var setupDeps map[string]output.Map
 	if scope == config.ScopeEnv {
-		var err error
-		if setupDeps, _, err = r.crossScopeDeps(ctx, name); err != nil {
+		cross, err := r.crossScopeDeps(ctx, name)
+		if err != nil {
 			return exportedStep{}, err
 		}
+		setupDeps = cross.Outputs
 	}
 	tpl, err := expr.Parse(cfgStep.With)
 	if err != nil {
@@ -119,8 +116,10 @@ func (r *run) doExportStep(ctx context.Context, scope config.Scope, name string)
 	if err != nil {
 		return exportedStep{}, err
 	}
+	env := r.env
+	env.Scope = scope
 	resp, err := client.Export(ctx, step.ExportRequest{
-		Step: name, Type: ref.Step, Env: r.env, Config: with,
+		Step: name, Type: ref.Step, Env: env, Config: with,
 	})
 	if err != nil {
 		return exportedStep{}, fmt.Errorf("export %s step %q: %w", scope, name, err)
@@ -128,15 +127,21 @@ func (r *run) doExportStep(ctx context.Context, scope config.Scope, name string)
 	return exportedStep{Outputs: resp.Out, Containers: resp.Containers}, nil
 }
 
+// crossScope is what the "setup." entries of a step's needs resolve to,
+// keyed by the unprefixed setup-step name.
+type crossScope struct {
+	// Outputs feeds the "setup" CEL variable and the wire Deps.
+	Outputs map[string]output.Map
+
+	// Containers feeds UpRequest.Containers.
+	Containers map[string][]step.Container
+}
+
 // crossScopeDeps resolves every "setup."-prefixed entry in name's own
-// needs list via Export, keyed by the unprefixed setup-step name - the
-// shape both the "setup" CEL variable and the step's wire Deps use. The
-// second return value carries the same steps' Containers, for
-// UpRequest.Containers. A name with no such entry returns (nil, nil,
-// nil) - the common case, most steps use only same-scope needs.
-func (r *run) crossScopeDeps(ctx context.Context, name string) (map[string]output.Map, map[string][]step.Container, error) {
-	var out map[string]output.Map
-	var containers map[string][]step.Container
+// needs list via Export. A name with no such entry returns the zero
+// crossScope - the common case, most steps use only same-scope needs.
+func (r *run) crossScopeDeps(ctx context.Context, name string) (crossScope, error) {
+	var out crossScope
 	for _, dep := range r.steps[name].Needs {
 		if !dep.Setup {
 			continue // same-scope, resolved by the dag walk already.
@@ -144,20 +149,20 @@ func (r *run) crossScopeDeps(ctx context.Context, name string) (map[string]outpu
 		setupName := dep.Step
 		exported, err := r.exportCrossScopeStep(ctx, setupName)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: needs %q: %w", name, dep, err)
+			return crossScope{}, fmt.Errorf("%s: needs %q: %w", name, dep, err)
 		}
-		if out == nil {
-			out = make(map[string]output.Map)
+		if out.Outputs == nil {
+			out.Outputs = make(map[string]output.Map)
 		}
-		out[setupName] = exported.Outputs
+		out.Outputs[setupName] = exported.Outputs
 		if len(exported.Containers) > 0 {
-			if containers == nil {
-				containers = make(map[string][]step.Container)
+			if out.Containers == nil {
+				out.Containers = make(map[string][]step.Container)
 			}
-			containers[setupName] = exported.Containers
+			out.Containers[setupName] = exported.Containers
 		}
 	}
-	return out, containers, nil
+	return out, nil
 }
 
 // sameScopeDeps builds name's same-scope deps map from already-completed

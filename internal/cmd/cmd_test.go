@@ -150,6 +150,14 @@ func TestRun(t *testing.T) {
 		require.ErrorIs(t, err, engines.ErrUnsupported)
 	})
 
+	t.Run("do rejects an unknown engine like teardown", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(dir+"/kevin.cue", []byte(listenBlockDefault+`plugins: {}`), 0o600))
+
+		err := cmd.Run(t.Context(), []string{"-C", dir, "--engine", "bogus", "do", "x"})
+		require.ErrorIs(t, err, engines.ErrUnsupported)
+	})
+
 	t.Run("--engine overrides KEVIN_ENGINE", func(t *testing.T) {
 		t.Setenv("KEVIN_ENGINE", "bogus")
 		dir := t.TempDir()

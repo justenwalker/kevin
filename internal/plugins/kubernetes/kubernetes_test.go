@@ -41,7 +41,7 @@ func (c *capture) Log(stream, text string) {
 
 func (c *capture) Progress(string, int64, int64) {}
 
-// fakeRuntime is a hand-written cri.Runtime double. It lets a test drive the
+// fakeRuntime is a hand-written container engine double. It lets a test drive the
 // kubectl-over-Exec orchestration in capture.go, coredns.go, and trustca.go
 // without a live docker daemon or kind cluster.
 type fakeRuntime struct {
@@ -58,7 +58,10 @@ type fakeRuntime struct {
 	networkRemove  func(ctx context.Context, name string) error
 }
 
-var _ cri.Runtime = fakeRuntime{}
+var (
+	_ driverRuntime = fakeRuntime{}
+	_ relayRuntime  = fakeRuntime{}
+)
 
 func (f fakeRuntime) Exec(ctx context.Context, container string, args ...string) (string, error) {
 	if f.exec == nil {
@@ -80,8 +83,6 @@ func (f fakeRuntime) Inspect(ctx context.Context, name string) (cri.Container, e
 	}
 	return f.inspect(ctx, name)
 }
-
-func (fakeRuntime) Available(context.Context) error { return nil }
 
 func (f fakeRuntime) Run(ctx context.Context, spec cri.RunSpec) (string, error) {
 	if f.run == nil {

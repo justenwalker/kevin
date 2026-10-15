@@ -42,7 +42,7 @@ type minikubeDriver struct {
 	env        plugin.Env
 	name       string
 	kubeconfig string
-	rt         minikubeRuntime
+	rt         driverRuntime
 	cli        minikubeCLI
 
 	// cacheDir looks up the cache that every cluster shares, held as a value
@@ -56,7 +56,7 @@ var _ driver = (*minikubeDriver)(nil)
 // [ErrMinikubeWorkerSettings] when a worker carries node settings, and
 // [ErrMinikubeMounts] when mounts has more than one entry. rt may be nil,
 // and then Delete leaves the network of the cluster in place.
-func newMinikubeDriver(cfg config, env plugin.Env, name, kubeconfig string, rt minikubeRuntime) (*minikubeDriver, error) {
+func newMinikubeDriver(cfg config, env plugin.Env, name, kubeconfig string, rt driverRuntime) (*minikubeDriver, error) {
 	for worker, settings := range cfg.Workers {
 		if len(settings) > 0 {
 			return nil, fmt.Errorf("worker %q: %w", worker, ErrMinikubeWorkerSettings)
@@ -380,14 +380,4 @@ func (d *minikubeDriver) LoadImage(ctx context.Context, path string, out plugin.
 		return fmt.Errorf("kubernetes: minikube: load the image archive: %w", err)
 	}
 	return nil
-}
-
-// minikubeRuntime is what the minikube driver asks of the container engine:
-// it lists and inspects a cluster's containers, runs commands in them, and
-// manages the cluster's network.
-type minikubeRuntime interface {
-	cri.Containers
-	cri.Lister
-	cri.Networks
-	cri.Execer
 }

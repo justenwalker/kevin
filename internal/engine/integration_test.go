@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/docker"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/internal/step"
@@ -57,7 +59,7 @@ func (s *RelaySuite) SetupSuite() {
 	t := s.T()
 	requireRelay(t)
 
-	bin, err := buildEchoPluginForIntegration(t)
+	bin, err := echoPlugin()
 	s.Require().NoError(err)
 	s.echoPlugin = bin
 }
@@ -124,7 +126,7 @@ func (s *RelaySuite) TestRunStartsRelayAndCleansUpEveryResource() {
 	s.Require().NoError(err)
 	s.Empty(names, "no container may carry the project label once the run ends")
 
-	_, err = dockerClient.NetworkGateway(context.Background(), NetworkName(project))
+	_, err = dockerClient.NetworkGateway(context.Background(), networkName(project))
 	s.Require().ErrorIs(err, cri.ErrNotFound, "the network must be gone once the run ends")
 }
 
@@ -135,7 +137,7 @@ func (s *RelaySuite) TestReapLeavesALiveRelayInPlace() {
 	t := s.T()
 	ctx := t.Context()
 	const project = "kevin-it-super-reap"
-	network := NetworkName(project)
+	network := networkName(project)
 
 	s.Require().NoError(dockerClient.NetworkCreate(ctx, network, cri.NetworkOptions{
 		Labels: map[string]string{cri.LabelProject: project},
@@ -180,17 +182,64 @@ func (s *RelaySuite) TestReapLeavesALiveRelayInPlace() {
 	s.Require().ErrorIs(err, cri.ErrNotFound, "reap must still remove an orphan that carries no role")
 }
 
-// buildEchoPluginForIntegration builds the echo plugin binary, the same way
-// buildEchoPlugin in engine_test.go does.
-func buildEchoPluginForIntegration(t *testing.T) (string, error) {
-	t.Helper()
+// echoPlugin is the path of the compiled echo plugin, built once.
+var echoPlugin = sync.OnceValues(buildEchoPlugin)
 
-	dir := t.TempDir()
+// dockerClient inspects docker resources directly; these tests run on docker.
+var dockerClient = docker.Client{}
+
+func buildEchoPlugin() (string, error) {
+	dir, err := os.MkdirTemp("", "kevin-plugin-*")
+	if err != nil {
+		return "", err
+	}
 	bin := filepath.Join(dir, "kevin-plugin-echo")
-	cmd := exec.CommandContext(t.Context(), "go", "build", "-o", bin,
+	cmd := exec.CommandContext(context.Background(), "go", "build", "-o", bin,
 		"github.com/justenwalker/kevin/cmd/kevin-plugin-echo")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("build echo plugin: %w: %s", err, out)
+	if out, buildErr := cmd.CombinedOutput(); buildErr != nil {
+		return "", fmt.Errorf("build echo plugin: %w: %s", buildErr, out)
 	}
 	return bin, nil
+}
+
+// project writes a kevin.cue fixture, with the echo plugin and free ports,
+// and returns its directory. Unless body sets its own project field, the
+// project name is unique per call: reusing the directory's sequence-number
+// name would recreate one Docker network back to back and hit Docker's own
+// removal/recreate race.
+func project(t *testing.T, body string) string {
+	t.Helper()
+	bin, err := echoPlugin()
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	src := "plugins: echo: cmd: " + strconv.Quote(bin) + "\n" + proxyBlock(t)
+	if !strings.Contains(body, "project:") {
+		name := config.SlugName(t.Name()) + "-" + filepath.Base(dir)
+		src += "project: " + strconv.Quote(name) + "\n"
+		removeProject(t, name)
+	} else if m := projectField.FindStringSubmatch(body); m != nil {
+		removeProject(t, m[1])
+	}
+	src += body
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "kevin.cue"), []byte(src), 0o600))
+	return dir
+}
+
+// projectField finds the name of a quoted project field in a fixture body.
+var projectField = regexp.MustCompile(`(?m)^\s*project:\s*"([^"]+)"`)
+
+// removeProject removes, when t ends, the containers and the network that a
+// run with Keep leaves behind for the project called name. A failure is
+// ignored: the run may have removed them already.
+func removeProject(t *testing.T, name string) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx := context.WithoutCancel(t.Context())
+		containers, _ := dockerClient.ListByLabel(ctx, cri.LabelProject, name)
+		for _, container := range containers {
+			_ = dockerClient.Remove(ctx, container)
+		}
+		_ = dockerClient.NetworkRemove(ctx, networkName(name))
+	})
 }

@@ -76,6 +76,27 @@ func (f *File) validateNeeds(scope Scope, entries, setup scopeEntries) error {
 	return nil
 }
 
+// ResolveNeed resolves one of name's own same-scope needs entries to its DAG
+// node name. A group member may name a sibling by its bare name, which
+// resolves to "<group>.<sibling>"; a plain step or a group's own name is its
+// own node name. ok is false for a "setup." entry, and for a name that is
+// neither a step nor a group.
+func ResolveNeed(name string, dep Need, steps map[string]Step, groups map[string]Group) (string, bool) {
+	if dep.Setup {
+		return "", false
+	}
+	if group, _, ok := strings.Cut(name, GroupMemberSep); ok && slices.Contains(groups[group].Members, dep.Step) {
+		return MemberName(group, dep.Step), true
+	}
+	if _, ok := steps[dep.Step]; ok {
+		return dep.Step, true
+	}
+	if _, ok := groups[dep.Step]; ok {
+		return dep.Step, true
+	}
+	return "", false
+}
+
 // validateNeedEntry checks one needs entry of the step name in scope.
 func validateNeedEntry(scope Scope, name string, dep Need, entries, setup scopeEntries) error {
 	if dep.Setup {
@@ -92,13 +113,7 @@ func validateNeedEntry(scope Scope, name string, dep Need, entries, setup scopeE
 		return fmt.Errorf("config: %s.%s: needs %q: no such step in scope %q: %w",
 			scope, name, dep.String(), ScopeSetup, ErrUnknownStep)
 	}
-	if group, _, ok := strings.Cut(name, groupMemberSep); ok && slices.Contains(entries.Groups[group].Members, dep.Step) {
-		return nil
-	}
-	if _, ok := entries.Steps[dep.Step]; ok {
-		return nil
-	}
-	if _, ok := entries.Groups[dep.Step]; ok {
+	if _, ok := ResolveNeed(name, dep, entries.Steps, entries.Groups); ok {
 		return nil
 	}
 	return fmt.Errorf("config: %s.%s: needs %q: no such step in scope %q: %w",

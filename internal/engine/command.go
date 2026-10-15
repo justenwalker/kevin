@@ -11,8 +11,6 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/internal/pluginload"
-	"github.com/justenwalker/kevin/internal/state"
 )
 
 // CommandPlan is a command from the commands block, resolved and ready to
@@ -29,28 +27,17 @@ type CommandPlan struct {
 // needs, the way a step's own cross-scope needs are exported, and renders
 // run against what they published. No step comes up.
 func PlanCommand(ctx context.Context, opts Options, name string) (CommandPlan, error) {
-	loaded, err := pluginload.Load(ctx, opts.Dir, opts.Name, opts.Tags, config.VariableInputs{File: opts.VarFile, Set: opts.Vars})
+	h, err := bootstrap(ctx, opts)
 	if err != nil {
-		loaded.Close()
 		return CommandPlan{}, err
 	}
-	defer loaded.Close()
-	cfg := loaded.Config
+	defer h.Close()
 
-	env := setupEnvironment(cfg, opts.Engine)
-	if err = loaded.Configure(ctx, env); err != nil {
+	r := &run{cfg: h.Config, runtime: h.Runtime, scope: config.ScopeEnv}
+	r.fill(h)
+	r.env = environment(h.Config, opts.Engine, config.ScopeEnv, nil)
+	if err = h.Configure(ctx, r.env); err != nil {
 		return CommandPlan{}, err
-	}
-
-	r := &run{
-		cfg:     cfg,
-		scope:   config.ScopeEnv,
-		steps:   cfg.Steps(config.ScopeEnv),
-		groups:  cfg.Groups(config.ScopeEnv),
-		plugins: stepPlugins(loaded.Plugins),
-		caps:    loaded.Caps,
-		env:     env,
-		project: state.For(cfg.Dir, cfg.Name).Vars(),
 	}
 	return r.planCommand(ctx, name)
 }

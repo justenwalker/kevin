@@ -31,11 +31,12 @@ func (r *run) planUp(ctx context.Context, name string, deps map[string]output.Ma
 	cfgStep := r.steps[name]
 	ref := cfgStep.Uses
 
-	setupDeps, setupContainers, err := r.crossScopeDeps(ctx, name)
+	cross, err := r.crossScopeDeps(ctx, name)
 	if err != nil {
 		r.reportUpFailure(ctx, name, err)
 		return upPlan{}, err
 	}
+	setupDeps, setupContainers := cross.Outputs, cross.Containers
 
 	with, err := r.renderWith(name, cfgStep, deps, setupDeps)
 	if err != nil {

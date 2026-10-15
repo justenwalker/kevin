@@ -50,7 +50,7 @@ func (r *run) reap(ctx context.Context) error {
 	}
 
 	if len(otherLive) == 0 {
-		errs = append(errs, r.runtime.NetworkRemove(ctx, NetworkName(r.cfg.Project)))
+		errs = append(errs, r.runtime.NetworkRemove(ctx, networkName(r.cfg.Project)))
 	}
 	return errors.Join(errs...)
 }

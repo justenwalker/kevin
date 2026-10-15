@@ -104,9 +104,19 @@ const (
 	driverMinikube = "minikube"
 )
 
+// driverRuntime is what the drivers ask of the container engine: it lists
+// and inspects a cluster's containers, runs commands in them, and manages the
+// cluster's network. The minikube driver needs all of it.
+type driverRuntime interface {
+	cri.Containers
+	cri.Lister
+	cri.Networks
+	cri.Execer
+}
+
 // newDriver builds the driver that cfg names for one cluster. rt may be nil
 // for a caller that only removes or inspects the cluster.
-func newDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.Runtime) (driver, error) { //nolint:ireturn // the driver is the seam: which one is only known from the with block
+func newDriver(cfg config, env plugin.Env, name, kubeconfig string, rt driverRuntime) (driver, error) { //nolint:ireturn // the driver is the seam: which one is only known from the with block
 	switch cfg.Driver {
 	case driverKind:
 		return newKindDriver(cfg, env, name, kubeconfig, rt), nil

@@ -62,14 +62,29 @@ type Loaded struct {
 	Caps map[string]pluginhost.Info
 }
 
+// Options selects the environment [Load] reads.
+type Options struct {
+	// Dir is the project directory.
+	Dir string
+
+	// Name selects a named environment, or "" for the unnamed one.
+	Name string
+
+	// Tags are the CUE build tags to evaluate the environment with.
+	Tags []string
+
+	// Vars are the inputs for the environment's variables.
+	Vars config.VariableInputs
+}
+
 // Load reads the environment file, starts every plugin that a step
 // of either scope references, and validates the environment against the
 // schemas of each started plugin.
 //
 // Load returns the plugins that did start even on failure. The
 // caller must close them.
-func Load(ctx context.Context, dir, name string, tags []string, vars config.VariableInputs) (Loaded, error) {
-	file, err := config.Load(dir, name, tags)
+func Load(ctx context.Context, opts Options) (Loaded, error) {
+	file, err := config.Load(opts.Dir, opts.Name, opts.Tags)
 	if err != nil {
 		return Loaded{}, err
 	}
@@ -112,7 +127,7 @@ func Load(ctx context.Context, dir, name string, tags []string, vars config.Vari
 	if err != nil {
 		return Loaded{Plugins: plugins}, err
 	}
-	if err = cfg.ResolveVariables(vars); err != nil {
+	if err = cfg.ResolveVariables(opts.Vars); err != nil {
 		return Loaded{Plugins: plugins}, err
 	}
 	if err = cfg.ResolvePluginConfigs(schemas); err != nil {

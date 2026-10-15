@@ -123,24 +123,24 @@ func StartForwarder(ctx context.Context, rt cri.Containers, spec ForwarderSpec) 
 	return forwarderFromInfo(info)
 }
 
-// LookupForwarder reports the running forwarder named name. The bool is
-// false when it is absent or stopped.
-func LookupForwarder(ctx context.Context, rt cri.Containers, name string) (Forwarder, bool, error) {
+// LookupForwarder reports the running forwarder named name, or (nil, nil)
+// when it is absent or stopped.
+func LookupForwarder(ctx context.Context, rt cri.Containers, name string) (*Forwarder, error) {
 	info, err := rt.Inspect(ctx, name)
 	if err != nil {
 		if errors.Is(err, cri.ErrNotFound) {
-			return Forwarder{}, false, nil
+			return nil, nil //nolint:nilnil // "no such forwarder" is a documented, valid result
 		}
-		return Forwarder{}, false, fmt.Errorf("clusterrelay: inspect %s: %w", name, err)
+		return nil, fmt.Errorf("clusterrelay: inspect %s: %w", name, err)
 	}
 	if !info.Running {
-		return Forwarder{}, false, nil
+		return nil, nil //nolint:nilnil // a stopped leftover is treated the same as absent
 	}
 	fwd, err := forwarderFromInfo(info)
 	if err != nil {
-		return Forwarder{}, false, err
+		return nil, err
 	}
-	return fwd, true, nil
+	return &fwd, nil
 }
 
 // forwarderFromInfo reads the published relay ports off an inspected

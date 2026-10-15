@@ -82,27 +82,24 @@ func validIcon(icon []byte) []byte {
 	return icon
 }
 
-// AddStep puts a step on before it runs. An empty label means a consumer
-// shows name instead. provider names the plugin that backs the step, icon
-// is that plugin's own PNG bytes, or nil for none, needs are the names of
-// the steps it depends on, and compact marks a gate-like step the sidebar
-// renders as a single muted line. group names the step group this step is
-// a member of ("" for none), and isGroup marks this Step as a group's own
-// row rather than a plain step.
-func (s *Store) AddStep(name, label, kind, provider string, icon []byte, needs []string, compact bool, group string, isGroup bool) {
-	if label == "" {
-		label = name
+// AddStep puts a step on before it runs, in the Pending state. It reads the
+// identity fields of spec: Name, Label (empty shows Name), Kind, Provider,
+// Icon, Needs, Compact, Group and IsGroup; every other field is ignored. A
+// step already added is left as it is.
+func (s *Store) AddStep(spec Step) {
+	if spec.Label == "" {
+		spec.Label = spec.Name
 	}
 	s.mu.Lock()
-	if _, ok := s.steps[name]; !ok {
-		s.steps[name] = &Step{
-			Name: name, Label: label, State: Pending, Kind: kind, Provider: provider,
-			Icon: validIcon(icon), Needs: append([]string(nil), needs...), Compact: compact,
-			Group: group, IsGroup: isGroup,
+	if _, ok := s.steps[spec.Name]; !ok {
+		s.steps[spec.Name] = &Step{
+			Name: spec.Name, Label: spec.Label, State: Pending, Kind: spec.Kind, Provider: spec.Provider,
+			Icon: validIcon(spec.Icon), Needs: append([]string(nil), spec.Needs...), Compact: spec.Compact,
+			Group: spec.Group, IsGroup: spec.IsGroup,
 		}
-		s.order = append(s.order, name)
+		s.order = append(s.order, spec.Name)
 	}
-	step := *s.steps[name]
+	step := *s.steps[spec.Name]
 	s.mu.Unlock()
 
 	s.notify(step)

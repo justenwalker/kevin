@@ -12,6 +12,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/output"
+	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/step"
 )
@@ -91,9 +92,7 @@ func TestPublish(t *testing.T) {
 		assert.Equal(t, out, r.state.Snapshot()["a"])
 		assert.Equal(t, session.Ready, r.store.Snapshot().Steps[0].State)
 	})
-}
 
-func TestPublishReportsResult(t *testing.T) {
 	t.Run("egress hosts and details reach the proxy and session", func(t *testing.T) {
 		routes := newMockrouteTable(t)
 		r := newUpRun(t, newMockstepPlugin(t), routes, newMocktrafficRelay(t))
@@ -128,5 +127,108 @@ func TestPublishReportsResult(t *testing.T) {
 
 		require.ErrorIs(t, err, assert.AnError)
 		assert.NotEqual(t, session.Ready, r.store.Snapshot().Steps[0].State)
+	})
+}
+
+func TestProxyRoute(t *testing.T) {
+	tests := []struct {
+		name string
+		mode step.RouteMode
+		want proxy.RouteMode
+	}{
+		{name: "mitm", mode: step.RouteModeMITM, want: proxy.RouteModeMITM},
+		{name: "passthrough", mode: step.RouteModePassthrough, want: proxy.RouteModePassthrough},
+		{name: "raw", mode: step.RouteModeRaw, want: proxy.RouteModeRaw},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := proxyRoute(step.Route{Host: "a.test", Mode: tt.mode})
+
+			assert.Equal(t, tt.want, got.Mode)
+		})
+	}
+
+	t.Run("a relay upstream names the target and the relay", func(t *testing.T) {
+		got := proxyRoute(step.Route{Host: "a.test", Upstream: step.Upstream{Relay: &step.RelayTarget{Relay: "r:1080", Target: "svc:80"}}})
+
+		assert.Equal(t, "svc:80", got.Upstream)
+		assert.Equal(t, "r:1080", got.Relay)
+	})
+
+	t.Run("a direct upstream has no relay", func(t *testing.T) {
+		got := proxyRoute(step.Route{Host: "a.test", Upstream: step.Upstream{Addr: "127.0.0.1:80"}})
+
+		assert.Equal(t, "127.0.0.1:80", got.Upstream)
+		assert.Empty(t, got.Relay)
+	})
+}
+
+func TestUpStep(t *testing.T) {
+	t.Run("publishes a step's result to the proxy, relay and session", func(t *testing.T) {
+		plugin := newMockstepPlugin(t)
+		routes := newMockrouteTable(t)
+		rl := newMocktrafficRelay(t)
+		r := newUpRun(t, plugin, routes, rl)
+
+		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(step.Result{
+			Outputs: output.Map{"url": {String: "http://a"}},
+			Routes: []step.Route{
+				{Host: "a.kevin.test", Upstream: step.Upstream{Addr: "127.0.0.1:8080"}, TLS: true},
+				{Host: "fake.example.com", Upstream: step.Upstream{Addr: "127.0.0.1:9090"}, Intercept: &step.Intercept{Ports: []int{443}}},
+			},
+			EgressAllow: []string{"registry.example.com"},
+			Faults:      []step.Fault{{ID: "f1"}},
+		}, nil)
+		routes.EXPECT().AddRoutes([]proxy.Route{{Host: "a.kevin.test", Upstream: "127.0.0.1:8080", TLS: true, Mode: proxy.RouteModeMITM}}).Return()
+		routes.EXPECT().AddRoutes([]proxy.Route{{Host: "fake.example.com", Upstream: "127.0.0.1:9090", Mode: proxy.RouteModeMITM}}).Return()
+		routes.EXPECT().AllowEgress([]string{"registry.example.com"}).Return()
+		rl.EXPECT().EnsureListener(mock.Anything, "fake.example.com", []int{443}).Return(nil)
+		rl.EXPECT().ApplyFault(mock.Anything, mock.Anything).Return(nil)
+
+		out, err := r.upStep(t.Context(), "a", nil)
+
+		require.NoError(t, err)
+		assert.Equal(t, output.Map{"url": {String: "http://a"}}, out)
+		assert.Equal(t, []string{"f1"}, r.state.faults["a"])
+		assert.Equal(t, session.Ready, r.store.Snapshot().Steps[0].State)
+	})
+
+	t.Run("a relay failure fails the step", func(t *testing.T) {
+		plugin := newMockstepPlugin(t)
+		routes := newMockrouteTable(t)
+		rl := newMocktrafficRelay(t)
+		r := newUpRun(t, plugin, routes, rl)
+		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(step.Result{
+			Routes: []step.Route{{Host: "fake.example.com", Upstream: step.Upstream{Addr: "127.0.0.1:9090"}, Intercept: &step.Intercept{Ports: []int{443}}}},
+		}, nil)
+		routes.EXPECT().AddRoutes(mock.Anything).Return()
+		rl.EXPECT().EnsureListener(mock.Anything, "fake.example.com", []int{443}).Return(assert.AnError)
+
+		_, err := r.upStep(t.Context(), "a", nil)
+
+		require.ErrorIs(t, err, assert.AnError)
+		assert.Equal(t, session.Failed, r.store.Snapshot().Steps[0].State)
+	})
+
+	t.Run("a failed Up publishes nothing", func(t *testing.T) {
+		plugin := newMockstepPlugin(t)
+		r := newUpRun(t, plugin, newMockrouteTable(t), newMocktrafficRelay(t))
+		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(step.Result{}, assert.AnError)
+
+		_, err := r.upStep(t.Context(), "a", nil)
+
+		require.ErrorIs(t, err, assert.AnError)
+		assert.Equal(t, session.Failed, r.store.Snapshot().Steps[0].State)
+	})
+
+	t.Run("a step that is already running reports ErrStepBusy", func(t *testing.T) {
+		r := newUpRun(t, newMockstepPlugin(t), newMockrouteTable(t), newMocktrafficRelay(t))
+		unlock, ok := r.state.TryLock("a")
+		require.True(t, ok)
+		defer unlock()
+
+		_, err := r.upStep(t.Context(), "a", nil)
+
+		require.ErrorIs(t, err, session.ErrStepBusy)
 	})
 }

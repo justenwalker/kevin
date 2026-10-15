@@ -269,7 +269,7 @@ func TestK3dDriverNames(t *testing.T) {
 func TestK3dDriverCreate(t *testing.T) {
 	// stubbed returns a driver whose k3d calls succeed, except that create
 	// fails with createErr and the node list is nodes.
-	stubbed := func(t *testing.T, rt cri.Runtime, createErr error, nodes []string) (*k3dDriver, *[]string) {
+	stubbed := func(t *testing.T, rt k3dRuntime, createErr error, nodes []string) (*k3dDriver, *[]string) {
 		t.Helper()
 		var calls []string
 		cli := newMockk3dCLI(t)

@@ -14,10 +14,10 @@ import (
 func TestAddStep(t *testing.T) {
 	t.Run("keeps the order of the steps", func(t *testing.T) {
 		s := NewStore()
-		s.AddStep("web", "", "", "", nil, nil, false, "", false)
-		s.AddStep("api", "", "", "", nil, nil, false, "", false)
-		s.AddStep("db", "", "", "", nil, nil, false, "", false)
-		s.AddStep("web", "", "", "", nil, nil, false, "", false) // again, which must not duplicate
+		s.AddStep(Step{Name: "web"})
+		s.AddStep(Step{Name: "api"})
+		s.AddStep(Step{Name: "db"})
+		s.AddStep(Step{Name: "web"}) // again, which must not duplicate
 
 		v := s.Snapshot()
 		require.Len(t, v.Steps, 3)
@@ -30,8 +30,8 @@ func TestAddStep(t *testing.T) {
 
 	t.Run("falls back to the step name when label is empty", func(t *testing.T) {
 		s := NewStore()
-		s.AddStep("web", "", "", "", nil, nil, false, "", false)
-		s.AddStep("api", "Public API", "", "", nil, nil, false, "", false)
+		s.AddStep(Step{Name: "web"})
+		s.AddStep(Step{Name: "api", Label: "Public API"})
 
 		assert.Equal(t, "web", s.Snapshot().Steps[0].Label, "an empty label falls back to the step name")
 		assert.Equal(t, "Public API", s.Snapshot().Steps[1].Label)
@@ -40,8 +40,8 @@ func TestAddStep(t *testing.T) {
 
 	t.Run("stores needs", func(t *testing.T) {
 		s := NewStore()
-		s.AddStep("a", "", "", "", nil, nil, false, "", false)
-		s.AddStep("b", "", "", "", nil, []string{"a"}, false, "", false)
+		s.AddStep(Step{Name: "a"})
+		s.AddStep(Step{Name: "b", Needs: []string{"a"}})
 
 		assert.Empty(t, s.Snapshot().Steps[0].Needs)
 		assert.Equal(t, []string{"a"}, s.Snapshot().Steps[1].Needs)
@@ -50,7 +50,7 @@ func TestAddStep(t *testing.T) {
 	t.Run("copies needs so the caller cannot mutate it later", func(t *testing.T) {
 		s := NewStore()
 		needs := []string{"a"}
-		s.AddStep("b", "", "", "", nil, needs, false, "", false)
+		s.AddStep(Step{Name: "b", Needs: needs})
 
 		needs[0] = "tampered"
 		assert.Equal(t, []string{"a"}, s.Snapshot().Steps[0].Needs)
@@ -59,7 +59,7 @@ func TestAddStep(t *testing.T) {
 	t.Run("sets the provider and icon", func(t *testing.T) {
 		s := NewStore()
 		icon := tinyPNG(t)
-		s.AddStep("web", "", "", "echo", icon, nil, false, "", false)
+		s.AddStep(Step{Name: "web", Provider: "echo", Icon: icon})
 
 		step := s.Snapshot().Steps[0]
 		assert.Equal(t, "echo", step.Provider)
@@ -68,7 +68,7 @@ func TestAddStep(t *testing.T) {
 
 	t.Run("drops a bad icon but keeps the provider", func(t *testing.T) {
 		s := NewStore()
-		s.AddStep("web", "", "", "echo", []byte("not a png"), nil, false, "", false)
+		s.AddStep(Step{Name: "web", Provider: "echo", Icon: []byte("not a png")})
 
 		step := s.Snapshot().Steps[0]
 		assert.Equal(t, "echo", step.Provider)
@@ -78,7 +78,7 @@ func TestAddStep(t *testing.T) {
 
 func TestSetStep(t *testing.T) {
 	s := NewStore()
-	s.AddStep("web", "", "", "", nil, nil, false, "", false)
+	s.AddStep(Step{Name: "web"})
 
 	s.SetStep("web", Running, "")
 	assert.Equal(t, Running, s.Snapshot().Steps[0].State)
@@ -94,7 +94,7 @@ func TestSetStep(t *testing.T) {
 
 func TestSetStepProgress(t *testing.T) {
 	s := NewStore()
-	s.AddStep("web", "", "", "", nil, nil, false, "", false)
+	s.AddStep(Step{Name: "web"})
 
 	var got Event
 	s.OnChange(func(e Event) { got = e })
@@ -110,7 +110,7 @@ func TestSetStepProgress(t *testing.T) {
 
 func TestAddStepDetail(t *testing.T) {
 	s := NewStore()
-	s.AddStep("web", "", "", "", nil, nil, false, "", false)
+	s.AddStep(Step{Name: "web"})
 	s.AddStepDetail("web", Detail{Value: "web.kevin.test", Href: "https://web.kevin.test", Copyable: true})
 	assert.Equal(t, []Detail{{Value: "web.kevin.test", Href: "https://web.kevin.test", Copyable: true}},
 		s.Snapshot().Steps[0].Details)
@@ -125,7 +125,7 @@ func TestAddStepDetail(t *testing.T) {
 
 func TestSetStepInputs(t *testing.T) {
 	s := NewStore()
-	s.AddStep("web", "", "", "", nil, nil, false, "", false)
+	s.AddStep(Step{Name: "web"})
 	assert.Empty(t, s.Snapshot().Steps[0].Inputs)
 
 	rows := []Detail{{Label: "image", Value: "postgres:16"}}
@@ -142,7 +142,7 @@ func TestSetStepInputs(t *testing.T) {
 
 func TestSetStepOutputs(t *testing.T) {
 	s := NewStore()
-	s.AddStep("web", "", "", "", nil, nil, false, "", false)
+	s.AddStep(Step{Name: "web"})
 	assert.Empty(t, s.Snapshot().Steps[0].Outputs)
 
 	rows := []Detail{{Label: "endpoint", Value: "localhost:55432"}}
@@ -159,7 +159,7 @@ func TestSetStepOutputs(t *testing.T) {
 
 func TestSetStepIdempotent(t *testing.T) {
 	s := NewStore()
-	s.AddStep("web", "", "", "", nil, nil, false, "", false)
+	s.AddStep(Step{Name: "web"})
 	assert.False(t, s.Snapshot().Steps[0].Idempotent, "a step defaults to not idempotent")
 
 	s.SetStepIdempotent("web", true)

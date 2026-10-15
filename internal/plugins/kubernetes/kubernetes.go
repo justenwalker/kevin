@@ -25,10 +25,6 @@ import (
 //go:embed schema.cue
 var schema []byte
 
-// newRuntime picks the container runtime for an engine. It is a var so tests
-// can substitute a fake.
-var newRuntime = engines.Of
-
 // Step is the kubernetes step.
 type Step struct{}
 
@@ -60,7 +56,7 @@ func (Step) Up(ctx context.Context, cfg config, req *plugin.UpRequest, out plugi
 		return nil, fmt.Errorf("kubernetes: create the kubeconfig directory: %w", err)
 	}
 
-	rt := newRuntime(req.Env.Engine)
+	rt := engines.Of(req.Env.Engine)
 
 	drv, err := newDriver(cfg, req.Env, name, kubeconfig, rt)
 	if err != nil {
@@ -213,7 +209,7 @@ func (Step) Down(ctx context.Context, cfg config, req *plugin.DownRequest, out p
 	name := clusterName(cfg, req.Env.Project, req.Step)
 	kubeconfig := filepath.Join(req.Env.Workspace, "kubeconfig", name)
 
-	rt := newRuntime(req.Env.Engine)
+	rt := engines.Of(req.Env.Engine)
 	drv, err := newDriver(cfg, req.Env, name, kubeconfig, rt)
 	if err != nil {
 		return err
@@ -249,7 +245,7 @@ func (Step) Export(ctx context.Context, cfg config, req *plugin.ExportRequest) (
 		return nil, fmt.Errorf("kubernetes: cluster %q has no kubeconfig yet, run `kevin run` or `kevin setup` first: %w", name, statErr)
 	}
 
-	rt := newRuntime(req.Env.Engine)
+	rt := engines.Of(req.Env.Engine)
 	drv, err := newDriver(cfg, req.Env, name, kubeconfig, rt)
 	if err != nil {
 		return nil, err
@@ -260,11 +256,11 @@ func (Step) Export(ctx context.Context, cfg config, req *plugin.ExportRequest) (
 		"kubeconfig": kubeconfig,
 		"context":    drv.Context(),
 	}
-	fwd, ok, lookupErr := clusterrelay.LookupForwarder(ctx, rt, clusterrelay.ForwarderName(name))
+	fwd, lookupErr := clusterrelay.LookupForwarder(ctx, rt, clusterrelay.ForwarderName(name))
 	if lookupErr != nil {
 		return nil, fmt.Errorf("kubernetes: look up the relay forwarder for %q: %w", name, lookupErr)
 	}
-	if ok {
+	if fwd != nil {
 		out["relay_addr"] = fwd.Addr
 	}
 
