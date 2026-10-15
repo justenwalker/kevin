@@ -29,6 +29,14 @@ func TestNew(t *testing.T) {
 		assert.IsType(t, podman.Client{}, rt)
 	})
 
+	t.Run("a config decode error returns a nil runtime", func(t *testing.T) {
+		for _, name := range []string{"docker", "podman"} {
+			rt, err := New(name, []byte{0xff})
+			require.Error(t, err)
+			assert.Nil(t, rt)
+		}
+	})
+
 	t.Run("an unknown engine reports ErrUnsupported", func(t *testing.T) {
 		_, err := New("bogus", nil)
 		require.ErrorIs(t, err, ErrUnsupported)

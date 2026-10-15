@@ -1812,7 +1812,7 @@ func (r *run) RerunStep(ctx context.Context, name string, cascade bool) error {
 func (r *run) exportStep(ctx context.Context, name string) (map[string]output.Value, error) {
 	step, ok := r.steps[name]
 	if !ok {
-		return nil, fmt.Errorf("mcpserver: no step named %q", name)
+		return nil, fmt.Errorf("engine: no step named %q", name)
 	}
 	ref, err := config.ParseStepRef(step.Uses)
 	if err != nil {
@@ -1820,7 +1820,7 @@ func (r *run) exportStep(ctx context.Context, name string) (map[string]output.Va
 	}
 	client, ok := r.plugins[ref.Plugin]
 	if !ok {
-		return nil, fmt.Errorf("mcpserver: plugin %q not loaded", ref.Plugin)
+		return nil, fmt.Errorf("engine: plugin %q not loaded", ref.Plugin)
 	}
 	setupDeps, _, err := r.crossScopeDeps(ctx, name)
 	if err != nil {
@@ -1834,7 +1834,7 @@ func (r *run) exportStep(ctx context.Context, name string) (map[string]output.Va
 		Step: name, Type: ref.Step, Env: r.env, Config: with,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("mcpserver: export %s: %w", name, err)
+		return nil, fmt.Errorf("engine: export %s: %w", name, err)
 	}
 	return valuesFromProto(resp.GetOut()), nil
 }
@@ -1845,22 +1845,22 @@ func (r *run) exportStep(ctx context.Context, name string) (map[string]output.Va
 func (r *run) callTool(ctx context.Context, name, tool string, args json.RawMessage) (any, bool, string, error) {
 	route, ok := r.toolRoutes[tool]
 	if !ok {
-		return nil, false, "", fmt.Errorf("mcpserver: no such tool %q", tool)
+		return nil, false, "", fmt.Errorf("engine: no such tool %q", tool)
 	}
 	step, ok := r.steps[name]
 	if !ok {
-		return nil, false, "", fmt.Errorf("mcpserver: no step named %q", name)
+		return nil, false, "", fmt.Errorf("engine: no step named %q", name)
 	}
 	ref, err := config.ParseStepRef(step.Uses)
 	if err != nil {
 		return nil, false, "", err
 	}
 	if ref.Plugin != route.plugin || ref.Step != route.step {
-		return nil, false, "", fmt.Errorf("mcpserver: step %q is a %s step, not a %s:%s step", name, ref, route.plugin, route.step)
+		return nil, false, "", fmt.Errorf("engine: step %q is a %s step, not a %s:%s step", name, ref, route.plugin, route.step)
 	}
 	client, ok := r.plugins[ref.Plugin]
 	if !ok {
-		return nil, false, "", fmt.Errorf("mcpserver: plugin %q not loaded", ref.Plugin)
+		return nil, false, "", fmt.Errorf("engine: plugin %q not loaded", ref.Plugin)
 	}
 
 	setupDeps, _, err := r.crossScopeDeps(ctx, name)
@@ -1879,13 +1879,13 @@ func (r *run) callTool(ctx context.Context, name, tool string, args json.RawMess
 		Tool: route.tool, Arguments: args,
 	})
 	if err != nil {
-		return nil, false, "", fmt.Errorf("mcpserver: call tool %s on %s: %w", tool, name, err)
+		return nil, false, "", fmt.Errorf("engine: call tool %s on %s: %w", tool, name, err)
 	}
 
 	var content any
 	if len(resp.GetContent()) > 0 {
 		if err := json.Unmarshal(resp.GetContent(), &content); err != nil {
-			return nil, false, "", fmt.Errorf("mcpserver: tool %s on %s: decode content: %w", tool, name, err)
+			return nil, false, "", fmt.Errorf("engine: tool %s on %s: decode content: %w", tool, name, err)
 		}
 	}
 	return content, resp.GetIsError(), resp.GetErrorMessage(), nil

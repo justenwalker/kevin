@@ -18,9 +18,17 @@ import (
 func New(name string, configBytes []byte) (cri.Runtime, error) {
 	switch name {
 	case "", "docker":
-		return docker.New(configBytes)
+		rt, err := docker.New(configBytes)
+		if err != nil {
+			return nil, err
+		}
+		return rt, nil
 	case "podman":
-		return podman.New(configBytes)
+		rt, err := podman.New(configBytes)
+		if err != nil {
+			return nil, err
+		}
+		return rt, nil
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnsupported, name)
 	}

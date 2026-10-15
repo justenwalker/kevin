@@ -38,8 +38,10 @@ func TestVerifyBlobArgs(t *testing.T) {
 
 func TestVerifyErr(t *testing.T) {
 	t.Run("attaches cosign's stderr when present", func(t *testing.T) {
-		got := verifyErr(errors.New("exit status 1"), "Error: no matching signatures\n")
+		cause := errors.New("exit status 1")
+		got := verifyErr(cause, "Error: no matching signatures\n")
 		require.ErrorIs(t, got, ErrVerifyFailed)
+		require.ErrorIs(t, got, cause)
 		assert.Equal(t, "cosign: cosign verify-blob failed: Error: no matching signatures", got.Error())
 	})
 

@@ -78,5 +78,16 @@ func verifyErr(err error, stderr string) error {
 	if msg == "" {
 		return fmt.Errorf("%w: %w", ErrVerifyFailed, err)
 	}
-	return fmt.Errorf("%w: %s", ErrVerifyFailed, msg)
+	return stderrError{msg: fmt.Sprintf("%s: %s", ErrVerifyFailed, msg), err: err}
 }
+
+// stderrError reports cosign's stderr as its message and keeps both
+// [ErrVerifyFailed] and the run error in the chain.
+type stderrError struct {
+	msg string
+	err error
+}
+
+func (e stderrError) Error() string { return e.msg }
+
+func (e stderrError) Unwrap() []error { return []error{ErrVerifyFailed, e.err} }
