@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/clusterrelay"
 	"github.com/justenwalker/kevin/internal/command"
 	kindcmd "github.com/justenwalker/kevin/internal/command/kind"
 	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/container/docker"
+	"github.com/justenwalker/kevin/internal/relay/cluster"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -268,7 +268,7 @@ func TestFinishClusterSetup(t *testing.T) {
 
 	t.Run("with every opt-out set, does nothing", func(t *testing.T) {
 		got, err := finishClusterSetup(t.Context(), fakeRuntime{}, fakeDriver{}, config{},
-			plugin.Env{}, nodes, clusterrelay.ForwarderSpec{}, &capture{})
+			plugin.Env{}, nodes, cluster.ForwarderSpec{}, &capture{})
 		require.NoError(t, err)
 		assert.Nil(t, got.Exposed)
 		assert.Nil(t, got.Containers)
@@ -276,7 +276,7 @@ func TestFinishClusterSetup(t *testing.T) {
 
 	t.Run("propagates a trust CA failure", func(t *testing.T) {
 		env := plugin.Env{CAPath: filepath.Join(t.TempDir(), "missing.pem")}
-		_, err := finishClusterSetup(t.Context(), happyRT, happyDriver, config{TrustCA: true}, env, nodes, clusterrelay.ForwarderSpec{}, &capture{})
+		_, err := finishClusterSetup(t.Context(), happyRT, happyDriver, config{TrustCA: true}, env, nodes, cluster.ForwarderSpec{}, &capture{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read the kevin root certificate")
 	})
@@ -286,7 +286,7 @@ func TestFinishClusterSetup(t *testing.T) {
 		drv := fakeDriver{kubectl: func(context.Context, ...string) (string, error) {
 			return "", errors.New("exec failed")
 		}}
-		_, err := finishClusterSetup(t.Context(), fakeRuntime{}, drv, config{CoreDNS: true}, env, nodes, clusterrelay.ForwarderSpec{}, &capture{})
+		_, err := finishClusterSetup(t.Context(), fakeRuntime{}, drv, config{CoreDNS: true}, env, nodes, cluster.ForwarderSpec{}, &capture{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read the coredns Corefile")
 	})
@@ -296,21 +296,21 @@ func TestFinishClusterSetup(t *testing.T) {
 		rt := fakeRuntime{inspect: func(context.Context, string) (container.Container, error) {
 			return container.Container{}, errors.New("no such container")
 		}}
-		_, err := finishClusterSetup(t.Context(), rt, happyDriver, config{}, env, nodes, clusterrelay.ForwarderSpec{}, &capture{})
+		_, err := finishClusterSetup(t.Context(), rt, happyDriver, config{}, env, nodes, cluster.ForwarderSpec{}, &capture{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "inspect")
 	})
 
 	t.Run("propagates a relay failure", func(t *testing.T) {
 		drv := fakeDriver{loadImage: func(context.Context, string) error { return errors.New("load failed") }}
-		_, err := finishClusterSetup(t.Context(), fakeRuntime{}, drv, config{Relay: true}, plugin.Env{}, nodes, clusterrelay.ForwarderSpec{}, &capture{})
+		_, err := finishClusterSetup(t.Context(), fakeRuntime{}, drv, config{Relay: true}, plugin.Env{}, nodes, cluster.ForwarderSpec{}, &capture{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "load the relay image")
 	})
 
 	t.Run("assembles containers when capture is on and no relay is wanted", func(t *testing.T) {
 		env := plugin.Env{Relay: "10.244.0.5:53"}
-		got, err := finishClusterSetup(t.Context(), happyRT, happyDriver, config{}, env, nodes, clusterrelay.ForwarderSpec{}, &capture{})
+		got, err := finishClusterSetup(t.Context(), happyRT, happyDriver, config{}, env, nodes, cluster.ForwarderSpec{}, &capture{})
 		require.NoError(t, err)
 		assert.Nil(t, got.Exposed)
 		require.Len(t, got.Containers, 1)

@@ -1,4 +1,4 @@
-// Package trust installs a certificate authority into the trust stores of the
+// Package truststore installs a certificate authority into the trust stores of the
 // machine, and removes it again.
 //
 //	results, err := trust.Install(ctx, trust.Request{
@@ -8,7 +8,7 @@
 //
 // A store that the machine does not have is skipped, not an error. Read the
 // returned results to report what happened.
-package trust
+package truststore
 
 import (
 	"bytes"
@@ -137,7 +137,7 @@ func runCmd(ctx context.Context, req Request, name string, args ...string) (stri
 	cmd.Stderr = &buf
 
 	if err := run(ctx, req.Runner, cmd); err != nil {
-		return buf.String(), fmt.Errorf("trust: %s: %s: %w", name, strings.TrimSpace(buf.String()), err)
+		return buf.String(), fmt.Errorf("truststore: %s: %s: %w", name, strings.TrimSpace(buf.String()), err)
 	}
 	return buf.String(), nil
 }

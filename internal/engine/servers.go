@@ -11,8 +11,8 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/httpserver"
+	"github.com/justenwalker/kevin/internal/pki/ca"
 	"github.com/justenwalker/kevin/internal/proxy"
 )
 

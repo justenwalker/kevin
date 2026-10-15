@@ -1,4 +1,4 @@
-package clusterrelay
+package cluster
 
 import (
 	"context"

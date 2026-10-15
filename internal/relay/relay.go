@@ -29,9 +29,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/container"
+	"github.com/justenwalker/kevin/internal/pki/ca"
 	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/internal/version"
 	"github.com/justenwalker/kevin/protos/pb"

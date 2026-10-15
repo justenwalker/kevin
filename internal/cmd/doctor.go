@@ -11,8 +11,8 @@ import (
 
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/container/engines"
+	trustinstall "github.com/justenwalker/kevin/internal/pki/truststore"
 	"github.com/justenwalker/kevin/internal/step"
-	trustinstall "github.com/justenwalker/kevin/internal/trust"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 

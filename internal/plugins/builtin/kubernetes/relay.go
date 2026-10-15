@@ -9,9 +9,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/justenwalker/kevin/internal/clusterrelay"
 	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/relay"
+	"github.com/justenwalker/kevin/internal/relay/cluster"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -29,7 +29,7 @@ type relayResult struct {
 // routed endpoint, once the cluster is up. fwd names the forwarder; its
 // Target is the control-plane node. Callers must only call this when
 // wantsRelay(cfg) holds.
-func finishRelay(ctx context.Context, rt relayRuntime, drv driver, cfg config, fwd clusterrelay.ForwarderSpec, out plugin.Emitter) (relayResult, error) {
+func finishRelay(ctx context.Context, rt relayRuntime, drv driver, cfg config, fwd cluster.ForwarderSpec, out plugin.Emitter) (relayResult, error) {
 	poolSize, err := relay.UDPPoolSize()
 	if err != nil {
 		return relayResult{}, fmt.Errorf("kubernetes: %w", err)
@@ -45,7 +45,7 @@ func finishRelay(ctx context.Context, rt relayRuntime, drv driver, cfg config, f
 
 	fwd.Target = drv.ControlPlane()
 	out.Log("stdout", "starting the relay forwarder")
-	forwarder, err := clusterrelay.StartForwarder(ctx, rt, fwd)
+	forwarder, err := cluster.StartForwarder(ctx, rt, fwd)
 	if err != nil {
 		return relayResult{}, fmt.Errorf("kubernetes: %w", err)
 	}
@@ -96,7 +96,7 @@ func deployRelay(ctx context.Context, rt container.Images, drv driver, image str
 
 	out.Log("stdout", "starting the socks5 relay")
 	out.Progress("starting the socks5 relay", 0, 0)
-	manifest := clusterrelay.PodManifest(drv.ControlPlane(), image, udpPoolSize)
+	manifest := cluster.PodManifest(drv.ControlPlane(), image, udpPoolSize)
 	if _, err = drv.KubectlInput(ctx, strings.NewReader(manifest),
 		"-n", "kube-system", "apply", "-f", "-"); err != nil {
 		return fmt.Errorf("kubernetes: apply the relay pod: %w", err)

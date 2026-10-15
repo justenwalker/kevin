@@ -1,4 +1,4 @@
-package trust
+package truststore
 
 import (
 	"context"
@@ -63,15 +63,15 @@ func (a anchorDir) install(ctx context.Context, req Request) (Result, error) {
 
 	if !isRoot() {
 		result.Reason = fmt.Sprintf("run: sudo cp %s %s && sudo %s", req.CertPath, target, l.rebuild)
-		return result, fmt.Errorf("trust: %s: %w", l.dir, ErrNeedsRoot)
+		return result, fmt.Errorf("truststore: %s: %w", l.dir, ErrNeedsRoot)
 	}
 
 	pem, err := os.ReadFile(req.CertPath)
 	if err != nil {
-		return result, fmt.Errorf("trust: read %s: %w", req.CertPath, err)
+		return result, fmt.Errorf("truststore: read %s: %w", req.CertPath, err)
 	}
 	if err = os.WriteFile(target, pem, 0o644); err != nil { //nolint:gosec // a certificate is public
-		return result, fmt.Errorf("trust: write %s: %w", target, err)
+		return result, fmt.Errorf("truststore: write %s: %w", target, err)
 	}
 	if _, err = runCmd(ctx, req, l.rebuild); err != nil {
 		return result, err
@@ -122,11 +122,11 @@ func (a anchorDir) remove(ctx context.Context, req Request) (Result, error) {
 
 	if !isRoot() {
 		result.Reason = fmt.Sprintf("run: sudo rm %s && sudo %s", target, l.rebuild)
-		return result, fmt.Errorf("trust: %s: %w", l.dir, ErrNeedsRoot)
+		return result, fmt.Errorf("truststore: %s: %w", l.dir, ErrNeedsRoot)
 	}
 
 	if err := os.Remove(target); err != nil {
-		return result, fmt.Errorf("trust: remove %s: %w", target, err)
+		return result, fmt.Errorf("truststore: remove %s: %w", target, err)
 	}
 	if _, err := runCmd(ctx, req, l.rebuild); err != nil {
 		return result, err

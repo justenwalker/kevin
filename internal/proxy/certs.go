@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justenwalker/kevin/internal/ca"
+	"github.com/justenwalker/kevin/internal/pki/ca"
 )
 
 // certSigner mints a leaf certificate for a host on first use, signed by the

@@ -1,7 +1,7 @@
-// Package clusterrelay builds the SOCKS5 relay pod manifest and runs the
+// Package cluster builds the SOCKS5 relay pod manifest and runs the
 // forwarder container that publishes the pod's ports on the host, shared by
 // every Kubernetes-cluster step type.
-package clusterrelay
+package cluster
 
 import (
 	"context"
@@ -76,7 +76,7 @@ func ForwarderName(cluster string) string {
 func StartForwarder(ctx context.Context, rt container.Containers, spec ForwarderSpec) (Forwarder, error) {
 	poolSize, err := relay.UDPPoolSize()
 	if err != nil {
-		return Forwarder{}, fmt.Errorf("clusterrelay: %w", err)
+		return Forwarder{}, fmt.Errorf("cluster: %w", err)
 	}
 	pool := strconv.Itoa(poolSize)
 
@@ -85,11 +85,11 @@ func StartForwarder(ctx context.Context, rt container.Containers, spec Forwarder
 	case err == nil && info.Running && info.Labels[targetLabel] == spec.Target && info.Labels[poolLabel] == pool:
 		return forwarderFromInfo(info)
 	case err != nil && !errors.Is(err, container.ErrNotFound):
-		return Forwarder{}, fmt.Errorf("clusterrelay: inspect %s: %w", spec.Name, err)
+		return Forwarder{}, fmt.Errorf("cluster: inspect %s: %w", spec.Name, err)
 	}
 
 	if err = rt.Remove(ctx, spec.Name); err != nil {
-		return Forwarder{}, fmt.Errorf("clusterrelay: remove %s: %w", spec.Name, err)
+		return Forwarder{}, fmt.Errorf("cluster: remove %s: %w", spec.Name, err)
 	}
 	ports := []string{fmt.Sprintf("127.0.0.1::%d", NodePort)}
 	cmd := []string{"port-forward", "--target", spec.Target, "--tcp", strconv.Itoa(NodePort)}
@@ -115,11 +115,11 @@ func StartForwarder(ctx context.Context, rt container.Containers, spec Forwarder
 		Ports: ports,
 	})
 	if err != nil {
-		return Forwarder{}, fmt.Errorf("clusterrelay: start %s: %w", spec.Name, err)
+		return Forwarder{}, fmt.Errorf("cluster: start %s: %w", spec.Name, err)
 	}
 	info, err = rt.Inspect(ctx, spec.Name)
 	if err != nil {
-		return Forwarder{}, fmt.Errorf("clusterrelay: inspect %s: %w", spec.Name, err)
+		return Forwarder{}, fmt.Errorf("cluster: inspect %s: %w", spec.Name, err)
 	}
 	return forwarderFromInfo(info)
 }
@@ -132,7 +132,7 @@ func LookupForwarder(ctx context.Context, rt container.Containers, name string) 
 		if errors.Is(err, container.ErrNotFound) {
 			return nil, nil //nolint:nilnil // "no such forwarder" is a documented, valid result
 		}
-		return nil, fmt.Errorf("clusterrelay: inspect %s: %w", name, err)
+		return nil, fmt.Errorf("cluster: inspect %s: %w", name, err)
 	}
 	if !info.Running {
 		return nil, nil //nolint:nilnil // a stopped leftover is treated the same as absent
@@ -149,7 +149,7 @@ func LookupForwarder(ctx context.Context, rt container.Containers, name string) 
 func forwarderFromInfo(info container.Container) (Forwarder, error) {
 	addr, ok := info.Ports[strconv.Itoa(NodePort)+"/tcp"]
 	if !ok {
-		return Forwarder{}, fmt.Errorf("clusterrelay: %s: %w", info.Name, ErrNoPublishedPort)
+		return Forwarder{}, fmt.Errorf("cluster: %s: %w", info.Name, ErrNoPublishedPort)
 	}
 	return Forwarder{Addr: addr, UDPAddrs: relay.UDPAddrsFromInfo(info)}, nil
 }

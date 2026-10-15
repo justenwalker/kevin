@@ -7,7 +7,7 @@ import (
 	"net"
 
 	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/internal/portforward"
+	"github.com/justenwalker/kevin/internal/relay/portforward"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/step"
 )

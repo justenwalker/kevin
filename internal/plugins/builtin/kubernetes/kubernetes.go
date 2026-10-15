@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justenwalker/kevin/internal/clusterrelay"
 	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/container/engines"
+	"github.com/justenwalker/kevin/internal/relay/cluster"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -80,8 +80,8 @@ func (Step) Up(ctx context.Context, cfg config, req *plugin.UpRequest, out plugi
 		return nil, err
 	}
 
-	fwd := clusterrelay.ForwarderSpec{
-		Name: clusterrelay.ForwarderName(name), Network: req.Env.Network,
+	fwd := cluster.ForwarderSpec{
+		Name: cluster.ForwarderName(name), Network: req.Env.Network,
 		Project: req.Env.Project, Scope: req.Env.Scope, Step: req.Step,
 	}
 	setup, err := finishClusterSetup(ctx, rt, drv, cfg, req.Env, nodes, fwd, out)
@@ -158,7 +158,7 @@ type clusterSetup struct {
 // finishClusterSetup installs the trust CA, patches CoreDNS, registers
 // egress capture, and finishes the relay, each only when the config wants
 // it.
-func finishClusterSetup(ctx context.Context, rt relayRuntime, drv driver, cfg config, env plugin.Env, nodes []string, fwd clusterrelay.ForwarderSpec, out plugin.Emitter) (clusterSetup, error) {
+func finishClusterSetup(ctx context.Context, rt relayRuntime, drv driver, cfg config, env plugin.Env, nodes []string, fwd cluster.ForwarderSpec, out plugin.Emitter) (clusterSetup, error) {
 	// The proxy intercepts TLS for a pull. A node trusts the kevin root
 	// certificate, so the pull verifies.
 	if wantsTrustCA(cfg, env) {
@@ -217,7 +217,7 @@ func (Step) Down(ctx context.Context, cfg config, req *plugin.DownRequest, out p
 
 	out.Log("stdout", "removing cluster "+name)
 
-	if err = rt.Remove(ctx, clusterrelay.ForwarderName(name)); err != nil {
+	if err = rt.Remove(ctx, cluster.ForwarderName(name)); err != nil {
 		return fmt.Errorf("kubernetes: remove the relay forwarder for %q: %w", name, err)
 	}
 
@@ -256,7 +256,7 @@ func (Step) Export(ctx context.Context, cfg config, req *plugin.ExportRequest) (
 		"kubeconfig": kubeconfig,
 		"context":    drv.Context(),
 	}
-	fwd, lookupErr := clusterrelay.LookupForwarder(ctx, rt, clusterrelay.ForwarderName(name))
+	fwd, lookupErr := cluster.LookupForwarder(ctx, rt, cluster.ForwarderName(name))
 	if lookupErr != nil {
 		return nil, fmt.Errorf("kubernetes: look up the relay forwarder for %q: %w", name, lookupErr)
 	}

@@ -1,4 +1,4 @@
-package trust
+package truststore
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-package trust
+package truststore
 
 import (
 	"context"
@@ -24,7 +24,7 @@ const systemKeychain = "/Library/Keychains/System.keychain"
 func loginKeychain() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("trust: find the home directory: %w", err)
+		return "", fmt.Errorf("truststore: find the home directory: %w", err)
 	}
 	return filepath.Join(home, "Library", "Keychains", "login.keychain-db"), nil
 }
@@ -69,7 +69,7 @@ func (k keychain) install(ctx context.Context, req Request) (Result, error) {
 
 	if req.System && !isRoot() {
 		result.Reason = "run: sudo " + quote(SecurityBinary, args...)
-		return result, fmt.Errorf("trust: the system keychain: %w", ErrNeedsRoot)
+		return result, fmt.Errorf("truststore: the system keychain: %w", ErrNeedsRoot)
 	}
 
 	if _, err = runCmd(ctx, req, SecurityBinary, args...); err != nil {
@@ -110,7 +110,7 @@ func (k keychain) remove(ctx context.Context, req Request) (Result, error) {
 
 	if req.System && !isRoot() {
 		result.Reason = "run: sudo " + quote(SecurityBinary, args...)
-		return result, fmt.Errorf("trust: the system keychain: %w", ErrNeedsRoot)
+		return result, fmt.Errorf("truststore: the system keychain: %w", ErrNeedsRoot)
 	}
 
 	out, err := runCmd(ctx, req, SecurityBinary, args...)

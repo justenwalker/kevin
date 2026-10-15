@@ -55,7 +55,7 @@ only.
   `internal/plugins/builtin/kubernetes/kubernetes.go`). Keys are case-sensitive.
 - **Paths and file names** in docs (`~/.kevin/root.crt`, `.kevin/ca.crt`,
   `.kevin/kubeconfig/...`, mount paths inside containers) against the
-  constants that write them (`internal/ca/ca.go`, `internal/statedir`, the
+  constants that write them (`internal/pki/ca/ca.go`, `internal/statedir`, the
   plugin that mounts or writes the file).
 - **Behavior claims** ("recreates", "reuses", "is an error", "is ignored",
   "waits for") against the code path that implements them. Read the

@@ -19,7 +19,6 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/justenwalker/kevin/internal/browser"
-	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/console"
@@ -28,6 +27,7 @@ import (
 	"github.com/justenwalker/kevin/internal/logging"
 	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/output"
+	"github.com/justenwalker/kevin/internal/pki/ca"
 	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/relay"

@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/clusterrelay"
 	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/relay"
+	"github.com/justenwalker/kevin/internal/relay/cluster"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -168,7 +168,7 @@ func TestFinishRelay(t *testing.T) {
 	t.Run("propagates a deployRelay failure instead of reporting exposed ports", func(t *testing.T) {
 		drv := fakeDriver{loadImage: func(context.Context, string) error { return errors.New("load failed") }}
 
-		_, err := finishRelay(t.Context(), fakeRuntime{}, drv, config{}, clusterrelay.ForwarderSpec{}, &capture{})
+		_, err := finishRelay(t.Context(), fakeRuntime{}, drv, config{}, cluster.ForwarderSpec{}, &capture{})
 		require.Error(t, err)
 	})
 
@@ -187,7 +187,7 @@ func TestFinishRelay(t *testing.T) {
 				return container.Container{Running: true, Ports: map[string]string{"1080/tcp": "127.0.0.1:54321"}}, nil
 			},
 		}
-		fwd := clusterrelay.ForwarderSpec{Name: "kevin-demo-relay-fwd", Network: "net"}
+		fwd := cluster.ForwarderSpec{Name: "kevin-demo-relay-fwd", Network: "net"}
 
 		got, err := finishRelay(t.Context(), rt, fakeDriver{}, config{Expose: map[string]expose{"a": {Address: "svc:80", Protocol: plugin.ProtocolTCP}}}, fwd, &capture{})
 		require.NoError(t, err)

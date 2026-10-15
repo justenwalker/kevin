@@ -25,7 +25,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/command"
 	kubectlcmd "github.com/justenwalker/kevin/internal/command/kubectl"
-	"github.com/justenwalker/kevin/internal/portforward"
+	"github.com/justenwalker/kevin/internal/relay/portforward"
 	"github.com/justenwalker/kevin/plugin"
 )
 
