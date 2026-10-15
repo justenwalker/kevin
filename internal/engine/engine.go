@@ -151,11 +151,12 @@ func Run(ctx context.Context, opts Options) error {
 	live := wantsLiveUI(ctx, opts)
 	opts.Events = eventsWriter(opts, live)
 
-	cfg, plugins, caps, err := LoadAndLaunch(ctx, opts.Dir, opts.Name, opts.Tags, config.VariableInputs{File: opts.VarFile, Set: opts.Vars})
-	defer CloseAll(plugins)
+	loaded, err := LoadAndLaunch(ctx, opts.Dir, opts.Name, opts.Tags, config.VariableInputs{File: opts.VarFile, Set: opts.Vars})
+	defer CloseAll(loaded.Plugins)
 	if err != nil {
 		return err
 	}
+	cfg, plugins, caps := loaded.Config, loaded.Plugins, loaded.Caps
 
 	rt, err := engines.New(opts.Engine, nil)
 	if err != nil {
@@ -242,7 +243,17 @@ func Run(ctx context.Context, opts Options) error {
 	r.stepLog = stepLog.Logger
 	tools, toolRoutes := collectTools(ctx, r.steps, caps)
 	r.toolRoutes = toolRoutes
-	mcpServer := mcpserver.New(cfg.Project, cfg.Domain, filepath.Join(workspace, LogsFile), store, server.proxy, r.RerunStep, r.exportStep, tools, r.callTool)
+	mcpServer := mcpserver.New(mcpserver.Options{
+		Project:  cfg.Project,
+		Domain:   cfg.Domain,
+		LogsPath: filepath.Join(workspace, LogsFile),
+		View:     store,
+		Proxy:    server.proxy,
+		Rerun:    r.RerunStep,
+		Export:   r.exportStep,
+		Tools:    tools,
+		CallTool: r.callTool,
+	})
 	view := console.New(console.Config{
 		Project: cfg.Project,
 		Network: network,
@@ -535,8 +546,7 @@ type proxyOptions struct {
 	Deny        bool
 	Passthrough bool
 
-	// OnRecord receives one Record per request. startProxy registers it before
-	// the proxy starts serving.
+	// OnRecord receives one Record per request.
 	OnRecord func(proxy.Record)
 }
 
@@ -548,12 +558,15 @@ type proxyOptions struct {
 // opts.Network, when the host can bind that address. A container on that
 // network reaches the proxy there. The proxy never binds 0.0.0.0.
 func startProxy(ctx context.Context, rt cri.Runtime, authority *ca.CA, opts proxyOptions) (*proxyServer, error) {
-	p, err := proxy.New(authority, opts.Domain, opts.Allow, opts.Deny, opts.Passthrough)
+	p, err := proxy.New(authority, proxy.Options{
+		Domain:      opts.Domain,
+		Allow:       opts.Allow,
+		Deny:        opts.Deny,
+		Passthrough: opts.Passthrough,
+		OnRecord:    opts.OnRecord,
+	})
 	if err != nil {
 		return nil, err
-	}
-	if opts.OnRecord != nil {
-		p.OnRecord(opts.OnRecord)
 	}
 
 	var lc net.ListenConfig
@@ -717,11 +730,12 @@ func Teardown(ctx context.Context, opts Options) error {
 	live := wantsLiveUI(ctx, opts)
 	opts.Events = eventsWriter(opts, live)
 
-	cfg, plugins, caps, err := LoadAndLaunch(ctx, opts.Dir, opts.Name, opts.Tags, config.VariableInputs{File: opts.VarFile, Set: opts.Vars})
-	defer CloseAll(plugins)
+	loaded, err := LoadAndLaunch(ctx, opts.Dir, opts.Name, opts.Tags, config.VariableInputs{File: opts.VarFile, Set: opts.Vars})
+	defer CloseAll(loaded.Plugins)
 	if err != nil {
 		return err
 	}
+	cfg, plugins, caps := loaded.Config, loaded.Plugins, loaded.Caps
 
 	rt, err := engines.New(opts.Engine, nil)
 	if err != nil {
@@ -768,7 +782,7 @@ func Teardown(ctx context.Context, opts Options) error {
 		stepLog: stepLog.Logger,
 		// There is no state file for step outputs. Every step is a candidate
 		// for removal, and Down carries no outputs.
-		completed: make(map[string]dag.Outputs, len(steps)),
+		completed: make(map[string]output.Map, len(steps)),
 	}
 	for name, step := range steps {
 		r.completed[name] = nil
@@ -1009,7 +1023,7 @@ type run struct {
 	// a step's own plugin-authored outputs so it can never collide with
 	// one, and read into the "system" CEL variable.
 	systemMu      sync.Mutex
-	systemOutputs map[string]dag.Outputs
+	systemOutputs map[string]output.Map
 
 	// completed maps a step name to the outputs that the step published.
 	// completedContainers maps a step name to the containers it
@@ -1019,7 +1033,7 @@ type run struct {
 	// Ready or Failed. started holds the steps that called Up and have not
 	// failed on their own since, under the same lock.
 	completedMu         sync.Mutex
-	completed           map[string]dag.Outputs
+	completed           map[string]output.Map
 	completedContainers map[string][]*pb.ContainerInfo
 	started             map[string]struct{}
 
@@ -1066,10 +1080,10 @@ func (r *run) stepLock(name string) *sync.Mutex {
 
 // snapshotCompleted returns a copy of r.completed, safe to read without
 // holding completedMu.
-func (r *run) snapshotCompleted() map[string]dag.Outputs {
+func (r *run) snapshotCompleted() map[string]output.Map {
 	r.completedMu.Lock()
 	defer r.completedMu.Unlock()
-	out := make(map[string]dag.Outputs, len(r.completed))
+	out := make(map[string]output.Map, len(r.completed))
 	maps.Copy(out, r.completed)
 	return out
 }
@@ -1131,11 +1145,11 @@ func (r *run) recordContainers(name string, containers []*pb.ContainerInfo) {
 }
 
 // mergeCompleted records every step in results as complete.
-func (r *run) mergeCompleted(results map[string]dag.Outputs) {
+func (r *run) mergeCompleted(results map[string]output.Map) {
 	r.completedMu.Lock()
 	defer r.completedMu.Unlock()
 	if r.completed == nil {
-		r.completed = make(map[string]dag.Outputs, len(results))
+		r.completed = make(map[string]output.Map, len(results))
 	}
 	maps.Copy(r.completed, results)
 }
@@ -1174,7 +1188,7 @@ func (r *run) closeStepForwards(step string) {
 
 // exposePorts runs exposePort for each of eps, and reports the step failed on
 // the first error.
-func (r *run) exposePorts(ctx context.Context, name string, eps []*pb.ExposedPort, systemThis dag.Outputs) error {
+func (r *run) exposePorts(ctx context.Context, name string, eps []*pb.ExposedPort, systemThis output.Map) error {
 	for _, ep := range eps {
 		if err := r.exposePort(ctx, name, ep, systemThis); err != nil {
 			r.reportUpFailure(ctx, name, err)
@@ -1189,7 +1203,7 @@ func (r *run) exposePorts(ctx context.Context, name string, eps []*pb.ExposedPor
 // connection forward, or a UDP ASSOCIATE session, by ep's protocol),
 // recording that too. A failed UDP forward is an error; a failed TCP one is
 // only a warning. Extracted from upStep to keep its complexity down.
-func (r *run) exposePort(ctx context.Context, name string, ep *pb.ExposedPort, systemThis dag.Outputs) error {
+func (r *run) exposePort(ctx context.Context, name string, ep *pb.ExposedPort, systemThis output.Map) error {
 	r.emit(name, fmt.Sprintf("exposing %s %s at %s", ep.GetProtocol(), ep.GetName(), ep.GetUpstream()))
 	systemThis["expose_"+ep.GetName()] = output.Value{String: ep.GetUpstream()}
 
@@ -1356,9 +1370,9 @@ func (r *run) trackProgress(ctx context.Context, name string, estimate time.Dura
 // scopesFor builds the expr.Scopes name's `with` block renders against:
 // deps' own outputs plus the recorded system outputs of those deps, and
 // setupDeps for any cross-scope "setup.<name>" needs entry.
-func (r *run) scopesFor(name string, deps, setupDeps map[string]dag.Outputs) expr.Scopes {
+func (r *run) scopesFor(name string, deps, setupDeps map[string]output.Map) expr.Scopes {
 	r.systemMu.Lock()
-	system := make(map[string]dag.Outputs, len(deps))
+	system := make(map[string]output.Map, len(deps))
 	for dep := range deps {
 		if so, ok := r.systemOutputs[dep]; ok {
 			system[dep] = so
@@ -1380,7 +1394,7 @@ func (r *run) scopesFor(name string, deps, setupDeps map[string]dag.Outputs) exp
 // renderWith resolves name's `with` block against deps and the recorded
 // system outputs of those deps, plus setupDeps for any cross-scope
 // "setup.<name>" needs entry, for either an Up or a Down request.
-func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[string]dag.Outputs) (json.RawMessage, error) {
+func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[string]output.Map) (json.RawMessage, error) {
 	with, err := expr.Render(step.With, name, r.scopesFor(name, deps, setupDeps))
 	if err != nil {
 		return nil, fmt.Errorf("%s: with: %w", name, err)
@@ -1567,7 +1581,7 @@ func (r *run) warnDenied(ctx context.Context, name string, start time.Time) {
 // exactly like the first attempt. On success it also records its own
 // output into r.completed directly, rather than leaving that to the
 // walk's aggregate return value.
-func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outputs) (dag.Outputs, error) {
+func (r *run) upStep(ctx context.Context, name string, deps map[string]output.Map) (output.Map, error) {
 	if grp, ok := r.groups[name]; ok {
 		out, err := r.upGroup(ctx, name, grp, deps)
 		if err == nil {
@@ -1579,7 +1593,7 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 			// rerun requested on anything else in that window would see
 			// no prior output for a dependency that is, in fact, long
 			// since Ready.
-			r.mergeCompleted(map[string]dag.Outputs{name: out})
+			r.mergeCompleted(map[string]output.Map{name: out})
 		}
 		return out, err
 	}
@@ -1648,7 +1662,7 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 		return nil, relayErr
 	}
 	r.recordContainers(name, result.GetContainers())
-	systemThis := dag.Outputs{}
+	systemThis := output.Map{}
 	r.closeStepForwards(name)
 	if err := r.exposePorts(ctx, name, result.GetExposedPorts(), systemThis); err != nil {
 		return nil, err
@@ -1656,7 +1670,7 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	if len(systemThis) > 0 {
 		r.systemMu.Lock()
 		if r.systemOutputs == nil {
-			r.systemOutputs = make(map[string]dag.Outputs)
+			r.systemOutputs = make(map[string]output.Map)
 		}
 		r.systemOutputs[name] = systemThis
 		r.systemMu.Unlock()
@@ -1678,9 +1692,9 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outpu
 	r.store.SetStep(name, session.Ready, "")
 	r.timings.RecordUp(ctx, name, ref.String(), time.Since(start))
 
-	out := outputsFromProto(result.GetOutputs())
-	r.mergeCompleted(map[string]dag.Outputs{name: out})
-	r.store.SetStepOutputs(name, outputRows(valuesFromProto(result.GetOutputs())))
+	out := output.FromProto(result.GetOutputs())
+	r.mergeCompleted(map[string]output.Map{name: out})
+	r.store.SetStepOutputs(name, outputRows(output.FromProto(result.GetOutputs())))
 	return out, nil
 }
 
@@ -1765,7 +1779,7 @@ func (r *run) addRoutes(ctx context.Context, name string, routes []*pb.Route) er
 }
 
 func (r *run) up(ctx context.Context) error {
-	results, err := r.graph().Walk(ctx, r.upStep, r.cfg.Engine.MaxParallel)
+	results, err := dag.Walk(ctx, r.graph(), r.upStep, r.cfg.Engine.MaxParallel)
 	r.markSkipped(r.graph().Steps(), results)
 	return err
 }
@@ -1802,7 +1816,7 @@ func (r *run) RerunStep(ctx context.Context, name string, cascade bool) error {
 		names = append(names, step)
 	}
 
-	results, err := r.graph().WalkFrom(ctx, toRun, completed, r.upStep, r.cfg.Engine.MaxParallel)
+	results, err := dag.WalkFrom(ctx, r.graph(), toRun, completed, r.upStep, r.cfg.Engine.MaxParallel)
 	r.markSkipped(names, results)
 	return err
 }
@@ -1836,41 +1850,41 @@ func (r *run) exportStep(ctx context.Context, name string) (map[string]output.Va
 	if err != nil {
 		return nil, fmt.Errorf("engine: export %s: %w", name, err)
 	}
-	return valuesFromProto(resp.GetOut()), nil
+	return output.FromProto(resp.GetOut()), nil
 }
 
 // callTool runs tool - a namespaced name from collectTools - against the
 // step named name. It rejects a step whose actual type doesn't match the
 // tool's declared owner.
-func (r *run) callTool(ctx context.Context, name, tool string, args json.RawMessage) (any, bool, string, error) {
+func (r *run) callTool(ctx context.Context, name, tool string, args json.RawMessage) (mcpserver.ToolResult, error) {
 	route, ok := r.toolRoutes[tool]
 	if !ok {
-		return nil, false, "", fmt.Errorf("engine: no such tool %q", tool)
+		return mcpserver.ToolResult{}, fmt.Errorf("engine: no such tool %q", tool)
 	}
 	step, ok := r.steps[name]
 	if !ok {
-		return nil, false, "", fmt.Errorf("engine: no step named %q", name)
+		return mcpserver.ToolResult{}, fmt.Errorf("engine: no step named %q", name)
 	}
 	ref, err := config.ParseStepRef(step.Uses)
 	if err != nil {
-		return nil, false, "", err
+		return mcpserver.ToolResult{}, err
 	}
 	if ref.Plugin != route.plugin || ref.Step != route.step {
-		return nil, false, "", fmt.Errorf("engine: step %q is a %s step, not a %s:%s step", name, ref, route.plugin, route.step)
+		return mcpserver.ToolResult{}, fmt.Errorf("engine: step %q is a %s step, not a %s:%s step", name, ref, route.plugin, route.step)
 	}
 	client, ok := r.plugins[ref.Plugin]
 	if !ok {
-		return nil, false, "", fmt.Errorf("engine: plugin %q not loaded", ref.Plugin)
+		return mcpserver.ToolResult{}, fmt.Errorf("engine: plugin %q not loaded", ref.Plugin)
 	}
 
 	setupDeps, _, err := r.crossScopeDeps(ctx, name)
 	if err != nil {
-		return nil, false, "", err
+		return mcpserver.ToolResult{}, err
 	}
 	deps := r.sameScopeDeps(name)
 	with, err := r.renderWith(name, step, deps, setupDeps)
 	if err != nil {
-		return nil, false, "", err
+		return mcpserver.ToolResult{}, err
 	}
 
 	resp, err := client.CallTool(ctx, &pb.ToolCallRequest{
@@ -1879,16 +1893,16 @@ func (r *run) callTool(ctx context.Context, name, tool string, args json.RawMess
 		Tool: route.tool, Arguments: args,
 	})
 	if err != nil {
-		return nil, false, "", fmt.Errorf("engine: call tool %s on %s: %w", tool, name, err)
+		return mcpserver.ToolResult{}, fmt.Errorf("engine: call tool %s on %s: %w", tool, name, err)
 	}
 
 	var content any
 	if len(resp.GetContent()) > 0 {
 		if err := json.Unmarshal(resp.GetContent(), &content); err != nil {
-			return nil, false, "", fmt.Errorf("engine: tool %s on %s: decode content: %w", tool, name, err)
+			return mcpserver.ToolResult{}, fmt.Errorf("engine: tool %s on %s: decode content: %w", tool, name, err)
 		}
 	}
-	return content, resp.GetIsError(), resp.GetErrorMessage(), nil
+	return mcpserver.ToolResult{Content: content, IsError: resp.GetIsError(), Message: resp.GetErrorMessage()}, nil
 }
 
 // idempotent reports whether step's step type declares itself safe to call
@@ -1909,7 +1923,7 @@ func (r *run) idempotent(step string) bool {
 // attempted but has neither a recorded output in results nor already
 // reports Failed - a step whose dependency failed, or was itself skipped
 // by that cascade.
-func (r *run) markSkipped(considered []string, results map[string]dag.Outputs) {
+func (r *run) markSkipped(considered []string, results map[string]output.Map) {
 	states := make(map[string]session.State, len(considered))
 	for _, s := range r.store.Snapshot().Steps {
 		states[s.Name] = s.State
@@ -1939,7 +1953,7 @@ func (r *run) down(ctx context.Context) error {
 	// absent from it never ran, or failed on its own.
 	needs := r.downNeeds(completed)
 
-	_, err := dag.New(needs).Reverse().Walk(ctx, func(ctx context.Context, name string, _ map[string]dag.Outputs) (dag.Outputs, error) {
+	_, err := dag.Walk(ctx, dag.New(needs).Reverse(), func(ctx context.Context, name string, _ map[string]output.Map) (output.Map, error) {
 		return r.downStep(ctx, name, needs[name], completed)
 	}, r.cfg.Engine.MaxParallel)
 	return err
@@ -1948,7 +1962,7 @@ func (r *run) down(ctx context.Context) error {
 // downNeeds builds down's reduced needs map: only the steps and groups
 // that actually came up (are keys in completed), each with only the needs
 // edges among those.
-func (r *run) downNeeds(completed map[string]dag.Outputs) map[string][]string {
+func (r *run) downNeeds(completed map[string]output.Map) map[string][]string {
 	needs := make(map[string][]string, len(completed))
 	for name := range completed {
 		var deps []string
@@ -1977,10 +1991,10 @@ func (r *run) downNeeds(completed map[string]dag.Outputs) map[string][]string {
 
 // downStep removes one step or group, the dag.NodeFunc down's reversed
 // walk runs per node. deps is name's own downNeeds entry.
-func (r *run) downStep(ctx context.Context, name string, deps []string, completed map[string]dag.Outputs) (dag.Outputs, error) {
+func (r *run) downStep(ctx context.Context, name string, deps []string, completed map[string]output.Map) (output.Map, error) {
 	if _, ok := r.groups[name]; ok {
 		r.store.SetStep(name, session.Removed, "")
-		return nil, nil //nolint:nilnil // a nil dag.Outputs is a valid empty result, not the caller ever mistaking it for "not found"
+		return nil, nil //nolint:nilnil // a nil output.Map is a valid empty result, not the caller ever mistaking it for "not found"
 	}
 
 	r.clearFaults(ctx, name)
@@ -1994,10 +2008,10 @@ func (r *run) downStep(ctx context.Context, name string, deps []string, complete
 
 	if !stepImplementsDown(r.caps[ref.Plugin], ref.Step) {
 		r.store.SetStep(name, session.Removed, "")
-		return nil, nil //nolint:nilnil // a nil dag.Outputs is a valid empty result, not the caller ever mistaking it for "not found"
+		return nil, nil //nolint:nilnil // a nil output.Map is a valid empty result, not the caller ever mistaking it for "not found"
 	}
 
-	depOutputs := make(map[string]dag.Outputs, len(deps))
+	depOutputs := make(map[string]output.Map, len(deps))
 	for _, dep := range deps {
 		depOutputs[dep] = completed[dep]
 	}
@@ -2023,7 +2037,7 @@ func (r *run) downStep(ctx context.Context, name string, deps []string, complete
 		Type:    ref.Step,
 		Env:     r.env,
 		Config:  with,
-		Outputs: outputsToProto(completed[name]),
+		Outputs: completed[name].ToProto(),
 	}, r.onEvent(name))
 	if downErr != nil {
 		downMsg := uerr.Display(downErr)
@@ -2034,7 +2048,7 @@ func (r *run) downStep(ctx context.Context, name string, deps []string, complete
 	r.emit(name, "removed")
 	r.store.SetStep(name, session.Removed, "")
 	r.timings.RecordDown(ctx, name, ref.String(), time.Since(start))
-	return nil, nil //nolint:nilnil // a nil dag.Outputs is a valid empty result, not the caller ever mistaking it for "not found"
+	return nil, nil //nolint:nilnil // a nil output.Map is a valid empty result, not the caller ever mistaking it for "not found"
 }
 
 // onEvent returns a handler that renders the log and progress events of one
@@ -2062,52 +2076,13 @@ func (r *run) emit(step, text string) {
 	_, _ = fmt.Fprintf(r.events, "%-16s %s\n", step, text)
 }
 
-func depsToProto(deps map[string]dag.Outputs) map[string]*pb.Outputs {
+func depsToProto(deps map[string]output.Map) map[string]*pb.Outputs {
 	if len(deps) == 0 {
 		return nil
 	}
 	out := make(map[string]*pb.Outputs, len(deps))
 	for name, values := range deps {
-		out[name] = outputsToProto(values)
-	}
-	return out
-}
-
-// valuesFromProto lifts a step's proto outputs into a plain output.Value map.
-func valuesFromProto(o *pb.Outputs) map[string]output.Value {
-	values := o.GetValues()
-	if len(values) == 0 {
-		return nil
-	}
-	out := make(map[string]output.Value, len(values))
-	for k, v := range values {
-		out[k] = output.Value{String: v.GetStringValue(), Sensitive: v.GetSensitive()}
-	}
-	return out
-}
-
-// outputsFromProto lifts a step's proto outputs into the DAG's Outputs map.
-func outputsFromProto(o *pb.Outputs) dag.Outputs {
-	values := valuesFromProto(o)
-	if values == nil {
-		return nil
-	}
-	out := make(dag.Outputs, len(values))
-	for k, v := range values {
-		out[k] = v
-	}
-	return out
-}
-
-// outputsToProto lowers the DAG's Outputs map back to the proto wire format.
-func outputsToProto(values dag.Outputs) *pb.Outputs {
-	if len(values) == 0 {
-		return nil
-	}
-	out := &pb.Outputs{Values: make(map[string]*pb.Value, len(values))}
-	for k, v := range values {
-		val, _ := v.(output.Value)
-		out.Values[k] = &pb.Value{Kind: &pb.Value_StringValue{StringValue: val.String}, Sensitive: val.Sensitive}
+		out[name] = values.ToProto()
 	}
 	return out
 }
@@ -2158,7 +2133,7 @@ func sensitiveWithFields(schema []byte) (map[string]bool, error) {
 // this) and its Containers (UpRequest.Containers uses this) - one Export
 // call answers both.
 type exportedStep struct {
-	Outputs    dag.Outputs
+	Outputs    output.Map
 	Containers []*pb.ContainerInfo
 }
 
@@ -2208,7 +2183,7 @@ func (r *run) doExportCrossScopeStep(ctx context.Context, setupName string) (exp
 	if err != nil {
 		return exportedStep{}, fmt.Errorf("export setup step %q: %w", setupName, err)
 	}
-	return exportedStep{Outputs: outputsFromProto(resp.GetOut()), Containers: resp.GetContainers()}, nil
+	return exportedStep{Outputs: output.FromProto(resp.GetOut()), Containers: resp.GetContainers()}, nil
 }
 
 // crossScopeDeps resolves every "setup."-prefixed entry in name's own
@@ -2217,8 +2192,8 @@ func (r *run) doExportCrossScopeStep(ctx context.Context, setupName string) (exp
 // second return value carries the same steps' Containers, for
 // UpRequest.Containers. A name with no such entry returns (nil, nil,
 // nil) - the common case, most steps use only same-scope needs.
-func (r *run) crossScopeDeps(ctx context.Context, name string) (map[string]dag.Outputs, map[string][]*pb.ContainerInfo, error) {
-	var out map[string]dag.Outputs
+func (r *run) crossScopeDeps(ctx context.Context, name string) (map[string]output.Map, map[string][]*pb.ContainerInfo, error) {
+	var out map[string]output.Map
 	var containers map[string][]*pb.ContainerInfo
 	for _, dep := range r.steps[name].Needs {
 		setupName, ok := strings.CutPrefix(dep, setupPrefix)
@@ -2230,7 +2205,7 @@ func (r *run) crossScopeDeps(ctx context.Context, name string) (map[string]dag.O
 			return nil, nil, fmt.Errorf("%s: needs %q: %w", name, dep, err)
 		}
 		if out == nil {
-			out = make(map[string]dag.Outputs)
+			out = make(map[string]output.Map)
 		}
 		out[setupName] = exported.Outputs
 		if len(exported.Containers) > 0 {
@@ -2245,9 +2220,9 @@ func (r *run) crossScopeDeps(ctx context.Context, name string) (map[string]dag.O
 
 // sameScopeDeps builds name's same-scope deps map from already-completed
 // step outputs. Use it outside the DAG walk, such as from Export.
-func (r *run) sameScopeDeps(name string) map[string]dag.Outputs {
+func (r *run) sameScopeDeps(name string) map[string]output.Map {
 	completed := r.snapshotCompleted()
-	var out map[string]dag.Outputs
+	var out map[string]output.Map
 	for _, dep := range r.steps[name].Needs {
 		if strings.HasPrefix(dep, setupPrefix) {
 			continue // cross-scope, resolved by crossScopeDeps instead.
@@ -2261,7 +2236,7 @@ func (r *run) sameScopeDeps(name string) map[string]dag.Outputs {
 			continue
 		}
 		if out == nil {
-			out = make(map[string]dag.Outputs)
+			out = make(map[string]output.Map)
 		}
 		out[resolved] = outputs
 	}
@@ -2271,11 +2246,11 @@ func (r *run) sameScopeDeps(name string) map[string]dag.Outputs {
 // depsWithSetup folds setupDeps into deps for the wire Deps field, each
 // entry keyed "setup.<name>". This is the one channel that still carries
 // a value's Sensitive flag once it crosses scopes.
-func depsWithSetup(deps, setupDeps map[string]dag.Outputs) map[string]dag.Outputs {
+func depsWithSetup(deps, setupDeps map[string]output.Map) map[string]output.Map {
 	if len(setupDeps) == 0 {
 		return deps
 	}
-	out := make(map[string]dag.Outputs, len(deps)+len(setupDeps))
+	out := make(map[string]output.Map, len(deps)+len(setupDeps))
 	maps.Copy(out, deps)
 	for name, vals := range setupDeps {
 		out[setupPrefix+name] = vals
@@ -2326,7 +2301,7 @@ func (r *run) clearFaults(ctx context.Context, name string) {
 // the same shape depsWithSetup gives the wire Deps field. A needs entry
 // that reported no containers (most step types) contributes no entry, not
 // an empty one.
-func (r *run) stepContainersFor(deps map[string]dag.Outputs, setupContainers map[string][]*pb.ContainerInfo) []*pb.StepContainers {
+func (r *run) stepContainersFor(deps map[string]output.Map, setupContainers map[string][]*pb.ContainerInfo) []*pb.StepContainers {
 	var out []*pb.StepContainers
 	for name := range deps {
 		if containers := r.completedContainersFor(name); len(containers) > 0 {

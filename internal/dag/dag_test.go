@@ -87,7 +87,7 @@ func TestWalk(t *testing.T) {
 		var mu sync.Mutex
 		var order []string
 
-		results, err := g.Walk(t.Context(), func(_ context.Context, name string, deps map[string]Outputs) (Outputs, error) {
+		results, err := Walk(t.Context(), g, func(_ context.Context, name string, deps map[string]Outputs) (Outputs, error) {
 			mu.Lock()
 			order = append(order, name)
 			mu.Unlock()
@@ -107,7 +107,7 @@ func TestWalk(t *testing.T) {
 		g := New(map[string][]string{"a": nil, "b": nil, "c": nil})
 
 		var inFlight, peak atomic.Int32
-		_, err := g.Walk(t.Context(), func(context.Context, string, map[string]Outputs) (Outputs, error) {
+		_, err := Walk(t.Context(), g, func(context.Context, string, map[string]Outputs) (Outputs, error) {
 			n := inFlight.Add(1)
 			for {
 				old := peak.Load()
@@ -127,7 +127,7 @@ func TestWalk(t *testing.T) {
 		g := New(map[string][]string{"a": nil, "b": nil, "c": nil, "d": nil})
 
 		var inFlight, peak atomic.Int32
-		_, err := g.Walk(t.Context(), func(context.Context, string, map[string]Outputs) (Outputs, error) {
+		_, err := Walk(t.Context(), g, func(context.Context, string, map[string]Outputs) (Outputs, error) {
 			n := inFlight.Add(1)
 			for {
 				old := peak.Load()
@@ -156,7 +156,7 @@ func TestWalk(t *testing.T) {
 		}
 		done := make(chan walkResult, 1)
 		go func() {
-			results, err := g.Walk(ctx, func(_ context.Context, name string, _ map[string]Outputs) (Outputs, error) {
+			results, err := Walk(ctx, g, func(_ context.Context, name string, _ map[string]Outputs) (Outputs, error) {
 				select {
 				case started <- name:
 				default:
@@ -189,7 +189,7 @@ func TestWalk(t *testing.T) {
 		var mu sync.Mutex
 		ran := map[string]bool{}
 
-		results, err := g.Walk(t.Context(), func(_ context.Context, name string, _ map[string]Outputs) (Outputs, error) {
+		results, err := Walk(t.Context(), g, func(_ context.Context, name string, _ map[string]Outputs) (Outputs, error) {
 			mu.Lock()
 			ran[name] = true
 			mu.Unlock()
@@ -212,7 +212,7 @@ func TestWalk(t *testing.T) {
 		g := New(map[string][]string{"a": {"nope"}})
 
 		called := false
-		_, err := g.Walk(t.Context(), func(context.Context, string, map[string]Outputs) (Outputs, error) {
+		_, err := Walk(t.Context(), g, func(context.Context, string, map[string]Outputs) (Outputs, error) {
 			called = true
 			return nil, nil //nolint:nilnil // a nil Outputs is a valid empty result, not the caller ever mistaking it for "not found"
 		}, 0)
@@ -248,12 +248,12 @@ func TestWaitForDeps(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := &Graph{needs: tt.needs}
 			var mu sync.Mutex
-			results := map[string]result{}
+			results := map[string]result[Outputs]{}
 
 			ctx, cancel := context.WithCancel(t.Context())
 			cancel()
 
-			deps, ok := g.waitForDeps(ctx, "b", tt.done, &mu, results)
+			deps, ok := waitForDeps(ctx, g, "b", tt.done, &mu, results)
 			assert.False(t, ok)
 			assert.Nil(t, deps)
 		})
@@ -271,7 +271,7 @@ func TestWalkFrom(t *testing.T) {
 		var mu sync.Mutex
 		var ran []string
 
-		results, err := g.WalkFrom(t.Context(),
+		results, err := WalkFrom(t.Context(), g,
 			map[string]bool{"c": true},
 			map[string]Outputs{"a": {"v": "a"}, "b": {"v": "b"}},
 			func(_ context.Context, name string, deps map[string]Outputs) (Outputs, error) {
@@ -294,7 +294,7 @@ func TestWalkFrom(t *testing.T) {
 		g := New(map[string][]string{"a": nil, "b": nil, "c": nil, "d": nil})
 
 		var inFlight, peak atomic.Int32
-		results, err := g.WalkFrom(t.Context(),
+		results, err := WalkFrom(t.Context(), g,
 			map[string]bool{"a": true, "b": true, "c": true, "d": true},
 			nil,
 			func(context.Context, string, map[string]Outputs) (Outputs, error) {
@@ -326,7 +326,7 @@ func TestWalkFrom(t *testing.T) {
 		// "boom" is neither in run nor has a prior output - exactly what a
 		// supervisor rerun of a step untouched by the original failure would
 		// pass, since "boom" and its dependents never completed.
-		results, err := g.WalkFrom(t.Context(),
+		results, err := WalkFrom(t.Context(), g,
 			map[string]bool{"a": true},
 			nil,
 			func(_ context.Context, name string, _ map[string]Outputs) (Outputs, error) {
@@ -348,7 +348,7 @@ func TestReverse(t *testing.T) {
 	var mu sync.Mutex
 	var order []string
 
-	_, err := g.Reverse().Walk(t.Context(), func(_ context.Context, name string, _ map[string]Outputs) (Outputs, error) {
+	_, err := Walk(t.Context(), g.Reverse(), func(_ context.Context, name string, _ map[string]Outputs) (Outputs, error) {
 		mu.Lock()
 		order = append(order, name)
 		mu.Unlock()
@@ -445,6 +445,9 @@ func TestTopoSort(t *testing.T) {
 		})
 	}
 }
+
+// Outputs stands in for a step result in these tests.
+type Outputs map[string]any
 
 func joinKeys(m map[string]Outputs) string {
 	keys := slices.Sorted(maps.Keys(m))

@@ -92,7 +92,7 @@ func TestWebsocket(t *testing.T) {
 	})
 
 	t.Run("a response writer that does not support hijacking gets 500", func(t *testing.T) {
-		p, err := proxy.New(newTestIntermediateCA(t), "kevin.home", nil, true, false)
+		p, err := proxy.New(newTestIntermediateCA(t), proxy.Options{Domain: "kevin.home", Deny: true})
 		require.NoError(t, err)
 		p.AddRoutes(proxy.Route{Host: "ws.kevin.test", Upstream: "127.0.0.1:1"})
 

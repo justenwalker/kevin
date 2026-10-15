@@ -50,18 +50,18 @@ const dockerManifestListMediaType = "application/vnd.docker.distribution.manifes
 // "ghcr.io/acme/plugin@sha256:...") and returns the local path of its cached
 // plugin-package blob and its digest ("sha256:<hex>") - pass both straight
 // into pluginpkg.Extract unmodified.
-func Fetch(ctx context.Context, ref string) (string, string, error) {
+func Fetch(ctx context.Context, ref string) (pkgcache.Entry, error) {
 	r, err := ociref.Parse(ref)
 	if err != nil {
-		return "", "", fmt.Errorf("ocipkg: %q: %w: %w", ref, ErrBadReference, err)
+		return pkgcache.Entry{}, fmt.Errorf("ocipkg: %q: %w: %w", ref, ErrBadReference, err)
 	}
 	if r.Tag == "" && r.Digest == "" {
-		return "", "", fmt.Errorf("ocipkg: %q: %w: needs a tag or a digest", ref, ErrBadReference)
+		return pkgcache.Entry{}, fmt.Errorf("ocipkg: %q: %w: needs a tag or a digest", ref, ErrBadReference)
 	}
 
 	reg, err := newRegistry(r.Host, ErrFetch)
 	if err != nil {
-		return "", "", err
+		return pkgcache.Entry{}, err
 	}
 	return fetch(ctx, reg, r)
 }
@@ -300,17 +300,17 @@ func newRegistry(host string, sentinel error) (ociregistry.Interface, error) { /
 }
 
 // fetch does the resolve/select/cache work against reg.
-func fetch(ctx context.Context, reg ociregistry.Interface, r ociref.Reference) (string, string, error) {
+func fetch(ctx context.Context, reg ociregistry.Interface, r ociref.Reference) (pkgcache.Entry, error) {
 	manifest, err := resolveManifest(ctx, reg, r)
 	if err != nil {
-		return "", "", err
+		return pkgcache.Entry{}, err
 	}
 	layer, err := packageLayer(manifest)
 	if err != nil {
-		return "", "", err
+		return pkgcache.Entry{}, err
 	}
 	if layer.Digest.Algorithm() != digest.SHA256 {
-		return "", "", fmt.Errorf("ocipkg: %s: %w: pluginpkg only understands sha256", layer.Digest, ErrMediaType)
+		return pkgcache.Entry{}, fmt.Errorf("ocipkg: %s: %w: pluginpkg only understands sha256", layer.Digest, ErrMediaType)
 	}
 
 	cachePath := pkgcache.Path(layer.Digest.Encoded())
@@ -318,12 +318,12 @@ func fetch(ctx context.Context, reg ociregistry.Interface, r ociref.Reference) (
 	// already verified the first time it was written. No separate
 	// freshness check is needed, unlike pluginpkg's mtime marker.
 	if _, statErr := os.Stat(cachePath); statErr == nil {
-		return cachePath, layer.Digest.String(), nil
+		return pkgcache.Entry{Path: cachePath, Digest: layer.Digest.String()}, nil
 	}
 	if err := cacheBlob(ctx, reg, r.Repository, layer, cachePath); err != nil {
-		return "", "", err
+		return pkgcache.Entry{}, err
 	}
-	return cachePath, layer.Digest.String(), nil
+	return pkgcache.Entry{Path: cachePath, Digest: layer.Digest.String()}, nil
 }
 
 // resolveManifest fetches r's manifest (by digest if pinned, else by tag),

@@ -29,7 +29,6 @@ import (
 	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/docker"
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/output"
@@ -367,7 +366,7 @@ func TestInterruptedSteps(t *testing.T) {
 	t.Run("a completed step is not interrupted, even when a rerun started it again", func(t *testing.T) {
 		r := &run{}
 		r.markStarted("a")
-		r.mergeCompleted(map[string]dag.Outputs{"a": {"k": "v"}})
+		r.mergeCompleted(map[string]output.Map{"a": {"k": {String: "v"}}})
 		r.markStarted("a")
 
 		assert.Empty(t, r.snapshotInterrupted())
@@ -375,7 +374,7 @@ func TestInterruptedSteps(t *testing.T) {
 
 	t.Run("a step that never called Up", func(t *testing.T) {
 		r := &run{}
-		r.mergeCompleted(map[string]dag.Outputs{"a": nil})
+		r.mergeCompleted(map[string]output.Map{"a": nil})
 
 		assert.Empty(t, r.snapshotInterrupted())
 	})
@@ -391,11 +390,11 @@ func TestExportCrossScopeStepRetriesAfterFailure(t *testing.T) {
 	dir := project(t, `
 setup: cluster: {uses: "echo:echo", with: export: greeting: "from-setup"}
 `)
-	cfg, plugins, caps, err := LoadAndLaunch(t.Context(), dir, "", nil, config.VariableInputs{})
+	loaded, err := LoadAndLaunch(t.Context(), dir, "", nil, config.VariableInputs{})
 	require.NoError(t, err)
-	defer CloseAll(plugins)
+	defer CloseAll(loaded.Plugins)
 
-	r := &run{cfg: cfg, plugins: plugins, caps: caps, env: &pb.Environment{}}
+	r := &run{cfg: loaded.Config, plugins: loaded.Plugins, caps: loaded.Caps, env: &pb.Environment{}}
 
 	canceledCtx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -568,30 +567,6 @@ func TestRunOnEvent(t *testing.T) {
 	}
 }
 
-func TestOutputsFromProto(t *testing.T) {
-	assert.Nil(t, outputsFromProto(nil))
-	assert.Nil(t, outputsFromProto(&pb.Outputs{}))
-	assert.Equal(t,
-		dag.Outputs{"k": output.Value{String: "v"}, "secret": output.Value{String: "s", Sensitive: true}},
-		outputsFromProto(&pb.Outputs{Values: map[string]*pb.Value{
-			"k":      {Kind: &pb.Value_StringValue{StringValue: "v"}},
-			"secret": {Kind: &pb.Value_StringValue{StringValue: "s"}, Sensitive: true},
-		}}),
-	)
-}
-
-func TestOutputsToProto(t *testing.T) {
-	assert.Nil(t, outputsToProto(nil))
-	assert.Nil(t, outputsToProto(dag.Outputs{}))
-	assert.Equal(t,
-		&pb.Outputs{Values: map[string]*pb.Value{
-			"k":      {Kind: &pb.Value_StringValue{StringValue: "v"}},
-			"secret": {Kind: &pb.Value_StringValue{StringValue: "s"}, Sensitive: true},
-		}},
-		outputsToProto(dag.Outputs{"k": output.Value{String: "v"}, "secret": output.Value{String: "s", Sensitive: true}}),
-	)
-}
-
 func TestInputRows(t *testing.T) {
 	t.Run("no with block reports no rows", func(t *testing.T) {
 		rows, err := inputRows(nil, nil, expr.Scopes{}, nil, nil)
@@ -602,7 +577,7 @@ func TestInputRows(t *testing.T) {
 	t.Run("one row per top-level field, sorted, with the rendered value, and a copy button since neither is sensitive", func(t *testing.T) {
 		raw := json.RawMessage(`{"image":"postgres:16","port":"${needs.db.out.port}"}`)
 		rendered := json.RawMessage(`{"image":"postgres:16","port":"5432"}`)
-		rows, err := inputRows(raw, rendered, expr.Scopes{Needs: map[string]dag.Outputs{
+		rows, err := inputRows(raw, rendered, expr.Scopes{Needs: map[string]output.Map{
 			"db": {"port": output.Value{String: "5432"}},
 		}}, nil, nil)
 		require.NoError(t, err)
@@ -615,7 +590,7 @@ func TestInputRows(t *testing.T) {
 	t.Run("a field referencing a sensitive value is marked Sensitive and not Copyable", func(t *testing.T) {
 		raw := json.RawMessage(`{"password":"${needs.db.out.password}"}`)
 		rendered := json.RawMessage(`{"password":"hunter2"}`)
-		rows, err := inputRows(raw, rendered, expr.Scopes{Needs: map[string]dag.Outputs{
+		rows, err := inputRows(raw, rendered, expr.Scopes{Needs: map[string]output.Map{
 			"db": {"password": output.Value{String: "hunter2", Sensitive: true}},
 		}}, nil, nil)
 		require.NoError(t, err)
@@ -935,7 +910,7 @@ func TestStepContainersFor(t *testing.T) {
 		r := &run{appliedFaults: map[string][]string{}}
 		r.recordContainers("backend", backend)
 
-		got := r.stepContainersFor(map[string]dag.Outputs{"backend": {}}, nil)
+		got := r.stepContainersFor(map[string]output.Map{"backend": {}}, nil)
 		require.Len(t, got, 1)
 		assert.Equal(t, "backend", got[0].GetStep())
 		assert.Equal(t, backend, got[0].GetContainers())
@@ -943,7 +918,7 @@ func TestStepContainersFor(t *testing.T) {
 
 	t.Run("a same-scope need with no containers contributes nothing", func(t *testing.T) {
 		r := &run{}
-		got := r.stepContainersFor(map[string]dag.Outputs{"waiter": {}}, nil)
+		got := r.stepContainersFor(map[string]output.Map{"waiter": {}}, nil)
 		assert.Empty(t, got)
 	})
 
@@ -1010,14 +985,14 @@ func TestExposePort(t *testing.T) {
 	t.Run("a failed UDP forward is an error", func(t *testing.T) {
 		var events bytes.Buffer
 		r := &run{events: &events}
-		err := r.exposePort(t.Context(), "udp", newEP("udp"), dag.Outputs{})
+		err := r.exposePort(t.Context(), "udp", newEP("udp"), output.Map{})
 		require.ErrorContains(t, err, "local forward for u")
 	})
 
 	t.Run("a failed TCP forward is only a warning", func(t *testing.T) {
 		var events bytes.Buffer
 		r := &run{events: &events}
-		require.NoError(t, r.exposePort(t.Context(), "web", newEP("tcp"), dag.Outputs{}))
+		require.NoError(t, r.exposePort(t.Context(), "web", newEP("tcp"), output.Map{}))
 		assert.Contains(t, events.String(), "warning: local forward for u")
 	})
 
@@ -1026,7 +1001,7 @@ func TestExposePort(t *testing.T) {
 		store := session.NewStore()
 		r := &run{events: &events, store: store}
 		eps := []*pb.ExposedPort{newEP("udp")}
-		require.Error(t, r.exposePorts(t.Context(), "udp", eps, dag.Outputs{}))
+		require.Error(t, r.exposePorts(t.Context(), "udp", eps, output.Map{}))
 		assert.Contains(t, events.String(), "failed: ")
 	})
 }
@@ -1073,19 +1048,19 @@ func TestCallTool(t *testing.T) {
 	}
 
 	t.Run("an unknown tool", func(t *testing.T) {
-		_, _, _, err := newRun().callTool(t.Context(), "a", "nope_nope_nope", nil)
+		_, err := newRun().callTool(t.Context(), "a", "nope_nope_nope", nil)
 
 		require.ErrorContains(t, err, `no such tool "nope_nope_nope"`)
 	})
 
 	t.Run("an unknown step", func(t *testing.T) {
-		_, _, _, err := newRun().callTool(t.Context(), "missing", "echo_echo_echo", nil)
+		_, err := newRun().callTool(t.Context(), "missing", "echo_echo_echo", nil)
 
 		require.ErrorContains(t, err, `no step named "missing"`)
 	})
 
 	t.Run("a step of another type than the tool's owner", func(t *testing.T) {
-		_, _, _, err := newRun().callTool(t.Context(), "w", "echo_echo_echo", nil)
+		_, err := newRun().callTool(t.Context(), "w", "echo_echo_echo", nil)
 
 		require.ErrorContains(t, err, `step "w" is a builtin:wait step, not a echo:echo step`)
 	})

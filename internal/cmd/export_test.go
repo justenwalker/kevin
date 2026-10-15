@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/protos/pb"
 )
@@ -65,23 +64,6 @@ func TestSetupCrossScopeDeps(t *testing.T) {
 			require.ErrorContains(t, err, tt.want)
 		})
 	}
-}
-
-func TestOutputsFromProto(t *testing.T) {
-	t.Run("is nil without values", func(t *testing.T) {
-		assert.Nil(t, outputsFromProto(nil))
-		assert.Nil(t, outputsFromProto(&pb.Outputs{}))
-	})
-
-	t.Run("keeps the value and its sensitivity", func(t *testing.T) {
-		got := outputsFromProto(&pb.Outputs{Values: map[string]*pb.Value{
-			"url":   {Kind: &pb.Value_StringValue{StringValue: "http://x"}},
-			"token": {Kind: &pb.Value_StringValue{StringValue: "s3"}, Sensitive: true},
-		}})
-
-		assert.Equal(t, output.Value{String: "http://x"}, got["url"])
-		assert.Equal(t, output.Value{String: "s3", Sensitive: true}, got["token"])
-	})
 }
 
 func TestStepExports(t *testing.T) {

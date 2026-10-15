@@ -12,7 +12,6 @@ import (
 	"github.com/google/cel-go/cel"
 	celast "github.com/google/cel-go/common/ast"
 
-	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/output"
 )
 
@@ -50,13 +49,13 @@ func buildEnv() (*cel.Env, error) {
 // "${...}" markers against. The zero value renders only `env` expressions.
 type Scopes struct {
 	// Needs supplies `needs.<step>.out.<key>`: each upstream step's own Result.Outputs.
-	Needs map[string]dag.Outputs
+	Needs map[string]output.Map
 
 	// System supplies `needs.<step>.system.<key>`: kevin-computed values for that step.
-	System map[string]dag.Outputs
+	System map[string]output.Map
 
 	// Setup supplies `setup.<name>.out.<key>`, for a cross-scope "setup.<name>" needs entry.
-	Setup map[string]dag.Outputs
+	Setup map[string]output.Map
 
 	// Project supplies `project.<key>`: project-level constants kevin computes once per session.
 	Project map[string]string
@@ -337,7 +336,7 @@ type keyRef struct {
 // (e.g. "setup.<name>.system", which doesn't exist) or a step/key scopes
 // has no entry for.
 func (ref keyRef) lookup(scopes Scopes) (output.Value, bool) {
-	var deps map[string]dag.Outputs
+	var deps map[string]output.Map
 	switch {
 	case ref.root == rootNeeds && ref.ns == nsOut:
 		deps = scopes.Needs
@@ -348,7 +347,7 @@ func (ref keyRef) lookup(scopes Scopes) (output.Value, bool) {
 	default:
 		return output.Value{}, false
 	}
-	val, ok := deps[ref.step][ref.key].(output.Value)
+	val, ok := deps[ref.step][ref.key]
 	return val, ok
 }
 
@@ -564,7 +563,7 @@ func compileAndEval(exprStr, step string, needs, setup map[string]any, env, proj
 // plugin that echoes that content back out as its own Outputs or a Detail
 // must re-mark it sensitive itself; kevin can't trace a value's
 // sensitivity across a process boundary.
-func activation(deps, system map[string]dag.Outputs) map[string]any {
+func activation(deps, system map[string]output.Map) map[string]any {
 	needs := make(map[string]any, len(deps))
 	for name, out := range deps {
 		needs[name] = map[string]any{
@@ -577,11 +576,10 @@ func activation(deps, system map[string]dag.Outputs) map[string]any {
 
 // stringValues extracts the string content of o, discarding its
 // sensitivity tags, for CEL's "needs.<step>.out.<key>" variable.
-func stringValues(o dag.Outputs) map[string]any {
+func stringValues(o output.Map) map[string]any {
 	m := make(map[string]any, len(o))
 	for k, v := range o {
-		val, _ := v.(output.Value)
-		m[k] = val.String
+		m[k] = v.String
 	}
 	return m
 }

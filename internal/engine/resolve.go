@@ -57,14 +57,14 @@ func resolveFileSpec(ctx context.Context, name, dir, destDir string, spec config
 // resolveOCISpec fetches and extracts an oci: package, verifying its
 // signature first when spec.Signing is set.
 func resolveOCISpec(ctx context.Context, name, destDir string, spec config.PluginSpec) (pluginhost.Spec, error) {
-	pkgPath, digest, err := ocipkg.Fetch(ctx, spec.OCI)
+	pkg, err := ocipkg.Fetch(ctx, spec.OCI)
 	if err != nil {
 		return pluginhost.Spec{}, fmt.Errorf("supervisor: plugins.%s: %w", name, err)
 	}
-	if verifyErr := verifyOCISignature(ctx, spec.OCI, digest, pkgPath, spec.Signing); verifyErr != nil {
+	if verifyErr := verifyOCISignature(ctx, spec.OCI, pkg.Digest, pkg.Path, spec.Signing); verifyErr != nil {
 		return pluginhost.Spec{}, fmt.Errorf("supervisor: plugins.%s: %w", name, friendlySignatureErr(verifyErr, name))
 	}
-	result, err := pluginpkg.Extract(pkgPath, destDir, digest)
+	result, err := pluginpkg.Extract(pkg.Path, destDir, pkg.Digest)
 	if err != nil {
 		return pluginhost.Spec{}, fmt.Errorf("supervisor: plugins.%s: %w", name, err)
 	}
@@ -74,14 +74,14 @@ func resolveOCISpec(ctx context.Context, name, destDir string, spec config.Plugi
 // resolveHTTPSpec fetches and extracts an http: package, verifying its
 // signature first when spec.Signing is set.
 func resolveHTTPSpec(ctx context.Context, name, destDir string, spec config.PluginSpec) (pluginhost.Spec, error) {
-	pkgPath, digest, err := httppkg.Fetch(ctx, spec.HTTP, spec.Checksum)
+	pkg, err := httppkg.Fetch(ctx, spec.HTTP, spec.Checksum)
 	if err != nil {
 		return pluginhost.Spec{}, fmt.Errorf("supervisor: plugins.%s: %w", name, err)
 	}
-	if verifyErr := verifyHTTPSignature(ctx, spec.HTTP, pkgPath, spec.Signing); verifyErr != nil {
+	if verifyErr := verifyHTTPSignature(ctx, spec.HTTP, pkg.Path, spec.Signing); verifyErr != nil {
 		return pluginhost.Spec{}, fmt.Errorf("supervisor: plugins.%s: %w", name, friendlySignatureErr(verifyErr, name))
 	}
-	result, err := pluginpkg.Extract(pkgPath, destDir, digest)
+	result, err := pluginpkg.Extract(pkg.Path, destDir, pkg.Digest)
 	if err != nil {
 		return pluginhost.Spec{}, fmt.Errorf("supervisor: plugins.%s: %w", name, err)
 	}
@@ -140,36 +140,49 @@ func FetchPlugins(ctx context.Context, dir, name string, tags []string) ([]strin
 	return fetched, nil
 }
 
+// Loaded is an environment read from disk with its plugins started.
+type Loaded struct {
+	// Config is the validated environment. It is nil when loading failed.
+	Config *config.Config
+
+	// Plugins holds every started plugin, keyed by name. The caller must close
+	// them with [CloseAll], even when loading failed.
+	Plugins map[string]*pluginhost.Client
+
+	// Caps is what each plugin reported from Info, keyed by plugin name.
+	Caps map[string]pluginhost.Info
+}
+
 // LoadAndLaunch reads the environment file, starts every plugin that a step
 // of either scope references, and validates the environment against the
 // schemas of each started plugin.
 //
 // LoadAndLaunch returns the plugins that did start even on failure. The
 // caller must close them.
-func LoadAndLaunch(ctx context.Context, dir, name string, tags []string, vars config.VariableInputs) (*config.Config, map[string]*pluginhost.Client, map[string]pluginhost.Info, error) {
+func LoadAndLaunch(ctx context.Context, dir, name string, tags []string, vars config.VariableInputs) (Loaded, error) {
 	file, err := config.Load(dir, name, tags)
 	if err != nil {
-		return nil, nil, nil, err
+		return Loaded{}, err
 	}
 
 	specs, err := file.Plugins()
 	if err != nil {
-		return nil, nil, nil, err
+		return Loaded{}, err
 	}
 
 	names, err := file.StepPlugins()
 	if err != nil {
-		return nil, nil, nil, err
+		return Loaded{}, err
 	}
 
 	plugins, err := launchAll(ctx, file.Dir(), specs, names)
 	if err != nil {
-		return nil, plugins, nil, err
+		return Loaded{Plugins: plugins}, err
 	}
 
 	caps, err := collectCaps(ctx, plugins)
 	if err != nil {
-		return nil, plugins, nil, err
+		return Loaded{Plugins: plugins}, err
 	}
 
 	schemas := make(map[string]config.PluginSchemas, len(caps))
@@ -183,23 +196,23 @@ func LoadAndLaunch(ctx context.Context, dir, name string, tags []string, vars co
 		schemas[name] = config.PluginSchemas{Config: info.Schema, Steps: steps, Export: export}
 	}
 	if err = file.Validate(schemas); err != nil {
-		return nil, plugins, nil, err
+		return Loaded{Plugins: plugins}, err
 	}
 
 	cfg, err := file.Config()
 	if err != nil {
-		return nil, plugins, nil, err
+		return Loaded{Plugins: plugins}, err
 	}
 	if err = cfg.ResolveVariables(vars); err != nil {
-		return nil, plugins, nil, err
+		return Loaded{Plugins: plugins}, err
 	}
 	if err = cfg.ResolvePluginConfigs(schemas); err != nil {
-		return nil, plugins, nil, err
+		return Loaded{Plugins: plugins}, err
 	}
 	if err = validateNeeds(cfg); err != nil {
-		return nil, plugins, nil, err
+		return Loaded{Plugins: plugins}, err
 	}
-	return cfg, plugins, caps, nil
+	return Loaded{Config: cfg, Plugins: plugins, Caps: caps}, nil
 }
 
 // launchAll starts one process for every plugin name that a step of either

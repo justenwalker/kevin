@@ -46,7 +46,7 @@ func TestConnect(t *testing.T) {
 
 	t.Run("negotiates HTTP/2 when the client supports it", func(t *testing.T) {
 		authority := newTestIntermediateCA(t)
-		p, err := proxy.New(authority, "kevin.home", nil, true, false)
+		p, err := proxy.New(authority, proxy.Options{Domain: "kevin.home", Deny: true})
 		require.NoError(t, err)
 
 		var lc net.ListenConfig
@@ -88,7 +88,7 @@ func TestConnect(t *testing.T) {
 	})
 
 	t.Run("a response writer that does not support hijacking gets 500", func(t *testing.T) {
-		p, err := proxy.New(newTestIntermediateCA(t), "kevin.home", nil, true, false)
+		p, err := proxy.New(newTestIntermediateCA(t), proxy.Options{Domain: "kevin.home", Deny: true})
 		require.NoError(t, err)
 
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodConnect, "https://blocked.kevin.test:443", nil)

@@ -12,16 +12,12 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// Outputs are the values that a node produces when walked.
-// These outputs are made available to the node's dependents.
-type Outputs map[string]any
-
 // NodeFunc is run on each step in a graph Walk.
 // This function is called on each node in the graph.
-// The name of the node as well as the outputs of its dependencies are passed to the function.
-// The [Outputs] returned will thus be made available to this node's dependents.
+// The name of the node as well as the results of its dependencies are passed to the function.
+// The T returned will thus be made available to this node's dependents.
 // Returning an error from a NodeFunc will prevent dependent nodes from being visited.
-type NodeFunc func(ctx context.Context, name string, deps map[string]Outputs) (Outputs, error)
+type NodeFunc[T any] func(ctx context.Context, name string, deps map[string]T) (T, error)
 
 // Graph is a Directed Acyclic [Graph] (DAG).
 type Graph struct {
@@ -187,9 +183,9 @@ func (g *Graph) Dependents(name string) []string {
 
 // result records what happened to one step. A step that never ran keeps ran
 // false and err nil.
-type result struct {
+type result[T any] struct {
 	ran bool
-	out Outputs
+	out T
 	err error
 }
 
@@ -203,8 +199,8 @@ type result struct {
 //
 // The returned map holds the outputs of every step that is complete, even when
 // Walk returns an error.
-func (g *Graph) Walk(ctx context.Context, fn NodeFunc, maxParallel int) (map[string]Outputs, error) {
-	return g.walk(ctx, fn, nil, nil, maxParallel)
+func Walk[T any](ctx context.Context, g *Graph, fn NodeFunc[T], maxParallel int) (map[string]T, error) {
+	return walk(ctx, g, fn, nil, nil, maxParallel)
 }
 
 // WalkFrom re-runs the steps named in run, calling fn for each. A step not
@@ -212,16 +208,16 @@ func (g *Graph) Walk(ctx context.Context, fn NodeFunc, maxParallel int) (map[str
 // prior, is published immediately for any dependent that IS in run. A step
 // that is neither in run nor has an entry in prior is skipped, the same way
 // Walk skips a dependent of a failed step. maxParallel is as in Walk.
-func (g *Graph) WalkFrom(ctx context.Context, run map[string]bool, prior map[string]Outputs, fn NodeFunc, maxParallel int) (map[string]Outputs, error) {
-	return g.walk(ctx, fn, run, prior, maxParallel)
+func WalkFrom[T any](ctx context.Context, g *Graph, run map[string]bool, prior map[string]T, fn NodeFunc[T], maxParallel int) (map[string]T, error) {
+	return walk(ctx, g, fn, run, prior, maxParallel)
 }
 
 // waitForDeps blocks until every dependency of name is done, and collects
 // their outputs. ok is false when ctx is canceled or a dependency did not
 // run - the caller must then skip name without an error, the same way Walk
 // skips a dependent of a failed step.
-func (g *Graph) waitForDeps(ctx context.Context, name string, done map[string]chan struct{}, mu *sync.Mutex, resultsMap map[string]result) (map[string]Outputs, bool) {
-	deps := make(map[string]Outputs, len(g.needs[name]))
+func waitForDeps[T any](ctx context.Context, g *Graph, name string, done map[string]chan struct{}, mu *sync.Mutex, resultsMap map[string]result[T]) (map[string]T, bool) {
+	deps := make(map[string]T, len(g.needs[name]))
 	for _, dep := range g.needs[name] {
 		select {
 		case <-done[dep]:
@@ -246,7 +242,7 @@ func (g *Graph) waitForDeps(ctx context.Context, name string, done map[string]ch
 // scope, the behavior Walk needs; otherwise a step not in only short-circuits
 // to its prior output (or a skip, if it has none) instead of calling fn.
 // maxParallel caps how many steps run at once - 0 means no limit.
-func (g *Graph) walk(ctx context.Context, fn NodeFunc, only map[string]bool, prior map[string]Outputs, maxParallel int) (map[string]Outputs, error) {
+func walk[T any](ctx context.Context, g *Graph, fn NodeFunc[T], only map[string]bool, prior map[string]T, maxParallel int) (map[string]T, error) {
 	if err := g.Validate(); err != nil {
 		return nil, err
 	}
@@ -257,9 +253,9 @@ func (g *Graph) walk(ctx context.Context, fn NodeFunc, only map[string]bool, pri
 	}
 
 	var mu sync.Mutex
-	resultsMap := make(map[string]result, len(g.needs))
+	resultsMap := make(map[string]result[T], len(g.needs))
 
-	finish := func(name string, o result) {
+	finish := func(name string, o result[T]) {
 		mu.Lock()
 		resultsMap[name] = o
 		mu.Unlock()
@@ -279,15 +275,15 @@ func (g *Graph) walk(ctx context.Context, fn NodeFunc, only map[string]bool, pri
 		grp.Go(func() error {
 			if only != nil && !only[name] {
 				out, ok := prior[name]
-				finish(name, result{ran: ok, out: out})
+				finish(name, result[T]{ran: ok, out: out})
 				return nil
 			}
 
-			deps, ok := g.waitForDeps(ctx, name, done, &mu, resultsMap)
+			deps, ok := waitForDeps(ctx, g, name, done, &mu, resultsMap)
 			if !ok {
 				// Report no error here. The step that failed reports it,
 				// and a cascade would hide the root cause.
-				finish(name, result{})
+				finish(name, result[T]{})
 				return nil
 			}
 
@@ -296,7 +292,7 @@ func (g *Graph) walk(ctx context.Context, fn NodeFunc, only map[string]bool, pri
 				case sem <- struct{}{}:
 					defer func() { <-sem }()
 				case <-ctx.Done():
-					finish(name, result{})
+					finish(name, result[T]{})
 					return nil
 				}
 			}
@@ -304,17 +300,17 @@ func (g *Graph) walk(ctx context.Context, fn NodeFunc, only map[string]bool, pri
 			out, err := fn(ctx, name, deps)
 			if err != nil {
 				err = fmt.Errorf("dag: step %q: %w", name, err)
-				finish(name, result{err: err})
+				finish(name, result[T]{err: err})
 				return err
 			}
-			finish(name, result{ran: true, out: out})
+			finish(name, result[T]{ran: true, out: out})
 			return nil
 		})
 	}
 
 	walkErr := grp.Wait()
 
-	nodeOuputMap := make(map[string]Outputs, len(resultsMap))
+	nodeOuputMap := make(map[string]T, len(resultsMap))
 	for name, o := range resultsMap {
 		if o.ran {
 			nodeOuputMap[name] = o.out

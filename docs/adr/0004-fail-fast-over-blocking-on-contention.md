@@ -36,7 +36,7 @@ stop, not to route around it.
 
 **DO** (`internal/engine/engine.go:1172`, step rerun contention):
 ```go
-func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outputs) (dag.Outputs, error) {
+func (r *run) upStep(ctx context.Context, name string, deps map[string]output.Map) (output.Map, error) {
 	mu := r.stepLock(name)
 	if !mu.TryLock() {
 		return nil, fmt.Errorf("%s: %w", name, session.ErrStepBusy)
@@ -66,7 +66,7 @@ as a hard error, because the user asked for that port on purpose.
 
 **DO NOT:**
 ```go
-func (r *run) upStep(ctx context.Context, name string, deps map[string]dag.Outputs) (dag.Outputs, error) {
+func (r *run) upStep(ctx context.Context, name string, deps map[string]output.Map) (output.Map, error) {
 	mu := r.stepLock(name)
 	mu.Lock() // blocks until whatever's already running finishes
 	defer mu.Unlock()

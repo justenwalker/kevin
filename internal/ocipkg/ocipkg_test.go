@@ -97,7 +97,8 @@ func TestFetch(t *testing.T) {
 		layer := pushLayer(t, reg, []byte("plugin package bytes"))
 		pushManifest(t, reg, "v1", layer)
 
-		pkgPath, digestStr, err := fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		entry, err := fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		pkgPath, digestStr := entry.Path, entry.Digest
 		require.NoError(t, err)
 		assert.Equal(t, layer.Digest.String(), digestStr)
 		data, err := os.ReadFile(pkgPath)
@@ -111,7 +112,8 @@ func TestFetch(t *testing.T) {
 		layer := pushLayer(t, reg, []byte("plugin package bytes"))
 		manifest := pushManifest(t, reg, "", layer)
 
-		pkgPath, digestStr, err := fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Digest: manifest.Digest})
+		entry, err := fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Digest: manifest.Digest})
+		pkgPath, digestStr := entry.Path, entry.Digest
 		require.NoError(t, err)
 		assert.Equal(t, layer.Digest.String(), digestStr)
 		assert.FileExists(t, pkgPath)
@@ -131,7 +133,8 @@ func TestFetch(t *testing.T) {
 
 		pushIndex(t, reg, "v1", wantManifest, otherManifest)
 
-		pkgPath, digestStr, err := fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		entry, err := fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		pkgPath, digestStr := entry.Path, entry.Digest
 		require.NoError(t, err)
 		assert.Equal(t, wantLayer.Digest.String(), digestStr)
 		data, err := os.ReadFile(pkgPath)
@@ -148,7 +151,7 @@ func TestFetch(t *testing.T) {
 		manifest.Platform = &ocispec.Platform{OS: "plan9", Architecture: "386"}
 		pushIndex(t, reg, "v1", manifest)
 
-		_, _, err := fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		_, err := fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
 		require.ErrorIs(t, err, ErrNoMatchingPlatform)
 		assert.Contains(t, err.Error(), "plan9/386", "the error must name the platforms the index does carry")
 	})
@@ -162,7 +165,7 @@ func TestFetch(t *testing.T) {
 		require.NoError(t, err)
 		pushManifest(t, reg, "v1", desc)
 
-		_, _, err = fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		_, err = fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
 		require.ErrorIs(t, err, ErrMediaType)
 	})
 
@@ -176,7 +179,7 @@ func TestFetch(t *testing.T) {
 		_, err = reg.PushManifest(t.Context(), testRepo, "v1", data, ocispec.MediaTypeImageManifest)
 		require.NoError(t, err)
 
-		_, _, err = fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		_, err = fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
 		require.ErrorIs(t, err, ErrMediaType)
 	})
 
@@ -187,17 +190,18 @@ func TestFetch(t *testing.T) {
 		pushManifest(t, reg, "v1", layer)
 
 		ref := ociref.Reference{Repository: testRepo, Tag: "v1"}
-		first, _, err := fetch(t.Context(), reg, ref)
+		firstEntry, err := fetch(t.Context(), reg, ref)
+		first := firstEntry.Path
 		require.NoError(t, err)
 
 		// Blank out the manifest so a second real fetch attempt would fail -
 		// proves the second call never touches the registry again.
 		blank := ocimem.New()
-		second, _, err := fetch(t.Context(), blank, ref)
+		_, err = fetch(t.Context(), blank, ref)
 		require.Error(t, err, "sanity check: an empty registry really can't resolve this ref")
-		_ = second
 
-		again, _, err := fetch(t.Context(), reg, ref)
+		againEntry, err := fetch(t.Context(), reg, ref)
+		again := againEntry.Path
 		require.NoError(t, err)
 		assert.Equal(t, first, again, "a cache hit must return the same cached path")
 	})
@@ -208,7 +212,7 @@ func TestFetch(t *testing.T) {
 		layer := pushLayer(t, reg, []byte("plugin package bytes"))
 		pushManifest(t, reg, "v1", layer)
 
-		_, _, err := fetch(t.Context(), tamperedRegistry{reg}, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		_, err := fetch(t.Context(), tamperedRegistry{reg}, ociref.Reference{Repository: testRepo, Tag: "v1"})
 		require.ErrorIs(t, err, ErrBlobMismatch)
 
 		assert.NoFileExists(t, pkgcache.Path(layer.Digest.Encoded()), "a mismatched download must not reach the cache")
@@ -216,13 +220,13 @@ func TestFetch(t *testing.T) {
 
 	t.Run("rejects a bad reference", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		_, _, err := Fetch(t.Context(), "not a valid ref!!")
+		_, err := Fetch(t.Context(), "not a valid ref!!")
 		require.ErrorIs(t, err, ErrBadReference)
 	})
 
 	t.Run("rejects a reference with neither tag nor digest", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		_, _, err := Fetch(t.Context(), "registry.example.com/acme/plugin")
+		_, err := Fetch(t.Context(), "registry.example.com/acme/plugin")
 		require.ErrorIs(t, err, ErrBadReference)
 	})
 }
@@ -241,7 +245,8 @@ func TestPush(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, manifestDigest)
 
-		pkgPath, fetchedDigest, err := fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		entry, err := fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		pkgPath, fetchedDigest := entry.Path, entry.Digest
 		require.NoError(t, err)
 		assert.Equal(t, digest.FromBytes(content).String(), fetchedDigest, "Fetch must resolve the same layer bytes Push uploaded")
 		data, err := os.ReadFile(pkgPath)
@@ -441,7 +446,8 @@ func TestPublicAPIAgainstALocalRegistry(t *testing.T) {
 	_, err := Push(t.Context(), ref, tarPath)
 	require.NoError(t, err)
 
-	pkgPath, pkgDigest, err := Fetch(t.Context(), ref)
+	pkgEntry, err := Fetch(t.Context(), ref)
+	pkgPath, pkgDigest := pkgEntry.Path, pkgEntry.Digest
 	require.NoError(t, err)
 	assert.Equal(t, digest.FromBytes(content).String(), pkgDigest)
 	got, err := os.ReadFile(pkgPath)

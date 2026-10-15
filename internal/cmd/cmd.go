@@ -370,12 +370,13 @@ func validateCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			cfg, plugins, _, err := engine.LoadAndLaunch(cmd.Context(), opts.dir, opts.name, opts.tags,
+			loaded, err := engine.LoadAndLaunch(cmd.Context(), opts.dir, opts.name, opts.tags,
 				config.VariableInputs{File: opts.varFile, Set: opts.vars})
-			engine.CloseAll(plugins)
+			engine.CloseAll(loaded.Plugins)
 			if err != nil {
 				return err
 			}
+			cfg := loaded.Config
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s: %d setup step(s), %d env step(s)\n",
 				cfg.Project, len(cfg.Setup), len(cfg.Env))
 			if err != nil {

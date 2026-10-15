@@ -7,13 +7,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/session"
 )
 
 func TestEvalGroupOutputs(t *testing.T) {
-	members := map[string]dag.Outputs{
+	members := map[string]output.Map{
 		"primary": {
 			"dsn":  output.Value{String: "postgres://secret", Sensitive: true},
 			"port": output.Value{String: "5432"},

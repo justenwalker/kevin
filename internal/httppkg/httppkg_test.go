@@ -39,7 +39,8 @@ func TestFetch(t *testing.T) {
 		srv := serve(t, body, http.StatusOK)
 		t.Cleanup(srv.Close)
 
-		pkgPath, digestStr, err := httppkg.Fetch(t.Context(), srv.URL, "")
+		entry, err := httppkg.Fetch(t.Context(), srv.URL, "")
+		pkgPath, digestStr := entry.Path, entry.Digest
 		require.NoError(t, err)
 		assert.Equal(t, "sha256:"+sha256Hex(body), digestStr)
 		got, err := os.ReadFile(pkgPath)
@@ -54,7 +55,8 @@ func TestFetch(t *testing.T) {
 		srv := serve(t, body, http.StatusOK)
 		t.Cleanup(srv.Close)
 
-		_, digestStr, err := httppkg.Fetch(t.Context(), srv.URL, "sha256:"+sha256Hex(body))
+		entry, err := httppkg.Fetch(t.Context(), srv.URL, "sha256:"+sha256Hex(body))
+		digestStr := entry.Digest
 		require.NoError(t, err)
 		assert.Equal(t, "sha256:"+sha256Hex(body), digestStr)
 	})
@@ -65,7 +67,7 @@ func TestFetch(t *testing.T) {
 		srv := serve(t, body, http.StatusOK)
 		t.Cleanup(srv.Close)
 
-		_, _, err := httppkg.Fetch(t.Context(), srv.URL, "sha256:0000000000000000000000000000000000000000000000000000000000000000")
+		_, err := httppkg.Fetch(t.Context(), srv.URL, "sha256:0000000000000000000000000000000000000000000000000000000000000000")
 		require.ErrorIs(t, err, httppkg.ErrChecksumMismatch)
 		assert.NoFileExists(t, pkgcache.Path(sha256Hex(body)), "a mismatched download must not reach the cache")
 	})
@@ -85,7 +87,8 @@ func TestFetch(t *testing.T) {
 		}))
 		t.Cleanup(srv.Close)
 
-		pkgPath, digestStr, err := httppkg.Fetch(t.Context(), srv.URL, "sha256:"+wantHex)
+		entry, err := httppkg.Fetch(t.Context(), srv.URL, "sha256:"+wantHex)
+		pkgPath, digestStr := entry.Path, entry.Digest
 		require.NoError(t, err)
 		assert.False(t, touched.Load(), "Fetch must not touch the network when the checksum is already cached")
 		assert.Equal(t, cachePath, pkgPath)
@@ -97,7 +100,7 @@ func TestFetch(t *testing.T) {
 		srv := serve(t, []byte("not found"), http.StatusNotFound)
 		t.Cleanup(srv.Close)
 
-		_, _, err := httppkg.Fetch(t.Context(), srv.URL, "")
+		_, err := httppkg.Fetch(t.Context(), srv.URL, "")
 		require.ErrorIs(t, err, httppkg.ErrFetch)
 	})
 
@@ -112,7 +115,7 @@ func TestFetch(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				_, _, err := httppkg.Fetch(t.Context(), tt.url, "")
+				_, err := httppkg.Fetch(t.Context(), tt.url, "")
 				require.ErrorIs(t, err, httppkg.ErrBadURL)
 			})
 		}
@@ -126,7 +129,7 @@ func TestFetch(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
-		_, _, err := httppkg.Fetch(ctx, srv.URL, "")
+		_, err := httppkg.Fetch(ctx, srv.URL, "")
 		require.ErrorIs(t, err, httppkg.ErrFetch)
 	})
 
@@ -152,13 +155,15 @@ func TestFetch(t *testing.T) {
 		srv := httptest.NewServer(mux)
 		t.Cleanup(srv.Close)
 
-		pkgPath1, digest1, err := httppkg.Fetch(t.Context(), srv.URL, "")
+		entry1, err := httppkg.Fetch(t.Context(), srv.URL, "")
+		pkgPath1, digest1 := entry1.Path, entry1.Digest
 		require.NoError(t, err)
 		assert.Equal(t, "sha256:"+sha256Hex(body), digest1)
 		assert.Equal(t, int32(1), calls.Load())
 		assert.Empty(t, gotINM.Load(), "the first request carries no prior ETag")
 
-		pkgPath2, digest2, err := httppkg.Fetch(t.Context(), srv.URL, "")
+		entry2, err := httppkg.Fetch(t.Context(), srv.URL, "")
+		pkgPath2, digest2 := entry2.Path, entry2.Digest
 		require.NoError(t, err)
 		assert.Equal(t, int32(2), calls.Load(), "a second Fetch must still make a conditional request")
 		assert.Equal(t, etag, gotINM.Load(), "the second request must send back the recorded ETag")
@@ -182,12 +187,14 @@ func TestFetch(t *testing.T) {
 		srv := httptest.NewServer(mux)
 		t.Cleanup(srv.Close)
 
-		_, digest1, err := httppkg.Fetch(t.Context(), srv.URL, "")
+		entry1, err := httppkg.Fetch(t.Context(), srv.URL, "")
+		digest1 := entry1.Digest
 		require.NoError(t, err)
 		assert.Equal(t, "sha256:"+sha256Hex(bodyV1), digest1)
 
 		body.Store(&bodyV2)
-		pkgPath2, digest2, err := httppkg.Fetch(t.Context(), srv.URL, "")
+		entry2, err := httppkg.Fetch(t.Context(), srv.URL, "")
+		pkgPath2, digest2 := entry2.Path, entry2.Digest
 		require.NoError(t, err)
 		assert.Equal(t, "sha256:"+sha256Hex(bodyV2), digest2, "a 200 with a new body must update the cached digest")
 		got, err := os.ReadFile(pkgPath2)
@@ -205,7 +212,7 @@ func TestFetchTrustsThePluginCAFile(t *testing.T) {
 
 	t.Run("fails without the CA", func(t *testing.T) {
 		t.Setenv("KEVIN_PLUGIN_CA_FILE", "")
-		_, _, err := httppkg.Fetch(t.Context(), srv.URL, "")
+		_, err := httppkg.Fetch(t.Context(), srv.URL, "")
 		require.ErrorIs(t, err, httppkg.ErrFetch)
 	})
 
@@ -214,7 +221,7 @@ func TestFetchTrustsThePluginCAFile(t *testing.T) {
 		data := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
 		require.NoError(t, os.WriteFile(caPath, data, 0o600))
 		t.Setenv("KEVIN_PLUGIN_CA_FILE", caPath)
-		_, _, err := httppkg.Fetch(t.Context(), srv.URL, "")
+		_, err := httppkg.Fetch(t.Context(), srv.URL, "")
 		require.NoError(t, err)
 	})
 }

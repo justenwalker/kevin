@@ -31,7 +31,7 @@ type stepViewer interface {
 // [*proxy.Proxy].
 type egressViewer interface {
 	Routes() []proxy.Route
-	EgressAllowList() ([]string, []string, bool)
+	EgressPolicy() proxy.EgressPolicy
 }
 
 // ToolDef describes one MCP tool a plugin contributes, already resolved
@@ -57,35 +57,61 @@ type Server struct {
 	rerun    func(ctx context.Context, step string, cascade bool) error
 	export   func(ctx context.Context, step string) (map[string]output.Value, error)
 	tools    []ToolDef
-	callTool func(ctx context.Context, step, tool string, args json.RawMessage) (result any, isError bool, errMessage string, err error)
+	callTool func(ctx context.Context, step, tool string, args json.RawMessage) (ToolResult, error)
 }
 
-// New builds a Server for one project. view answers the step-list/status
-// tools, px answers the proxy-info tool, logsPath is the session's durable
-// NDJSON log file (internal/engine's LogsFile, under its workspace) that
-// get_step and rerun_step read a step's log lines from, rerun and export
-// are the engine's live-session hooks for the rerun_step and export_step
-// tools. tools and callTool add every plugin-declared tool alongside the
-// five above.
-func New(
-	project, domain, logsPath string,
-	view stepViewer,
-	px egressViewer,
-	rerun func(ctx context.Context, step string, cascade bool) error,
-	export func(ctx context.Context, step string) (map[string]output.Value, error),
-	tools []ToolDef,
-	callTool func(ctx context.Context, step, tool string, args json.RawMessage) (result any, isError bool, errMessage string, err error),
-) *Server {
+// ToolResult is what a plugin-declared tool returned.
+type ToolResult struct {
+	// Content is the tool's structured result. It is unused when IsError is
+	// true.
+	Content any
+
+	// IsError is true when the tool ran and reported a failure.
+	IsError bool
+
+	// Message describes the failure when IsError is true.
+	Message string
+}
+
+// Options configures [New].
+type Options struct {
+	Project string
+	Domain  string
+
+	// LogsPath is the session's durable NDJSON log file (internal/engine's
+	// LogsFile, under its workspace) that get_step and rerun_step read a
+	// step's log lines from.
+	LogsPath string
+
+	// View answers the step-list and status tools.
+	View stepViewer
+
+	// Proxy answers the proxy-info tool.
+	Proxy egressViewer
+
+	// Rerun and Export are the engine's live-session hooks for the rerun_step
+	// and export_step tools.
+	Rerun  func(ctx context.Context, step string, cascade bool) error
+	Export func(ctx context.Context, step string) (map[string]output.Value, error)
+
+	// Tools and CallTool add every plugin-declared tool alongside the five
+	// built-in ones.
+	Tools    []ToolDef
+	CallTool func(ctx context.Context, step, tool string, args json.RawMessage) (ToolResult, error)
+}
+
+// New builds a Server for one project.
+func New(opt Options) *Server {
 	return &Server{
-		project:  project,
-		domain:   domain,
-		logsPath: logsPath,
-		view:     view,
-		proxy:    px,
-		rerun:    rerun,
-		export:   export,
-		tools:    tools,
-		callTool: callTool,
+		project:  opt.Project,
+		domain:   opt.Domain,
+		logsPath: opt.LogsPath,
+		view:     opt.View,
+		proxy:    opt.Proxy,
+		rerun:    opt.Rerun,
+		export:   opt.Export,
+		tools:    opt.Tools,
+		callTool: opt.CallTool,
 	}
 }
 

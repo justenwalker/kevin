@@ -31,3 +31,12 @@ func Sha256Dir() string {
 func Path(hexDigest string) string {
 	return filepath.Join(Sha256Dir(), hexDigest)
 }
+
+// Entry is a cached package blob.
+type Entry struct {
+	// Path is where the blob is on disk.
+	Path string
+
+	// Digest is the blob's content digest, "sha256:<hex>".
+	Digest string
+}

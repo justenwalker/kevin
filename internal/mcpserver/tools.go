@@ -263,13 +263,13 @@ func (s *Server) getProxyInfo(_ context.Context, _ *mcp.CallToolRequest, _ struc
 	for i, r := range routes {
 		out[i] = RouteInfo{Host: r.Host, Upstream: r.Upstream, TLS: r.TLS}
 	}
-	allow, wildcards, deny := s.proxy.EgressAllowList()
+	policy := s.proxy.EgressPolicy()
 
 	return nil, GetProxyInfoOutput{
 		Addr:   s.view.Snapshot().ProxyAddr,
 		Domain: s.domain,
 		Routes: out,
-		Egress: EgressInfo{Deny: deny, Allow: allow, Wildcards: wildcards},
+		Egress: EgressInfo{Deny: policy.Deny, Allow: policy.Allow, Wildcards: policy.Wildcards},
 	}, nil
 }
 
@@ -296,13 +296,13 @@ func (s *Server) toolHandler(def ToolDef) mcp.ToolHandler {
 			return nil, fmt.Errorf("mcpserver: %s: %w", def.Name, err)
 		}
 
-		result, isError, errMessage, err := s.callTool(ctx, step, def.Name, rest)
+		result, err := s.callTool(ctx, step, def.Name, rest)
 		if err != nil {
 			return nil, err
 		}
-		if isError {
-			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: errMessage}}}, nil
+		if result.IsError {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: result.Message}}}, nil
 		}
-		return &mcp.CallToolResult{StructuredContent: result}, nil
+		return &mcp.CallToolResult{StructuredContent: result.Content}, nil
 	}
 }

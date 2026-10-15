@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/session"
@@ -53,13 +52,13 @@ func (r *run) resolveNeed(name, dep string) (string, bool) {
 // resolveNeed's own output) is exposed under its own bare name too,
 // matching the bare name the member's with block and its own needs list
 // both use to refer to it. A non-member name passes through unchanged.
-func localizeDeps(name string, deps map[string]dag.Outputs) map[string]dag.Outputs {
+func localizeDeps(name string, deps map[string]output.Map) map[string]output.Map {
 	group, _, ok := strings.Cut(name, groupSep)
 	if !ok || len(deps) == 0 {
 		return deps
 	}
 	prefix := group + groupSep
-	out := make(map[string]dag.Outputs, len(deps))
+	out := make(map[string]output.Map, len(deps))
 	for k, v := range deps {
 		out[k] = v
 		if bare, ok := strings.CutPrefix(k, prefix); ok {
@@ -154,11 +153,11 @@ func (r *run) registerScopeSteps(store *session.Store) error {
 
 // upGroup is upStep's branch for a virtual group node: it makes no plugin
 // call, it evaluates the group's own outputs block against deps, which
-// already carries every member's dag.Outputs.
-func (r *run) upGroup(ctx context.Context, name string, grp config.Group, deps map[string]dag.Outputs) (dag.Outputs, error) {
+// already carries every member's output.Map.
+func (r *run) upGroup(ctx context.Context, name string, grp config.Group, deps map[string]output.Map) (output.Map, error) {
 	r.store.SetStep(name, session.Running, "")
 
-	memberOutputs := make(map[string]dag.Outputs, len(grp.Members))
+	memberOutputs := make(map[string]output.Map, len(grp.Members))
 	for _, member := range grp.Members {
 		memberOutputs[member] = deps[memberName(name, member)]
 	}
@@ -179,7 +178,7 @@ func (r *run) upGroup(ctx context.Context, name string, grp config.Group, deps m
 // group's own outputs block against those - the cross-scope counterpart to
 // upGroup, which does the same evaluation against a live Up's own deps.
 func (r *run) doExportCrossScopeGroup(ctx context.Context, name string, grp config.Group) (exportedStep, error) {
-	memberOutputs := make(map[string]dag.Outputs, len(grp.Members))
+	memberOutputs := make(map[string]output.Map, len(grp.Members))
 	for _, member := range grp.Members {
 		exported, err := r.doExportCrossScopeStep(ctx, memberName(name, member))
 		if err != nil {
@@ -201,9 +200,9 @@ func (r *run) doExportCrossScopeGroup(ctx context.Context, name string, grp conf
 // "${needs.<member>.out.<key>}" block) against memberOutputs, the same
 // expr.Render machinery a step's own with block uses - a group's members
 // are simply upstream from the group's own perspective.
-func evalGroupOutputs(name string, outputs map[string]string, memberOutputs map[string]dag.Outputs) (dag.Outputs, error) {
+func evalGroupOutputs(name string, outputs map[string]string, memberOutputs map[string]output.Map) (output.Map, error) {
 	if len(outputs) == 0 {
-		return dag.Outputs{}, nil
+		return output.Map{}, nil
 	}
 
 	raw, err := json.Marshal(outputs)
@@ -220,7 +219,7 @@ func evalGroupOutputs(name string, outputs map[string]string, memberOutputs map[
 	}
 
 	scopes := expr.Scopes{Needs: memberOutputs}
-	out := make(dag.Outputs, len(result))
+	out := make(output.Map, len(result))
 	for k, v := range result {
 		field, err := json.Marshal(outputs[k])
 		if err != nil {

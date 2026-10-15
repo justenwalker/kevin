@@ -1,7 +1,7 @@
 // Package proxy serves the three roles of the kevin proxy on one or more
 // listeners.
 //
-//	p, err := proxy.New(authority, "kevin.home", allow, true, false)
+//	p, err := proxy.New(authority, proxy.Options{Domain: "kevin.home", Allow: allow, Deny: true})
 //	go p.Serve(ctx, listener)
 //	p.AddRoutes(proxy.Route{Host: "api.kevin.test", Upstream: "api:8080"})
 //
@@ -176,15 +176,31 @@ type Proxy struct {
 // browser at http://<proxy addr>/proxy.pac.
 const PACPath = "/proxy.pac"
 
+// Options configures [New].
+type Options struct {
+	// Domain is the environment domain that the proxy serves.
+	Domain string
+
+	// Allow lists the hosts that every step may reach, in addition to the
+	// hosts that [Proxy.AllowEgress] adds later.
+	Allow []string
+
+	// Deny blocks a host that no route and no allow entry covers.
+	Deny bool
+
+	// Passthrough tunnels an unrouted CONNECT raw instead of MITM'ing it, once
+	// it clears the same allow/deny check.
+	Passthrough bool
+
+	// OnRecord receives one Record for each request, on the goroutine of the
+	// request, thus it must not block. It is fixed at New, so it is in place
+	// before the proxy serves.
+	OnRecord func(Record)
+}
+
 // New builds a proxy that signs its leaf certificates with authority. Requests
 // for the environment domain and for a registered route go through it.
-//
-// allow lists the hosts that every step may reach, in addition to the hosts
-// that [Proxy.AllowEgress] adds later. When deny is true, the proxy blocks a
-// host that no route and no allow entry covers. When passthrough is true,
-// an unrouted CONNECT tunnels raw instead of being MITM'd, once it clears
-// the same allow/deny check.
-func New(authority *ca.CA, domain string, allow []string, deny, passthrough bool) (*Proxy, error) {
+func New(authority *ca.CA, opt Options) (*Proxy, error) {
 	certs := newCertSigner(authority)
 
 	// x509.SystemCertPool returns a fresh clone, safe to extend in place -
@@ -200,15 +216,16 @@ func New(authority *ca.CA, domain string, allow []string, deny, passthrough bool
 	p := &Proxy{
 		certs:          certs,
 		rootPool:       rootPool,
-		domain:         domain,
-		deny:           deny,
-		passthrough:    passthrough,
+		domain:         opt.Domain,
+		deny:           opt.Deny,
+		passthrough:    opt.Passthrough,
+		onRecord:       opt.OnRecord,
 		routes:         map[string]Route{},
 		routeWildcards: map[string]Route{},
 		allow:          map[string]struct{}{},
 		h2srv:          &http2.Server{IdleTimeout: idleTimeout},
 	}
-	p.AllowEgress(allow...)
+	p.AllowEgress(opt.Allow...)
 
 	// A no-op Rewrite: forward already rewrites r.URL (scheme, host) to the
 	// real target before handing the request to rp, so there is nothing left
@@ -238,10 +255,6 @@ func New(authority *ca.CA, domain string, allow []string, deny, passthrough bool
 
 	return p, nil
 }
-
-// OnRecord registers a function that receives one Record for each request.
-// Call it before Serve.
-func (p *Proxy) OnRecord(fn func(Record)) { p.onRecord = fn }
 
 // AddRoutes puts every route into the table. A route replaces an earlier route
 // for the same host. A Host with a leading "*." wildcard, such as
@@ -301,10 +314,22 @@ func (p *Proxy) EgressAllowed(host string) bool {
 	return false
 }
 
-// EgressAllowList returns the allow list as configured: exact hosts and
-// leading-dot wildcards, separately, plus whether the proxy denies by
-// default. It does not consult the routing table.
-func (p *Proxy) EgressAllowList() ([]string, []string, bool) {
+// EgressPolicy is the proxy's egress rules.
+type EgressPolicy struct {
+	// Allow lists the exact hosts, sorted.
+	Allow []string
+
+	// Wildcards lists the leading-dot wildcard entries, sorted.
+	Wildcards []string
+
+	// Deny is true when the proxy blocks a host that no route and no allow
+	// entry covers.
+	Deny bool
+}
+
+// EgressPolicy returns the allow list as configured, plus whether the proxy
+// denies by default. It does not consult the routing table.
+func (p *Proxy) EgressPolicy() EgressPolicy {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -315,7 +340,7 @@ func (p *Proxy) EgressAllowList() ([]string, []string, bool) {
 	sort.Strings(allow)
 	wildcards := append([]string(nil), p.wildcards...)
 	sort.Strings(wildcards)
-	return allow, wildcards, p.deny
+	return EgressPolicy{Allow: allow, Wildcards: wildcards, Deny: p.deny}
 }
 
 // Routes returns the table, exact hosts and wildcards alike.

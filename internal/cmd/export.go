@@ -10,7 +10,6 @@ import (
 
 	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pluginhost"
@@ -20,8 +19,8 @@ import (
 // setupCrossScopeDeps resolves every "setup."-prefixed entry in step's
 // needs list via that setup step's Export, keyed by the unprefixed
 // name - the shape the "setup" CEL variable uses.
-func setupCrossScopeDeps(ctx context.Context, cfg *config.Config, plugins map[string]*pluginhost.Client, caps map[string]pluginhost.Info, env *pb.Environment, step config.Step) (map[string]dag.Outputs, error) {
-	var out map[string]dag.Outputs
+func setupCrossScopeDeps(ctx context.Context, cfg *config.Config, plugins map[string]*pluginhost.Client, caps map[string]pluginhost.Info, env *pb.Environment, step config.Step) (map[string]output.Map, error) {
+	var out map[string]output.Map
 	for _, dep := range step.Needs {
 		setupName, ok := strings.CutPrefix(dep, "setup.")
 		if !ok {
@@ -53,24 +52,11 @@ func setupCrossScopeDeps(ctx context.Context, cfg *config.Config, plugins map[st
 			return nil, fmt.Errorf("export setup step %q: %w", setupName, err)
 		}
 		if out == nil {
-			out = make(map[string]dag.Outputs)
+			out = make(map[string]output.Map)
 		}
-		out[setupName] = outputsFromProto(resp.GetOut())
+		out[setupName] = output.FromProto(resp.GetOut())
 	}
 	return out, nil
-}
-
-// outputsFromProto lifts a step's proto outputs into the DAG's Outputs map.
-func outputsFromProto(o *pb.Outputs) dag.Outputs {
-	values := o.GetValues()
-	if len(values) == 0 {
-		return nil
-	}
-	out := make(dag.Outputs, len(values))
-	for k, v := range values {
-		out[k] = output.Value{String: v.GetStringValue(), Sensitive: v.GetSensitive()}
-	}
-	return out
 }
 
 // stepExports reports whether info's step type name implements Export.

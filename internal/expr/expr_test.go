@@ -7,19 +7,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/output"
 )
 
-func deps() map[string]dag.Outputs {
-	return map[string]dag.Outputs{
+func deps() map[string]output.Map {
+	return map[string]output.Map{
 		"cluster": {"kubeconfig": output.Value{String: "/tmp/kubeconfig"}, "context": output.Value{String: "kind-demo"}},
 	}
 }
 
-func sysDeps() map[string]dag.Outputs {
-	return map[string]dag.Outputs{
+func sysDeps() map[string]output.Map {
+	return map[string]output.Map{
 		"cluster": {"expose_postgres": output.Value{String: "socks5://127.0.0.1:1080/postgres:5432"}},
 	}
 }
@@ -93,8 +92,8 @@ func TestRender(t *testing.T) {
 	})
 
 	t.Run("out and system are independent namespaces", func(t *testing.T) {
-		d := map[string]dag.Outputs{"cluster": {"x": output.Value{String: "from-out"}}}
-		s := map[string]dag.Outputs{"cluster": {"x": output.Value{String: "from-system"}}}
+		d := map[string]output.Map{"cluster": {"x": output.Value{String: "from-out"}}}
+		s := map[string]output.Map{"cluster": {"x": output.Value{String: "from-system"}}}
 
 		raw := json.RawMessage(`{"a":"${needs.cluster.out.x}","b":"${needs.cluster.system.x}"}`)
 		out, err := expr.Render(raw, "step", expr.Scopes{Needs: d, System: s})
@@ -118,7 +117,7 @@ func TestRender(t *testing.T) {
 	// entry within it, not on "system" itself being undefined.
 	t.Run("system is an empty map, not a missing key, for a step with no system outputs", func(t *testing.T) {
 		raw := json.RawMessage(`{"a":"${needs.cluster.system.size() == 0}"}`)
-		out, err := expr.Render(raw, "app", expr.Scopes{Needs: deps(), System: map[string]dag.Outputs{}})
+		out, err := expr.Render(raw, "app", expr.Scopes{Needs: deps(), System: map[string]output.Map{}})
 		require.NoError(t, err, "expected needs.cluster.system to resolve to an empty map, not a missing-key error")
 
 		var v map[string]bool
@@ -165,7 +164,7 @@ func TestRender(t *testing.T) {
 	})
 
 	t.Run("a setup expression", func(t *testing.T) {
-		setupDeps := map[string]dag.Outputs{"cluster": {"kubeconfig": output.Value{String: "/setup/kubeconfig"}}}
+		setupDeps := map[string]output.Map{"cluster": {"kubeconfig": output.Value{String: "/setup/kubeconfig"}}}
 		raw := json.RawMessage(`{"kubeconfig":"${setup.cluster.out.kubeconfig}"}`)
 		out, err := expr.Render(raw, "step", expr.Scopes{Setup: setupDeps})
 		require.NoError(t, err)
@@ -176,8 +175,8 @@ func TestRender(t *testing.T) {
 	})
 
 	t.Run("needs and setup are independent variables", func(t *testing.T) {
-		d := map[string]dag.Outputs{"cluster": {"x": output.Value{String: "from-needs"}}}
-		setupDeps := map[string]dag.Outputs{"cluster": {"x": output.Value{String: "from-setup"}}}
+		d := map[string]output.Map{"cluster": {"x": output.Value{String: "from-needs"}}}
+		setupDeps := map[string]output.Map{"cluster": {"x": output.Value{String: "from-setup"}}}
 
 		raw := json.RawMessage(`{"a":"${needs.cluster.out.x}","b":"${setup.cluster.out.x}"}`)
 		out, err := expr.Render(raw, "step", expr.Scopes{Needs: d, Setup: setupDeps})
@@ -401,16 +400,16 @@ func TestReferencedVars(t *testing.T) {
 }
 
 func TestFieldSensitive(t *testing.T) {
-	sensitiveDeps := map[string]dag.Outputs{
+	sensitiveDeps := map[string]output.Map{
 		"db": {
 			"password": output.Value{String: "hunter2", Sensitive: true},
 			"host":     output.Value{String: "localhost"},
 		},
 	}
-	sensitiveSystem := map[string]dag.Outputs{
+	sensitiveSystem := map[string]output.Map{
 		"db": {"internal_addr": output.Value{String: "10.0.0.5", Sensitive: true}},
 	}
-	sensitiveSetup := map[string]dag.Outputs{
+	sensitiveSetup := map[string]output.Map{
 		"cluster": {"token": output.Value{String: "s3cr3t", Sensitive: true}},
 	}
 

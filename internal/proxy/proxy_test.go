@@ -261,14 +261,16 @@ func TestEgressAllowed(t *testing.T) {
 	}
 }
 
-func TestEgressAllowList(t *testing.T) {
+func TestEgressPolicy(t *testing.T) {
 	p, _ := startTestProxyWithClientAndEgressFiltering(t, []string{"api.github.com", "*.example.com"}, true)
 
-	allow, wildcards, deny := p.EgressAllowList()
+	got := p.EgressPolicy()
 
-	assert.Equal(t, []string{"api.github.com"}, allow)
-	assert.Equal(t, []string{".example.com"}, wildcards)
-	assert.True(t, deny)
+	assert.Equal(t, proxy.EgressPolicy{
+		Allow:     []string{"api.github.com"},
+		Wildcards: []string{".example.com"},
+		Deny:      true,
+	}, got)
 }
 
 func TestLookup(t *testing.T) {
@@ -371,7 +373,7 @@ func TestPAC(t *testing.T) {
 	})
 
 	t.Run("answers 503 before Serve has bound a listener", func(t *testing.T) {
-		p, err := proxy.New(newTestIntermediateCA(t), "kevin.home", nil, true, false)
+		p, err := proxy.New(newTestIntermediateCA(t), proxy.Options{Domain: "kevin.home", Deny: true})
 		require.NoError(t, err)
 
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, proxy.PACPath, nil)
@@ -390,7 +392,7 @@ func TestServe(t *testing.T) {
 	t.Run("ServeHTTP handles a request without a bound listener", func(t *testing.T) {
 		authority := newTestIntermediateCA(t)
 
-		p, err := proxy.New(authority, "kevin.home", nil, true, false)
+		p, err := proxy.New(authority, proxy.Options{Domain: "kevin.home", Deny: true})
 		require.NoError(t, err)
 
 		target := createTestUpstream(t, "direct")
@@ -408,7 +410,7 @@ func TestServe(t *testing.T) {
 
 	t.Run("reports the first of several listeners as Addr, and serves routes on every listener", func(t *testing.T) {
 		authority := newTestIntermediateCA(t)
-		p, err := proxy.New(authority, "kevin.home", nil, false, false)
+		p, err := proxy.New(authority, proxy.Options{Domain: "kevin.home"})
 		require.NoError(t, err)
 
 		var lc net.ListenConfig
@@ -446,16 +448,18 @@ func TestServe(t *testing.T) {
 
 func TestOnRecord(t *testing.T) {
 	authority := newTestIntermediateCA(t)
-	p, err := proxy.New(authority, "kevin.home", nil, true, false)
-	require.NoError(t, err)
-
 	var mu sync.Mutex
 	var records []proxy.Record
-	p.OnRecord(func(rec proxy.Record) {
-		mu.Lock()
-		defer mu.Unlock()
-		records = append(records, rec)
+	p, err := proxy.New(authority, proxy.Options{
+		Domain: "kevin.home",
+		Deny:   true,
+		OnRecord: func(rec proxy.Record) {
+			mu.Lock()
+			defer mu.Unlock()
+			records = append(records, rec)
+		},
 	})
+	require.NoError(t, err)
 	snapshot := func() []proxy.Record {
 		mu.Lock()
 		defer mu.Unlock()
@@ -542,7 +546,7 @@ func startTestProxyWithClientAndEgressFiltering(t *testing.T, allow []string, de
 func startTestProxyServingWithAuthority(t *testing.T, authority *ca.CA, allow []string, deny bool) (*proxy.Proxy, *http.Client) {
 	t.Helper()
 
-	p, err := proxy.New(authority, "kevin.home", allow, deny, false)
+	p, err := proxy.New(authority, proxy.Options{Domain: "kevin.home", Allow: allow, Deny: deny})
 	require.NoError(t, err)
 
 	var lc net.ListenConfig

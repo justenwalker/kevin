@@ -40,8 +40,8 @@ type fakeProxy struct {
 
 func (f fakeProxy) Routes() []proxy.Route { return f.routes }
 
-func (f fakeProxy) EgressAllowList() ([]string, []string, bool) {
-	return f.allow, f.wildcards, f.deny
+func (f fakeProxy) EgressPolicy() proxy.EgressPolicy {
+	return proxy.EgressPolicy{Allow: f.allow, Wildcards: f.wildcards, Deny: f.deny}
 }
 
 // defaultView is the fake session state most tests run against.
@@ -96,7 +96,7 @@ func newTestServer(t *testing.T,
 	rerun func(ctx context.Context, step string, cascade bool) error,
 	export func(ctx context.Context, step string) (map[string]output.Value, error),
 	tools []mcpserver.ToolDef,
-	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (any, bool, string, error),
+	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (mcpserver.ToolResult, error),
 ) *mcp.ClientSession {
 	t.Helper()
 	return newTestServerWithView(t, defaultView(), rerun, export, tools, dispatch)
@@ -108,7 +108,7 @@ func newTestServerWithView(t *testing.T, view *session.View,
 	rerun func(ctx context.Context, step string, cascade bool) error,
 	export func(ctx context.Context, step string) (map[string]output.Value, error),
 	tools []mcpserver.ToolDef,
-	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (any, bool, string, error),
+	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (mcpserver.ToolResult, error),
 ) *mcp.ClientSession {
 	t.Helper()
 	return newTestServerWithLogs(t, view, newLogsFile(t), rerun, export, tools, dispatch)
@@ -121,7 +121,7 @@ func newTestServerWithLogs(t *testing.T, view *session.View, logsPath string,
 	rerun func(ctx context.Context, step string, cascade bool) error,
 	export func(ctx context.Context, step string) (map[string]output.Value, error),
 	tools []mcpserver.ToolDef,
-	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (any, bool, string, error),
+	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (mcpserver.ToolResult, error),
 ) *mcp.ClientSession {
 	t.Helper()
 
@@ -132,7 +132,17 @@ func newTestServerWithLogs(t *testing.T, view *session.View, logsPath string,
 		deny:      true,
 	}
 
-	s := mcpserver.New("demo", "kevin.home", logsPath, fakeView{v: view}, px, rerun, export, tools, dispatch)
+	s := mcpserver.New(mcpserver.Options{
+		Project:  "demo",
+		Domain:   "kevin.home",
+		LogsPath: logsPath,
+		View:     fakeView{v: view},
+		Proxy:    px,
+		Rerun:    rerun,
+		Export:   export,
+		Tools:    tools,
+		CallTool: dispatch,
+	})
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
 
@@ -357,9 +367,9 @@ func TestPluginTools(t *testing.T) {
 	t.Run("strips step from arguments before dispatching", func(t *testing.T) {
 		var gotStep, gotTool string
 		var gotArgs json.RawMessage
-		dispatch := func(_ context.Context, step, tool string, args json.RawMessage) (any, bool, string, error) {
+		dispatch := func(_ context.Context, step, tool string, args json.RawMessage) (mcpserver.ToolResult, error) {
 			gotStep, gotTool, gotArgs = step, tool, args
-			return map[string]string{"ok": "yes"}, false, "", nil
+			return mcpserver.ToolResult{Content: map[string]string{"ok": "yes"}}, nil
 		}
 		sess := newTestServer(t, noopRerun, noopExport, []mcpserver.ToolDef{demoTool}, dispatch)
 
@@ -376,8 +386,8 @@ func TestPluginTools(t *testing.T) {
 	})
 
 	t.Run("a tool-reported failure sets IsError with the message as content", func(t *testing.T) {
-		dispatch := func(context.Context, string, string, json.RawMessage) (any, bool, string, error) {
-			return nil, true, "no such table", nil
+		dispatch := func(context.Context, string, string, json.RawMessage) (mcpserver.ToolResult, error) {
+			return mcpserver.ToolResult{IsError: true, Message: "no such table"}, nil
 		}
 		sess := newTestServer(t, noopRerun, noopExport, []mcpserver.ToolDef{demoTool}, dispatch)
 
@@ -390,8 +400,8 @@ func TestPluginTools(t *testing.T) {
 	})
 
 	t.Run("a dispatch error is an MCP protocol error, not a tool result", func(t *testing.T) {
-		dispatch := func(context.Context, string, string, json.RawMessage) (any, bool, string, error) {
-			return nil, false, "", assert.AnError
+		dispatch := func(context.Context, string, string, json.RawMessage) (mcpserver.ToolResult, error) {
+			return mcpserver.ToolResult{}, assert.AnError
 		}
 		sess := newTestServer(t, noopRerun, noopExport, []mcpserver.ToolDef{demoTool}, dispatch)
 

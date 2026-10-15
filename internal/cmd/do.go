@@ -13,9 +13,9 @@ import (
 
 	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/engine"
 	"github.com/justenwalker/kevin/internal/expr"
+	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/protos/pb"
 )
@@ -62,11 +62,12 @@ func splitDoArgs(args []string, dash int) (string, []string, error) {
 }
 
 func runDo(ctx context.Context, dir, name string, tags []string, vars config.VariableInputs, engineName, cmdName string, extra []string) error {
-	cfg, plugins, caps, err := engine.LoadAndLaunch(ctx, dir, name, tags, vars)
-	defer engine.CloseAll(plugins)
+	loaded, err := engine.LoadAndLaunch(ctx, dir, name, tags, vars)
+	defer engine.CloseAll(loaded.Plugins)
 	if err != nil {
 		return err
 	}
+	cfg, plugins, caps := loaded.Config, loaded.Plugins, loaded.Caps
 
 	cmdDef, ok := cfg.Commands[cmdName]
 	if !ok {
@@ -140,8 +141,8 @@ func chdirToCwd(projectDir, cwd string) error {
 // under setupOut (read back as "${setup.<name>...}") - the same convention
 // a step's own needs list uses. config.File.Validate already proved each of
 // these steps implements Export, so this never sees one that doesn't.
-func resolveCommandOutputs(ctx context.Context, cfg *config.Config, plugins map[string]*pluginhost.Client, caps map[string]pluginhost.Info, env *pb.Environment, needs []string) (map[string]dag.Outputs, map[string]dag.Outputs, error) {
-	var needsOut, setupOut map[string]dag.Outputs
+func resolveCommandOutputs(ctx context.Context, cfg *config.Config, plugins map[string]*pluginhost.Client, caps map[string]pluginhost.Info, env *pb.Environment, needs []string) (map[string]output.Map, map[string]output.Map, error) {
+	var needsOut, setupOut map[string]output.Map
 	for _, n := range needs {
 		scopeName, steps, stepName := config.ScopeEnv, cfg.Env, n
 		if rest, ok := strings.CutPrefix(n, "setup."); ok {
@@ -175,16 +176,16 @@ func resolveCommandOutputs(ctx context.Context, cfg *config.Config, plugins map[
 			return nil, nil, fmt.Errorf("do: needs %q: export: %w", n, exportErr)
 		}
 
-		out := outputsFromProto(resp.GetOut())
+		out := output.FromProto(resp.GetOut())
 		if scopeName == config.ScopeSetup {
 			if setupOut == nil {
-				setupOut = make(map[string]dag.Outputs)
+				setupOut = make(map[string]output.Map)
 			}
 			setupOut[stepName] = out
 			continue
 		}
 		if needsOut == nil {
-			needsOut = make(map[string]dag.Outputs)
+			needsOut = make(map[string]output.Map)
 		}
 		needsOut[stepName] = out
 	}

@@ -185,16 +185,18 @@ func TestTunnelRoute(t *testing.T) {
 
 	t.Run("records one entry for the whole tunnel, not just the dial", func(t *testing.T) {
 		authority := newTestIntermediateCA(t)
-		p, err := proxy.New(authority, "kevin.home", nil, true, false)
-		require.NoError(t, err)
-
 		var mu sync.Mutex
 		var records []proxy.Record
-		p.OnRecord(func(rec proxy.Record) {
-			mu.Lock()
-			defer mu.Unlock()
-			records = append(records, rec)
+		p, err := proxy.New(authority, proxy.Options{
+			Domain: "kevin.home",
+			Deny:   true,
+			OnRecord: func(rec proxy.Record) {
+				mu.Lock()
+				defer mu.Unlock()
+				records = append(records, rec)
+			},
 		})
+		require.NoError(t, err)
 
 		var lc net.ListenConfig
 		ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
@@ -264,16 +266,20 @@ func TestPassthroughUnrouted(t *testing.T) {
 		target := selfSignedTLSUpstream(t, host, "from the real internet's own cert")
 		dialAddr := getTestURLHost(t, target.URL) // "127.0.0.1:<port>" - the real address an unrouted CONNECT dials
 
-		p, err := proxy.New(authority, "kevin.home", []string{"127.0.0.1"}, true, true)
-		require.NoError(t, err)
-
 		var mu sync.Mutex
 		var records []proxy.Record
-		p.OnRecord(func(rec proxy.Record) {
-			mu.Lock()
-			defer mu.Unlock()
-			records = append(records, rec)
+		p, err := proxy.New(authority, proxy.Options{
+			Domain:      "kevin.home",
+			Allow:       []string{"127.0.0.1"},
+			Deny:        true,
+			Passthrough: true,
+			OnRecord: func(rec proxy.Record) {
+				mu.Lock()
+				defer mu.Unlock()
+				records = append(records, rec)
+			},
 		})
+		require.NoError(t, err)
 
 		var lc net.ListenConfig
 		ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
@@ -316,7 +322,7 @@ func TestPassthroughUnrouted(t *testing.T) {
 
 	t.Run("a denied host is refused on the CONNECT itself, before any TLS starts", func(t *testing.T) {
 		authority := newTestIntermediateCA(t)
-		p, err := proxy.New(authority, "kevin.home", nil, true, true)
+		p, err := proxy.New(authority, proxy.Options{Domain: "kevin.home", Deny: true, Passthrough: true})
 		require.NoError(t, err)
 
 		var lc net.ListenConfig
@@ -357,7 +363,7 @@ func TestPassthroughUnrouted(t *testing.T) {
 		// TestTunnelRoute's own dial-failure case - port 1 on loopback
 		// stands in for an address nothing is listening on, refused
 		// immediately rather than waiting on a real DNS lookup to fail.
-		p, err := proxy.New(authority, "kevin.home", []string{"127.0.0.1"}, true, true)
+		p, err := proxy.New(authority, proxy.Options{Domain: "kevin.home", Allow: []string{"127.0.0.1"}, Deny: true, Passthrough: true})
 		require.NoError(t, err)
 
 		var lc net.ListenConfig

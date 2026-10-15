@@ -31,15 +31,15 @@ import (
 // and Fetch reuses the cached blob from that prior fetch; any other status
 // downloads and caches the new body, and records its own validators for next
 // time.
-func Fetch(ctx context.Context, rawURL, checksum string) (string, string, error) {
+func Fetch(ctx context.Context, rawURL, checksum string) (pkgcache.Entry, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return "", "", fmt.Errorf("httppkg: %q: %w", rawURL, ErrBadURL)
+		return pkgcache.Entry{}, fmt.Errorf("httppkg: %q: %w", rawURL, ErrBadURL)
 	}
 
 	wantHex := checksumHex(checksum)
 	if wantHex != "" && fileExists(pkgcache.Path(wantHex)) {
-		return pkgcache.Path(wantHex), "sha256:" + wantHex, nil
+		return pkgcache.Entry{Path: pkgcache.Path(wantHex), Digest: "sha256:" + wantHex}, nil
 	}
 
 	var prior validators
@@ -112,10 +112,10 @@ func fileExists(path string) bool {
 // prior's validators (if any) and, on a 304 Not Modified reply, reuses
 // prior's cached blob instead of reading a body; otherwise it records the
 // new response's validators for the next Fetch of the same rawURL.
-func download(ctx context.Context, rawURL, wantHex string, prior validators) (string, string, error) {
+func download(ctx context.Context, rawURL, wantHex string, prior validators) (pkgcache.Entry, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return "", "", fmt.Errorf("httppkg: %q: %w: %w", rawURL, ErrFetch, err)
+		return pkgcache.Entry{}, fmt.Errorf("httppkg: %q: %w: %w", rawURL, ErrFetch, err)
 	}
 	if prior.ETag != "" {
 		req.Header.Set("If-None-Match", prior.ETag)
@@ -125,20 +125,20 @@ func download(ctx context.Context, rawURL, wantHex string, prior validators) (st
 	}
 	resp, err := do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("httppkg: %q: %w: %w", rawURL, ErrFetch, err)
+		return pkgcache.Entry{}, fmt.Errorf("httppkg: %q: %w: %w", rawURL, ErrFetch, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // read-only, download already reported its own errors
 
 	if resp.StatusCode == http.StatusNotModified {
-		return pkgcache.Path(prior.Digest), "sha256:" + prior.Digest, nil
+		return pkgcache.Entry{Path: pkgcache.Path(prior.Digest), Digest: "sha256:" + prior.Digest}, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", "", fmt.Errorf("httppkg: %q: got status %d: %w", rawURL, resp.StatusCode, ErrFetch)
+		return pkgcache.Entry{}, fmt.Errorf("httppkg: %q: got status %d: %w", rawURL, resp.StatusCode, ErrFetch)
 	}
 
 	cachePath, gotHex, err := cacheBody(rawURL, resp.Body, wantHex)
 	if err != nil {
-		return "", "", err
+		return pkgcache.Entry{}, err
 	}
 
 	if wantHex == "" {
@@ -151,7 +151,7 @@ func download(ctx context.Context, rawURL, wantHex string, prior validators) (st
 			LastModified: resp.Header.Get("Last-Modified"),
 		})
 	}
-	return cachePath, "sha256:" + gotHex, nil
+	return pkgcache.Entry{Path: cachePath, Digest: "sha256:" + gotHex}, nil
 }
 
 // cacheBody streams body into the pkgcache directory, atomically, and
