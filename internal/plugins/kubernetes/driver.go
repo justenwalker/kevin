@@ -118,6 +118,3 @@ func newDriver(cfg config, env plugin.Env, name, kubeconfig string, rt cri.Runti
 		return nil, fmt.Errorf("%w: %q", ErrUnknownDriver, cfg.Driver)
 	}
 }
-
-// enginePodman is the plugin.Env.Engine value for Podman.
-const enginePodman = "podman"

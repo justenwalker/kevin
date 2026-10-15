@@ -28,24 +28,24 @@ func TestWantsRelay(t *testing.T) {
 func TestExposedViaRelay(t *testing.T) {
 	t.Run("builds a socks5 upstream per entry, sorted by name", func(t *testing.T) {
 		got, err := exposedViaRelay(map[string]expose{
-			"postgres":   {Address: "postgres.default.svc:5432", Protocol: "tcp"},
-			"kubernetes": {Address: "kubernetes.default.svc:443", Protocol: "tcp"},
+			"postgres":   {Address: "postgres.default.svc:5432", Protocol: plugin.ProtocolTCP},
+			"kubernetes": {Address: "kubernetes.default.svc:443", Protocol: plugin.ProtocolTCP},
 		}, "127.0.0.1:54321", nil)
 		require.NoError(t, err)
 
 		require.Len(t, got, 2)
 		assert.Equal(t, plugin.ExposedPort{
-			Name: "kubernetes", Protocol: "tcp", Relay: true,
-			Upstream: "socks5://127.0.0.1:54321/kubernetes.default.svc:443",
+			Name: "kubernetes", Protocol: plugin.ProtocolTCP,
+			Upstream: plugin.Upstream{Relay: &plugin.RelayTarget{Relay: "127.0.0.1:54321", Target: "kubernetes.default.svc:443"}},
 		}, got[0])
 		assert.Equal(t, plugin.ExposedPort{
-			Name: "postgres", Protocol: "tcp", Relay: true,
-			Upstream: "socks5://127.0.0.1:54321/postgres.default.svc:5432",
+			Name: "postgres", Protocol: plugin.ProtocolTCP,
+			Upstream: plugin.Upstream{Relay: &plugin.RelayTarget{Relay: "127.0.0.1:54321", Target: "postgres.default.svc:5432"}},
 		}, got[1])
 	})
 
 	t.Run("entries convert to card details", func(t *testing.T) {
-		got, err := exposedViaRelay(map[string]expose{"postgres": {Address: "postgres.default.svc:5432", Protocol: "tcp"}}, "127.0.0.1:54321", nil)
+		got, err := exposedViaRelay(map[string]expose{"postgres": {Address: "postgres.default.svc:5432", Protocol: plugin.ProtocolTCP}}, "127.0.0.1:54321", nil)
 		require.NoError(t, err)
 
 		require.Len(t, got, 1)
@@ -56,7 +56,7 @@ func TestExposedViaRelay(t *testing.T) {
 
 	t.Run("threads host_port through to the exposed port", func(t *testing.T) {
 		got, err := exposedViaRelay(map[string]expose{
-			"postgres": {Address: "postgres.default.svc:5432", Protocol: "tcp", HostPort: 15432},
+			"postgres": {Address: "postgres.default.svc:5432", Protocol: plugin.ProtocolTCP, HostPort: 15432},
 		}, "127.0.0.1:54321", nil)
 		require.NoError(t, err)
 
@@ -65,22 +65,22 @@ func TestExposedViaRelay(t *testing.T) {
 	})
 
 	t.Run("attaches the relay's udp pool to a udp entry", func(t *testing.T) {
-		udpAddrs := map[string]string{"40000": "127.0.0.1:41000"}
+		udpAddrs := map[int]string{40000: "127.0.0.1:41000"}
 		got, err := exposedViaRelay(map[string]expose{
-			"dns": {Address: "kube-dns.kube-system.svc:53", Protocol: "udp"},
+			"dns": {Address: "kube-dns.kube-system.svc:53", Protocol: plugin.ProtocolUDP},
 		}, "127.0.0.1:54321", udpAddrs)
 		require.NoError(t, err)
 
 		require.Len(t, got, 1)
 		assert.Equal(t, plugin.ExposedPort{
-			Name: "dns", Protocol: "udp", Relay: true,
-			Upstream: "socks5://127.0.0.1:54321/kube-dns.kube-system.svc:53", RelayUDPAddrs: udpAddrs,
+			Name: "dns", Protocol: plugin.ProtocolUDP,
+			Upstream: plugin.Upstream{Relay: &plugin.RelayTarget{Relay: "127.0.0.1:54321", Target: "kube-dns.kube-system.svc:53"}}, RelayUDPAddrs: udpAddrs,
 		}, got[0])
 	})
 
 	t.Run("a udp entry with no udp pool errors", func(t *testing.T) {
 		_, err := exposedViaRelay(map[string]expose{
-			"dns": {Address: "kube-dns.kube-system.svc:53", Protocol: "udp"},
+			"dns": {Address: "kube-dns.kube-system.svc:53", Protocol: plugin.ProtocolUDP},
 		}, "127.0.0.1:54321", nil)
 		require.ErrorIs(t, err, ErrNoRelayUDPPool)
 	})
@@ -88,7 +88,7 @@ func TestExposedViaRelay(t *testing.T) {
 
 func TestExposedPortDetails(t *testing.T) {
 	exposed := []plugin.ExposedPort{
-		{Name: "postgres", Protocol: "socks5", Upstream: "socks5://127.0.0.1:54321/postgres.default.svc:5432"},
+		{Name: "postgres", Upstream: plugin.Upstream{Relay: &plugin.RelayTarget{Relay: "127.0.0.1:54321", Target: "postgres.default.svc:5432"}}},
 	}
 
 	got := exposedPortDetails(exposed)
@@ -189,13 +189,13 @@ func TestFinishRelay(t *testing.T) {
 		}
 		fwd := clusterrelay.ForwarderSpec{Name: "kevin-demo-relay-fwd", Network: "net"}
 
-		got, err := finishRelay(t.Context(), rt, fakeDriver{}, config{Expose: map[string]expose{"a": {Address: "svc:80", Protocol: "tcp"}}}, fwd, &capture{})
+		got, err := finishRelay(t.Context(), rt, fakeDriver{}, config{Expose: map[string]expose{"a": {Address: "svc:80", Protocol: plugin.ProtocolTCP}}}, fwd, &capture{})
 		require.NoError(t, err)
 
 		assert.Equal(t, "127.0.0.1:54321", got.Addr)
 		assert.Equal(t, "kevin-demo-relay-fwd", spec.Name)
 		assert.Contains(t, spec.Cmd, "--target")
 		require.Len(t, got.Exposed, 1)
-		assert.Equal(t, "socks5://127.0.0.1:54321/svc:80", got.Exposed[0].Upstream)
+		assert.Equal(t, plugin.Upstream{Relay: &plugin.RelayTarget{Relay: "127.0.0.1:54321", Target: "svc:80"}}, got.Exposed[0].Upstream)
 	})
 }

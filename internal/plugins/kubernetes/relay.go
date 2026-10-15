@@ -115,21 +115,20 @@ func deployRelay(ctx context.Context, rt cri.Images, drv driver, image string, u
 // iteration. A plain host:port isn't enough information here - a client
 // must dial the relay and ask it to reach the real target through a SOCKS5
 // command (CONNECT for tcp, ASSOCIATE for udp) - so Upstream carries both,
-// as a single socks5://<relay>/<target> string. udpAddrs is the relay's
+// as a relay target. udpAddrs is the relay's
 // published UDP pool, required (ErrNoRelayUDPPool otherwise) by any udp
 // entry.
-func exposedViaRelay(entries map[string]expose, addr string, udpAddrs map[string]string) ([]plugin.ExposedPort, error) {
+func exposedViaRelay(entries map[string]expose, addr string, udpAddrs map[int]string) ([]plugin.ExposedPort, error) {
 	out := make([]plugin.ExposedPort, 0, len(entries))
 	for _, name := range slices.Sorted(maps.Keys(entries)) {
 		e := entries[name]
 		ep := plugin.ExposedPort{
 			Name:     name,
 			Protocol: e.Protocol,
-			Relay:    true,
-			Upstream: fmt.Sprintf("socks5://%s/%s", addr, e.Address),
+			Upstream: plugin.Upstream{Relay: &plugin.RelayTarget{Relay: addr, Target: e.Address}},
 			HostPort: e.HostPort,
 		}
-		if e.Protocol == "udp" {
+		if e.Protocol == plugin.ProtocolUDP {
 			if len(udpAddrs) == 0 {
 				return nil, fmt.Errorf("kubernetes: expose %s: %w", name, ErrNoRelayUDPPool)
 			}

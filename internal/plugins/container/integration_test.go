@@ -53,10 +53,10 @@ func TestUp(t *testing.T) {
 		name := containerName(env.Project, "web")
 		t.Cleanup(func() { _ = (docker.Client{}).Remove(context.WithoutCancel(t.Context()), name) })
 
-		result, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		result, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step:   "web",
 			Env:    env,
-			Config: []byte(`{"image":"nginx:alpine","expose":{"http":{"port":80}}}`),
+			Config: withDefaults(t, `{"image":"nginx:alpine","expose":{"http":{"port":80}}}`),
 		}, &noopEmitter{})
 		require.NoError(t, err)
 
@@ -68,8 +68,8 @@ func TestUp(t *testing.T) {
 
 		require.Len(t, result.ExposedPorts, 1)
 		assert.Equal(t, "http", result.ExposedPorts[0].Name)
-		assert.Equal(t, "tcp", result.ExposedPorts[0].Protocol)
-		assert.Regexp(t, hostPortPattern, result.ExposedPorts[0].Upstream,
+		assert.Equal(t, plugin.ProtocolTCP, result.ExposedPorts[0].Protocol)
+		assert.Regexp(t, hostPortPattern, result.ExposedPorts[0].Upstream.Addr,
 			"the expose entry must point at a published port on the host, already accepting connections")
 		require.Len(t, result.Details, 1, "every exposed port must also appear on the card")
 		assert.Equal(t, result.ExposedPorts[0].Detail(), result.Details[0])
@@ -81,20 +81,20 @@ func TestUp(t *testing.T) {
 		assert.True(t, info.Running)
 
 		// A second Up replaces the container instead of failing on the name.
-		_, err = Container{}.Up(t.Context(), &plugin.UpRequest{
+		_, err = typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step:   "web",
 			Env:    env,
-			Config: []byte(`{"image":"busybox:stable","cmd":["sleep","60"]}`),
+			Config: withDefaults(t, `{"image":"busybox:stable","cmd":["sleep","60"]}`),
 		}, &noopEmitter{})
 		require.NoError(t, err, "Up must be idempotent")
 
-		require.NoError(t, Container{}.Down(t.Context(), &plugin.DownRequest{Step: "web", Env: env}, &noopEmitter{}))
+		require.NoError(t, typed(Container{}).Down(t.Context(), &plugin.DownRequest{Step: "web", Env: env}, &noopEmitter{}))
 
 		_, err = (docker.Client{}).Inspect(t.Context(), name)
 		require.ErrorIs(t, err, cri.ErrNotFound)
 
 		// Down is idempotent.
-		require.NoError(t, Container{}.Down(t.Context(), &plugin.DownRequest{Step: "web", Env: env}, &noopEmitter{}))
+		require.NoError(t, typed(Container{}).Down(t.Context(), &plugin.DownRequest{Step: "web", Env: env}, &noopEmitter{}))
 	})
 
 	t.Run("builds and runs an image against docker", func(t *testing.T) {
@@ -109,10 +109,10 @@ func TestUp(t *testing.T) {
 			_, _ = exec.CommandContext(ctx, "docker", "image", "rm", imageTag(env.Project, "app")).CombinedOutput()
 		})
 
-		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step:   "app",
 			Env:    env,
-			Config: []byte(`{"build":{"context":"."}}`),
+			Config: withDefaults(t, `{"build":{"context":"."}}`),
 		}, &noopEmitter{})
 		require.NoError(t, err)
 
@@ -126,10 +126,10 @@ func TestUp(t *testing.T) {
 		name := containerName(env.Project, "boom")
 		t.Cleanup(func() { _ = (docker.Client{}).Remove(context.WithoutCancel(t.Context()), name) })
 
-		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step:   "boom",
 			Env:    env,
-			Config: []byte(`{"image":"busybox:stable","cmd":["sh","-c","exit 3"],"start_timeout":"20s"}`),
+			Config: withDefaults(t, `{"image":"busybox:stable","cmd":["sh","-c","exit 3"],"start_timeout":"20s"}`),
 		}, &noopEmitter{})
 
 		require.ErrorIs(t, err, ErrExited)

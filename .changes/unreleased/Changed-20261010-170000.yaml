@@ -1,0 +1,3 @@
+kind: Changed
+body: 'Plugin authors: kevin sends a plugin its with block with the defaults of its CUE schema filled in, for every field the schema declares without a ?. The block is also checked against the schema on every call, and a field declared without ? that has no default and no value is an error. Wrap a step in plugin.Typed to receive the block as a Go struct. plugin.Handshake, plugin.GRPCPlugin, plugin.Name and plugin.ProtocolVersion are removed from the SDK.'
+time: 2026-10-10T17:00:00.000000-04:00

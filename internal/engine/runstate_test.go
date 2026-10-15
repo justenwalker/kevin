@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 func TestRunStateTryLock(t *testing.T) {
@@ -79,10 +79,10 @@ func TestRunStateFaults(t *testing.T) {
 func TestRunStateContainers(t *testing.T) {
 	t.Run("SetContainers replaces, and an empty set forgets", func(t *testing.T) {
 		var s runState
-		s.SetContainers("a", []*pb.ContainerInfo{{Id: "1"}})
-		s.SetContainers("a", []*pb.ContainerInfo{{Id: "2"}})
+		s.SetContainers("a", []step.Container{{ID: "1"}})
+		s.SetContainers("a", []step.Container{{ID: "2"}})
 		require.Len(t, s.Containers("a"), 1)
-		assert.Equal(t, "2", s.Containers("a")[0].GetId())
+		assert.Equal(t, "2", s.Containers("a")[0].ID)
 
 		s.SetContainers("a", nil)
 

@@ -552,7 +552,7 @@ func (s *RelayProcessSuite) TestRegisterCaptureDoesNotRecordOnFailure() {
 	defer func() { _ = conn.Close() }()
 
 	_, err = pb.NewRelayControlClient(conn).RegisterCapture(t.Context(), &pb.RegisterCaptureRequest{
-		Id: "web", NetnsPath: "/var/run/docker/netns/abc123",
+		Id: "web", Netns: &pb.Netns{Path: "/var/run/docker/netns/abc123"},
 	})
 	s.Require().Error(err, "the fake path must fail to apply, on any platform")
 
@@ -604,7 +604,7 @@ func (s *RelayProcessSuite) TestApplyFaultDoesNotRecordOnFailure() {
 	client := pb.NewRelayControlClient(conn)
 
 	_, err = client.ApplyFault(t.Context(), &pb.ApplyFaultRequest{
-		Id: "web", NetnsPath: "/var/run/docker/netns/abc123", DelayMs: 100,
+		Fault: &pb.NetworkFault{Id: "web", NetnsPath: "/var/run/docker/netns/abc123", DelayMs: 100},
 	})
 	s.Require().Error(err, "the fake path must fail to apply, on any platform")
 

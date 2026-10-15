@@ -25,17 +25,18 @@ import (
 //go:embed schema.cue
 var schema []byte
 
+// newRuntime picks the container runtime for an engine. It is a var so tests
+// can substitute a fake.
+var newRuntime = engines.Of
+
 // Step is the kubernetes step.
 type Step struct{}
 
 // New returns the kubernetes step.
-func New() Step { return Step{} }
+func New() plugin.Step { return plugin.Typed(schema, Step{}) } //nolint:ireturn // the step is the SDK contract
 
-// Step must keep satisfying plugin.Step.
-var _ plugin.Step = Step{}
-
-// Schema constrains the with block of a kubernetes step.
-func (Step) Schema() []byte { return schema }
+// Step must keep satisfying plugin.TypedStep.
+var _ plugin.TypedStep[config] = Step{}
 
 // Kind reports that a kubernetes step creates and destroys a resource.
 func (Step) Kind() plugin.StepKind { return plugin.StepKindResource }
@@ -47,12 +48,7 @@ var _ plugin.IdempotentStep = Step{}
 func (Step) Idempotent() bool { return true }
 
 // Up creates the cluster.
-func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
-	cfg, err := decode(req.Config)
-	if err != nil {
-		return nil, err
-	}
-
+func (Step) Up(ctx context.Context, cfg config, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
 	wait, err := time.ParseDuration(cfg.Wait)
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: wait %q: %w", cfg.Wait, err)
@@ -64,10 +60,7 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 		return nil, fmt.Errorf("kubernetes: create the kubeconfig directory: %w", err)
 	}
 
-	rt, err := engines.New(req.Env.Engine)
-	if err != nil {
-		return nil, fmt.Errorf("kubernetes: %w", err)
-	}
+	rt := newRuntime(req.Env.Engine)
 
 	drv, err := newDriver(cfg, req.Env, name, kubeconfig, rt)
 	if err != nil {
@@ -93,7 +86,7 @@ func (Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (
 
 	fwd := clusterrelay.ForwarderSpec{
 		Name: clusterrelay.ForwarderName(name), Network: req.Env.Network,
-		Project: req.Env.Project, Scope: req.Env.Scope, Step: req.Step,
+		Project: req.Env.Project, Scope: req.Env.Scope.String(), Step: req.Step,
 	}
 	setup, err := finishClusterSetup(ctx, rt, drv, cfg, req.Env, nodes, fwd, out)
 	if err != nil {
@@ -216,17 +209,11 @@ func clusterOutputs(drv driver, name, kubeconfig string, nodeList []string) map[
 }
 
 // Down removes the cluster and its files in the workspace.
-func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitter) error {
-	cfg, err := decode(req.Config)
-	if err != nil {
-		return err
-	}
-
+func (Step) Down(ctx context.Context, cfg config, req *plugin.DownRequest, out plugin.Emitter) error {
 	name := clusterName(cfg, req.Env.Project, req.Step)
 	kubeconfig := filepath.Join(req.Env.Workspace, "kubeconfig", name)
 
-	// An unusable engine leaves rt nil: the driver still removes the cluster.
-	rt, _ := engines.New(req.Env.Engine)
+	rt := newRuntime(req.Env.Engine)
 	drv, err := newDriver(cfg, req.Env, name, kubeconfig, rt)
 	if err != nil {
 		return err
@@ -234,10 +221,8 @@ func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitte
 
 	out.Log("stdout", "removing cluster "+name)
 
-	if rt != nil {
-		if err = rt.Remove(ctx, clusterrelay.ForwarderName(name)); err != nil {
-			return fmt.Errorf("kubernetes: remove the relay forwarder for %q: %w", name, err)
-		}
+	if err = rt.Remove(ctx, clusterrelay.ForwarderName(name)); err != nil {
+		return fmt.Errorf("kubernetes: remove the relay forwarder for %q: %w", name, err)
 	}
 
 	if err = drv.Delete(ctx, out); err != nil {
@@ -257,21 +242,14 @@ func (Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitte
 // Export reports the name, kubeconfig, context, relay_addr, and live node
 // containers of the cluster. Containers stays empty when the nodes cannot
 // be listed.
-func (Step) Export(ctx context.Context, req *plugin.ExportRequest) (*plugin.ExportResult, error) {
-	cfg, err := decode(req.Config)
-	if err != nil {
-		return nil, err
-	}
-
+func (Step) Export(ctx context.Context, cfg config, req *plugin.ExportRequest) (*plugin.ExportResult, error) {
 	name := clusterName(cfg, req.Env.Project, req.Step)
 	kubeconfig := filepath.Join(req.Env.Workspace, "kubeconfig", name)
 	if _, statErr := os.Stat(kubeconfig); statErr != nil {
 		return nil, fmt.Errorf("kubernetes: cluster %q has no kubeconfig yet, run `kevin run` or `kevin setup` first: %w", name, statErr)
 	}
 
-	// An unusable engine leaves rt nil: Export still reports Out, without
-	// containers.
-	rt, _ := engines.New(req.Env.Engine)
+	rt := newRuntime(req.Env.Engine)
 	drv, err := newDriver(cfg, req.Env, name, kubeconfig, rt)
 	if err != nil {
 		return nil, err
@@ -282,14 +260,12 @@ func (Step) Export(ctx context.Context, req *plugin.ExportRequest) (*plugin.Expo
 		"kubeconfig": kubeconfig,
 		"context":    drv.Context(),
 	}
-	if rt != nil {
-		fwd, ok, lookupErr := clusterrelay.LookupForwarder(ctx, rt, clusterrelay.ForwarderName(name))
-		if lookupErr != nil {
-			return nil, fmt.Errorf("kubernetes: look up the relay forwarder for %q: %w", name, lookupErr)
-		}
-		if ok {
-			out["relay_addr"] = fwd.Addr
-		}
+	fwd, ok, lookupErr := clusterrelay.LookupForwarder(ctx, rt, clusterrelay.ForwarderName(name))
+	if lookupErr != nil {
+		return nil, fmt.Errorf("kubernetes: look up the relay forwarder for %q: %w", name, lookupErr)
+	}
+	if ok {
+		out["relay_addr"] = fwd.Addr
 	}
 
 	return &plugin.ExportResult{
@@ -303,9 +279,6 @@ func (Step) Export(ctx context.Context, req *plugin.ExportRequest) (*plugin.Expo
 // cluster has been torn down since Up), matching Up's own fail-open
 // handling of a live-inspect problem it can't resolve.
 func exportContainers(ctx context.Context, rt cri.Containers, drv driver) []plugin.ContainerInfo {
-	if rt == nil {
-		return nil
-	}
 	nodeList, err := drv.Nodes(ctx)
 	if err != nil || len(nodeList) == 0 {
 		// The cluster may be gone since Up - the driver reports that as an

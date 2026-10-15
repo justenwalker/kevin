@@ -2,6 +2,7 @@ package container
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"strings"
 	"testing"
@@ -13,20 +14,21 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/plugins/plugintest"
 	"github.com/justenwalker/kevin/internal/podman"
 	"github.com/justenwalker/kevin/internal/uerr"
 	"github.com/justenwalker/kevin/plugin"
 )
 
 func TestSchemaCarriesTheEmbeddedSchema(t *testing.T) {
-	schema := Container{}.Schema()
+	schema := schema
 
 	assert.Contains(t, string(schema), "#Config")
 }
 
 func TestSchemaValidation(t *testing.T) {
 	ctx := cuecontext.New()
-	v := ctx.CompileBytes(Container{}.Schema(), cue.Filename("container/schema.cue"))
+	v := ctx.CompileBytes(schema, cue.Filename("container/schema.cue"))
 	require.NoError(t, v.Err())
 	config := v.LookupPath(cue.ParsePath("#Config"))
 
@@ -80,8 +82,8 @@ func TestContainerName(t *testing.T) {
 }
 
 func TestDecode(t *testing.T) {
-	t.Run("applies the same defaults as the schema", func(t *testing.T) {
-		cfg, err := decode(nil)
+	t.Run("a with block carries the schema's defaults", func(t *testing.T) {
+		cfg, err := decode(withDefaults(t, `{"image":"nginx"}`))
 		require.NoError(t, err)
 
 		assert.True(t, cfg.Proxy)
@@ -140,8 +142,8 @@ func TestDecode(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Len(t, cfg.Expose, 2)
-		assert.Equal(t, expose{Port: 5432, Protocol: "tcp", HostPort: 15432}, cfg.Expose["postgres"])
-		assert.Equal(t, expose{Port: 53, Protocol: "udp"}, cfg.Expose["dns"])
+		assert.Equal(t, expose{Port: 5432, Protocol: plugin.ProtocolTCP, HostPort: 15432}, cfg.Expose["postgres"])
+		assert.Equal(t, expose{Port: 53, Protocol: plugin.ProtocolUDP}, cfg.Expose["dns"])
 	})
 
 	t.Run("defaults expose protocol to tcp", func(t *testing.T) {
@@ -149,20 +151,19 @@ func TestDecode(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Len(t, cfg.Expose, 1)
-		assert.Equal(t, "tcp", cfg.Expose["postgres"].Protocol, "the Go side repeats schema.cue's default for a caller that bypasses CUE")
+		assert.Equal(t, plugin.ProtocolTCP, cfg.Expose["postgres"].Protocol)
 	})
 
 	t.Run("reports broken JSON", func(t *testing.T) {
 		_, err := decode([]byte(`{`))
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "decode config")
 	})
 
 	t.Run("accepts relay combined with udp", func(t *testing.T) {
 		cfg, err := decode([]byte(`{"image": "postgres:16", "expose": {"dns": {"port": 53, "protocol": "udp", "relay": true}}}`))
 		require.NoError(t, err)
 		assert.True(t, cfg.Expose["dns"].Relay)
-		assert.Equal(t, "udp", cfg.Expose["dns"].Protocol)
+		assert.Equal(t, plugin.ProtocolUDP, cfg.Expose["dns"].Protocol)
 	})
 }
 
@@ -251,10 +252,10 @@ func TestPublishSpec(t *testing.T) {
 		e    expose
 		want string
 	}{
-		{name: "ephemeral tcp", e: expose{Port: 5432, Protocol: "tcp"}, want: "127.0.0.1::5432"},
-		{name: "pinned tcp", e: expose{Port: 5432, Protocol: "tcp", HostPort: 15432}, want: "127.0.0.1:15432:5432"},
-		{name: "ephemeral udp", e: expose{Port: 53, Protocol: "udp"}, want: "127.0.0.1::53/udp"},
-		{name: "pinned udp", e: expose{Port: 53, Protocol: "udp", HostPort: 5353}, want: "127.0.0.1:5353:53/udp"},
+		{name: "ephemeral tcp", e: expose{Port: 5432, Protocol: plugin.ProtocolTCP}, want: "127.0.0.1::5432"},
+		{name: "pinned tcp", e: expose{Port: 5432, Protocol: plugin.ProtocolTCP, HostPort: 15432}, want: "127.0.0.1:15432:5432"},
+		{name: "ephemeral udp", e: expose{Port: 53, Protocol: plugin.ProtocolUDP}, want: "127.0.0.1::53/udp"},
+		{name: "pinned udp", e: expose{Port: 53, Protocol: plugin.ProtocolUDP, HostPort: 5353}, want: "127.0.0.1:5353:53/udp"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -266,8 +267,8 @@ func TestPublishSpec(t *testing.T) {
 func TestExposedPorts(t *testing.T) {
 	t.Run("collects every published port, sorted by name", func(t *testing.T) {
 		cfg := config{Expose: map[string]expose{
-			"postgres": {Port: 5432, Protocol: "tcp"},
-			"dns":      {Port: 53, Protocol: "udp"},
+			"postgres": {Port: 5432, Protocol: plugin.ProtocolTCP},
+			"dns":      {Port: 53, Protocol: plugin.ProtocolUDP},
 		}}
 		info := cri.Container{Ports: map[string]string{
 			"5432/tcp": "127.0.0.1:49001",
@@ -277,12 +278,12 @@ func TestExposedPorts(t *testing.T) {
 		got, err := exposedPorts(cfg, info, "db", "", nil)
 		require.NoError(t, err)
 		require.Len(t, got, 2)
-		assert.Equal(t, plugin.ExposedPort{Name: "dns", Protocol: "udp", Upstream: "127.0.0.1:49002"}, got[0])
-		assert.Equal(t, plugin.ExposedPort{Name: "postgres", Protocol: "tcp", Upstream: "127.0.0.1:49001"}, got[1])
+		assert.Equal(t, plugin.ExposedPort{Name: "dns", Protocol: plugin.ProtocolUDP, Upstream: plugin.Upstream{Addr: "127.0.0.1:49002"}}, got[0])
+		assert.Equal(t, plugin.ExposedPort{Name: "postgres", Protocol: plugin.ProtocolTCP, Upstream: plugin.Upstream{Addr: "127.0.0.1:49001"}}, got[1])
 	})
 
 	t.Run("reports an unpublished port", func(t *testing.T) {
-		cfg := config{Expose: map[string]expose{"postgres": {Port: 5432, Protocol: "tcp"}}}
+		cfg := config{Expose: map[string]expose{"postgres": {Port: 5432, Protocol: plugin.ProtocolTCP}}}
 
 		_, err := exposedPorts(cfg, cri.Container{Ports: map[string]string{}}, "db", "", nil)
 
@@ -293,16 +294,16 @@ func TestExposedPorts(t *testing.T) {
 	})
 
 	t.Run("builds a socks5 upstream for a relay entry", func(t *testing.T) {
-		cfg := config{Expose: map[string]expose{"postgres": {Port: 5432, Protocol: "tcp", Relay: true}}}
+		cfg := config{Expose: map[string]expose{"postgres": {Port: 5432, Protocol: plugin.ProtocolTCP, Relay: true}}}
 
 		got, err := exposedPorts(cfg, cri.Container{}, "db", "127.0.0.1:54321", nil)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
-		assert.Equal(t, plugin.ExposedPort{Name: "postgres", Protocol: "tcp", Relay: true, Upstream: "socks5://127.0.0.1:54321/db:5432"}, got[0])
+		assert.Equal(t, plugin.ExposedPort{Name: "postgres", Protocol: plugin.ProtocolTCP, Upstream: plugin.Upstream{Relay: &plugin.RelayTarget{Relay: "127.0.0.1:54321", Target: "db:5432"}}}, got[0])
 	})
 
 	t.Run("reports a relay entry with no relay address", func(t *testing.T) {
-		cfg := config{Expose: map[string]expose{"postgres": {Port: 5432, Protocol: "tcp", Relay: true}}}
+		cfg := config{Expose: map[string]expose{"postgres": {Port: 5432, Protocol: plugin.ProtocolTCP, Relay: true}}}
 
 		_, err := exposedPorts(cfg, cri.Container{}, "db", "", nil)
 
@@ -310,20 +311,20 @@ func TestExposedPorts(t *testing.T) {
 	})
 
 	t.Run("builds a relay+udp entry with the relay's pool addresses", func(t *testing.T) {
-		cfg := config{Expose: map[string]expose{"dns": {Port: 53, Protocol: "udp", Relay: true}}}
-		udpAddrs := map[string]string{"40000": "127.0.0.1:41000"}
+		cfg := config{Expose: map[string]expose{"dns": {Port: 53, Protocol: plugin.ProtocolUDP, Relay: true}}}
+		udpAddrs := map[int]string{40000: "127.0.0.1:41000"}
 
 		got, err := exposedPorts(cfg, cri.Container{}, "db", "127.0.0.1:54321", udpAddrs)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		assert.Equal(t, plugin.ExposedPort{
-			Name: "dns", Protocol: "udp", Relay: true,
-			Upstream: "socks5://127.0.0.1:54321/db:53", RelayUDPAddrs: udpAddrs,
+			Name: "dns", Protocol: plugin.ProtocolUDP,
+			Upstream: plugin.Upstream{Relay: &plugin.RelayTarget{Relay: "127.0.0.1:54321", Target: "db:53"}}, RelayUDPAddrs: udpAddrs,
 		}, got[0])
 	})
 
 	t.Run("reports a relay+udp entry with no udp pool", func(t *testing.T) {
-		cfg := config{Expose: map[string]expose{"dns": {Port: 53, Protocol: "udp", Relay: true}}}
+		cfg := config{Expose: map[string]expose{"dns": {Port: 53, Protocol: plugin.ProtocolUDP, Relay: true}}}
 
 		_, err := exposedPorts(cfg, cri.Container{}, "db", "127.0.0.1:54321", nil)
 
@@ -335,8 +336,8 @@ func TestBuildPorts(t *testing.T) {
 	cfg := config{
 		Ports: []string{"8080:80"},
 		Expose: map[string]expose{
-			"postgres": {Port: 5432, Protocol: "tcp"},
-			"cache":    {Port: 6379, Protocol: "tcp", Relay: true},
+			"postgres": {Port: 5432, Protocol: plugin.ProtocolTCP},
+			"cache":    {Port: 6379, Protocol: plugin.ProtocolTCP, Relay: true},
 		},
 	}
 
@@ -411,21 +412,13 @@ func (fakeRuntime) Save(context.Context, string) (io.ReadCloser, error) {
 func useFakeRuntime(t *testing.T, rt cri.Runtime) {
 	t.Helper()
 	orig := newRuntime
-	newRuntime = func(plugin.Env) (cri.Runtime, error) { return rt, nil }
+	newRuntime = func(plugin.Env) cri.Runtime { return rt }
 	t.Cleanup(func() { newRuntime = orig })
 }
 
 func TestNewRuntime(t *testing.T) {
-	t.Run("an unsupported engine", func(t *testing.T) {
-		_, err := newRuntime(plugin.Env{Engine: "bogus"})
-		require.ErrorIs(t, err, ErrUnsupportedEngine)
-		assert.Equal(t, `kevin doesn't support engine "bogus" - pass --engine or KEVIN_ENGINE as "docker" or "podman"`,
-			uerr.Display(err))
-	})
-
 	t.Run("podman resolves to the podman runtime", func(t *testing.T) {
-		rt, err := newRuntime(plugin.Env{Engine: "podman"})
-		require.NoError(t, err)
+		rt := newRuntime(plugin.Env{Engine: plugin.EnginePodman})
 		assert.IsType(t, podman.Client{}, rt)
 	})
 }
@@ -447,9 +440,9 @@ func TestUpWithFakeEngine(t *testing.T) {
 			},
 		})
 
-		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step:   "web",
-			Config: []byte(`{"image":"nginx"}`),
+			Config: withDefaults(t, `{"image":"nginx"}`),
 		}, &noopEmitter{})
 		require.NoError(t, err)
 		assert.Equal(t, []string{"remove", "run"}, calls, "Up must remove a leftover container before it runs a new one")
@@ -467,18 +460,18 @@ func TestUpWithFakeEngine(t *testing.T) {
 			},
 		})
 
-		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step:   "web",
-			Config: []byte(`{"image":"nginx"}`),
+			Config: withDefaults(t, `{"image":"nginx"}`),
 		}, &noopEmitter{})
 		require.ErrorIs(t, err, assert.AnError)
 		assert.False(t, inspected, "Up must not inspect a container that never ran")
 	})
 
 	t.Run("rejects a start_timeout that is not a duration", func(t *testing.T) {
-		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step:   "api",
-			Config: []byte(`{"image":"nginx","start_timeout":"soon"}`),
+			Config: withDefaults(t, `{"image":"nginx","start_timeout":"soon"}`),
 		}, &noopEmitter{})
 
 		require.ErrorContains(t, err, "start_timeout")
@@ -492,9 +485,9 @@ func TestUpWithFakeEngine(t *testing.T) {
 			},
 		})
 
-		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step:   "boom",
-			Config: []byte(`{"image":"nginx","start_timeout":"5s"}`),
+			Config: withDefaults(t, `{"image":"nginx","start_timeout":"5s"}`),
 		}, &noopEmitter{})
 		require.ErrorIs(t, err, ErrExited)
 		assert.Contains(t, err.Error(), "code 3")
@@ -508,9 +501,9 @@ func TestUpWithFakeEngine(t *testing.T) {
 			},
 		})
 
-		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step:   "done",
-			Config: []byte(`{"image":"nginx","start_timeout":"5s"}`),
+			Config: withDefaults(t, `{"image":"nginx","start_timeout":"5s"}`),
 		}, &noopEmitter{})
 		require.ErrorIs(t, err, ErrExited)
 		assert.Contains(t, err.Error(), "code 0")
@@ -526,21 +519,12 @@ func TestUpWithFakeEngine(t *testing.T) {
 		})
 
 		start := time.Now()
-		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step:   "stuck",
-			Config: []byte(`{"image":"nginx","start_timeout":"20ms"}`),
+			Config: withDefaults(t, `{"image":"nginx","start_timeout":"20ms"}`),
 		}, &noopEmitter{})
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		assert.Less(t, time.Since(start), 2*time.Second, "Up must give up at the deadline, not hang")
-	})
-
-	t.Run("reports an unsupported engine before it touches any runtime", func(t *testing.T) {
-		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
-			Step:   "web",
-			Env:    plugin.Env{Engine: "bogus"},
-			Config: []byte(`{"image":"nginx"}`),
-		}, &noopEmitter{})
-		require.ErrorIs(t, err, ErrUnsupportedEngine)
 	})
 
 	t.Run("passes user, workdir, and limits to the engine", func(t *testing.T) {
@@ -555,9 +539,9 @@ func TestUpWithFakeEngine(t *testing.T) {
 			},
 		})
 
-		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step:   "api",
-			Config: []byte(`{"image":"nginx","user":"1000:1000","workdir":"/app","cpus":"1.5","memory":"512m"}`),
+			Config: withDefaults(t, `{"image":"nginx","user":"1000:1000","workdir":"/app","cpus":"1.5","memory":"512m"}`),
 		}, &noopEmitter{})
 		require.NoError(t, err)
 
@@ -579,10 +563,10 @@ func TestUpWithFakeEngine(t *testing.T) {
 			},
 		})
 
-		result, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		result, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step: "db",
 			Env:  plugin.Env{RelaySOCKS5Addr: "127.0.0.1:54321"},
-			Config: []byte(`{"image":"postgres:16","expose":{
+			Config: withDefaults(t, `{"image":"postgres:16","expose":{
 				"postgres": {"port": 5432, "relay": true}
 			}}`),
 		}, &noopEmitter{})
@@ -591,7 +575,8 @@ func TestUpWithFakeEngine(t *testing.T) {
 		assert.Empty(t, gotSpec.Ports, "a relay entry must never appear in the docker --publish list")
 		require.Len(t, result.ExposedPorts, 1)
 		assert.Equal(t, plugin.ExposedPort{
-			Name: "postgres", Protocol: "tcp", Relay: true, Upstream: "socks5://127.0.0.1:54321/db:5432",
+			Name: "postgres", Protocol: plugin.ProtocolTCP,
+			Upstream: plugin.Upstream{Relay: &plugin.RelayTarget{Relay: "127.0.0.1:54321", Target: "db:5432"}},
 		}, result.ExposedPorts[0])
 	})
 
@@ -603,13 +588,13 @@ func TestUpWithFakeEngine(t *testing.T) {
 			},
 		})
 
-		result, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		result, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step: "db",
 			Env: plugin.Env{
 				RelaySOCKS5Addr:     "127.0.0.1:54321",
-				RelaySOCKS5UDPAddrs: map[string]string{"40000": "127.0.0.1:41000"},
+				RelaySOCKS5UDPAddrs: map[int]string{40000: "127.0.0.1:41000"},
 			},
-			Config: []byte(`{"image":"coredns","expose":{
+			Config: withDefaults(t, `{"image":"coredns","expose":{
 				"dns": {"port": 53, "protocol": "udp", "relay": true}
 			}}`),
 		}, &noopEmitter{})
@@ -617,9 +602,9 @@ func TestUpWithFakeEngine(t *testing.T) {
 
 		require.Len(t, result.ExposedPorts, 1)
 		assert.Equal(t, plugin.ExposedPort{
-			Name: "dns", Protocol: "udp", Relay: true,
-			Upstream:      "socks5://127.0.0.1:54321/db:53",
-			RelayUDPAddrs: map[string]string{"40000": "127.0.0.1:41000"},
+			Name: "dns", Protocol: plugin.ProtocolUDP,
+			Upstream:      plugin.Upstream{Relay: &plugin.RelayTarget{Relay: "127.0.0.1:54321", Target: "db:53"}},
+			RelayUDPAddrs: map[int]string{40000: "127.0.0.1:41000"},
 		}, result.ExposedPorts[0])
 	})
 
@@ -631,10 +616,10 @@ func TestUpWithFakeEngine(t *testing.T) {
 			},
 		})
 
-		result, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		result, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step:   "web",
 			Env:    plugin.Env{Project: "demo"},
-			Config: []byte(`{"image":"nginx"}`),
+			Config: withDefaults(t, `{"image":"nginx"}`),
 		}, &noopEmitter{})
 		require.NoError(t, err)
 		require.Len(t, result.Containers, 1)
@@ -667,10 +652,10 @@ func TestUpBuild(t *testing.T) {
 		})
 		emitter := &noopEmitter{}
 
-		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step: "api",
-			Env:  plugin.Env{Project: "Demo", Scope: "env", ProjectDir: "/proj"},
-			Config: []byte(`{"build":{
+			Env:  plugin.Env{Project: "Demo", Scope: plugin.ScopeEnv, ProjectDir: "/proj"},
+			Config: withDefaults(t, `{"build":{
 				"context": "./api",
 				"dockerfile": "Dockerfile.dev",
 				"args": {"GO_VERSION": "1.25"},
@@ -706,10 +691,10 @@ func TestUpBuild(t *testing.T) {
 			},
 		})
 
-		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step:   "api",
 			Env:    plugin.Env{Project: "demo", ProjectDir: "/proj"},
-			Config: []byte(`{"build":{"context":"/abs/src"}}`),
+			Config: withDefaults(t, `{"build":{"context":"/abs/src"}}`),
 		}, &noopEmitter{})
 		require.NoError(t, err)
 
@@ -730,10 +715,10 @@ func TestUpBuild(t *testing.T) {
 			},
 		})
 
-		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step:   "api",
 			Env:    plugin.Env{Project: "demo", ProjectDir: "/proj"},
-			Config: []byte(`{"build":{"context":".","dockerfile":"/etc/df"}}`),
+			Config: withDefaults(t, `{"build":{"context":".","dockerfile":"/etc/df"}}`),
 		}, &noopEmitter{})
 		require.NoError(t, err)
 
@@ -750,10 +735,10 @@ func TestUpBuild(t *testing.T) {
 			},
 		})
 
-		_, err := Container{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed(Container{}).Up(t.Context(), &plugin.UpRequest{
 			Step:   "api",
 			Env:    plugin.Env{Project: "demo", ProjectDir: "/proj"},
-			Config: []byte(`{"build":{"context":"."}}`),
+			Config: withDefaults(t, `{"build":{"context":"."}}`),
 		}, &noopEmitter{})
 		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 		assert.False(t, ran)
@@ -770,20 +755,12 @@ func TestDownWithFakeEngine(t *testing.T) {
 			},
 		})
 
-		err := Container{}.Down(t.Context(), &plugin.DownRequest{
+		err := typed(Container{}).Down(t.Context(), &plugin.DownRequest{
 			Step: "web",
 			Env:  plugin.Env{Project: "demo"},
 		}, &noopEmitter{})
 		require.NoError(t, err)
 		assert.Equal(t, containerName("demo", "web"), removed)
-	})
-
-	t.Run("reports an unsupported engine before it touches any runtime", func(t *testing.T) {
-		err := Container{}.Down(t.Context(), &plugin.DownRequest{
-			Step: "web",
-			Env:  plugin.Env{Engine: "bogus"},
-		}, &noopEmitter{})
-		require.ErrorIs(t, err, ErrUnsupportedEngine)
 	})
 }
 
@@ -795,7 +772,7 @@ func TestExportWithFakeEngine(t *testing.T) {
 			},
 		})
 
-		result, err := Container{}.Export(t.Context(), &plugin.ExportRequest{
+		result, err := typed(Container{}).Export(t.Context(), &plugin.ExportRequest{
 			Step: "web",
 			Env:  plugin.Env{Project: "demo", Network: "net"},
 		})
@@ -815,7 +792,7 @@ func TestExportWithFakeEngine(t *testing.T) {
 			},
 		})
 
-		_, err := Container{}.Export(t.Context(), &plugin.ExportRequest{Step: "web"})
+		_, err := typed(Container{}).Export(t.Context(), &plugin.ExportRequest{Step: "web"})
 		require.ErrorIs(t, err, ErrNotRunning)
 	})
 
@@ -826,18 +803,37 @@ func TestExportWithFakeEngine(t *testing.T) {
 			},
 		})
 
-		_, err := Container{}.Export(t.Context(), &plugin.ExportRequest{Step: "web"})
+		_, err := typed(Container{}).Export(t.Context(), &plugin.ExportRequest{Step: "web"})
 		require.ErrorIs(t, err, cri.ErrNotFound)
-	})
-
-	t.Run("reports an unsupported engine before it touches any runtime", func(t *testing.T) {
-		_, err := Container{}.Export(t.Context(), &plugin.ExportRequest{
-			Step: "web",
-			Env:  plugin.Env{Engine: "bogus"},
-		})
-		require.ErrorIs(t, err, ErrUnsupportedEngine)
 	})
 }
 
 // hostPortPattern matches an address on the loopback with any port.
 const hostPortPattern = `^127\.0\.0\.1:[0-9]+$`
+
+// withDefaults feeds a with block to the plugin the way the engine does.
+func withDefaults(t *testing.T, with string) []byte {
+	t.Helper()
+	return plugintest.Defaulted(t, schema, with)
+}
+
+// stepAll is every optional part the SDK's typed adapter offers, so a test
+// can call it with a raw with block.
+type stepAll interface {
+	plugin.Step
+	plugin.Downer
+	plugin.Exporter
+}
+
+// typed wraps s the way New does.
+func typed(s Container) stepAll { return plugin.Typed(schema, s).(stepAll) } //nolint:errcheck,ireturn // the adapter implements every part
+
+// decode parses a with block the way the SDK does for a typed step.
+func decode(data []byte) (config, error) {
+	var cfg config
+	if len(data) == 0 {
+		return cfg, nil
+	}
+	err := json.Unmarshal(data, &cfg)
+	return cfg, err
+}

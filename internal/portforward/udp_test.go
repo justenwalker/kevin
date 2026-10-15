@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strconv"
 	"testing"
 	"time"
 
@@ -160,8 +159,9 @@ func relayOneDestination(bindLn *net.UDPConn) {
 func newUDPRelaySpec(relayAddr string, poolPort int, echoAddr string) Spec {
 	return Spec{
 		Name:          "dns",
-		Upstream:      fmt.Sprintf("socks5://%s/%s", relayAddr, echoAddr),
-		RelayUDPAddrs: map[string]string{strconv.Itoa(poolPort): fmt.Sprintf("127.0.0.1:%d", poolPort)},
+		Relay:         relayAddr,
+		Target:        echoAddr,
+		RelayUDPAddrs: map[int]string{poolPort: fmt.Sprintf("127.0.0.1:%d", poolPort)},
 	}
 }
 
@@ -190,19 +190,12 @@ func TestStartUDP(t *testing.T) {
 		assert.Equal(t, "ping", string(buf))
 	})
 
-	t.Run("a malformed upstream errors", func(t *testing.T) {
-		ep := Spec{Name: "dns", Upstream: "127.0.0.1:53"}
-		pf, err := StartUDP(t.Context(), ep)
-		require.Error(t, err)
-		assert.Nil(t, pf)
-	})
-
 	t.Run("an unknown pool port errors immediately", func(t *testing.T) {
 		relayAddr, poolPort := newFakeUDPRelay(t)
 		echoAddr := newUDPEcho(t)
 
 		ep := newUDPRelaySpec(relayAddr, poolPort, echoAddr)
-		ep.RelayUDPAddrs = map[string]string{"1": "127.0.0.1:1"} // wrong key - the real pool port is poolPort
+		ep.RelayUDPAddrs = map[int]string{1: "127.0.0.1:1"} // wrong key - the real pool port is poolPort
 
 		pf, err := StartUDP(t.Context(), ep)
 		require.Error(t, err)

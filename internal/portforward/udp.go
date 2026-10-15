@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
 	"sync"
 	"time"
 
@@ -49,19 +48,13 @@ type udpSender struct {
 }
 
 // StartUDP opens a loopback UDP listener for spec and establishes
-// the SOCKS5 UDP ASSOCIATE session that carries its traffic. spec.Upstream
-// must be a "socks5://<relay>/<target>" address, the same shape a relay
-// entry's TCP forward uses; spec.RelayUDPAddrs must map the ASSOCIATE
-// reply's pool port to a host-reachable address. Any handshake failure
+// the SOCKS5 UDP ASSOCIATE session through spec.Relay that carries its
+// traffic. spec.RelayUDPAddrs must map the ASSOCIATE reply's pool port to a
+// host-reachable address. Any handshake failure
 // returns immediately, with no retry.
 func StartUDP(ctx context.Context, spec Spec) (*UDP, error) {
-	relayAddr, target, ok := SplitSOCKS5(spec.Upstream)
-	if !ok {
-		return nil, fmt.Errorf("portforward: %s: not a socks5:// upstream: %q", spec.Name, spec.Upstream)
-	}
-
 	var d net.Dialer
-	control, err := d.DialContext(ctx, "tcp", relayAddr)
+	control, err := d.DialContext(ctx, "tcp", spec.Relay)
 	if err != nil {
 		return nil, fmt.Errorf("portforward: %s: dial relay: %w", spec.Name, err)
 	}
@@ -87,7 +80,7 @@ func StartUDP(ctx context.Context, spec Spec) (*UDP, error) {
 	}
 
 	f := &UDP{
-		pc: pc, control: control, relay: relayConn, target: target,
+		pc: pc, control: control, relay: relayConn, target: spec.Target,
 		senders: make(map[string]udpSender),
 	}
 	// watchControl deliberately never uses ctx, the same reason
@@ -104,7 +97,7 @@ func StartUDP(ctx context.Context, spec Spec) (*UDP, error) {
 // over control, then resolves the reply's bound port against
 // relayUDPAddrs. x/net/proxy's SOCKS5 client only implements CONNECT, so
 // this speaks the statute framing directly.
-func associate(control net.Conn, relayUDPAddrs map[string]string) (string, error) {
+func associate(control net.Conn, relayUDPAddrs map[int]string) (string, error) {
 	methodReq := statute.NewMethodRequest(statute.VersionSocks5, []byte{statute.MethodNoAuth})
 	if _, err := control.Write(methodReq.Bytes()); err != nil {
 		return "", fmt.Errorf("method negotiation: %w", err)
@@ -128,7 +121,7 @@ func associate(control net.Conn, relayUDPAddrs map[string]string) (string, error
 		return "", fmt.Errorf("relay refused associate, code %d", rep.Response)
 	}
 
-	relayUDPAddr, ok := relayUDPAddrs[strconv.Itoa(rep.BndAddr.Port)]
+	relayUDPAddr, ok := relayUDPAddrs[rep.BndAddr.Port]
 	if !ok {
 		return "", fmt.Errorf("relay has no published address for pool port %d", rep.BndAddr.Port)
 	}

@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/config"
+	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pluginhost"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 // commandRun loads src as an environment whose only plugin is a mock, and
@@ -36,25 +37,25 @@ func commandRun(t *testing.T, src string, plugin stepPlugin) *run {
 		caps: map[string]pluginhost.Info{"echo": {Steps: []pluginhost.StepInfo{
 			{Name: "echo", Export: true}, {Name: "noexport"},
 		}}},
-		env:     &pb.Environment{},
+		env:     step.Env{},
 		project: map[string]string{},
 	}
 }
 
-func exportOf(values map[string]string) *pb.ExportResponse {
-	out := &pb.Outputs{Values: map[string]*pb.Value{}}
+func exportOf(values map[string]string) step.ExportResult {
+	out := output.Map{}
 	for k, v := range values {
-		out.Values[k] = &pb.Value{Kind: &pb.Value_StringValue{StringValue: v}}
+		out[k] = output.Value{String: v}
 	}
-	return &pb.ExportResponse{Out: out}
+	return step.ExportResult{Out: out}
 }
 
 func TestPlanCommand(t *testing.T) {
 	t.Run("renders run against an env step and a setup step", func(t *testing.T) {
 		plugin := newMockstepPlugin(t)
 		plugin.EXPECT().Export(mock.Anything, mock.Anything).RunAndReturn(
-			func(_ context.Context, req *pb.ExportRequest) (*pb.ExportResponse, error) {
-				return exportOf(map[string]string{"addr": req.GetStep() + ":5432"}), nil
+			func(_ context.Context, req step.ExportRequest) (step.ExportResult, error) {
+				return exportOf(map[string]string{"addr": req.Step + ":5432"}), nil
 			})
 		r := commandRun(t, `
 setup: db: uses: "echo:echo"
@@ -75,8 +76,8 @@ commands: psql: {
 	t.Run("resolves a setup group an env step needs", func(t *testing.T) {
 		plugin := newMockstepPlugin(t)
 		plugin.EXPECT().Export(mock.Anything, mock.Anything).RunAndReturn(
-			func(_ context.Context, req *pb.ExportRequest) (*pb.ExportResponse, error) {
-				return exportOf(map[string]string{"host": req.GetStep()}), nil
+			func(_ context.Context, req step.ExportRequest) (step.ExportResult, error) {
+				return exportOf(map[string]string{"host": req.Step}), nil
 			})
 		r := commandRun(t, `
 setup: g: {
@@ -110,7 +111,7 @@ commands: b: run: ["b"]
 
 	t.Run("reports a failed export with the need", func(t *testing.T) {
 		plugin := newMockstepPlugin(t)
-		plugin.EXPECT().Export(mock.Anything, mock.Anything).Return(nil, assert.AnError)
+		plugin.EXPECT().Export(mock.Anything, mock.Anything).Return(step.ExportResult{}, assert.AnError)
 		r := commandRun(t, `
 env: web: uses: "echo:echo"
 commands: c: {needs: ["web"], run: ["c"]}

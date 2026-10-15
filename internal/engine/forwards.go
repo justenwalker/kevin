@@ -9,7 +9,7 @@ import (
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/portforward"
 	"github.com/justenwalker/kevin/internal/session"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 // forward is a local loopback listener that r.up opened for a relay-routed
@@ -42,7 +42,7 @@ func (r *run) closeStepForwards(step string) {
 
 // exposePorts runs exposePort for each of eps, and reports the step failed on
 // the first error.
-func (r *run) exposePorts(ctx context.Context, name string, eps []*pb.ExposedPort, systemThis output.Map) error {
+func (r *run) exposePorts(ctx context.Context, name string, eps []step.ExposedPort, systemThis output.Map) error {
 	for _, ep := range eps {
 		if err := r.exposePort(ctx, name, ep, systemThis); err != nil {
 			r.reportUpFailure(ctx, name, err)
@@ -57,40 +57,43 @@ func (r *run) exposePorts(ctx context.Context, name string, eps []*pb.ExposedPor
 // connection forward, or a UDP ASSOCIATE session, by ep's protocol),
 // recording that too. A failed UDP forward is an error; a failed TCP one is
 // only a warning.
-func (r *run) exposePort(ctx context.Context, name string, ep *pb.ExposedPort, systemThis output.Map) error {
-	r.emit(name, fmt.Sprintf("exposing %s %s at %s", ep.GetProtocol(), ep.GetName(), ep.GetUpstream()))
-	systemThis["expose_"+ep.GetName()] = output.Value{String: ep.GetUpstream()}
+func (r *run) exposePort(ctx context.Context, name string, ep step.ExposedPort, systemThis output.Map) error {
+	udp := ep.Protocol == step.UDP
+	r.emit(name, fmt.Sprintf("exposing %s %s at %s", ep.Protocol, ep.Name, ep.Upstream.Dial()))
+	systemThis["expose_"+ep.Name] = output.Value{String: ep.Upstream.Dial()}
 
-	if !ep.GetRelay() {
+	target := ep.Upstream.Relay
+	if target == nil {
 		return nil
 	}
 	spec := portforward.Spec{
-		Name:          ep.GetName(),
-		Upstream:      ep.GetUpstream(),
-		HostPort:      int(ep.GetHostPort()),
-		RelayUDPAddrs: ep.GetRelayUdpAddrs(),
+		Name:          ep.Name,
+		Relay:         target.Relay,
+		Target:        target.Target,
+		HostPort:      ep.HostPort,
+		RelayUDPAddrs: ep.RelayUDPAddrs,
 	}
 	var pf forward
 	var fwdErr error
-	if ep.GetProtocol() == "udp" {
+	if udp {
 		pf, fwdErr = portforward.StartUDP(ctx, spec)
 	} else {
 		pf, fwdErr = portforward.StartTCP(ctx, spec)
 	}
 	if fwdErr != nil {
-		if ep.GetProtocol() == "udp" {
-			return fmt.Errorf("local forward for %s: %w", ep.GetName(), fwdErr)
+		if udp {
+			return fmt.Errorf("local forward for %s: %w", ep.Name, fwdErr)
 		}
-		r.emit(name, "warning: local forward for "+ep.GetName()+": "+fwdErr.Error())
+		r.emit(name, "warning: local forward for "+ep.Name+": "+fwdErr.Error())
 		return nil
 	}
 	r.addForward(name, pf)
 	addr := pf.Addr().String()
-	r.emit(name, fmt.Sprintf("forwarding %s at %s", ep.GetName(), addr))
+	r.emit(name, fmt.Sprintf("forwarding %s at %s", ep.Name, addr))
 	r.store.AddStepDetail(name, session.Detail{
-		Label: ep.GetName() + " (local)", Value: addr, Copyable: true,
+		Label: ep.Name + " (local)", Value: addr, Copyable: true,
 	})
-	systemThis["forward_"+ep.GetName()] = output.Value{String: addr}
+	systemThis["forward_"+ep.Name] = output.Value{String: addr}
 	return nil
 }
 

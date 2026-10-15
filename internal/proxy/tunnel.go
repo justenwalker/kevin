@@ -6,8 +6,6 @@ import (
 	"net"
 	"net/http"
 	"time"
-
-	"github.com/justenwalker/kevin/internal/portforward"
 )
 
 // tunnelRoute serves a CONNECT for a route in RouteModePassthrough or
@@ -20,12 +18,11 @@ func (p *Proxy) tunnelRoute(w http.ResponseWriter, r *http.Request, target Route
 
 	dialAddr := target.Upstream
 	ctx := r.Context()
-	if relay, connectTarget, ok := portforward.SplitSOCKS5(dialAddr); ok {
-		// target.Upstream names a relay-reachable target, not something this
-		// process can dial directly - dialAddr stays the real target, and the
-		// relay itself goes on the context for dialContext to CONNECT through.
-		dialAddr = connectTarget
-		ctx = withSOCKS5Relay(ctx, relay)
+	if target.Relay != "" {
+		// The upstream is reachable only through the relay: dialAddr stays the
+		// real target, and the relay itself goes on the context for
+		// dialContext to CONNECT through.
+		ctx = withSOCKS5Relay(ctx, target.Relay)
 	}
 
 	upstream, err := p.dialContext(ctx, "tcp", dialAddr)
@@ -42,7 +39,7 @@ func (p *Proxy) tunnelRoute(w http.ResponseWriter, r *http.Request, target Route
 // proxy.egress.passthrough: bytes pass straight through to host, undecrypted,
 // the same as tunnelRoute above, but dialing host directly instead of a
 // configured Route.Upstream - an unrouted host is always a real internet
-// address, never a socks5:// route upstream, so there is nothing to resolve
+// address, never a relay-routed upstream, so there is nothing to resolve
 // first. The caller (handleConnect) has already cleared allow/deny.
 func (p *Proxy) tunnelUnrouted(w http.ResponseWriter, r *http.Request, host string) {
 	start := time.Now()

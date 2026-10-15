@@ -7,7 +7,6 @@ package kubectl
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 
@@ -43,19 +42,16 @@ type Step struct {
 }
 
 // New returns the kubectl step, running kubectl with [command.Default].
-func New() Step { return Step{cli: kubectlcmd.New(command.Default)} }
+func New() plugin.Step { return plugin.Typed(schema, Step{cli: kubectlcmd.New(command.Default)}) } //nolint:ireturn // the step is the SDK contract
 
-// Step must keep satisfying plugin.Step.
-var _ plugin.Step = Step{}
-
-// Schema constrains the with block of a kubectl step.
-func (Step) Schema() []byte { return schema }
+// Step must keep satisfying plugin.TypedStep.
+var _ plugin.TypedStep[config] = Step{}
 
 // Kind reports that a kubectl step performs an action.
 func (Step) Kind() plugin.StepKind { return plugin.StepKindAction }
 
-// Step must keep satisfying plugin.Downer.
-var _ plugin.Downer = Step{}
+// Step must keep satisfying plugin.TypedDowner.
+var _ plugin.TypedDowner[config] = Step{}
 
 // Step must keep satisfying plugin.IdempotentStep.
 var _ plugin.IdempotentStep = Step{}
@@ -66,17 +62,13 @@ var _ plugin.IdempotentStep = Step{}
 func (Step) Idempotent() bool { return true }
 
 // Up applies the manifest.
-func (s Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
-	cfg, err := decode(req.Config)
-	if err != nil {
-		return nil, err
-	}
-	if err = validateSource(cfg); err != nil {
+func (s Step) Up(ctx context.Context, cfg config, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
+	if err := validateSource(cfg); err != nil {
 		return nil, err
 	}
 
 	out.Log("stdout", "applying "+applyLabel(cfg))
-	if _, err = s.cli.Apply(ctx, kubectlcmd.ApplySpec{
+	if _, err := s.cli.Apply(ctx, kubectlcmd.ApplySpec{
 		Kubeconfig: cfg.Kubeconfig,
 		Context:    cfg.Context,
 		Namespace:  cfg.Namespace,
@@ -100,12 +92,8 @@ func (s Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter)
 
 // Down deletes what Up applied. If the step's with block sets keep, Down
 // does nothing and the resources stay in place.
-func (s Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitter) error {
-	cfg, err := decode(req.Config)
-	if err != nil {
-		return err
-	}
-	if err = validateSource(cfg); err != nil {
+func (s Step) Down(ctx context.Context, cfg config, req *plugin.DownRequest, out plugin.Emitter) error {
+	if err := validateSource(cfg); err != nil {
 		return err
 	}
 	if cfg.Keep {
@@ -114,7 +102,7 @@ func (s Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emit
 	}
 
 	out.Log("stdout", "deleting "+applyLabel(cfg))
-	if _, err = s.cli.Delete(ctx, kubectlcmd.DeleteSpec{
+	if _, err := s.cli.Delete(ctx, kubectlcmd.DeleteSpec{
 		Kubeconfig: cfg.Kubeconfig,
 		Context:    cfg.Context,
 		Namespace:  cfg.Namespace,
@@ -162,16 +150,4 @@ func resolvePath(path, projectDir string) string {
 		return path
 	}
 	return filepath.Join(projectDir, path)
-}
-
-// decode parses the with-block JSON into a config.
-func decode(data []byte) (config, error) {
-	var cfg config
-	if len(data) == 0 {
-		return cfg, nil
-	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("kubectl: decode config: %w", err)
-	}
-	return cfg, nil
 }

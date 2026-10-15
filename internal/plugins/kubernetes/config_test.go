@@ -1,11 +1,13 @@
 package kubernetes
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/plugins/plugintest"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -22,8 +24,8 @@ func TestResolveMounts(t *testing.T) {
 }
 
 func TestDecode(t *testing.T) {
-	t.Run("defaults", func(t *testing.T) {
-		cfg, err := decode(nil)
+	t.Run("a with block carries the schema's defaults", func(t *testing.T) {
+		cfg, err := decode(withDefaults(t, `{"driver":"kind"}`))
 		require.NoError(t, err)
 
 		assert.Equal(t, "5m", cfg.Wait, "a cluster takes minutes")
@@ -36,7 +38,6 @@ func TestDecode(t *testing.T) {
 	t.Run("reports broken JSON", func(t *testing.T) {
 		_, err := decode([]byte(`{`))
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "decode config")
 	})
 
 	t.Run("coredns opt-out", func(t *testing.T) {
@@ -56,7 +57,7 @@ func TestDecode(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Len(t, cfg.Expose, 1)
-		assert.Equal(t, expose{Address: "postgres.default.svc:5432", Protocol: "tcp", HostPort: 15432}, cfg.Expose["postgres"])
+		assert.Equal(t, expose{Address: "postgres.default.svc:5432", Protocol: plugin.ProtocolTCP, HostPort: 15432}, cfg.Expose["postgres"])
 	})
 
 	t.Run("reads an explicit udp expose protocol", func(t *testing.T) {
@@ -64,7 +65,7 @@ func TestDecode(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Len(t, cfg.Expose, 1)
-		assert.Equal(t, "udp", cfg.Expose["dns"].Protocol)
+		assert.Equal(t, plugin.ProtocolUDP, cfg.Expose["dns"].Protocol)
 	})
 
 	t.Run("retain is off by default", func(t *testing.T) {
@@ -153,4 +154,20 @@ func TestProxyEnv(t *testing.T) {
 	t.Run("nil when the environment has no proxy configured", func(t *testing.T) {
 		assert.Nil(t, proxyEnv(config{Proxy: true}, nil))
 	})
+}
+
+// withDefaults feeds a with block to the plugin the way the engine does.
+func withDefaults(t *testing.T, with string) []byte {
+	t.Helper()
+	return plugintest.Defaulted(t, schema, with)
+}
+
+// decode parses a with block the way the SDK does for a typed step.
+func decode(data []byte) (config, error) {
+	var cfg config
+	if len(data) == 0 {
+		return cfg, nil
+	}
+	err := json.Unmarshal(data, &cfg)
+	return cfg, err
 }

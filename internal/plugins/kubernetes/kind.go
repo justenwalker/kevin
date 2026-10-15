@@ -161,10 +161,10 @@ func (d *kindDriver) LoadImage(ctx context.Context, path string, out plugin.Emit
 // image-archive) all go through this switch, not just creation. nil for
 // docker, kind's own default.
 func providerEnv(env plugin.Env) map[string]string {
-	if env.Engine != enginePodman {
+	if env.Engine != plugin.EnginePodman {
 		return nil
 	}
-	return map[string]string{kindProviderEnvVar: "podman"}
+	return map[string]string{kindProviderEnvVar: env.Engine.String()}
 }
 
 // mergeEnv combines a and b into a fresh map, b winning on a shared key.

@@ -95,7 +95,7 @@ func (s *KindSuite) SetupSuite() {
 	requireKind(t)
 	s.workspace = t.TempDir()
 
-	res, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+	res, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{
 		Step: kindStepName,
 		Env: plugin.Env{
 			Project:   kindProject,
@@ -105,7 +105,7 @@ func (s *KindSuite) SetupSuite() {
 			Domain:    kindDomain,
 			Relay:     s.relay.Addr(),
 		},
-		Config: []byte(`{"driver":"kind","expose":{"apiserver":{"address":"kubernetes.default.svc:443"}}}`),
+		Config: withDefaults(t, `{"driver":"kind","expose":{"apiserver":{"address":"kubernetes.default.svc:443"}}}`),
 	}, &capture{})
 	s.Require().NoError(err, "Up must create the cluster")
 	s.up = res
@@ -118,10 +118,10 @@ func (s *KindSuite) TearDownSuite() {
 	t := s.T()
 	ctx := context.WithoutCancel(context.Background())
 
-	downErr := Step{}.Down(t.Context(), &plugin.DownRequest{
+	downErr := typed(Step{}).Down(t.Context(), &plugin.DownRequest{
 		Step:   kindStepName,
 		Env:    plugin.Env{Project: kindProject, Workspace: s.workspace},
-		Config: []byte(`{"driver":"kind"}`),
+		Config: withDefaults(t, `{"driver":"kind"}`),
 	}, &capture{})
 	s.NoError(downErr, "Down must remove the cluster without error")
 	if downErr != nil {
@@ -268,13 +268,13 @@ func (s *KindSuite) TestExposeReachesTheAPIServerThroughSOCKS5() {
 	s.Require().Len(s.up.ExposedPorts, 1)
 	ep := s.up.ExposedPorts[0]
 	s.Equal("apiserver", ep.Name)
-	s.Equal("tcp", ep.Protocol)
+	s.Equal(plugin.ProtocolTCP, ep.Protocol)
 
-	relayAddr, target, ok := strings.Cut(strings.TrimPrefix(ep.Upstream, "socks5://"), "/")
-	s.Require().True(ok, "Upstream must carry both the relay address and the target")
+	s.Require().NotNil(ep.Upstream.Relay, "the upstream must be a relay target")
+	target := ep.Upstream.Relay.Target
 	s.Equal("kubernetes.default.svc:443", target)
 
-	dialer, err := proxy.SOCKS5("tcp", relayAddr, nil, proxy.Direct)
+	dialer, err := proxy.SOCKS5("tcp", ep.Upstream.Relay.Relay, nil, proxy.Direct)
 	s.Require().NoError(err)
 
 	conn, err := dialer.Dial("tcp", target)
@@ -293,7 +293,7 @@ func (s *KindSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 	s.Require().NoError(err)
 
 	out := &capture{}
-	res, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+	res, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{
 		Step: kindStepName,
 		Env: plugin.Env{
 			Project:   kindProject,
@@ -303,7 +303,7 @@ func (s *KindSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 			Domain:    kindDomain,
 			Relay:     s.relay.Addr(),
 		},
-		Config: []byte(`{"driver":"kind","expose":{"apiserver":{"address":"kubernetes.default.svc:443"}}}`),
+		Config: withDefaults(t, `{"driver":"kind","expose":{"apiserver":{"address":"kubernetes.default.svc:443"}}}`),
 	}, out)
 	s.Require().NoError(err)
 
@@ -354,15 +354,15 @@ func TestKindNodeSettings(t *testing.T) {
 
 	const workerImage = "kindest/node:v1.34.0"
 	env := plugin.Env{Project: "kind-node-settings-it", Workspace: t.TempDir()}
-	config := []byte(fmt.Sprintf(`{"driver":"kind","coredns":false,"trust_ca":false,`+
+	config := withDefaults(t, fmt.Sprintf(`{"driver":"kind","coredns":false,"trust_ca":false,`+
 		`"mounts":[{"host":%q,"container":"/mnt/all"}],`+
 		`"kind":{"control_plane":{"extraMounts":[{"hostPath":%q,"containerPath":"/mnt/cp"}]}},`+
 		`"workers":{"worker":{"image":%q}}}`, allDir, cpDir, workerImage))
 	t.Cleanup(func() {
-		_ = Step{}.Down(context.WithoutCancel(t.Context()), &plugin.DownRequest{Step: "cluster", Env: env, Config: config}, &capture{})
+		_ = typed(Step{}).Down(context.WithoutCancel(t.Context()), &plugin.DownRequest{Step: "cluster", Env: env, Config: config}, &capture{})
 	})
 
-	res, err := Step{}.Up(t.Context(), &plugin.UpRequest{Step: "cluster", Env: env, Config: config}, &capture{})
+	res, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{Step: "cluster", Env: env, Config: config}, &capture{})
 	require.NoError(t, err)
 
 	nodes := strings.Split(res.Outputs["nodes"].Reveal(), ",")
@@ -397,9 +397,9 @@ func TestKindDownIsIdempotent(t *testing.T) {
 	requireKind(t)
 
 	out := &capture{}
-	err := Step{}.Down(t.Context(), &plugin.DownRequest{
+	err := typed(Step{}).Down(t.Context(), &plugin.DownRequest{
 		Step:   "cluster",
-		Config: []byte(`{"driver":"kind"}`),
+		Config: withDefaults(t, `{"driver":"kind"}`),
 		Env: plugin.Env{
 			Project:   "kevin-kind-absent",
 			Workspace: t.TempDir(),

@@ -1,6 +1,7 @@
 package route
 
 import (
+	"encoding/json"
 	"testing"
 
 	"cuelang.org/go/cue"
@@ -12,7 +13,7 @@ import (
 )
 
 func TestSchemaCarriesTheEmbeddedSchema(t *testing.T) {
-	schema := Step{}.Schema()
+	schema := schema
 
 	assert.Contains(t, string(schema), "#Config")
 	assert.Contains(t, string(schema), "relay")
@@ -47,7 +48,7 @@ func TestDecode(t *testing.T) {
 }
 
 func TestUpBuildsARouteAndDetailPerEntry(t *testing.T) {
-	result, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+	result, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{
 		Step: "myapp_route",
 		Env:  plugin.Env{Domain: "kevin.home"},
 		Config: []byte(`{
@@ -64,16 +65,16 @@ func TestUpBuildsARouteAndDetailPerEntry(t *testing.T) {
 	require.Len(t, result.Routes, 3)
 	assert.Equal(t, plugin.Route{
 		Host:     "myapp.kevin.home",
-		Upstream: "socks5://127.0.0.1:54321/myapp.default.svc.cluster.local:80",
+		Upstream: plugin.Upstream{Relay: &plugin.RelayTarget{Relay: "127.0.0.1:54321", Target: "myapp.default.svc.cluster.local:80"}},
 	}, result.Routes[0])
 	assert.Equal(t, plugin.Route{
 		Host:     "other.kevin.home",
-		Upstream: "socks5://127.0.0.1:54321/other.default.svc.cluster.local:8443",
+		Upstream: plugin.Upstream{Relay: &plugin.RelayTarget{Relay: "127.0.0.1:54321", Target: "other.default.svc.cluster.local:8443"}},
 		TLS:      true,
 	}, result.Routes[1])
 	assert.Equal(t, plugin.Route{
 		Host:     "certmanager.kevin.home",
-		Upstream: "socks5://127.0.0.1:54321/certmanager.default.svc.cluster.local:8443",
+		Upstream: plugin.Upstream{Relay: &plugin.RelayTarget{Relay: "127.0.0.1:54321", Target: "certmanager.default.svc.cluster.local:8443"}},
 		TLS:      true,
 		Mode:     plugin.RouteModePassthrough,
 	}, result.Routes[2])
@@ -85,7 +86,7 @@ func TestUpBuildsARouteAndDetailPerEntry(t *testing.T) {
 }
 
 func TestUpWithInterceptSkipsTheDomainSuffix(t *testing.T) {
-	result, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+	result, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{
 		Step: "s3_intercept",
 		Env:  plugin.Env{Domain: "kevin.home"},
 		Config: []byte(`{
@@ -100,12 +101,12 @@ func TestUpWithInterceptSkipsTheDomainSuffix(t *testing.T) {
 	require.Len(t, result.Routes, 2)
 	assert.Equal(t, plugin.Route{
 		Host:      "s3.amazonaws.com",
-		Upstream:  "127.0.0.1:9090",
+		Upstream:  plugin.Upstream{Addr: "127.0.0.1:9090"},
 		Intercept: &plugin.RouteIntercept{Ports: []int{443}},
 	}, result.Routes[0], "intercept must use the host verbatim, not suffixed with the environment domain")
 	assert.Equal(t, plugin.Route{
 		Host:      "*.s3.amazonaws.com",
-		Upstream:  "127.0.0.1:9090",
+		Upstream:  plugin.Upstream{Addr: "127.0.0.1:9090"},
 		TLS:       true,
 		Intercept: &plugin.RouteIntercept{Ports: []int{443}},
 	}, result.Routes[1])
@@ -117,7 +118,7 @@ func TestUpWithAWildcardHostSuffixesTheDomainBeforeTheProxySeesIt(t *testing.T) 
 	// all, only the final Host string. A non-intercept "*.foo" must still
 	// get the domain suffix appended after the wildcard marker, not
 	// instead of it, so "*.foo.kevin.home" reaches the table intact.
-	result, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+	result, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{
 		Step: "tenant_route",
 		Env:  plugin.Env{Domain: "kevin.home"},
 		Config: []byte(`{
@@ -131,13 +132,13 @@ func TestUpWithAWildcardHostSuffixesTheDomainBeforeTheProxySeesIt(t *testing.T) 
 	require.Len(t, result.Routes, 1)
 	assert.Equal(t, plugin.Route{
 		Host:     "*.foo.kevin.home",
-		Upstream: "127.0.0.1:9090",
+		Upstream: plugin.Upstream{Addr: "127.0.0.1:9090"},
 	}, result.Routes[0], "a wildcard host must keep its leading *. through the domain suffix, matching anything.foo.kevin.home")
 }
 
 func TestSchemaMode(t *testing.T) {
 	ctx := cuecontext.New()
-	v := ctx.CompileBytes(Step{}.Schema(), cue.Filename("route/schema.cue"))
+	v := ctx.CompileBytes(schema, cue.Filename("route/schema.cue"))
 	require.NoError(t, v.Err())
 	route := v.LookupPath(cue.ParsePath("#Route"))
 
@@ -217,3 +218,24 @@ type noopEmitter struct{}
 
 func (noopEmitter) Log(string, string)            {}
 func (noopEmitter) Progress(string, int64, int64) {}
+
+// stepAll is every optional part the SDK's typed adapter offers, so a test
+// can call it with a raw with block.
+type stepAll interface {
+	plugin.Step
+	plugin.Downer
+	plugin.Exporter
+}
+
+// typed wraps s the way New does.
+func typed(s Step) stepAll { return plugin.Typed(schema, s).(stepAll) } //nolint:errcheck,ireturn // the adapter implements every part
+
+// decode parses a with block the way the SDK does for a typed step.
+func decode(data []byte) (config, error) {
+	var cfg config
+	if len(data) == 0 {
+		return cfg, nil
+	}
+	err := json.Unmarshal(data, &cfg)
+	return cfg, err
+}

@@ -63,7 +63,7 @@ For a container, the DNS registration is not needed: capture by port already sen
 
 ## Tunnels from the host
 
-The relay runs a SOCKS5 server. A client on the host can ask it to connect to an address inside the network. An `ExposedPort` that goes through the relay has an upstream of the form `socks5://127.0.0.1:<relayPort>/<address>` and `Relay: true`.
+The relay runs a SOCKS5 server. A client on the host can ask it to connect to an address inside the network. An `ExposedPort` that goes through the relay has an `Upstream` that names the relay and the address behind it, a `plugin.RelayTarget`. kevin shows it as `socks5://127.0.0.1:<relayPort>/<address>`.
 
 Most clients do not speak SOCKS5. For each relay `ExposedPort`, from any plugin, kevin opens a local listener and forwards each connection through the relay. For TCP it uses SOCKS5 `CONNECT`. For UDP it holds one SOCKS5 `ASSOCIATE` session open for the life of the listener. kevin adds the listener's address as `needs.<step>.system.forward_<name>`, next to `expose_<name>`, and the console shows both.
 
@@ -89,7 +89,7 @@ A local UDP forward sends each reply to every client that used it recently. SOCK
 
 A `builtin:route` entry names either an address the proxy can dial, such as a container's published port, or, with `relay` set, an address inside a `builtin:kubernetes` cluster.
 
-For a relay route, the step returns a `Route` whose upstream uses the `socks5://` form above. When the proxy dials an upstream of that form, it connects to the relay and sends a SOCKS5 `CONNECT` for the real address. WebSocket upgrades use the same dial path.
+For a relay route, the step returns a `Route` whose `Upstream` is a relay target. kevin gives the proxy the relay's address and the real address. The proxy connects to the relay and sends a SOCKS5 `CONNECT` for the real address. WebSocket upgrades use the same dial path.
 
 `builtin:route` does no Kubernetes work. It takes a relay address and a list of host and address pairs. A `builtin:kubernetes` step starts the relay pod when it has `expose` entries or `relay: true`, and reports its address as `relay_addr`. The route's `needs` must include the step that deploys the target, so the target exists when the route starts.
 

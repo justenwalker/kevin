@@ -8,39 +8,23 @@ import (
 	"testing"
 	"time"
 
-	goplugin "github.com/hashicorp/go-plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
 	"github.com/justenwalker/kevin/protos/pb"
 )
 
-func TestGRPCPlugin(t *testing.T) {
-	t.Run("GRPCServer registers the plugin service", func(t *testing.T) {
-		p := &GRPCPlugin{Plugin: Plugin{Name: "demo"}}
-		s := grpc.NewServer()
+func TestPluginRegister(t *testing.T) {
+	s := grpc.NewServer()
 
-		require.NoError(t, p.GRPCServer(nil, s))
+	Plugin{Name: "demo"}.register(s)
 
-		_, ok := s.GetServiceInfo()[pb.Plugin_ServiceDesc.ServiceName]
-		assert.True(t, ok, "GRPCServer must register the plugin service")
-	})
-
-	t.Run("GRPCClient returns a plugin client bound to the connection", func(t *testing.T) {
-		p := &GRPCPlugin{}
-		conn, err := grpc.NewClient("passthrough:///bufnet", grpc.WithTransportCredentials(insecure.NewCredentials()))
-		require.NoError(t, err)
-		defer conn.Close() //nolint:errcheck // test cleanup
-
-		client, err := p.GRPCClient(t.Context(), (*goplugin.GRPCBroker)(nil), conn)
-		require.NoError(t, err)
-		assert.Implements(t, (*pb.PluginClient)(nil), client)
-	})
+	_, ok := s.GetServiceInfo()[pb.Plugin_ServiceDesc.ServiceName]
+	assert.True(t, ok, "register must add the plugin service")
 }
 
 func TestServerInfo(t *testing.T) {
@@ -326,10 +310,10 @@ func TestServerUp(t *testing.T) {
 					"password": Sensitive{String("hunter2")},
 				},
 				Routes: []Route{
-					{Host: "api.test", Upstream: "api:8080", TLS: true, Mode: RouteModePassthrough},
-					{Host: "s3.amazonaws.com", Upstream: "127.0.0.1:9090", Intercept: &RouteIntercept{Ports: []int{443}}},
+					{Host: "api.test", Upstream: Upstream{Addr: "api:8080"}, TLS: true, Mode: RouteModePassthrough},
+					{Host: "s3.amazonaws.com", Upstream: Upstream{Addr: "127.0.0.1:9090"}, Intercept: &RouteIntercept{Ports: []int{443}}},
 				},
-				ExposedPorts: []ExposedPort{{Name: "postgres", Protocol: "tcp", Upstream: "127.0.0.1:54321", HostPort: 54321}},
+				ExposedPorts: []ExposedPort{{Name: "postgres", Upstream: Upstream{Addr: "127.0.0.1:54321"}, HostPort: 54321}},
 				EgressAllow:  []string{"proxy.golang.org"},
 				Details:      []Detail{{Label: "admin password", Value: Sensitive{String("hunter2")}, Copyable: true, Href: "https://api.test/admin"}},
 			}, nil)
@@ -403,7 +387,7 @@ func TestServerUp(t *testing.T) {
 		assert.Equal(t, []string{"proxy.golang.org"}, result.GetEgressAllow())
 		require.Len(t, result.GetRoutes(), 2)
 		assert.Equal(t, "api.test", result.GetRoutes()[0].GetHost())
-		assert.Equal(t, "api:8080", result.GetRoutes()[0].GetUpstream())
+		assert.Equal(t, "api:8080", result.GetRoutes()[0].GetUpstream().GetAddr())
 		assert.True(t, result.GetRoutes()[0].GetTls())
 		assert.Equal(t, pb.RouteMode_ROUTE_MODE_PASSTHROUGH, result.GetRoutes()[0].GetMode())
 		assert.Nil(t, result.GetRoutes()[0].GetIntercept(), "a route with no Intercept must not gain one in translation")
@@ -413,8 +397,8 @@ func TestServerUp(t *testing.T) {
 
 		require.Len(t, result.GetExposedPorts(), 1)
 		assert.Equal(t, "postgres", result.GetExposedPorts()[0].GetName())
-		assert.Equal(t, "tcp", result.GetExposedPorts()[0].GetProtocol())
-		assert.Equal(t, "127.0.0.1:54321", result.GetExposedPorts()[0].GetUpstream())
+		assert.Equal(t, pb.Protocol_PROTOCOL_TCP, result.GetExposedPorts()[0].GetProtocol())
+		assert.Equal(t, "127.0.0.1:54321", result.GetExposedPorts()[0].GetUpstream().GetAddr())
 		assert.Equal(t, int32(54321), result.GetExposedPorts()[0].GetHostPort())
 
 		require.Len(t, result.GetDetails(), 1)
@@ -504,9 +488,9 @@ func TestServerUpRelayUDPExposedPort(t *testing.T) {
 			Run(func(_ context.Context, req *UpRequest, _ Emitter) { gotUp = req }).
 			Return(&Result{
 				ExposedPorts: []ExposedPort{{
-					Name: "dns", Protocol: "udp", Relay: true,
-					Upstream:      "socks5://172.20.0.5:1080/dns:53",
-					RelayUDPAddrs: map[string]string{"40000": "127.0.0.1:41234"},
+					Name: "dns", Protocol: ProtocolUDP,
+					Upstream:      Upstream{Relay: &RelayTarget{Relay: "172.20.0.5:1080", Target: "dns:53"}},
+					RelayUDPAddrs: map[int]string{40000: "127.0.0.1:41234"},
 				}},
 			}, nil)
 		srv := &server{provider: Plugin{Steps: map[string]Step{"widget": impl}}}
@@ -516,21 +500,22 @@ func TestServerUpRelayUDPExposedPort(t *testing.T) {
 			Step: "dns", Type: "widget",
 			Env: &pb.Environment{
 				RelaySocks5Addr:     "172.20.0.5:1080",
-				RelaySocks5UdpAddrs: map[string]string{"40000": "127.0.0.1:41234"},
+				RelaySocks5UdpAddrs: map[int32]string{40000: "127.0.0.1:41234"},
 			},
 		}
 		require.NoError(t, srv.Up(req, stream))
 
 		require.NotNil(t, gotUp)
 		assert.Equal(t, "172.20.0.5:1080", gotUp.Env.RelaySOCKS5Addr)
-		assert.Equal(t, map[string]string{"40000": "127.0.0.1:41234"}, gotUp.Env.RelaySOCKS5UDPAddrs)
+		assert.Equal(t, map[int]string{40000: "127.0.0.1:41234"}, gotUp.Env.RelaySOCKS5UDPAddrs)
 
 		result := stream.events[0].GetResult()
 		require.Len(t, result.GetExposedPorts(), 1)
 		ep := result.GetExposedPorts()[0]
-		assert.Equal(t, "udp", ep.GetProtocol())
-		assert.True(t, ep.GetRelay())
-		assert.Equal(t, map[string]string{"40000": "127.0.0.1:41234"}, ep.GetRelayUdpAddrs())
+		assert.Equal(t, pb.Protocol_PROTOCOL_UDP, ep.GetProtocol())
+		assert.Equal(t, "172.20.0.5:1080", ep.GetUpstream().GetRelay().GetRelay())
+		assert.Equal(t, "dns:53", ep.GetUpstream().GetRelay().GetTarget())
+		assert.Equal(t, map[int32]string{40000: "127.0.0.1:41234"}, ep.GetRelayUdpAddrs())
 	})
 }
 
@@ -737,5 +722,45 @@ func TestExitWhenOrphaned(t *testing.T) {
 
 		time.Sleep(50 * time.Millisecond)
 		assert.False(t, called.Load())
+	})
+}
+
+func TestEnvFromProto(t *testing.T) {
+	t.Run("translates the engine and scope enums", func(t *testing.T) {
+		got := envFromProto(&pb.Environment{Engine: pb.Engine_ENGINE_PODMAN, Scope: pb.Scope_SCOPE_SETUP})
+
+		assert.Equal(t, EnginePodman, got.Engine)
+		assert.Equal(t, ScopeSetup, got.Scope)
+	})
+
+	t.Run("an unset engine is docker and an unset scope is unspecified", func(t *testing.T) {
+		got := envFromProto(&pb.Environment{})
+
+		assert.Equal(t, EngineDocker, got.Engine)
+		assert.Equal(t, ScopeUnspecified, got.Scope)
+	})
+}
+
+func TestContainersRoundTrip(t *testing.T) {
+	t.Run("a container with a namespace keeps its path and exclusions", func(t *testing.T) {
+		in := []ContainerInfo{{ID: "a", Name: "n", NetnsPath: "/proc/1/ns/net", ExcludeCIDRs: []string{"10.0.0.0/8"}}}
+
+		out := containersToProto(in)
+
+		require.Len(t, out, 1)
+		assert.Equal(t, "/proc/1/ns/net", out[0].GetNetns().GetPath())
+		assert.Equal(t, in[0], containerInfoFromProto(out[0]))
+	})
+
+	t.Run("a stopped container carries no namespace", func(t *testing.T) {
+		out := containersToProto([]ContainerInfo{{ID: "a", Name: "n"}})
+
+		assert.Nil(t, out[0].GetNetns())
+	})
+
+	t.Run("a needs-step keeps its scope", func(t *testing.T) {
+		got := containersFromProto([]*pb.StepContainers{{Scope: pb.Scope_SCOPE_SETUP, Step: "cluster"}})
+
+		assert.Equal(t, []StepContainers{{Scope: ScopeSetup, Step: "cluster", Containers: []ContainerInfo{}}}, got)
 	})
 }

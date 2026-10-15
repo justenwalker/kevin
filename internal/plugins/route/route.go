@@ -20,8 +20,6 @@ package route
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
-	"fmt"
 
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -49,13 +47,10 @@ type routeConfig struct {
 type Step struct{}
 
 // New returns the route step.
-func New() Step { return Step{} }
+func New() plugin.Step { return plugin.Typed(schema, Step{}) } //nolint:ireturn // the step is the SDK contract
 
-// Step must keep satisfying plugin.Step.
-var _ plugin.Step = Step{}
-
-// Schema constrains the with block of a route step.
-func (Step) Schema() []byte { return schema }
+// Step must keep satisfying plugin.TypedStep.
+var _ plugin.TypedStep[config] = Step{}
 
 // Kind reports that a route step is apply-only: it registers routes but
 // owns no lifecycle of its own.
@@ -73,12 +68,7 @@ func (Step) Idempotent() bool { return true }
 // route dials it and issues a SOCKS5 CONNECT to the entry's address;
 // otherwise the entry's address must already be something the proxy
 // process can dial directly.
-func (Step) Up(_ context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
-	cfg, err := decode(req.Config)
-	if err != nil {
-		return nil, err
-	}
-
+func (Step) Up(_ context.Context, cfg config, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
 	routes := make([]plugin.Route, 0, len(cfg.Routes))
 	details := make([]plugin.Detail, 0, len(cfg.Routes))
 	for _, e := range cfg.Routes {
@@ -86,9 +76,9 @@ func (Step) Up(_ context.Context, req *plugin.UpRequest, out plugin.Emitter) (*p
 		if e.Intercept {
 			host = e.Host
 		}
-		upstream := e.Address
+		upstream := plugin.Upstream{Addr: e.Address}
 		if cfg.Relay != "" {
-			upstream = fmt.Sprintf("socks5://%s/%s", cfg.Relay, e.Address)
+			upstream = plugin.Upstream{Relay: &plugin.RelayTarget{Relay: cfg.Relay, Target: e.Address}}
 		}
 		r := plugin.Route{Host: host, Upstream: upstream, TLS: e.TLS, Mode: parseRouteMode(e.Mode)}
 		if e.Intercept {
@@ -113,16 +103,4 @@ func parseRouteMode(mode string) plugin.RouteMode {
 	default:
 		return plugin.RouteModeMITM
 	}
-}
-
-// decode parses the with-block JSON into a config.
-func decode(data []byte) (config, error) {
-	var cfg config
-	if len(data) == 0 {
-		return cfg, nil
-	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("route: decode config: %w", err)
-	}
-	return cfg, nil
 }

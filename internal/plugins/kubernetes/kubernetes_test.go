@@ -227,37 +227,26 @@ func (f fakeDriver) LoadImage(ctx context.Context, path string, _ plugin.Emitter
 }
 
 func TestSchemaCarriesTheEmbeddedSchema(t *testing.T) {
-	schema := Step{}.Schema()
+	schema := schema
 
 	assert.Contains(t, string(schema), "#Config")
 	assert.Contains(t, string(schema), "workers")
 }
 
 func TestStep(t *testing.T) {
-	assert.Equal(t, Step{}, New())
+	assert.Equal(t, plugin.StepKindResource, New().Kind())
 	assert.Equal(t, plugin.StepKindResource, Step{}.Kind())
 	assert.True(t, Step{}.Idempotent(), "Up always removes a stale cluster before creating a fresh one")
 }
 
 func TestUpReportsABadWait(t *testing.T) {
-	_, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+	_, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{
 		Step:   "cluster",
 		Config: []byte(`{"wait":"soon"}`),
 	}, &capture{})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "wait")
-}
-
-func TestUpReportsABadEngine(t *testing.T) {
-	_, err := Step{}.Up(t.Context(), &plugin.UpRequest{
-		Step:   "cluster",
-		Config: []byte(`{}`),
-		Env:    plugin.Env{Project: "demo", Workspace: t.TempDir(), Engine: "bogus"},
-	}, &capture{})
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "bogus")
 }
 
 func TestFinishClusterSetup(t *testing.T) {
@@ -340,51 +329,26 @@ func TestClusterOutputs(t *testing.T) {
 
 func TestExport(t *testing.T) {
 	t.Run("reports broken JSON", func(t *testing.T) {
-		_, err := Step{}.Export(t.Context(), &plugin.ExportRequest{Config: []byte(`{`)})
+		_, err := typed(Step{}).Export(t.Context(), &plugin.ExportRequest{Config: []byte(`{`)})
 		require.Error(t, err)
 	})
 
 	t.Run("no kubeconfig yet is an error", func(t *testing.T) {
-		_, err := Step{}.Export(t.Context(), &plugin.ExportRequest{
+		_, err := typed(Step{}).Export(t.Context(), &plugin.ExportRequest{
 			Config: []byte(`{"driver":"kind"}`),
 			Env:    plugin.Env{Project: "demo", Workspace: t.TempDir()},
 		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "run `kevin run` or `kevin setup` first")
 	})
-
-	t.Run("reports the persisted values with no live containers when the engine can't be reached", func(t *testing.T) {
-		workspace := t.TempDir()
-		name := "demo-cluster"
-		kubeconfig := filepath.Join(workspace, "kubeconfig", name)
-		require.NoError(t, os.MkdirAll(filepath.Dir(kubeconfig), 0o700))
-		require.NoError(t, os.WriteFile(kubeconfig, []byte("apiVersion: v1\n"), 0o600))
-
-		got, err := Step{}.Export(t.Context(), &plugin.ExportRequest{
-			Step:   "cluster",
-			Config: []byte(`{"driver":"kind"}`),
-			Env:    plugin.Env{Project: "demo", Workspace: workspace, Engine: "bogus"},
-		})
-		require.NoError(t, err)
-		assert.Equal(t, plugin.StringMap(map[string]string{
-			"name":       name,
-			"kubeconfig": kubeconfig,
-			"context":    "kind-" + name,
-		}), got.Out)
-		assert.Nil(t, got.Containers)
-	})
 }
 
 func TestDownReportsBadConfig(t *testing.T) {
-	err := Step{}.Down(t.Context(), &plugin.DownRequest{Config: []byte(`{`)}, &capture{})
+	err := typed(Step{}).Down(t.Context(), &plugin.DownRequest{Config: []byte(`{`)}, &capture{})
 	require.Error(t, err)
 }
 
 func TestExportContainers(t *testing.T) {
-	t.Run("no engine fails open", func(t *testing.T) {
-		assert.Nil(t, exportContainers(t.Context(), nil, fakeDriver{}))
-	})
-
 	t.Run("a cluster that no longer exists fails open", func(t *testing.T) {
 		assert.Nil(t, exportContainers(t.Context(), fakeRuntime{}, fakeDriver{}))
 	})
@@ -513,3 +477,14 @@ func TestReuseOrCreateCluster(t *testing.T) {
 		assert.True(t, os.IsNotExist(statErr))
 	})
 }
+
+// stepAll is every optional part the SDK's typed adapter offers, so a test
+// can call it with a raw with block.
+type stepAll interface {
+	plugin.Step
+	plugin.Downer
+	plugin.Exporter
+}
+
+// typed wraps s the way New does.
+func typed(s Step) stepAll { return plugin.Typed(schema, s).(stepAll) } //nolint:errcheck,ireturn // the adapter implements every part

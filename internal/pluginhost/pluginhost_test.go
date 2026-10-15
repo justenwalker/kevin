@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/internal/uerr"
 	"github.com/justenwalker/kevin/protos/pb"
 )
@@ -177,7 +178,7 @@ func TestConfigure(t *testing.T) {
 			require.NoError(t, launchErr)
 			t.Cleanup(client.Close)
 
-			require.NoError(t, client.Configure(t.Context(), tt.config, nil))
+			require.NoError(t, client.Configure(t.Context(), tt.config, step.Env{}))
 		})
 	}
 
@@ -186,11 +187,21 @@ func TestConfigure(t *testing.T) {
 		require.NoError(t, err)
 		client.Close()
 
-		err = client.Configure(t.Context(), nil, nil)
+		err = client.Configure(t.Context(), nil, step.Env{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "Configure")
 	})
 }
+
+// recordEvents is a step.Events that keeps what it is given.
+type recordEvents struct {
+	logs     []string
+	progress []string
+}
+
+func (e *recordEvents) Log(_, text string, _ time.Time) { e.logs = append(e.logs, text) }
+
+func (e *recordEvents) Progress(label string, _, _ int64) { e.progress = append(e.progress, label) }
 
 func TestUp(t *testing.T) {
 	bin := buildEchoPlugin(t)
@@ -199,27 +210,26 @@ func TestUp(t *testing.T) {
 	t.Cleanup(client.Close)
 
 	t.Run("returns the published result and streams events", func(t *testing.T) {
-		var events []*pb.Event
-		result, err := client.Up(t.Context(), &pb.UpRequest{
+		var events recordEvents
+		result, err := client.Up(t.Context(), step.UpRequest{
 			Step:   "api",
 			Type:   "echo",
 			Config: []byte(`{"message":"hello"}`),
-		}, func(ev *pb.Event) { events = append(events, ev) })
+		}, &events)
 		require.NoError(t, err)
 
-		assert.Equal(t, "api", result.GetOutputs().GetValues()["step"].GetStringValue())
-		require.Len(t, events, 1, "the message log line must reach onEvent")
-		assert.Equal(t, "hello", events[0].GetLog().GetText())
+		assert.Equal(t, "api", result.Outputs["step"].String)
+		assert.Equal(t, []string{"hello"}, events.logs, "the message log line must reach the events")
 	})
 
 	t.Run("reports the step's error", func(t *testing.T) {
-		_, err := client.Up(t.Context(), &pb.UpRequest{Step: "boom", Type: "fail"}, func(*pb.Event) {})
+		_, err := client.Up(t.Context(), step.UpRequest{Step: "boom", Type: "fail"}, &recordEvents{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "boom")
 	})
 
 	t.Run("carries the step's human-facing message across the plugin process boundary", func(t *testing.T) {
-		_, err := client.Up(t.Context(), &pb.UpRequest{Step: "boom", Type: "fail"}, func(*pb.Event) {})
+		_, err := client.Up(t.Context(), step.UpRequest{Step: "boom", Type: "fail"}, &recordEvents{})
 		require.Error(t, err)
 		assert.Equal(t, "the fail step always fails, on purpose", uerr.Display(err))
 	})
@@ -232,24 +242,24 @@ func TestExport(t *testing.T) {
 	t.Cleanup(client.Close)
 
 	t.Run("reports Out", func(t *testing.T) {
-		resp, exportErr := client.Export(t.Context(), &pb.ExportRequest{
+		resp, exportErr := client.Export(t.Context(), step.ExportRequest{
 			Step: "api", Type: "echo",
 			Config: []byte(`{"export":{"greeting":"hi","password":"hunter2"},"export_sensitive":["password"]}`),
 		})
 		require.NoError(t, exportErr)
-		values := resp.GetOut().GetValues()
+		values := resp.Out
 		require.Contains(t, values, "greeting")
-		assert.Equal(t, "hi", values["greeting"].GetStringValue())
-		assert.False(t, values["greeting"].GetSensitive())
+		assert.Equal(t, "hi", values["greeting"].String)
+		assert.False(t, values["greeting"].Sensitive)
 		require.Contains(t, values, "password")
-		assert.Equal(t, "hunter2", values["password"].GetStringValue())
-		assert.True(t, values["password"].GetSensitive(), "export_sensitive must mark the value Sensitive")
+		assert.Equal(t, "hunter2", values["password"].String)
+		assert.True(t, values["password"].Sensitive, "export_sensitive must mark the value Sensitive")
 	})
 
 	t.Run("a step type with no Exporter fails at the plugin, not pluginhost", func(t *testing.T) {
 		// The probe step type does not implement Exporter, so the plugin
 		// itself - not pluginhost - reports the failure.
-		_, exportErr := client.Export(t.Context(), &pb.ExportRequest{Step: "api", Type: "probe"})
+		_, exportErr := client.Export(t.Context(), step.ExportRequest{Step: "api", Type: "probe"})
 		require.Error(t, exportErr)
 		assert.Equal(t, codes.Unimplemented, status.Code(exportErr))
 	})
@@ -262,27 +272,27 @@ func TestCallTool(t *testing.T) {
 	t.Cleanup(client.Close)
 
 	t.Run("runs the tool and returns its content", func(t *testing.T) {
-		resp, callErr := client.CallTool(t.Context(), &pb.ToolCallRequest{
+		resp, callErr := client.CallTool(t.Context(), step.ToolCall{
 			Step: "api", Type: "echo", Tool: "echo",
 			Config:    []byte(`{"message":"hi"}`),
 			Arguments: []byte(`{"n":1}`),
 		})
 		require.NoError(t, callErr)
-		assert.False(t, resp.GetIsError())
-		assert.JSONEq(t, `{"message":"hi","arguments":{"n":1},"deps":null}`, string(resp.GetContent()))
+		assert.False(t, resp.IsError)
+		assert.JSONEq(t, `{"message":"hi","arguments":{"n":1},"deps":null}`, string(resp.Content))
 	})
 
 	t.Run("a tool-reported failure sets IsError, not an RPC error", func(t *testing.T) {
-		resp, callErr := client.CallTool(t.Context(), &pb.ToolCallRequest{
+		resp, callErr := client.CallTool(t.Context(), step.ToolCall{
 			Step: "api", Type: "echo", Tool: "echo", Arguments: []byte(`{"fail":true}`),
 		})
 		require.NoError(t, callErr)
-		assert.True(t, resp.GetIsError())
-		assert.Equal(t, "requested failure", resp.GetErrorMessage())
+		assert.True(t, resp.IsError)
+		assert.Equal(t, "requested failure", resp.ErrorMessage)
 	})
 
 	t.Run("an unknown tool name fails at the plugin, not pluginhost", func(t *testing.T) {
-		_, callErr := client.CallTool(t.Context(), &pb.ToolCallRequest{Step: "api", Type: "echo", Tool: "no-such-tool"})
+		_, callErr := client.CallTool(t.Context(), step.ToolCall{Step: "api", Type: "echo", Tool: "no-such-tool"})
 		require.Error(t, callErr)
 		assert.Contains(t, callErr.Error(), "no-such-tool")
 	})
@@ -290,7 +300,7 @@ func TestCallTool(t *testing.T) {
 	t.Run("a step type with no ToolProvider fails at the plugin, not pluginhost", func(t *testing.T) {
 		// probe implements neither Tools nor CallTool, so the plugin
 		// itself - not pluginhost - reports the failure.
-		_, callErr := client.CallTool(t.Context(), &pb.ToolCallRequest{Step: "api", Type: "probe", Tool: "echo"})
+		_, callErr := client.CallTool(t.Context(), step.ToolCall{Step: "api", Type: "probe", Tool: "echo"})
 		require.Error(t, callErr)
 		assert.Equal(t, codes.Unimplemented, status.Code(callErr))
 	})
@@ -303,17 +313,17 @@ func TestDown(t *testing.T) {
 	t.Cleanup(client.Close)
 
 	t.Run("streams the removal log", func(t *testing.T) {
-		var events []*pb.Event
-		err := client.Down(t.Context(), &pb.DownRequest{Step: "api", Type: "echo"}, func(ev *pb.Event) { events = append(events, ev) })
+		var events recordEvents
+		err := client.Down(t.Context(), step.DownRequest{Step: "api", Type: "echo"}, &events)
 		require.NoError(t, err)
 
-		require.Len(t, events, 1)
-		assert.Contains(t, events[0].GetLog().GetText(), "removing api")
+		require.Len(t, events.logs, 1)
+		assert.Contains(t, events.logs[0], "removing api")
 	})
 
 	t.Run("reports a step type that does not implement Down", func(t *testing.T) {
 		// failStep has no Down method.
-		err := client.Down(t.Context(), &pb.DownRequest{Step: "boom", Type: "fail"}, func(*pb.Event) {})
+		err := client.Down(t.Context(), step.DownRequest{Step: "boom", Type: "fail"}, &recordEvents{})
 		require.Error(t, err)
 		assert.Equal(t, codes.Unimplemented, status.Code(err))
 	})

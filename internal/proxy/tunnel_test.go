@@ -149,9 +149,9 @@ func TestTunnelRoute(t *testing.T) {
 
 		p.AddRoutes(proxy.Route{
 			Host:     host,
-			Upstream: "socks5://" + relay + "/" + getTestURLHost(t, target.URL),
-			TLS:      true,
-			Mode:     proxy.RouteModePassthrough,
+			Upstream: getTestURLHost(t, target.URL), Relay: relay,
+			TLS:  true,
+			Mode: proxy.RouteModePassthrough,
 		})
 
 		ownPool := x509.NewCertPool()

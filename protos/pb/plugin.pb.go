@@ -82,6 +82,151 @@ func (StepKind) EnumDescriptor() ([]byte, []int) {
 	return file_pb_plugin_proto_rawDescGZIP(), []int{0}
 }
 
+// Engine is a container runtime kevin can drive.
+type Engine int32
+
+const (
+	// ENGINE_DOCKER is the zero value: an unset engine means docker.
+	Engine_ENGINE_DOCKER Engine = 0
+	Engine_ENGINE_PODMAN Engine = 1
+)
+
+// Enum value maps for Engine.
+var (
+	Engine_name = map[int32]string{
+		0: "ENGINE_DOCKER",
+		1: "ENGINE_PODMAN",
+	}
+	Engine_value = map[string]int32{
+		"ENGINE_DOCKER": 0,
+		"ENGINE_PODMAN": 1,
+	}
+)
+
+func (x Engine) Enum() *Engine {
+	p := new(Engine)
+	*p = x
+	return p
+}
+
+func (x Engine) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Engine) Descriptor() protoreflect.EnumDescriptor {
+	return file_pb_plugin_proto_enumTypes[1].Descriptor()
+}
+
+func (Engine) Type() protoreflect.EnumType {
+	return &file_pb_plugin_proto_enumTypes[1]
+}
+
+func (x Engine) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Engine.Descriptor instead.
+func (Engine) EnumDescriptor() ([]byte, []int) {
+	return file_pb_plugin_proto_rawDescGZIP(), []int{1}
+}
+
+// Scope is one of the two independent DAGs of an environment.
+type Scope int32
+
+const (
+	Scope_SCOPE_UNSPECIFIED Scope = 0
+	Scope_SCOPE_ENV         Scope = 1
+	Scope_SCOPE_SETUP       Scope = 2
+)
+
+// Enum value maps for Scope.
+var (
+	Scope_name = map[int32]string{
+		0: "SCOPE_UNSPECIFIED",
+		1: "SCOPE_ENV",
+		2: "SCOPE_SETUP",
+	}
+	Scope_value = map[string]int32{
+		"SCOPE_UNSPECIFIED": 0,
+		"SCOPE_ENV":         1,
+		"SCOPE_SETUP":       2,
+	}
+)
+
+func (x Scope) Enum() *Scope {
+	p := new(Scope)
+	*p = x
+	return p
+}
+
+func (x Scope) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Scope) Descriptor() protoreflect.EnumDescriptor {
+	return file_pb_plugin_proto_enumTypes[2].Descriptor()
+}
+
+func (Scope) Type() protoreflect.EnumType {
+	return &file_pb_plugin_proto_enumTypes[2]
+}
+
+func (x Scope) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Scope.Descriptor instead.
+func (Scope) EnumDescriptor() ([]byte, []int) {
+	return file_pb_plugin_proto_rawDescGZIP(), []int{2}
+}
+
+// Protocol is the wire protocol spoken to an exposed port's target.
+type Protocol int32
+
+const (
+	Protocol_PROTOCOL_TCP Protocol = 0
+	Protocol_PROTOCOL_UDP Protocol = 1
+)
+
+// Enum value maps for Protocol.
+var (
+	Protocol_name = map[int32]string{
+		0: "PROTOCOL_TCP",
+		1: "PROTOCOL_UDP",
+	}
+	Protocol_value = map[string]int32{
+		"PROTOCOL_TCP": 0,
+		"PROTOCOL_UDP": 1,
+	}
+)
+
+func (x Protocol) Enum() *Protocol {
+	p := new(Protocol)
+	*p = x
+	return p
+}
+
+func (x Protocol) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Protocol) Descriptor() protoreflect.EnumDescriptor {
+	return file_pb_plugin_proto_enumTypes[3].Descriptor()
+}
+
+func (Protocol) Type() protoreflect.EnumType {
+	return &file_pb_plugin_proto_enumTypes[3]
+}
+
+func (x Protocol) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Protocol.Descriptor instead.
+func (Protocol) EnumDescriptor() ([]byte, []int) {
+	return file_pb_plugin_proto_rawDescGZIP(), []int{3}
+}
+
 // RouteMode selects how the proxy handles a route's client-facing
 // connection - independent of Route.tls, which only says whether the
 // upstream itself speaks TLS.
@@ -128,11 +273,11 @@ func (x RouteMode) String() string {
 }
 
 func (RouteMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_pb_plugin_proto_enumTypes[1].Descriptor()
+	return file_pb_plugin_proto_enumTypes[4].Descriptor()
 }
 
 func (RouteMode) Type() protoreflect.EnumType {
-	return &file_pb_plugin_proto_enumTypes[1]
+	return &file_pb_plugin_proto_enumTypes[4]
 }
 
 func (x RouteMode) Number() protoreflect.EnumNumber {
@@ -141,7 +286,7 @@ func (x RouteMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RouteMode.Descriptor instead.
 func (RouteMode) EnumDescriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{1}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{4}
 }
 
 type InfoRequest struct {
@@ -549,23 +694,21 @@ type Environment struct {
 	Relay string `protobuf:"bytes,9,opt,name=relay,proto3" json:"relay,omitempty"`
 	// ProjectDir is the absolute path of the directory that holds kevin.cue.
 	ProjectDir string `protobuf:"bytes,10,opt,name=project_dir,json=projectDir,proto3" json:"project_dir,omitempty"`
-	// Engine names the container runtime that a plugin should use: "docker"
-	// or "podman". Empty means "docker".
-	Engine string `protobuf:"bytes,11,opt,name=engine,proto3" json:"engine,omitempty"`
-	// Scope is which DAG this step belongs to: "setup" or "env". A plugin
-	// should carry it as the "kevin.scope" label alongside
-	// "kevin.project"/"kevin.urn".
-	Scope string `protobuf:"bytes,13,opt,name=scope,proto3" json:"scope,omitempty"`
+	// Engine is the container runtime that a plugin should use.
+	Engine Engine `protobuf:"varint,11,opt,name=engine,proto3,enum=kevin.plugin.v1.Engine" json:"engine,omitempty"`
+	// Scope is which DAG this step belongs to. A plugin should carry it as
+	// the "kevin.scope" label alongside "kevin.project"/"kevin.urn".
+	Scope Scope `protobuf:"varint,13,opt,name=scope,proto3,enum=kevin.plugin.v1.Scope" json:"scope,omitempty"`
 	// RelaySocks5Addr is the host-reachable address of the relay's SOCKS5
-	// gateway. A plugin builds a "socks5://<addr>/<target>" upstream against
-	// it to reach a docker-network address through a single host port
-	// instead of a dedicated published port.
+	// gateway. A plugin sets an Upstream.relay target with this address to
+	// reach a docker-network address through a single host port instead of a
+	// dedicated published port.
 	RelaySocks5Addr string `protobuf:"bytes,14,opt,name=relay_socks5_addr,json=relaySocks5Addr,proto3" json:"relay_socks5_addr,omitempty"`
-	// RelaySocks5UdpAddrs maps a container-side UDP relay port (decimal
-	// string) to its host-reachable address. The relay publishes a fixed
-	// pool of these so a SOCKS5 UDP ASSOCIATE session can bind one before
-	// the container/pod that needs it exists - see ExposedPort.relay_udp_addrs.
-	RelaySocks5UdpAddrs map[string]string `protobuf:"bytes,15,rep,name=relay_socks5_udp_addrs,json=relaySocks5UdpAddrs,proto3" json:"relay_socks5_udp_addrs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// RelaySocks5UdpAddrs maps a container-side UDP relay port to its
+	// host-reachable address. The relay publishes a fixed pool of these so a
+	// SOCKS5 UDP ASSOCIATE session can bind one before the container/pod that
+	// needs it exists - see ExposedPort.relay_udp_addrs.
+	RelaySocks5UdpAddrs map[int32]string `protobuf:"bytes,15,rep,name=relay_socks5_udp_addrs,json=relaySocks5UdpAddrs,proto3" json:"relay_socks5_udp_addrs,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -670,18 +813,18 @@ func (x *Environment) GetProjectDir() string {
 	return ""
 }
 
-func (x *Environment) GetEngine() string {
+func (x *Environment) GetEngine() Engine {
 	if x != nil {
 		return x.Engine
 	}
-	return ""
+	return Engine_ENGINE_DOCKER
 }
 
-func (x *Environment) GetScope() string {
+func (x *Environment) GetScope() Scope {
 	if x != nil {
 		return x.Scope
 	}
-	return ""
+	return Scope_SCOPE_UNSPECIFIED
 }
 
 func (x *Environment) GetRelaySocks5Addr() string {
@@ -691,7 +834,7 @@ func (x *Environment) GetRelaySocks5Addr() string {
 	return ""
 }
 
-func (x *Environment) GetRelaySocks5UdpAddrs() map[string]string {
+func (x *Environment) GetRelaySocks5UdpAddrs() map[int32]string {
 	if x != nil {
 		return x.RelaySocks5UdpAddrs
 	}
@@ -923,8 +1066,6 @@ type DownRequest struct {
 	Env  *Environment `protobuf:"bytes,3,opt,name=env,proto3" json:"env,omitempty"`
 	// Config is the with block of the step, in JSON form.
 	Config []byte `protobuf:"bytes,4,opt,name=config,proto3" json:"config,omitempty"`
-	// Deps maps the name of each upstream step to the outputs of that step.
-	Deps map[string]*Outputs `protobuf:"bytes,5,rep,name=deps,proto3" json:"deps,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Outputs is what Up published for this step.
 	// Outputs are used by other steps as inputs to chain together more complex setup operations.
 	// These are passed to other steps using its Config.
@@ -987,13 +1128,6 @@ func (x *DownRequest) GetEnv() *Environment {
 func (x *DownRequest) GetConfig() []byte {
 	if x != nil {
 		return x.Config
-	}
-	return nil
-}
-
-func (x *DownRequest) GetDeps() map[string]*Outputs {
-	if x != nil {
-		return x.Deps
 	}
 	return nil
 }
@@ -1343,17 +1477,9 @@ type ContainerInfo struct {
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// Name is the container engine's own name.
 	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	// NetnsPath is the host path of this container's network namespace,
-	// such as "/proc/1234/ns/net" - empty if the container isn't running.
-	NetnsPath string `protobuf:"bytes,3,opt,name=netns_path,json=netnsPath,proto3" json:"netns_path,omitempty"`
-	// ExcludeCIDRs lists destination CIDRs that must never be redirected to
-	// the relay when capturing this namespace's egress - a Kubernetes
-	// cluster's own pod and service subnets, so pod-to-pod and
-	// pod-to-service traffic keeps working normally. A non-empty list is
-	// also what tells the relay this namespace routes traffic for others
-	// rather than only generating its own, so it captures what transits the
-	// namespace instead of what originates in it.
-	ExcludeCidrs  []string `protobuf:"bytes,4,rep,name=exclude_cidrs,json=excludeCidrs,proto3" json:"exclude_cidrs,omitempty"`
+	// Netns is this container's network namespace. Unset if the container
+	// isn't running.
+	Netns         *Netns `protobuf:"bytes,3,opt,name=netns,proto3" json:"netns,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1402,14 +1528,68 @@ func (x *ContainerInfo) GetName() string {
 	return ""
 }
 
-func (x *ContainerInfo) GetNetnsPath() string {
+func (x *ContainerInfo) GetNetns() *Netns {
 	if x != nil {
-		return x.NetnsPath
+		return x.Netns
+	}
+	return nil
+}
+
+// Netns is a network namespace the relay can capture the egress of.
+type Netns struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Path is the host path of the namespace, such as "/proc/1234/ns/net".
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// ExcludeCIDRs lists destination CIDRs that must never be redirected to
+	// the relay when capturing this namespace's egress - a Kubernetes
+	// cluster's own pod and service subnets, so pod-to-pod and
+	// pod-to-service traffic keeps working normally. A non-empty list is
+	// also what tells the relay this namespace routes traffic for others
+	// rather than only generating its own, so it captures what transits the
+	// namespace instead of what originates in it.
+	ExcludeCidrs  []string `protobuf:"bytes,2,rep,name=exclude_cidrs,json=excludeCidrs,proto3" json:"exclude_cidrs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Netns) Reset() {
+	*x = Netns{}
+	mi := &file_pb_plugin_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Netns) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Netns) ProtoMessage() {}
+
+func (x *Netns) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_plugin_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Netns.ProtoReflect.Descriptor instead.
+func (*Netns) Descriptor() ([]byte, []int) {
+	return file_pb_plugin_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *Netns) GetPath() string {
+	if x != nil {
+		return x.Path
 	}
 	return ""
 }
 
-func (x *ContainerInfo) GetExcludeCidrs() []string {
+func (x *Netns) GetExcludeCidrs() []string {
 	if x != nil {
 		return x.ExcludeCidrs
 	}
@@ -1421,9 +1601,10 @@ func (x *ContainerInfo) GetExcludeCidrs() []string {
 // position in needs.
 type StepContainers struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Step is the needs-step this container list belongs to - a same-scope
-	// step name, or "setup.<name>" for a cross-scope reference, the same
-	// string form needs itself already uses.
+	// Scope is the DAG the needs-step belongs to: SCOPE_SETUP for a
+	// cross-scope "setup.<name>" reference, otherwise the step's own scope.
+	Scope Scope `protobuf:"varint,3,opt,name=scope,proto3,enum=kevin.plugin.v1.Scope" json:"scope,omitempty"`
+	// Step is the needs-step's name, without any "setup." prefix.
 	Step          string           `protobuf:"bytes,1,opt,name=step,proto3" json:"step,omitempty"`
 	Containers    []*ContainerInfo `protobuf:"bytes,2,rep,name=containers,proto3" json:"containers,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1432,7 +1613,7 @@ type StepContainers struct {
 
 func (x *StepContainers) Reset() {
 	*x = StepContainers{}
-	mi := &file_pb_plugin_proto_msgTypes[16]
+	mi := &file_pb_plugin_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1444,7 +1625,7 @@ func (x *StepContainers) String() string {
 func (*StepContainers) ProtoMessage() {}
 
 func (x *StepContainers) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[16]
+	mi := &file_pb_plugin_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1457,7 +1638,14 @@ func (x *StepContainers) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepContainers.ProtoReflect.Descriptor instead.
 func (*StepContainers) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{16}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *StepContainers) GetScope() Scope {
+	if x != nil {
+		return x.Scope
+	}
+	return Scope_SCOPE_UNSPECIFIED
 }
 
 func (x *StepContainers) GetStep() string {
@@ -1508,7 +1696,7 @@ type NetworkFault struct {
 
 func (x *NetworkFault) Reset() {
 	*x = NetworkFault{}
-	mi := &file_pb_plugin_proto_msgTypes[17]
+	mi := &file_pb_plugin_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1520,7 +1708,7 @@ func (x *NetworkFault) String() string {
 func (*NetworkFault) ProtoMessage() {}
 
 func (x *NetworkFault) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[17]
+	mi := &file_pb_plugin_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1533,7 +1721,7 @@ func (x *NetworkFault) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkFault.ProtoReflect.Descriptor instead.
 func (*NetworkFault) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{17}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *NetworkFault) GetId() string {
@@ -1606,38 +1794,174 @@ func (x *NetworkFault) GetRateKbit() int32 {
 	return 0
 }
 
+// RelayTarget is a target reached through the environment's SOCKS5 relay.
+type RelayTarget struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Relay is the host-reachable address of the relay's SOCKS5 listener.
+	Relay string `protobuf:"bytes,1,opt,name=relay,proto3" json:"relay,omitempty"`
+	// Target is the host:port to reach inside the project network.
+	Target        string `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayTarget) Reset() {
+	*x = RelayTarget{}
+	mi := &file_pb_plugin_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayTarget) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayTarget) ProtoMessage() {}
+
+func (x *RelayTarget) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_plugin_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayTarget.ProtoReflect.Descriptor instead.
+func (*RelayTarget) Descriptor() ([]byte, []int) {
+	return file_pb_plugin_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *RelayTarget) GetRelay() string {
+	if x != nil {
+		return x.Relay
+	}
+	return ""
+}
+
+func (x *RelayTarget) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+// Upstream is where a route or exposed port sends traffic.
+type Upstream struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Kind:
+	//
+	//	*Upstream_Addr
+	//	*Upstream_Relay
+	Kind          isUpstream_Kind `protobuf_oneof:"kind"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Upstream) Reset() {
+	*x = Upstream{}
+	mi := &file_pb_plugin_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Upstream) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Upstream) ProtoMessage() {}
+
+func (x *Upstream) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_plugin_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Upstream.ProtoReflect.Descriptor instead.
+func (*Upstream) Descriptor() ([]byte, []int) {
+	return file_pb_plugin_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *Upstream) GetKind() isUpstream_Kind {
+	if x != nil {
+		return x.Kind
+	}
+	return nil
+}
+
+func (x *Upstream) GetAddr() string {
+	if x != nil {
+		if x, ok := x.Kind.(*Upstream_Addr); ok {
+			return x.Addr
+		}
+	}
+	return ""
+}
+
+func (x *Upstream) GetRelay() *RelayTarget {
+	if x != nil {
+		if x, ok := x.Kind.(*Upstream_Relay); ok {
+			return x.Relay
+		}
+	}
+	return nil
+}
+
+type isUpstream_Kind interface {
+	isUpstream_Kind()
+}
+
+type Upstream_Addr struct {
+	// Addr is a host-reachable address, such as "127.0.0.1:54321".
+	Addr string `protobuf:"bytes,1,opt,name=addr,proto3,oneof"`
+}
+
+type Upstream_Relay struct {
+	// Relay is a target reached through the SOCKS5 relay.
+	Relay *RelayTarget `protobuf:"bytes,2,opt,name=relay,proto3,oneof"`
+}
+
+func (*Upstream_Addr) isUpstream_Kind() {}
+
+func (*Upstream_Relay) isUpstream_Kind() {}
+
 // ExposedPort is a raw TCP or UDP endpoint that a step publishes, either
 // directly on the host or through the environment's relay.
 type ExposedPort struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// Protocol is "tcp" or "udp" - the real wire protocol spoken to the
-	// target, regardless of whether Relay routes it through the SOCKS5
-	// gateway.
-	Protocol string `protobuf:"bytes,2,opt,name=protocol,proto3" json:"protocol,omitempty"`
-	// Upstream is the host-reachable address when !Relay, such as
-	// "127.0.0.1:54321", or a "socks5://<relay>/<target>" upstream when
-	// Relay is true.
-	Upstream string `protobuf:"bytes,3,opt,name=upstream,proto3" json:"upstream,omitempty"`
+	// Protocol is the real wire protocol spoken to the target, regardless of
+	// whether the upstream routes it through the SOCKS5 gateway.
+	Protocol Protocol `protobuf:"varint,2,opt,name=protocol,proto3,enum=kevin.plugin.v1.Protocol" json:"protocol,omitempty"`
+	// Upstream is where the port is reached. A relay upstream is reached
+	// through the environment's SOCKS5 relay instead of dialed directly.
+	Upstream *Upstream `protobuf:"bytes,3,opt,name=upstream,proto3" json:"upstream,omitempty"`
 	// HostPort pins the port of the engine's local forward. Ignored unless
-	// Relay is true; zero lets the OS assign one.
+	// the upstream is a relay; zero lets the OS assign one.
 	HostPort int32 `protobuf:"varint,4,opt,name=host_port,json=hostPort,proto3" json:"host_port,omitempty"`
-	// Relay is true when Upstream must be reached through the environment's
-	// SOCKS5 relay instead of dialed directly.
-	Relay bool `protobuf:"varint,5,opt,name=relay,proto3" json:"relay,omitempty"`
-	// RelayUdpAddrs maps a container-side UDP relay port (decimal string) to
-	// its host-reachable address. Set only when Relay and Protocol == "udp":
-	// the relay's ASSOCIATE reply names one of these container ports, and
-	// the engine's local UDP forward looks it up here, since the relay's own
-	// bind address is a docker-network address the host can't dial directly.
-	RelayUdpAddrs map[string]string `protobuf:"bytes,6,rep,name=relay_udp_addrs,json=relayUdpAddrs,proto3" json:"relay_udp_addrs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// RelayUdpAddrs maps a container-side UDP relay port to its
+	// host-reachable address. Set only for a relay upstream with
+	// PROTOCOL_UDP: the relay's ASSOCIATE reply names one of these container
+	// ports, and the engine's local UDP forward looks it up here, since the
+	// relay's own bind address is a docker-network address the host can't
+	// dial directly.
+	RelayUdpAddrs map[int32]string `protobuf:"bytes,6,rep,name=relay_udp_addrs,json=relayUdpAddrs,proto3" json:"relay_udp_addrs,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExposedPort) Reset() {
 	*x = ExposedPort{}
-	mi := &file_pb_plugin_proto_msgTypes[18]
+	mi := &file_pb_plugin_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1649,7 +1973,7 @@ func (x *ExposedPort) String() string {
 func (*ExposedPort) ProtoMessage() {}
 
 func (x *ExposedPort) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[18]
+	mi := &file_pb_plugin_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1662,7 +1986,7 @@ func (x *ExposedPort) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExposedPort.ProtoReflect.Descriptor instead.
 func (*ExposedPort) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{18}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ExposedPort) GetName() string {
@@ -1672,18 +1996,18 @@ func (x *ExposedPort) GetName() string {
 	return ""
 }
 
-func (x *ExposedPort) GetProtocol() string {
+func (x *ExposedPort) GetProtocol() Protocol {
 	if x != nil {
 		return x.Protocol
 	}
-	return ""
+	return Protocol_PROTOCOL_TCP
 }
 
-func (x *ExposedPort) GetUpstream() string {
+func (x *ExposedPort) GetUpstream() *Upstream {
 	if x != nil {
 		return x.Upstream
 	}
-	return ""
+	return nil
 }
 
 func (x *ExposedPort) GetHostPort() int32 {
@@ -1693,14 +2017,7 @@ func (x *ExposedPort) GetHostPort() int32 {
 	return 0
 }
 
-func (x *ExposedPort) GetRelay() bool {
-	if x != nil {
-		return x.Relay
-	}
-	return false
-}
-
-func (x *ExposedPort) GetRelayUdpAddrs() map[string]string {
+func (x *ExposedPort) GetRelayUdpAddrs() map[int32]string {
 	if x != nil {
 		return x.RelayUdpAddrs
 	}
@@ -1725,7 +2042,7 @@ type Detail struct {
 
 func (x *Detail) Reset() {
 	*x = Detail{}
-	mi := &file_pb_plugin_proto_msgTypes[19]
+	mi := &file_pb_plugin_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1737,7 +2054,7 @@ func (x *Detail) String() string {
 func (*Detail) ProtoMessage() {}
 
 func (x *Detail) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[19]
+	mi := &file_pb_plugin_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1750,7 +2067,7 @@ func (x *Detail) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Detail.ProtoReflect.Descriptor instead.
 func (*Detail) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{19}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *Detail) GetLabel() string {
@@ -1796,7 +2113,7 @@ type ExportRequest struct {
 
 func (x *ExportRequest) Reset() {
 	*x = ExportRequest{}
-	mi := &file_pb_plugin_proto_msgTypes[20]
+	mi := &file_pb_plugin_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1808,7 +2125,7 @@ func (x *ExportRequest) String() string {
 func (*ExportRequest) ProtoMessage() {}
 
 func (x *ExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[20]
+	mi := &file_pb_plugin_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1821,7 +2138,7 @@ func (x *ExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportRequest.ProtoReflect.Descriptor instead.
 func (*ExportRequest) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{20}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ExportRequest) GetStep() string {
@@ -1870,7 +2187,7 @@ type ExportResponse struct {
 
 func (x *ExportResponse) Reset() {
 	*x = ExportResponse{}
-	mi := &file_pb_plugin_proto_msgTypes[21]
+	mi := &file_pb_plugin_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1882,7 +2199,7 @@ func (x *ExportResponse) String() string {
 func (*ExportResponse) ProtoMessage() {}
 
 func (x *ExportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[21]
+	mi := &file_pb_plugin_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1895,7 +2212,7 @@ func (x *ExportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportResponse.ProtoReflect.Descriptor instead.
 func (*ExportResponse) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{21}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ExportResponse) GetOut() *Outputs {
@@ -1935,7 +2252,7 @@ type ToolCallRequest struct {
 
 func (x *ToolCallRequest) Reset() {
 	*x = ToolCallRequest{}
-	mi := &file_pb_plugin_proto_msgTypes[22]
+	mi := &file_pb_plugin_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1947,7 +2264,7 @@ func (x *ToolCallRequest) String() string {
 func (*ToolCallRequest) ProtoMessage() {}
 
 func (x *ToolCallRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[22]
+	mi := &file_pb_plugin_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1960,7 +2277,7 @@ func (x *ToolCallRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolCallRequest.ProtoReflect.Descriptor instead.
 func (*ToolCallRequest) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{22}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ToolCallRequest) GetStep() string {
@@ -2027,7 +2344,7 @@ type ToolCallResponse struct {
 
 func (x *ToolCallResponse) Reset() {
 	*x = ToolCallResponse{}
-	mi := &file_pb_plugin_proto_msgTypes[23]
+	mi := &file_pb_plugin_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2039,7 +2356,7 @@ func (x *ToolCallResponse) String() string {
 func (*ToolCallResponse) ProtoMessage() {}
 
 func (x *ToolCallResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[23]
+	mi := &file_pb_plugin_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2052,7 +2369,7 @@ func (x *ToolCallResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolCallResponse.ProtoReflect.Descriptor instead.
 func (*ToolCallResponse) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{23}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ToolCallResponse) GetContent() []byte {
@@ -2080,8 +2397,9 @@ type Route struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Host is the hostname that clients use.
 	Host string `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
-	// Upstream is the address to forward to. The address must be reachable on the docker network.
-	Upstream string `protobuf:"bytes,2,opt,name=upstream,proto3" json:"upstream,omitempty"`
+	// Upstream is where to forward to. The address must be reachable from the
+	// host, directly or through the relay.
+	Upstream *Upstream `protobuf:"bytes,2,opt,name=upstream,proto3" json:"upstream,omitempty"`
 	// Tls is true when the upstream itself speaks TLS.
 	Tls bool `protobuf:"varint,3,opt,name=tls,proto3" json:"tls,omitempty"`
 	// Intercept marks host as a real-world hostname being intercepted, rather
@@ -2098,7 +2416,7 @@ type Route struct {
 
 func (x *Route) Reset() {
 	*x = Route{}
-	mi := &file_pb_plugin_proto_msgTypes[24]
+	mi := &file_pb_plugin_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2110,7 +2428,7 @@ func (x *Route) String() string {
 func (*Route) ProtoMessage() {}
 
 func (x *Route) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[24]
+	mi := &file_pb_plugin_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2123,7 +2441,7 @@ func (x *Route) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Route.ProtoReflect.Descriptor instead.
 func (*Route) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{24}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *Route) GetHost() string {
@@ -2133,11 +2451,11 @@ func (x *Route) GetHost() string {
 	return ""
 }
 
-func (x *Route) GetUpstream() string {
+func (x *Route) GetUpstream() *Upstream {
 	if x != nil {
 		return x.Upstream
 	}
-	return ""
+	return nil
 }
 
 func (x *Route) GetTls() bool {
@@ -2177,7 +2495,7 @@ type Intercept struct {
 
 func (x *Intercept) Reset() {
 	*x = Intercept{}
-	mi := &file_pb_plugin_proto_msgTypes[25]
+	mi := &file_pb_plugin_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2189,7 +2507,7 @@ func (x *Intercept) String() string {
 func (*Intercept) ProtoMessage() {}
 
 func (x *Intercept) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[25]
+	mi := &file_pb_plugin_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2202,7 +2520,7 @@ func (x *Intercept) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Intercept.ProtoReflect.Descriptor instead.
 func (*Intercept) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{25}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *Intercept) GetPorts() []int32 {
@@ -2233,7 +2551,7 @@ type UserMessage struct {
 
 func (x *UserMessage) Reset() {
 	*x = UserMessage{}
-	mi := &file_pb_plugin_proto_msgTypes[26]
+	mi := &file_pb_plugin_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2245,7 +2563,7 @@ func (x *UserMessage) String() string {
 func (*UserMessage) ProtoMessage() {}
 
 func (x *UserMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_plugin_proto_msgTypes[26]
+	mi := &file_pb_plugin_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2258,7 +2576,7 @@ func (x *UserMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserMessage.ProtoReflect.Descriptor instead.
 func (*UserMessage) Descriptor() ([]byte, []int) {
-	return file_pb_plugin_proto_rawDescGZIP(), []int{26}
+	return file_pb_plugin_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *UserMessage) GetKey() string {
@@ -2305,7 +2623,7 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x10ConfigureRequest\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\x12.\n" +
 	"\x03env\x18\x02 \x01(\v2\x1c.kevin.plugin.v1.EnvironmentR\x03env\"\x13\n" +
-	"\x11ConfigureResponse\"\xa6\x05\n" +
+	"\x11ConfigureResponse\"\xd7\x05\n" +
 	"\vEnvironment\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x1c\n" +
 	"\tworkspace\x18\x02 \x01(\tR\tworkspace\x12\x18\n" +
@@ -2318,16 +2636,16 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x05relay\x18\t \x01(\tR\x05relay\x12\x1f\n" +
 	"\vproject_dir\x18\n" +
 	" \x01(\tR\n" +
-	"projectDir\x12\x16\n" +
-	"\x06engine\x18\v \x01(\tR\x06engine\x12\x14\n" +
-	"\x05scope\x18\r \x01(\tR\x05scope\x12*\n" +
+	"projectDir\x12/\n" +
+	"\x06engine\x18\v \x01(\x0e2\x17.kevin.plugin.v1.EngineR\x06engine\x12,\n" +
+	"\x05scope\x18\r \x01(\x0e2\x16.kevin.plugin.v1.ScopeR\x05scope\x12*\n" +
 	"\x11relay_socks5_addr\x18\x0e \x01(\tR\x0frelaySocks5Addr\x12j\n" +
 	"\x16relay_socks5_udp_addrs\x18\x0f \x03(\v25.kevin.plugin.v1.Environment.RelaySocks5UdpAddrsEntryR\x13relaySocks5UdpAddrs\x1a;\n" +
 	"\rProxyEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aF\n" +
 	"\x18RelaySocks5UdpAddrsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x03key\x18\x01 \x01(\x05R\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"R\n" +
 	"\x05Value\x12#\n" +
 	"\fstring_value\x18\x01 \x01(\tH\x00R\vstringValue\x12\x1c\n" +
@@ -2350,17 +2668,13 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"containers\x1aQ\n" +
 	"\tDepsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
-	"\x05value\x18\x02 \x01(\v2\x18.kevin.plugin.v1.OutputsR\x05value:\x028\x01\"\xc0\x02\n" +
+	"\x05value\x18\x02 \x01(\v2\x18.kevin.plugin.v1.OutputsR\x05value:\x028\x01\"\xb1\x01\n" +
 	"\vDownRequest\x12\x12\n" +
 	"\x04step\x18\x01 \x01(\tR\x04step\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12.\n" +
 	"\x03env\x18\x03 \x01(\v2\x1c.kevin.plugin.v1.EnvironmentR\x03env\x12\x16\n" +
-	"\x06config\x18\x04 \x01(\fR\x06config\x12:\n" +
-	"\x04deps\x18\x05 \x03(\v2&.kevin.plugin.v1.DownRequest.DepsEntryR\x04deps\x122\n" +
-	"\aoutputs\x18\x06 \x01(\v2\x18.kevin.plugin.v1.OutputsR\aoutputs\x1aQ\n" +
-	"\tDepsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
-	"\x05value\x18\x02 \x01(\v2\x18.kevin.plugin.v1.OutputsR\x05value:\x028\x01\"\xaa\x01\n" +
+	"\x06config\x18\x04 \x01(\fR\x06config\x122\n" +
+	"\aoutputs\x18\x06 \x01(\v2\x18.kevin.plugin.v1.OutputsR\aoutputs\"\xaa\x01\n" +
 	"\x05Event\x12,\n" +
 	"\x03log\x18\x01 \x01(\v2\x18.kevin.plugin.v1.LogLineH\x00R\x03log\x127\n" +
 	"\bprogress\x18\x02 \x01(\v2\x19.kevin.plugin.v1.ProgressH\x00R\bprogress\x121\n" +
@@ -2383,14 +2697,16 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\n" +
 	"containers\x18\b \x03(\v2\x1e.kevin.plugin.v1.ContainerInfoR\n" +
 	"containers\x125\n" +
-	"\x06faults\x18\t \x03(\v2\x1d.kevin.plugin.v1.NetworkFaultR\x06faults\"w\n" +
+	"\x06faults\x18\t \x03(\v2\x1d.kevin.plugin.v1.NetworkFaultR\x06faults\"a\n" +
 	"\rContainerInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
-	"\n" +
-	"netns_path\x18\x03 \x01(\tR\tnetnsPath\x12#\n" +
-	"\rexclude_cidrs\x18\x04 \x03(\tR\fexcludeCidrs\"d\n" +
-	"\x0eStepContainers\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12,\n" +
+	"\x05netns\x18\x03 \x01(\v2\x16.kevin.plugin.v1.NetnsR\x05netns\"@\n" +
+	"\x05Netns\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12#\n" +
+	"\rexclude_cidrs\x18\x02 \x03(\tR\fexcludeCidrs\"\x92\x01\n" +
+	"\x0eStepContainers\x12,\n" +
+	"\x05scope\x18\x03 \x01(\x0e2\x16.kevin.plugin.v1.ScopeR\x05scope\x12\x12\n" +
 	"\x04step\x18\x01 \x01(\tR\x04step\x12>\n" +
 	"\n" +
 	"containers\x18\x02 \x03(\v2\x1e.kevin.plugin.v1.ContainerInfoR\n" +
@@ -2407,16 +2723,22 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x11duplicate_percent\x18\b \x01(\x01R\x10duplicatePercent\x12'\n" +
 	"\x0freorder_percent\x18\t \x01(\x01R\x0ereorderPercent\x12\x1b\n" +
 	"\trate_kbit\x18\n" +
-	" \x01(\x05R\brateKbit\"\xa7\x02\n" +
+	" \x01(\x05R\brateKbit\";\n" +
+	"\vRelayTarget\x12\x14\n" +
+	"\x05relay\x18\x01 \x01(\tR\x05relay\x12\x16\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\"^\n" +
+	"\bUpstream\x12\x14\n" +
+	"\x04addr\x18\x01 \x01(\tH\x00R\x04addr\x124\n" +
+	"\x05relay\x18\x02 \x01(\v2\x1c.kevin.plugin.v1.RelayTargetH\x00R\x05relayB\x06\n" +
+	"\x04kind\"\xc7\x02\n" +
 	"\vExposedPort\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
-	"\bprotocol\x18\x02 \x01(\tR\bprotocol\x12\x1a\n" +
-	"\bupstream\x18\x03 \x01(\tR\bupstream\x12\x1b\n" +
-	"\thost_port\x18\x04 \x01(\x05R\bhostPort\x12\x14\n" +
-	"\x05relay\x18\x05 \x01(\bR\x05relay\x12W\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x125\n" +
+	"\bprotocol\x18\x02 \x01(\x0e2\x19.kevin.plugin.v1.ProtocolR\bprotocol\x125\n" +
+	"\bupstream\x18\x03 \x01(\v2\x19.kevin.plugin.v1.UpstreamR\bupstream\x12\x1b\n" +
+	"\thost_port\x18\x04 \x01(\x05R\bhostPort\x12W\n" +
 	"\x0frelay_udp_addrs\x18\x06 \x03(\v2/.kevin.plugin.v1.ExposedPort.RelayUdpAddrsEntryR\rrelayUdpAddrs\x1a@\n" +
 	"\x12RelayUdpAddrsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x03key\x18\x01 \x01(\x05R\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"|\n" +
 	"\x06Detail\x12\x14\n" +
 	"\x05label\x18\x01 \x01(\tR\x05label\x12,\n" +
@@ -2447,10 +2769,10 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x10ToolCallResponse\x12\x18\n" +
 	"\acontent\x18\x01 \x01(\fR\acontent\x12\x19\n" +
 	"\bis_error\x18\x02 \x01(\bR\aisError\x12#\n" +
-	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\"\xb3\x01\n" +
+	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\"\xce\x01\n" +
 	"\x05Route\x12\x12\n" +
-	"\x04host\x18\x01 \x01(\tR\x04host\x12\x1a\n" +
-	"\bupstream\x18\x02 \x01(\tR\bupstream\x12\x10\n" +
+	"\x04host\x18\x01 \x01(\tR\x04host\x125\n" +
+	"\bupstream\x18\x02 \x01(\v2\x19.kevin.plugin.v1.UpstreamR\bupstream\x12\x10\n" +
 	"\x03tls\x18\x03 \x01(\bR\x03tls\x128\n" +
 	"\tintercept\x18\x04 \x01(\v2\x1a.kevin.plugin.v1.InterceptR\tintercept\x12.\n" +
 	"\x04mode\x18\x05 \x01(\x0e2\x1a.kevin.plugin.v1.RouteModeR\x04mode\"!\n" +
@@ -2463,7 +2785,17 @@ const file_pb_plugin_proto_rawDesc = "" +
 	"\x15STEP_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12STEP_KIND_RESOURCE\x10\x01\x12\x14\n" +
 	"\x10STEP_KIND_ACTION\x10\x02\x12\x13\n" +
-	"\x0fSTEP_KIND_PROBE\x10\x03*P\n" +
+	"\x0fSTEP_KIND_PROBE\x10\x03*.\n" +
+	"\x06Engine\x12\x11\n" +
+	"\rENGINE_DOCKER\x10\x00\x12\x11\n" +
+	"\rENGINE_PODMAN\x10\x01*>\n" +
+	"\x05Scope\x12\x15\n" +
+	"\x11SCOPE_UNSPECIFIED\x10\x00\x12\r\n" +
+	"\tSCOPE_ENV\x10\x01\x12\x0f\n" +
+	"\vSCOPE_SETUP\x10\x02*.\n" +
+	"\bProtocol\x12\x10\n" +
+	"\fPROTOCOL_TCP\x10\x00\x12\x10\n" +
+	"\fPROTOCOL_UDP\x10\x01*P\n" +
 	"\tRouteMode\x12\x13\n" +
 	"\x0fROUTE_MODE_MITM\x10\x00\x12\x1a\n" +
 	"\x16ROUTE_MODE_PASSTHROUGH\x10\x01\x12\x12\n" +
@@ -2488,100 +2820,111 @@ func file_pb_plugin_proto_rawDescGZIP() []byte {
 	return file_pb_plugin_proto_rawDescData
 }
 
-var file_pb_plugin_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_pb_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
+var file_pb_plugin_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_pb_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
 var file_pb_plugin_proto_goTypes = []any{
 	(StepKind)(0),             // 0: kevin.plugin.v1.StepKind
-	(RouteMode)(0),            // 1: kevin.plugin.v1.RouteMode
-	(*InfoRequest)(nil),       // 2: kevin.plugin.v1.InfoRequest
-	(*InfoResponse)(nil),      // 3: kevin.plugin.v1.InfoResponse
-	(*StepType)(nil),          // 4: kevin.plugin.v1.StepType
-	(*ToolDefinition)(nil),    // 5: kevin.plugin.v1.ToolDefinition
-	(*ConfigureRequest)(nil),  // 6: kevin.plugin.v1.ConfigureRequest
-	(*ConfigureResponse)(nil), // 7: kevin.plugin.v1.ConfigureResponse
-	(*Environment)(nil),       // 8: kevin.plugin.v1.Environment
-	(*Value)(nil),             // 9: kevin.plugin.v1.Value
-	(*Outputs)(nil),           // 10: kevin.plugin.v1.Outputs
-	(*UpRequest)(nil),         // 11: kevin.plugin.v1.UpRequest
-	(*DownRequest)(nil),       // 12: kevin.plugin.v1.DownRequest
-	(*Event)(nil),             // 13: kevin.plugin.v1.Event
-	(*LogLine)(nil),           // 14: kevin.plugin.v1.LogLine
-	(*Progress)(nil),          // 15: kevin.plugin.v1.Progress
-	(*Result)(nil),            // 16: kevin.plugin.v1.Result
-	(*ContainerInfo)(nil),     // 17: kevin.plugin.v1.ContainerInfo
-	(*StepContainers)(nil),    // 18: kevin.plugin.v1.StepContainers
-	(*NetworkFault)(nil),      // 19: kevin.plugin.v1.NetworkFault
-	(*ExposedPort)(nil),       // 20: kevin.plugin.v1.ExposedPort
-	(*Detail)(nil),            // 21: kevin.plugin.v1.Detail
-	(*ExportRequest)(nil),     // 22: kevin.plugin.v1.ExportRequest
-	(*ExportResponse)(nil),    // 23: kevin.plugin.v1.ExportResponse
-	(*ToolCallRequest)(nil),   // 24: kevin.plugin.v1.ToolCallRequest
-	(*ToolCallResponse)(nil),  // 25: kevin.plugin.v1.ToolCallResponse
-	(*Route)(nil),             // 26: kevin.plugin.v1.Route
-	(*Intercept)(nil),         // 27: kevin.plugin.v1.Intercept
-	(*UserMessage)(nil),       // 28: kevin.plugin.v1.UserMessage
-	nil,                       // 29: kevin.plugin.v1.Environment.ProxyEnvEntry
-	nil,                       // 30: kevin.plugin.v1.Environment.RelaySocks5UdpAddrsEntry
-	nil,                       // 31: kevin.plugin.v1.Outputs.ValuesEntry
-	nil,                       // 32: kevin.plugin.v1.UpRequest.DepsEntry
-	nil,                       // 33: kevin.plugin.v1.DownRequest.DepsEntry
-	nil,                       // 34: kevin.plugin.v1.ExposedPort.RelayUdpAddrsEntry
-	nil,                       // 35: kevin.plugin.v1.ToolCallRequest.DepsEntry
+	(Engine)(0),               // 1: kevin.plugin.v1.Engine
+	(Scope)(0),                // 2: kevin.plugin.v1.Scope
+	(Protocol)(0),             // 3: kevin.plugin.v1.Protocol
+	(RouteMode)(0),            // 4: kevin.plugin.v1.RouteMode
+	(*InfoRequest)(nil),       // 5: kevin.plugin.v1.InfoRequest
+	(*InfoResponse)(nil),      // 6: kevin.plugin.v1.InfoResponse
+	(*StepType)(nil),          // 7: kevin.plugin.v1.StepType
+	(*ToolDefinition)(nil),    // 8: kevin.plugin.v1.ToolDefinition
+	(*ConfigureRequest)(nil),  // 9: kevin.plugin.v1.ConfigureRequest
+	(*ConfigureResponse)(nil), // 10: kevin.plugin.v1.ConfigureResponse
+	(*Environment)(nil),       // 11: kevin.plugin.v1.Environment
+	(*Value)(nil),             // 12: kevin.plugin.v1.Value
+	(*Outputs)(nil),           // 13: kevin.plugin.v1.Outputs
+	(*UpRequest)(nil),         // 14: kevin.plugin.v1.UpRequest
+	(*DownRequest)(nil),       // 15: kevin.plugin.v1.DownRequest
+	(*Event)(nil),             // 16: kevin.plugin.v1.Event
+	(*LogLine)(nil),           // 17: kevin.plugin.v1.LogLine
+	(*Progress)(nil),          // 18: kevin.plugin.v1.Progress
+	(*Result)(nil),            // 19: kevin.plugin.v1.Result
+	(*ContainerInfo)(nil),     // 20: kevin.plugin.v1.ContainerInfo
+	(*Netns)(nil),             // 21: kevin.plugin.v1.Netns
+	(*StepContainers)(nil),    // 22: kevin.plugin.v1.StepContainers
+	(*NetworkFault)(nil),      // 23: kevin.plugin.v1.NetworkFault
+	(*RelayTarget)(nil),       // 24: kevin.plugin.v1.RelayTarget
+	(*Upstream)(nil),          // 25: kevin.plugin.v1.Upstream
+	(*ExposedPort)(nil),       // 26: kevin.plugin.v1.ExposedPort
+	(*Detail)(nil),            // 27: kevin.plugin.v1.Detail
+	(*ExportRequest)(nil),     // 28: kevin.plugin.v1.ExportRequest
+	(*ExportResponse)(nil),    // 29: kevin.plugin.v1.ExportResponse
+	(*ToolCallRequest)(nil),   // 30: kevin.plugin.v1.ToolCallRequest
+	(*ToolCallResponse)(nil),  // 31: kevin.plugin.v1.ToolCallResponse
+	(*Route)(nil),             // 32: kevin.plugin.v1.Route
+	(*Intercept)(nil),         // 33: kevin.plugin.v1.Intercept
+	(*UserMessage)(nil),       // 34: kevin.plugin.v1.UserMessage
+	nil,                       // 35: kevin.plugin.v1.Environment.ProxyEnvEntry
+	nil,                       // 36: kevin.plugin.v1.Environment.RelaySocks5UdpAddrsEntry
+	nil,                       // 37: kevin.plugin.v1.Outputs.ValuesEntry
+	nil,                       // 38: kevin.plugin.v1.UpRequest.DepsEntry
+	nil,                       // 39: kevin.plugin.v1.ExposedPort.RelayUdpAddrsEntry
+	nil,                       // 40: kevin.plugin.v1.ToolCallRequest.DepsEntry
 }
 var file_pb_plugin_proto_depIdxs = []int32{
-	4,  // 0: kevin.plugin.v1.InfoResponse.steps:type_name -> kevin.plugin.v1.StepType
+	7,  // 0: kevin.plugin.v1.InfoResponse.steps:type_name -> kevin.plugin.v1.StepType
 	0,  // 1: kevin.plugin.v1.StepType.kind:type_name -> kevin.plugin.v1.StepKind
-	5,  // 2: kevin.plugin.v1.StepType.tools:type_name -> kevin.plugin.v1.ToolDefinition
-	8,  // 3: kevin.plugin.v1.ConfigureRequest.env:type_name -> kevin.plugin.v1.Environment
-	29, // 4: kevin.plugin.v1.Environment.proxy_env:type_name -> kevin.plugin.v1.Environment.ProxyEnvEntry
-	30, // 5: kevin.plugin.v1.Environment.relay_socks5_udp_addrs:type_name -> kevin.plugin.v1.Environment.RelaySocks5UdpAddrsEntry
-	31, // 6: kevin.plugin.v1.Outputs.values:type_name -> kevin.plugin.v1.Outputs.ValuesEntry
-	8,  // 7: kevin.plugin.v1.UpRequest.env:type_name -> kevin.plugin.v1.Environment
-	32, // 8: kevin.plugin.v1.UpRequest.deps:type_name -> kevin.plugin.v1.UpRequest.DepsEntry
-	18, // 9: kevin.plugin.v1.UpRequest.containers:type_name -> kevin.plugin.v1.StepContainers
-	8,  // 10: kevin.plugin.v1.DownRequest.env:type_name -> kevin.plugin.v1.Environment
-	33, // 11: kevin.plugin.v1.DownRequest.deps:type_name -> kevin.plugin.v1.DownRequest.DepsEntry
-	10, // 12: kevin.plugin.v1.DownRequest.outputs:type_name -> kevin.plugin.v1.Outputs
-	14, // 13: kevin.plugin.v1.Event.log:type_name -> kevin.plugin.v1.LogLine
-	15, // 14: kevin.plugin.v1.Event.progress:type_name -> kevin.plugin.v1.Progress
-	16, // 15: kevin.plugin.v1.Event.result:type_name -> kevin.plugin.v1.Result
-	10, // 16: kevin.plugin.v1.Result.outputs:type_name -> kevin.plugin.v1.Outputs
-	26, // 17: kevin.plugin.v1.Result.routes:type_name -> kevin.plugin.v1.Route
-	20, // 18: kevin.plugin.v1.Result.exposed_ports:type_name -> kevin.plugin.v1.ExposedPort
-	21, // 19: kevin.plugin.v1.Result.details:type_name -> kevin.plugin.v1.Detail
-	17, // 20: kevin.plugin.v1.Result.containers:type_name -> kevin.plugin.v1.ContainerInfo
-	19, // 21: kevin.plugin.v1.Result.faults:type_name -> kevin.plugin.v1.NetworkFault
-	17, // 22: kevin.plugin.v1.StepContainers.containers:type_name -> kevin.plugin.v1.ContainerInfo
-	34, // 23: kevin.plugin.v1.ExposedPort.relay_udp_addrs:type_name -> kevin.plugin.v1.ExposedPort.RelayUdpAddrsEntry
-	9,  // 24: kevin.plugin.v1.Detail.value:type_name -> kevin.plugin.v1.Value
-	8,  // 25: kevin.plugin.v1.ExportRequest.env:type_name -> kevin.plugin.v1.Environment
-	10, // 26: kevin.plugin.v1.ExportResponse.out:type_name -> kevin.plugin.v1.Outputs
-	17, // 27: kevin.plugin.v1.ExportResponse.containers:type_name -> kevin.plugin.v1.ContainerInfo
-	8,  // 28: kevin.plugin.v1.ToolCallRequest.env:type_name -> kevin.plugin.v1.Environment
-	35, // 29: kevin.plugin.v1.ToolCallRequest.deps:type_name -> kevin.plugin.v1.ToolCallRequest.DepsEntry
-	27, // 30: kevin.plugin.v1.Route.intercept:type_name -> kevin.plugin.v1.Intercept
-	1,  // 31: kevin.plugin.v1.Route.mode:type_name -> kevin.plugin.v1.RouteMode
-	9,  // 32: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
-	10, // 33: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	10, // 34: kevin.plugin.v1.DownRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	10, // 35: kevin.plugin.v1.ToolCallRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
-	2,  // 36: kevin.plugin.v1.Plugin.Info:input_type -> kevin.plugin.v1.InfoRequest
-	6,  // 37: kevin.plugin.v1.Plugin.Configure:input_type -> kevin.plugin.v1.ConfigureRequest
-	11, // 38: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
-	12, // 39: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
-	22, // 40: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
-	24, // 41: kevin.plugin.v1.Plugin.CallTool:input_type -> kevin.plugin.v1.ToolCallRequest
-	3,  // 42: kevin.plugin.v1.Plugin.Info:output_type -> kevin.plugin.v1.InfoResponse
-	7,  // 43: kevin.plugin.v1.Plugin.Configure:output_type -> kevin.plugin.v1.ConfigureResponse
-	13, // 44: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
-	13, // 45: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
-	23, // 46: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
-	25, // 47: kevin.plugin.v1.Plugin.CallTool:output_type -> kevin.plugin.v1.ToolCallResponse
-	42, // [42:48] is the sub-list for method output_type
-	36, // [36:42] is the sub-list for method input_type
-	36, // [36:36] is the sub-list for extension type_name
-	36, // [36:36] is the sub-list for extension extendee
-	0,  // [0:36] is the sub-list for field type_name
+	8,  // 2: kevin.plugin.v1.StepType.tools:type_name -> kevin.plugin.v1.ToolDefinition
+	11, // 3: kevin.plugin.v1.ConfigureRequest.env:type_name -> kevin.plugin.v1.Environment
+	35, // 4: kevin.plugin.v1.Environment.proxy_env:type_name -> kevin.plugin.v1.Environment.ProxyEnvEntry
+	1,  // 5: kevin.plugin.v1.Environment.engine:type_name -> kevin.plugin.v1.Engine
+	2,  // 6: kevin.plugin.v1.Environment.scope:type_name -> kevin.plugin.v1.Scope
+	36, // 7: kevin.plugin.v1.Environment.relay_socks5_udp_addrs:type_name -> kevin.plugin.v1.Environment.RelaySocks5UdpAddrsEntry
+	37, // 8: kevin.plugin.v1.Outputs.values:type_name -> kevin.plugin.v1.Outputs.ValuesEntry
+	11, // 9: kevin.plugin.v1.UpRequest.env:type_name -> kevin.plugin.v1.Environment
+	38, // 10: kevin.plugin.v1.UpRequest.deps:type_name -> kevin.plugin.v1.UpRequest.DepsEntry
+	22, // 11: kevin.plugin.v1.UpRequest.containers:type_name -> kevin.plugin.v1.StepContainers
+	11, // 12: kevin.plugin.v1.DownRequest.env:type_name -> kevin.plugin.v1.Environment
+	13, // 13: kevin.plugin.v1.DownRequest.outputs:type_name -> kevin.plugin.v1.Outputs
+	17, // 14: kevin.plugin.v1.Event.log:type_name -> kevin.plugin.v1.LogLine
+	18, // 15: kevin.plugin.v1.Event.progress:type_name -> kevin.plugin.v1.Progress
+	19, // 16: kevin.plugin.v1.Event.result:type_name -> kevin.plugin.v1.Result
+	13, // 17: kevin.plugin.v1.Result.outputs:type_name -> kevin.plugin.v1.Outputs
+	32, // 18: kevin.plugin.v1.Result.routes:type_name -> kevin.plugin.v1.Route
+	26, // 19: kevin.plugin.v1.Result.exposed_ports:type_name -> kevin.plugin.v1.ExposedPort
+	27, // 20: kevin.plugin.v1.Result.details:type_name -> kevin.plugin.v1.Detail
+	20, // 21: kevin.plugin.v1.Result.containers:type_name -> kevin.plugin.v1.ContainerInfo
+	23, // 22: kevin.plugin.v1.Result.faults:type_name -> kevin.plugin.v1.NetworkFault
+	21, // 23: kevin.plugin.v1.ContainerInfo.netns:type_name -> kevin.plugin.v1.Netns
+	2,  // 24: kevin.plugin.v1.StepContainers.scope:type_name -> kevin.plugin.v1.Scope
+	20, // 25: kevin.plugin.v1.StepContainers.containers:type_name -> kevin.plugin.v1.ContainerInfo
+	24, // 26: kevin.plugin.v1.Upstream.relay:type_name -> kevin.plugin.v1.RelayTarget
+	3,  // 27: kevin.plugin.v1.ExposedPort.protocol:type_name -> kevin.plugin.v1.Protocol
+	25, // 28: kevin.plugin.v1.ExposedPort.upstream:type_name -> kevin.plugin.v1.Upstream
+	39, // 29: kevin.plugin.v1.ExposedPort.relay_udp_addrs:type_name -> kevin.plugin.v1.ExposedPort.RelayUdpAddrsEntry
+	12, // 30: kevin.plugin.v1.Detail.value:type_name -> kevin.plugin.v1.Value
+	11, // 31: kevin.plugin.v1.ExportRequest.env:type_name -> kevin.plugin.v1.Environment
+	13, // 32: kevin.plugin.v1.ExportResponse.out:type_name -> kevin.plugin.v1.Outputs
+	20, // 33: kevin.plugin.v1.ExportResponse.containers:type_name -> kevin.plugin.v1.ContainerInfo
+	11, // 34: kevin.plugin.v1.ToolCallRequest.env:type_name -> kevin.plugin.v1.Environment
+	40, // 35: kevin.plugin.v1.ToolCallRequest.deps:type_name -> kevin.plugin.v1.ToolCallRequest.DepsEntry
+	25, // 36: kevin.plugin.v1.Route.upstream:type_name -> kevin.plugin.v1.Upstream
+	33, // 37: kevin.plugin.v1.Route.intercept:type_name -> kevin.plugin.v1.Intercept
+	4,  // 38: kevin.plugin.v1.Route.mode:type_name -> kevin.plugin.v1.RouteMode
+	12, // 39: kevin.plugin.v1.Outputs.ValuesEntry.value:type_name -> kevin.plugin.v1.Value
+	13, // 40: kevin.plugin.v1.UpRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	13, // 41: kevin.plugin.v1.ToolCallRequest.DepsEntry.value:type_name -> kevin.plugin.v1.Outputs
+	5,  // 42: kevin.plugin.v1.Plugin.Info:input_type -> kevin.plugin.v1.InfoRequest
+	9,  // 43: kevin.plugin.v1.Plugin.Configure:input_type -> kevin.plugin.v1.ConfigureRequest
+	14, // 44: kevin.plugin.v1.Plugin.Up:input_type -> kevin.plugin.v1.UpRequest
+	15, // 45: kevin.plugin.v1.Plugin.Down:input_type -> kevin.plugin.v1.DownRequest
+	28, // 46: kevin.plugin.v1.Plugin.Export:input_type -> kevin.plugin.v1.ExportRequest
+	30, // 47: kevin.plugin.v1.Plugin.CallTool:input_type -> kevin.plugin.v1.ToolCallRequest
+	6,  // 48: kevin.plugin.v1.Plugin.Info:output_type -> kevin.plugin.v1.InfoResponse
+	10, // 49: kevin.plugin.v1.Plugin.Configure:output_type -> kevin.plugin.v1.ConfigureResponse
+	16, // 50: kevin.plugin.v1.Plugin.Up:output_type -> kevin.plugin.v1.Event
+	16, // 51: kevin.plugin.v1.Plugin.Down:output_type -> kevin.plugin.v1.Event
+	29, // 52: kevin.plugin.v1.Plugin.Export:output_type -> kevin.plugin.v1.ExportResponse
+	31, // 53: kevin.plugin.v1.Plugin.CallTool:output_type -> kevin.plugin.v1.ToolCallResponse
+	48, // [48:54] is the sub-list for method output_type
+	42, // [42:48] is the sub-list for method input_type
+	42, // [42:42] is the sub-list for extension type_name
+	42, // [42:42] is the sub-list for extension extendee
+	0,  // [0:42] is the sub-list for field type_name
 }
 
 func init() { file_pb_plugin_proto_init() }
@@ -2597,13 +2940,17 @@ func file_pb_plugin_proto_init() {
 		(*Event_Progress)(nil),
 		(*Event_Result)(nil),
 	}
+	file_pb_plugin_proto_msgTypes[20].OneofWrappers = []any{
+		(*Upstream_Addr)(nil),
+		(*Upstream_Relay)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pb_plugin_proto_rawDesc), len(file_pb_plugin_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   34,
+			NumEnums:      5,
+			NumMessages:   36,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -1,7 +1,6 @@
 package portforward
 
 import (
-	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -36,8 +35,9 @@ func TestStartTCP(t *testing.T) {
 		go func() { _ = socks5.NewServer().Serve(relay) }()
 
 		ep := Spec{
-			Name:     "db",
-			Upstream: fmt.Sprintf("socks5://%s/%s", relay.Addr(), target.Addr()),
+			Name:   "db",
+			Relay:  relay.Addr().String(),
+			Target: target.Addr().String(),
 		}
 		pf, err := StartTCP(t.Context(), ep)
 		require.NoError(t, err)
@@ -55,13 +55,6 @@ func TestStartTCP(t *testing.T) {
 		_, err = io.ReadFull(conn, buf)
 		require.NoError(t, err)
 		assert.Equal(t, "ping", string(buf))
-	})
-
-	t.Run("a malformed upstream errors", func(t *testing.T) {
-		ep := Spec{Name: "db", Upstream: "127.0.0.1:5432"}
-		pf, err := StartTCP(t.Context(), ep)
-		require.Error(t, err)
-		assert.Nil(t, pf)
 	})
 
 	t.Run("host_port pins the local listener", func(t *testing.T) {
@@ -82,7 +75,8 @@ func TestStartTCP(t *testing.T) {
 
 		ep := Spec{
 			Name:     "db",
-			Upstream: fmt.Sprintf("socks5://%s/127.0.0.1:1", relay.Addr()),
+			Relay:    relay.Addr().String(),
+			Target:   "127.0.0.1:1",
 			HostPort: hostPort,
 		}
 		pf, err := StartTCP(t.Context(), ep)

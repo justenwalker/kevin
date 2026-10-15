@@ -25,7 +25,7 @@ import (
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/state"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 // requireRelay skips a test when Docker does not answer, then builds the
@@ -463,7 +463,7 @@ env: {
 	go func() {
 		done <- Run(ctx, Options{
 			Dir: dir, Scope: config.ScopeEnv, Events: w,
-			OnEnvironment: func(env *pb.Environment) { addrCh <- env.GetConsoleAddr() },
+			OnEnvironment: func(env step.Env) { addrCh <- env.ConsoleAddr },
 		})
 	}()
 
@@ -751,7 +751,7 @@ env: {}
 		Dir:           dir,
 		Scope:         config.ScopeEnv,
 		Events:        w,
-		OnEnvironment: func(*pb.Environment) { cancel() },
+		OnEnvironment: func(step.Env) { cancel() },
 	}))
 
 	names, err := dockerClient.ListByLabel(t.Context(), cri.LabelProject, "kevin-reap-test")

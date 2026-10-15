@@ -4,6 +4,8 @@ package kevin.relay.v1;
 
 option go_package = "github.com/justenwalker/kevin/protos/pb;pb";
 
+import "pb/plugin.proto";
+
 // RelayControl is the control channel between kevin's engine and one
 // project's relay container. It is served over mutual TLS: only a caller
 // holding a client certificate signed by the project's own intermediate
@@ -53,14 +55,9 @@ message RegisterCaptureRequest {
   // namespace belongs to, for logging.
   string id = 1;
 
-  // NetnsPath is the host path of the network namespace, such as
-  // "/var/run/docker/netns/1234abcd".
-  string netns_path = 2;
-
-  // ExcludeCIDRs lists destination CIDRs that must never be redirected to
-  // the relay. See the RegisterCapture RPC comment for what its presence
-  // means.
-  repeated string exclude_cidrs = 3;
+  // Netns is the namespace to capture. See the RegisterCapture RPC comment
+  // for what its exclude_cidrs mean.
+  kevin.plugin.v1.Netns netns = 2;
 }
 
 message RegisterCaptureResponse {}
@@ -79,45 +76,9 @@ message EnsureListenerRequest {
 message EnsureListenerResponse {}
 
 message ApplyFaultRequest {
-  // ID names the step this fault belongs to, keying the relay's own
+  // Fault is the impairment to install. Its id keys the relay's own
   // bookkeeping for a later ClearFault.
-  string id = 1;
-
-  // NetnsPath is the host path of the target network namespace, such as
-  // "/proc/1234/ns/net".
-  string netns_path = 2;
-
-  // Interface is the network interface inside the namespace to attach the
-  // netem qdisc to. Defaults to "eth0" when empty - kevin's own containers
-  // are single-interface on the project's docker network.
-  string interface = 3;
-
-  // DelayMS is the fixed one-way delay added to every packet, in
-  // milliseconds. 0 means no delay.
-  int32 delay_ms = 4;
-
-  // JitterMS is the random variation applied around delay_ms, in
-  // milliseconds. Ignored when delay_ms is 0.
-  int32 jitter_ms = 5;
-
-  // LossPercent is the percentage of packets dropped, 0-100.
-  double loss_percent = 6;
-
-  // CorruptPercent is the percentage of packets corrupted (a single bit
-  // flipped), 0-100.
-  double corrupt_percent = 7;
-
-  // DuplicatePercent is the percentage of packets duplicated, 0-100.
-  double duplicate_percent = 8;
-
-  // ReorderPercent is the percentage of packets reordered ahead of the
-  // delay above, 0-100. Ignored when delay_ms is 0 - netem's own reorder
-  // model only has meaning relative to a base delay.
-  double reorder_percent = 9;
-
-  // RateKbit caps the interface's throughput, in kilobits/second. 0 means
-  // no cap.
-  int32 rate_kbit = 10;
+  kevin.plugin.v1.NetworkFault fault = 1;
 }
 
 message ApplyFaultResponse {}

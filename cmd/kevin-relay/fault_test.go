@@ -13,7 +13,7 @@ func TestApplyFault(t *testing.T) {
 	t.Run("records nothing when the fault cannot be applied", func(t *testing.T) {
 		p := &relayProcess{}
 
-		_, err := p.ApplyFault(t.Context(), &pb.ApplyFaultRequest{Id: "db", NetnsPath: "/nonexistent/netns", Interface: "eth0"})
+		_, err := p.ApplyFault(t.Context(), &pb.ApplyFaultRequest{Fault: &pb.NetworkFault{Id: "db", NetnsPath: "/nonexistent/netns", Interface: "eth0"}})
 
 		require.ErrorContains(t, err, `apply fault for "db"`)
 		assert.Empty(t, p.faults)

@@ -39,7 +39,6 @@ import (
 
 	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/logging"
-	"github.com/justenwalker/kevin/internal/portforward"
 )
 
 var log = logging.New("proxy")
@@ -85,8 +84,13 @@ type Route struct {
 	Host string
 
 	// Upstream is the address to forward to, such as "api:8080". The address
-	// must be reachable from the process that runs the proxy.
+	// must be reachable from the process that runs the proxy, or from Relay.
 	Upstream string
+
+	// Relay is the address of a SOCKS5 relay the proxy CONNECTs through to
+	// reach Upstream, for a target inside the project network that this
+	// process cannot dial itself. Empty dials Upstream directly.
+	Relay string
 
 	// TLS is true when the upstream itself speaks TLS.
 	TLS bool
@@ -234,7 +238,7 @@ func New(authority *ca.CA, opt Options) (*Proxy, error) {
 	//
 	// Transport clones http.DefaultTransport but dials through p.dialContext
 	// and completes TLS itself through p.dialTLSContext, so a route whose
-	// Upstream is a socks5:// relay address (see relay.go) gets CONNECTed
+	// has a Relay (see relay.go) gets CONNECTed
 	// through the relay instead of dialed directly, and a tls: true route's
 	// certificate is verified against the real upstream hostname (from the
 	// request context) rather than the dial address, which for a relay
@@ -528,18 +532,15 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request) {
 	if routed {
 		// Keep the original Host header. The workload sees the name that the
 		// client asked for, and a virtual host on the upstream still works.
-		upstream := target.Upstream
-		if relay, connectTarget, ok := portforward.SplitSOCKS5(upstream); ok {
-			// Upstream names a relay-reachable target, not something this
-			// process can dial directly (see relay.go). r.URL.Host stays the
-			// real target - never the relay's own address - so Transport's
-			// keep-alive pool (keyed off the request URL) can't confuse two
-			// routes that share one relay; carry the relay itself on the
-			// context for dialContext to CONNECT through.
-			upstream = connectTarget
-			r = r.WithContext(withSOCKS5Relay(r.Context(), relay))
+		if target.Relay != "" {
+			// Upstream is reachable only through the relay (see relay.go).
+			// r.URL.Host stays the real target - never the relay's own
+			// address - so Transport's keep-alive pool (keyed off the request
+			// URL) can't confuse two routes that share one relay; carry the
+			// relay itself on the context for dialContext to CONNECT through.
+			r = r.WithContext(withSOCKS5Relay(r.Context(), target.Relay))
 		}
-		r.URL.Host = upstream
+		r.URL.Host = target.Upstream
 		r.URL.Scheme = "http"
 		if target.TLS {
 			r.URL.Scheme = schemeHTTPS

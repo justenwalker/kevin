@@ -31,6 +31,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/internal/version"
 	"github.com/justenwalker/kevin/protos/pb"
 )
@@ -193,7 +194,7 @@ type Relay struct {
 	name           string
 	addr           string
 	socks5Addr     string
-	socks5UDPAddrs map[string]string
+	socks5UDPAddrs map[int]string
 	controlAddr    string
 	runtime        cri.Containers
 
@@ -397,15 +398,14 @@ func relayFromInfo(rt cri.Containers, name, network string, info cri.Container) 
 func (r *Relay) Addr() string { return r.addr }
 
 // SOCKS5Addr is the host-reachable address of the relay's SOCKS5 gateway. A
-// step's Up builds a "socks5://<addr>/<target>" upstream against it to
-// reach a docker-network address through a single host port instead of a
-// dedicated published port.
+// step's Up sets a relay upstream target with it to reach a docker-network
+// address through a single host port instead of a dedicated published port.
 func (r *Relay) SOCKS5Addr() string { return r.socks5Addr }
 
-// SOCKS5UDPAddrs maps a container-side UDP relay port (decimal string) to
+// SOCKS5UDPAddrs maps a container-side UDP relay port to
 // its host-reachable address - the relay's fixed pool of ports a SOCKS5
 // UDP ASSOCIATE session can bind, published the same way SOCKS5Addr is.
-func (r *Relay) SOCKS5UDPAddrs() map[string]string { return r.socks5UDPAddrs }
+func (r *Relay) SOCKS5UDPAddrs() map[int]string { return r.socks5UDPAddrs }
 
 // Close removes the relay container, and the control channel's client
 // connection, if one was dialed. Close is idempotent.
@@ -440,7 +440,7 @@ func (r *Relay) EnsureListener(ctx context.Context, host string, ports []int) er
 // builtin:kubernetes node - and is captured at what transits it instead, skipping
 // any destination in excludeCIDRs.
 func (r *Relay) RegisterCapture(ctx context.Context, id, netnsPath string, excludeCIDRs []string) error {
-	req := &pb.RegisterCaptureRequest{Id: id, NetnsPath: netnsPath, ExcludeCidrs: excludeCIDRs}
+	req := &pb.RegisterCaptureRequest{Id: id, Netns: &pb.Netns{Path: netnsPath, ExcludeCidrs: excludeCIDRs}}
 	if _, err := r.client.RegisterCapture(ctx, req); err != nil {
 		return fmt.Errorf("relay: register capture for %q: %w", id, err)
 	}
@@ -449,16 +449,21 @@ func (r *Relay) RegisterCapture(ctx context.Context, id, netnsPath string, exclu
 
 // ApplyFault tells the relay to install (or replace) a netem qdisc for f
 // inside its target network namespace.
-func (r *Relay) ApplyFault(ctx context.Context, f *pb.NetworkFault) error {
-	req := &pb.ApplyFaultRequest{
-		Id: f.GetId(), NetnsPath: f.GetNetnsPath(), Interface: f.GetInterface(),
-		DelayMs: f.GetDelayMs(), JitterMs: f.GetJitterMs(),
-		LossPercent: f.GetLossPercent(), CorruptPercent: f.GetCorruptPercent(),
-		DuplicatePercent: f.GetDuplicatePercent(), ReorderPercent: f.GetReorderPercent(),
-		RateKbit: f.GetRateKbit(),
-	}
+func (r *Relay) ApplyFault(ctx context.Context, f step.Fault) error {
+	req := &pb.ApplyFaultRequest{Fault: &pb.NetworkFault{
+		Id:               f.ID,
+		NetnsPath:        f.NetnsPath,
+		Interface:        f.Interface,
+		DelayMs:          f.DelayMS,
+		JitterMs:         f.JitterMS,
+		LossPercent:      f.LossPercent,
+		CorruptPercent:   f.CorruptPercent,
+		DuplicatePercent: f.DuplicatePercent,
+		ReorderPercent:   f.ReorderPercent,
+		RateKbit:         f.RateKbit,
+	}}
 	if _, err := r.client.ApplyFault(ctx, req); err != nil {
-		return fmt.Errorf("relay: apply fault for %q: %w", f.GetId(), err)
+		return fmt.Errorf("relay: apply fault for %q: %w", f.ID, err)
 	}
 	return nil
 }

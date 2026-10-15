@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 // runState is what a run has learned about each step so far, keyed by step
@@ -17,7 +17,7 @@ type runState struct {
 	// completed holds the outputs a step published, and containers the
 	// containers it published for a dependent's UpRequest.Containers.
 	completed  map[string]output.Map
-	containers map[string][]*pb.ContainerInfo
+	containers map[string][]step.Container
 
 	// started holds the steps that called Up and have not failed on their
 	// own since.
@@ -115,7 +115,7 @@ func (s *runState) Interrupted() []string {
 
 // Containers returns the containers name last published, or nil if it never
 // published any.
-func (s *runState) Containers(name string) []*pb.ContainerInfo {
+func (s *runState) Containers(name string) []step.Container {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.containers[name]
@@ -123,7 +123,7 @@ func (s *runState) Containers(name string) []*pb.ContainerInfo {
 
 // SetContainers records name's published containers, replacing whatever an
 // earlier Up recorded for it.
-func (s *runState) SetContainers(name string, containers []*pb.ContainerInfo) {
+func (s *runState) SetContainers(name string, containers []step.Container) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(containers) == 0 {
@@ -131,7 +131,7 @@ func (s *runState) SetContainers(name string, containers []*pb.ContainerInfo) {
 		return
 	}
 	if s.containers == nil {
-		s.containers = make(map[string][]*pb.ContainerInfo)
+		s.containers = make(map[string][]step.Container)
 	}
 	s.containers[name] = containers
 }

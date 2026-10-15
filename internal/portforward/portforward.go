@@ -16,15 +16,16 @@ type Spec struct {
 	// Name labels the forward in errors.
 	Name string
 
-	// Upstream is a "socks5://<relay>/<target>" address.
-	Upstream string
+	// Relay is the host-reachable address of the relay's SOCKS5 listener, and
+	// Target the host:port to reach through it.
+	Relay, Target string
 
 	// HostPort is the loopback port to listen on, or 0 for any free port.
 	HostPort int
 
-	// RelayUDPAddrs maps the relay's UDP pool port, as a decimal string, to
+	// RelayUDPAddrs maps the relay's UDP pool port to
 	// a host-reachable address. Only a UDP forward reads it.
-	RelayUDPAddrs map[string]string
+	RelayUDPAddrs map[int]string
 }
 
 // SplitSOCKS5 splits a "socks5://<relay>/<target>" address into its relay

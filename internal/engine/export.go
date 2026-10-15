@@ -9,17 +9,17 @@ import (
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pluginhost"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 // Export asks name's plugin how to reach what it created, against this
 // session's already-running plugin client.
 func (r *run) Export(ctx context.Context, name string) (output.Map, error) {
-	step, ok := r.steps[name]
+	cfgStep, ok := r.steps[name]
 	if !ok {
 		return nil, fmt.Errorf("engine: no step named %q", name)
 	}
-	ref := step.Uses
+	ref := cfgStep.Uses
 	client, ok := r.plugins[ref.Plugin]
 	if !ok {
 		return nil, fmt.Errorf("engine: plugin %q not loaded", ref.Plugin)
@@ -28,17 +28,17 @@ func (r *run) Export(ctx context.Context, name string) (output.Map, error) {
 	if err != nil {
 		return nil, err
 	}
-	with, err := r.renderWith(name, step, r.sameScopeDeps(name), setupDeps)
+	with, err := r.renderWith(name, cfgStep, r.sameScopeDeps(name), setupDeps)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := client.Export(ctx, &pb.ExportRequest{
+	resp, err := client.Export(ctx, step.ExportRequest{
 		Step: name, Type: ref.Step, Env: r.env, Config: with,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("engine: export %s: %w", name, err)
 	}
-	return output.FromProto(resp.GetOut()), nil
+	return resp.Out, nil
 }
 
 // stepExports reports whether info's step type name implements Export.
@@ -57,7 +57,7 @@ func stepExports(info pluginhost.Info, name string) bool {
 // call answers both.
 type exportedStep struct {
 	Outputs    output.Map
-	Containers []*pb.ContainerInfo
+	Containers []step.Container
 }
 
 // exportCrossScopeStep asks a setup-scope step's plugin how to reach what
@@ -88,11 +88,11 @@ func (r *run) doExportCrossScopeStep(ctx context.Context, setupName string) (exp
 // the step created. An env step's own setup needs are exported first, so its
 // with block renders.
 func (r *run) doExportStep(ctx context.Context, scope config.Scope, name string) (exportedStep, error) {
-	step, ok := r.cfg.Steps(scope)[name]
+	cfgStep, ok := r.cfg.Steps(scope)[name]
 	if !ok {
 		return exportedStep{}, fmt.Errorf("no such step in scope %q", scope)
 	}
-	ref := step.Uses
+	ref := cfgStep.Uses
 	client, ok := r.plugins[ref.Plugin]
 	if !ok {
 		return exportedStep{}, fmt.Errorf("plugin %q not loaded", ref.Plugin)
@@ -107,20 +107,21 @@ func (r *run) doExportStep(ctx context.Context, scope config.Scope, name string)
 			return exportedStep{}, err
 		}
 	}
-	with, err := expr.Render(step.With, name, expr.Scopes{Setup: setupDeps, Project: r.project, Vars: r.cfg.VariableValues})
+	with, err := expr.Render(cfgStep.With, name, expr.Scopes{Setup: setupDeps, Project: r.project, Vars: r.cfg.VariableValues})
 	if err != nil {
 		return exportedStep{}, fmt.Errorf("%s step %q: %w", scope, name, err)
 	}
-	if validateErr := r.validateRenderedWith(name, step, with); validateErr != nil {
-		return exportedStep{}, validateErr
+	with, err = r.applySchema(name, cfgStep, with)
+	if err != nil {
+		return exportedStep{}, err
 	}
-	resp, err := client.Export(ctx, &pb.ExportRequest{
+	resp, err := client.Export(ctx, step.ExportRequest{
 		Step: name, Type: ref.Step, Env: r.env, Config: with,
 	})
 	if err != nil {
 		return exportedStep{}, fmt.Errorf("export %s step %q: %w", scope, name, err)
 	}
-	return exportedStep{Outputs: output.FromProto(resp.GetOut()), Containers: resp.GetContainers()}, nil
+	return exportedStep{Outputs: resp.Out, Containers: resp.Containers}, nil
 }
 
 // crossScopeDeps resolves every "setup."-prefixed entry in name's own
@@ -129,9 +130,9 @@ func (r *run) doExportStep(ctx context.Context, scope config.Scope, name string)
 // second return value carries the same steps' Containers, for
 // UpRequest.Containers. A name with no such entry returns (nil, nil,
 // nil) - the common case, most steps use only same-scope needs.
-func (r *run) crossScopeDeps(ctx context.Context, name string) (map[string]output.Map, map[string][]*pb.ContainerInfo, error) {
+func (r *run) crossScopeDeps(ctx context.Context, name string) (map[string]output.Map, map[string][]step.Container, error) {
 	var out map[string]output.Map
-	var containers map[string][]*pb.ContainerInfo
+	var containers map[string][]step.Container
 	for _, dep := range r.steps[name].Needs {
 		if !dep.Setup {
 			continue // same-scope, resolved by the dag walk already.
@@ -147,7 +148,7 @@ func (r *run) crossScopeDeps(ctx context.Context, name string) (map[string]outpu
 		out[setupName] = exported.Outputs
 		if len(exported.Containers) > 0 {
 			if containers == nil {
-				containers = make(map[string][]*pb.ContainerInfo)
+				containers = make(map[string][]step.Container)
 			}
 			containers[setupName] = exported.Containers
 		}
@@ -208,15 +209,15 @@ func depsWithSetup(deps, setupDeps map[string]output.Map) map[string]output.Map 
 // the same shape depsWithSetup gives the wire Deps field. A needs entry
 // that reported no containers (most step types) contributes no entry, not
 // an empty one.
-func (r *run) stepContainersFor(deps map[string]output.Map, setupContainers map[string][]*pb.ContainerInfo) []*pb.StepContainers {
-	var out []*pb.StepContainers
+func (r *run) stepContainersFor(deps map[string]output.Map, setupContainers map[string][]step.Container) []step.StepContainers {
+	var out []step.StepContainers
 	for name := range deps {
 		if containers := r.state.Containers(name); len(containers) > 0 {
-			out = append(out, &pb.StepContainers{Step: name, Containers: containers})
+			out = append(out, step.StepContainers{Scope: r.scope, Step: name, Containers: containers})
 		}
 	}
 	for name, containers := range setupContainers {
-		out = append(out, &pb.StepContainers{Step: setupKey(name), Containers: containers})
+		out = append(out, step.StepContainers{Scope: config.ScopeSetup, Step: name, Containers: containers})
 	}
 	return out
 }

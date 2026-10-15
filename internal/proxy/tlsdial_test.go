@@ -100,8 +100,8 @@ func TestDialTLSContext(t *testing.T) {
 
 		p.AddRoutes(proxy.Route{
 			Host:     host,
-			Upstream: "socks5://" + relay + "/" + getTestURLHost(t, target.URL),
-			TLS:      true,
+			Upstream: getTestURLHost(t, target.URL), Relay: relay,
+			TLS: true,
 		})
 
 		resp, body := getTestURL(t, client, "http://"+host+"/")

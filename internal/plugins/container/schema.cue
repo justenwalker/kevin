@@ -51,7 +51,7 @@
 	// proxy mounts the kevin CA certificate in the container and sets
 	// SSL_CERT_FILE to it, so the container trusts certificates from the
 	// kevin proxy. Outbound traffic goes through the proxy either way.
-	proxy?: bool | *true
+	proxy: bool | *true
 
 	// egress lists external hosts that this container can reach when
 	// proxy.egress.deny is true, in addition to proxy.egress.allow.
@@ -59,7 +59,7 @@
 
 	// start_timeout is the maximum time to wait for the container to start,
 	// as a duration such as "30s".
-	start_timeout?: string | *"30s"
+	start_timeout: string | *"30s"
 
 	// expose makes a container port reachable from the host, published on
 	// 127.0.0.1 unless relay is true.
@@ -75,7 +75,7 @@
 	context!: string
 
 	// dockerfile is the Dockerfile to build, relative to context.
-	dockerfile?: string | *"Dockerfile"
+	dockerfile: string | *"Dockerfile"
 
 	// args sets build arguments, as with "--build-arg".
 	args?: [string]: string

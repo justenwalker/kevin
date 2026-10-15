@@ -11,6 +11,7 @@ import (
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/docker"
 	"github.com/justenwalker/kevin/internal/podman"
+	"github.com/justenwalker/kevin/plugin"
 )
 
 // New builds the [cri.Runtime] that name identifies. An empty name means
@@ -24,6 +25,15 @@ func New(name string) (cri.Runtime, error) {
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnsupported, name)
 	}
+}
+
+// Of returns the [cri.Runtime] for a plugin's engine. It cannot fail: a
+// [plugin.Engine] only holds engines kevin implements.
+func Of(e plugin.Engine) cri.Runtime {
+	if e == plugin.EnginePodman {
+		return podman.Client{}
+	}
+	return docker.Client{}
 }
 
 // Detect finds whichever supported engine is actually reachable on this

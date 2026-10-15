@@ -13,7 +13,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/session"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 func TestPlanUp(t *testing.T) {
@@ -27,9 +27,9 @@ func TestPlanUp(t *testing.T) {
 		plan, err := r.planUp(t.Context(), "a", nil)
 
 		require.NoError(t, err)
-		assert.Equal(t, "a", plan.req.GetStep())
-		assert.Equal(t, "echo", plan.req.GetType())
-		assert.JSONEq(t, `{"image":"nginx"}`, string(plan.req.GetConfig()))
+		assert.Equal(t, "a", plan.req.Step)
+		assert.Equal(t, "echo", plan.req.Type)
+		assert.JSONEq(t, `{"image":"nginx"}`, string(plan.req.Config))
 		assert.Equal(t, 5*time.Second, plan.timeout)
 		assert.Same(t, r.plugins["echo"], plan.client)
 	})
@@ -52,12 +52,12 @@ func TestCallUp(t *testing.T) {
 		plugin := newMockstepPlugin(t)
 		r := newUpRun(t, plugin, newMockrouteTable(t), newMocktrafficRelay(t))
 		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-			func(ctx context.Context, _ *pb.UpRequest, _ func(*pb.Event)) (*pb.Result, error) {
+			func(ctx context.Context, _ step.UpRequest, _ step.Events) (step.Result, error) {
 				<-ctx.Done()
-				return nil, ctx.Err()
+				return step.Result{}, ctx.Err()
 			})
 
-		_, err := r.callUp(t.Context(), upPlan{name: "a", client: plugin, req: &pb.UpRequest{}, timeout: time.Millisecond}, time.Now())
+		_, err := r.callUp(t.Context(), upPlan{name: "a", client: plugin, req: step.UpRequest{}, timeout: time.Millisecond}, time.Now())
 
 		require.ErrorIs(t, err, session.ErrStepTimeout)
 		assert.Equal(t, session.Failed, r.store.Snapshot().Steps[0].State)
@@ -66,9 +66,9 @@ func TestCallUp(t *testing.T) {
 	t.Run("a plugin error fails the step", func(t *testing.T) {
 		plugin := newMockstepPlugin(t)
 		r := newUpRun(t, plugin, newMockrouteTable(t), newMocktrafficRelay(t))
-		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(nil, assert.AnError)
+		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(step.Result{}, assert.AnError)
 
-		_, err := r.callUp(t.Context(), upPlan{name: "a", client: plugin, req: &pb.UpRequest{}}, time.Now())
+		_, err := r.callUp(t.Context(), upPlan{name: "a", client: plugin, req: step.UpRequest{}}, time.Now())
 
 		require.ErrorIs(t, err, assert.AnError)
 		assert.Equal(t, session.Failed, r.store.Snapshot().Steps[0].State)
@@ -82,9 +82,7 @@ func TestPublish(t *testing.T) {
 		r := newUpRun(t, newMockstepPlugin(t), routes, newMocktrafficRelay(t))
 		routes.EXPECT().AllowEgress().Return()
 		plan := upPlan{name: "a", ref: config.StepRef{Plugin: "echo", Step: "echo"}}
-		result := &pb.Result{Outputs: &pb.Outputs{Values: map[string]*pb.Value{
-			"url": {Kind: &pb.Value_StringValue{StringValue: "http://a"}},
-		}}}
+		result := step.Result{Outputs: output.Map{"url": {String: "http://a"}}}
 
 		out, err := r.publish(t.Context(), plan, result, time.Now())
 
@@ -101,12 +99,9 @@ func TestPublishReportsResult(t *testing.T) {
 		r := newUpRun(t, newMockstepPlugin(t), routes, newMocktrafficRelay(t))
 		routes.EXPECT().AllowEgress([]string{"registry.example.com"}).Return()
 		plan := upPlan{name: "a", ref: config.StepRef{Plugin: "echo", Step: "echo"}}
-		result := &pb.Result{
+		result := step.Result{
 			EgressAllow: []string{"registry.example.com"},
-			Details: []*pb.Detail{{
-				Label: "url",
-				Value: &pb.Value{Kind: &pb.Value_StringValue{StringValue: "http://a"}},
-			}},
+			Details:     []step.Detail{{Label: "url", Value: output.Value{String: "http://a"}}},
 		}
 
 		_, err := r.publish(t.Context(), plan, result, time.Now())
@@ -125,8 +120,8 @@ func TestPublishReportsResult(t *testing.T) {
 		routes.EXPECT().AddRoutes(mock.Anything).Return()
 		rl.EXPECT().EnsureListener(mock.Anything, "fake.example.com", []int{443}).Return(assert.AnError)
 		plan := upPlan{name: "a", ref: config.StepRef{Plugin: "echo", Step: "echo"}}
-		result := &pb.Result{
-			Routes: []*pb.Route{{Host: "fake.example.com", Upstream: "127.0.0.1:9090", Intercept: &pb.Intercept{Ports: []int32{443}}}},
+		result := step.Result{
+			Routes: []step.Route{{Host: "fake.example.com", Upstream: step.Upstream{Addr: "127.0.0.1:9090"}, Intercept: &step.Intercept{Ports: []int{443}}}},
 		}
 
 		_, err := r.publish(t.Context(), plan, result, time.Now())

@@ -7,14 +7,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 func TestPrintEnvironmentInfo(t *testing.T) {
 	var buf bytes.Buffer
-	printEnvironmentInfo(&buf, &pb.Environment{
+	printEnvironmentInfo(&buf, step.Env{
 		ConsoleAddr:   "127.0.0.1:18081",
-		HttpProxyAddr: "127.0.0.1:18080",
+		HTTPProxyAddr: "127.0.0.1:18080",
 	})
 
 	out := buf.String()

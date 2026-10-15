@@ -184,9 +184,10 @@ func (s *Server) exportStep(ctx context.Context, _ *mcp.CallToolRequest, in Expo
 
 // RouteInfo is one entry of the proxy's routing table.
 type RouteInfo struct {
-	Host     string `json:"host"     jsonschema:"the hostname a client asks for, e.g. web.kevin.home"`
-	Upstream string `json:"upstream" jsonschema:"the address the proxy forwards to, e.g. a container's published loopback port"`
-	TLS      bool   `json:"tls"      jsonschema:"whether the upstream itself speaks TLS"`
+	Host     string `json:"host"            jsonschema:"the hostname a client asks for, e.g. web.kevin.home"`
+	Upstream string `json:"upstream"        jsonschema:"the address the proxy forwards to, e.g. a container's published loopback port"`
+	Relay    string `json:"relay,omitempty" jsonschema:"the relay the proxy connects through to reach a target inside the project network, empty for a direct upstream"`
+	TLS      bool   `json:"tls"             jsonschema:"whether the upstream itself speaks TLS"`
 }
 
 // EgressInfo is the proxy's egress allow list.
@@ -208,7 +209,7 @@ func (s *Server) getProxyInfo(_ context.Context, _ *mcp.CallToolRequest, _ struc
 	routes := s.proxy.Routes()
 	out := make([]RouteInfo, len(routes))
 	for i, r := range routes {
-		out[i] = RouteInfo{Host: r.Host, Upstream: r.Upstream, TLS: r.TLS}
+		out[i] = RouteInfo{Host: r.Host, Upstream: r.Upstream, Relay: r.Relay, TLS: r.TLS}
 	}
 	policy := s.proxy.EgressPolicy()
 

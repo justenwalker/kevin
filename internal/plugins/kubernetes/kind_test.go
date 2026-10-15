@@ -357,12 +357,12 @@ func TestKindDriverFingerprint(t *testing.T) {
 
 func TestProviderEnv(t *testing.T) {
 	t.Run("nil for docker", func(t *testing.T) {
-		assert.Nil(t, providerEnv(plugin.Env{Engine: "docker"}))
+		assert.Nil(t, providerEnv(plugin.Env{Engine: plugin.EngineDocker}))
 		assert.Nil(t, providerEnv(plugin.Env{}))
 	})
 
 	t.Run("sets KIND_EXPERIMENTAL_PROVIDER for podman", func(t *testing.T) {
-		assert.Equal(t, map[string]string{"KIND_EXPERIMENTAL_PROVIDER": "podman"}, providerEnv(plugin.Env{Engine: "podman"}))
+		assert.Equal(t, map[string]string{"KIND_EXPERIMENTAL_PROVIDER": "podman"}, providerEnv(plugin.Env{Engine: plugin.EnginePodman}))
 	})
 }
 
@@ -478,7 +478,7 @@ func TestKindDriverRefreshAccess(t *testing.T) {
 }
 
 func TestKindDriverCLI(t *testing.T) {
-	podman := plugin.Env{Engine: enginePodman}
+	podman := plugin.Env{Engine: plugin.EnginePodman}
 
 	t.Run("Nodes lists the cluster's nodes under the engine's provider", func(t *testing.T) {
 		cli := newMockkindCLI(t)

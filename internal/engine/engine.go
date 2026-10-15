@@ -33,7 +33,7 @@ import (
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/state"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 var log = logging.New("engine")
@@ -121,7 +121,7 @@ type Options struct {
 	// OnEnvironment receives the environment that Run builds, once every
 	// server binds and before any step runs. A caller reads the proxy
 	// address, the console address, or the relay address through this hook.
-	OnEnvironment func(*pb.Environment)
+	OnEnvironment func(step.Env)
 }
 
 // Run loads the environment, starts its plugins, and creates the steps of the
@@ -251,21 +251,21 @@ func Run(ctx context.Context, opts Options) error {
 		go openBrowser(ctx, consoleURL)
 	}
 
-	env := &pb.Environment{
+	env := step.Env{
 		Project:             cfg.Project,
 		Workspace:           workspace,
 		Network:             network,
-		CaPath:              ca.RootCertPath(),
-		HttpProxyAddr:       server.addr,
+		CAPath:              ca.RootCertPath(),
+		HTTPProxyAddr:       server.addr,
 		ConsoleAddr:         web.addr,
 		ProxyEnv:            proxyEnv(server.addr, network, stepNames(cfg)),
 		Domain:              cfg.Domain,
 		Relay:               rl.Addr(),
-		RelaySocks5Addr:     rl.SOCKS5Addr(),
-		RelaySocks5UdpAddrs: rl.SOCKS5UDPAddrs(),
+		RelaySOCKS5Addr:     rl.SOCKS5Addr(),
+		RelaySOCKS5UDPAddrs: rl.SOCKS5UDPAddrs(),
 		ProjectDir:          cfg.Dir,
-		Scope:               opts.Scope.String(),
-		Engine:              opts.Engine,
+		Scope:               opts.Scope,
+		Engine:              step.EngineNamed(opts.Engine),
 	}
 	r.env = env
 	r.project["http_proxy_addr"] = server.addr
@@ -401,7 +401,7 @@ func startRelay(ctx context.Context, rt cri.Containers, cfg *config.Config, netw
 
 // notifyEnvironment calls opts.OnEnvironment with env, when the caller set
 // the hook.
-func notifyEnvironment(opts Options, env *pb.Environment) {
+func notifyEnvironment(opts Options, env step.Env) {
 	if opts.OnEnvironment != nil {
 		opts.OnEnvironment(env)
 	}
@@ -518,16 +518,16 @@ const progressCap = 0.95
 // setupEnvironment is the plugin environment for work on the setup scope
 // when no proxy or relay is running: Teardown, and a command that only
 // exports steps.
-func setupEnvironment(cfg *config.Config, engineName string) *pb.Environment {
-	return &pb.Environment{
+func setupEnvironment(cfg *config.Config, engineName string) step.Env {
+	return step.Env{
 		Project:    cfg.Project,
 		Workspace:  filepath.Join(cfg.Dir, state.WorkspaceDir, cfg.Name),
 		Network:    NetworkName(cfg.Project),
-		CaPath:     ca.RootCertPath(),
+		CAPath:     ca.RootCertPath(),
 		Domain:     cfg.Domain,
 		ProjectDir: cfg.Dir,
-		Scope:      config.ScopeSetup.String(),
-		Engine:     engineName,
+		Scope:      config.ScopeSetup,
+		Engine:     step.EngineNamed(engineName),
 	}
 }
 
@@ -627,7 +627,7 @@ type run struct {
 	groups     map[string]config.Group
 	plugins    map[string]stepPlugin
 	caps       map[string]pluginhost.Info
-	env        *pb.Environment
+	env        step.Env
 	project    map[string]string
 	relay      trafficRelay
 	toolRoutes map[string]toolRoute

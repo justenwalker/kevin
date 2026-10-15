@@ -7,8 +7,8 @@ import (
 	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/internal/uerr"
-	"github.com/justenwalker/kevin/protos/pb"
 )
 
 func (r *run) down(ctx context.Context) error {
@@ -71,8 +71,8 @@ func (r *run) downStep(ctx context.Context, name string, deps []string, complete
 
 	r.clearFaults(ctx, name)
 
-	step := r.steps[name]
-	ref := step.Uses
+	cfgStep := r.steps[name]
+	ref := cfgStep.Uses
 	client := r.plugins[ref.Plugin]
 
 	if !stepImplementsDown(r.caps[ref.Plugin], ref.Step) {
@@ -88,7 +88,7 @@ func (r *run) downStep(ctx context.Context, name string, deps []string, complete
 	if err != nil {
 		return nil, err
 	}
-	with, renderErr := r.renderWith(name, step, depOutputs, setupDeps)
+	with, renderErr := r.renderWith(name, cfgStep, depOutputs, setupDeps)
 	if renderErr != nil {
 		return nil, renderErr
 	}
@@ -101,12 +101,12 @@ func (r *run) downStep(ctx context.Context, name string, deps []string, complete
 	r.emit(name, "down")
 	r.store.SetStep(name, session.Removing, "")
 
-	downErr := client.Down(ctx, &pb.DownRequest{
+	downErr := client.Down(ctx, step.DownRequest{
 		Step:    name,
 		Type:    ref.Step,
 		Env:     r.env,
 		Config:  with,
-		Outputs: completed[name].ToProto(),
+		Outputs: completed[name],
 	}, r.onEvent(name))
 	if downErr != nil {
 		downMsg := uerr.Display(downErr)

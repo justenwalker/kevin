@@ -1,11 +1,11 @@
 #Config: {
 	// timeout is the total time to wait for the check to succeed.
-	timeout?: string | *"60s"
+	timeout: string | *"60s"
 
 	// interval is how often to retry the check. It also bounds each
 	// individual attempt: a dial, a request, a kubectl call, or a command
 	// run.
-	interval?: string | *"1s"
+	interval: string | *"1s"
 
 	// Exactly one of tcp, http, kubectl, exec, duration must be set.
 
@@ -40,10 +40,10 @@
 	url!: string
 
 	// method is the HTTP method to use.
-	method?: string | *"GET"
+	method: string | *"GET"
 
 	// status is the response status code that counts as ready.
-	status?: int | *200
+	status: int | *200
 }
 
 #Kubectl: {

@@ -66,7 +66,7 @@ func TestUDPAddrsFromInfo(t *testing.T) {
 			"40000/udp": "127.0.0.1:41000",
 			"40001/udp": "127.0.0.1:41001",
 		}}
-		assert.Equal(t, map[string]string{"40000": "127.0.0.1:41000", "40001": "127.0.0.1:41001"}, UDPAddrsFromInfo(info))
+		assert.Equal(t, map[int]string{40000: "127.0.0.1:41000", 40001: "127.0.0.1:41001"}, UDPAddrsFromInfo(info))
 	})
 
 	t.Run("reports nil when the container publishes no udp port", func(t *testing.T) {

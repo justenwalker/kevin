@@ -5,7 +5,6 @@ package kubernetes
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -126,10 +125,10 @@ func (s *MinikubeSuite) SetupSuite() {
 	s.workspace = t.TempDir()
 	s.mountDir = t.TempDir()
 	s.Require().NoError(os.WriteFile(filepath.Join(s.mountDir, "probe.txt"), []byte("from the host"), 0o600))
-	res, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+	res, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{
 		Step:   minikubeStepName,
 		Env:    s.env(),
-		Config: []byte(s.configJSON()),
+		Config: withDefaults(t, s.configJSON()),
 	}, &capture{})
 	s.Require().NoError(err, "Up must create the cluster")
 	s.up = res
@@ -147,10 +146,10 @@ func (s *MinikubeSuite) TearDownSuite() {
 	if s.clusterName != "" {
 		s.Require().NoError(os.RemoveAll(filepath.Join(s.workspace, "minikube")))
 
-		downErr := Step{}.Down(t.Context(), &plugin.DownRequest{
+		downErr := typed(Step{}).Down(t.Context(), &plugin.DownRequest{
 			Step:   minikubeStepName,
 			Env:    plugin.Env{Project: minikubeProject, Workspace: s.workspace},
-			Config: []byte(s.configJSON()),
+			Config: withDefaults(t, s.configJSON()),
 		}, &capture{})
 		s.NoError(downErr, "Down must remove the cluster without error")
 		if downErr != nil {
@@ -196,10 +195,10 @@ func (s *MinikubeSuite) TestUpPublishesWhatADependentStepNeeds() {
 // TestExportReportsTheLiveCluster proves that Export names the same cluster
 // and context that Up did, and lists its nodes.
 func (s *MinikubeSuite) TestExportReportsTheLiveCluster() {
-	res, err := Step{}.Export(s.T().Context(), &plugin.ExportRequest{
+	res, err := typed(Step{}).Export(s.T().Context(), &plugin.ExportRequest{
 		Step:   minikubeStepName,
 		Env:    s.env(),
-		Config: []byte(s.configJSON()),
+		Config: withDefaults(s.T(), s.configJSON()),
 	})
 	s.Require().NoError(err)
 
@@ -343,12 +342,11 @@ func (s *MinikubeSuite) TestExposeReachesTheAPIServerThroughSOCKS5() {
 	ep := s.up.ExposedPorts[0]
 	s.Equal("apiserver", ep.Name)
 
-	upstream, err := url.Parse(ep.Upstream)
-	s.Require().NoError(err)
-	target := strings.TrimPrefix(upstream.Path, "/")
+	s.Require().NotNil(ep.Upstream.Relay, "the upstream must be a relay target")
+	target := ep.Upstream.Relay.Target
 	s.Equal("kubernetes.default.svc:443", target)
 
-	dialer, err := proxy.SOCKS5("tcp", upstream.Host, nil, proxy.Direct)
+	dialer, err := proxy.SOCKS5("tcp", ep.Upstream.Relay.Relay, nil, proxy.Direct)
 	s.Require().NoError(err)
 	conn, err := dialer.Dial("tcp", target)
 	s.Require().NoError(err, "the relay must reach the api server from inside the cluster")
@@ -365,10 +363,10 @@ func (s *MinikubeSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 	s.Require().NoError(err)
 
 	out := &capture{}
-	_, err = Step{}.Up(t.Context(), &plugin.UpRequest{
+	_, err = typed(Step{}).Up(t.Context(), &plugin.UpRequest{
 		Step:   minikubeStepName,
 		Env:    s.env(),
-		Config: []byte(s.configJSON()),
+		Config: withDefaults(t, s.configJSON()),
 	}, out)
 	s.Require().NoError(err)
 
@@ -430,19 +428,19 @@ func TestMinikubeOnPodman(t *testing.T) {
 	t.Cleanup(func() { _ = r.Close() })
 
 	env := plugin.Env{
-		Project: "minikube-podman-it", Workspace: t.TempDir(), Engine: "podman", CAPath: ca.RootCertPath(),
+		Project: "minikube-podman-it", Workspace: t.TempDir(), Engine: plugin.EnginePodman, CAPath: ca.RootCertPath(),
 		Network: network, Domain: minikubeDomain, Relay: r.Addr(),
 	}
-	with := []byte(fmt.Sprintf(`{"driver":"minikube","workers":{"worker":{}},`+
+	with := withDefaults(t, fmt.Sprintf(`{"driver":"minikube","workers":{"worker":{}},`+
 		`"expose":{"apiserver":{"address":"kubernetes.default.svc:443"}},`+
 		`"mounts":[{"host":%q,"container":%q,"readonly":true}]}`, mountDir, minikubeMountPath))
 	down := func() error {
-		return Step{}.Down(context.WithoutCancel(t.Context()),
+		return typed(Step{}).Down(context.WithoutCancel(t.Context()),
 			&plugin.DownRequest{Step: minikubeStepName, Env: env, Config: with}, &capture{})
 	}
 	t.Cleanup(func() { _ = down() })
 
-	res, err := Step{}.Up(t.Context(), &plugin.UpRequest{Step: minikubeStepName, Env: env, Config: with}, &capture{})
+	res, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{Step: minikubeStepName, Env: env, Config: with}, &capture{})
 	require.NoError(t, err, "Up under podman")
 
 	name := res.Outputs["name"].Reveal()
@@ -466,7 +464,7 @@ func TestMinikubeOnPodman(t *testing.T) {
 		require.Error(t, execErr, "node %s sees the mount read-only", node)
 	}
 
-	drv, err := newMinikubeDriver(config{}, plugin.Env{Engine: "podman"}, name, kubeconfig, client)
+	drv, err := newMinikubeDriver(config{}, plugin.Env{Engine: plugin.EnginePodman}, name, kubeconfig, client)
 	require.NoError(t, err)
 
 	labels, err := drv.Kubectl(t.Context(), "get", "nodes", "-L", nodeLabelKey, "--no-headers")
@@ -482,12 +480,12 @@ func TestMinikubeOnPodman(t *testing.T) {
 		"the kubeconfig names the port that podman publishes now")
 
 	require.Len(t, res.ExposedPorts, 1)
-	upstream, err := url.Parse(res.ExposedPorts[0].Upstream)
-	require.NoError(t, err)
-	dialer, err := proxy.SOCKS5("tcp", upstream.Host, nil, proxy.Direct)
+	relayTarget := res.ExposedPorts[0].Upstream.Relay
+	require.NotNil(t, relayTarget)
+	dialer, err := proxy.SOCKS5("tcp", relayTarget.Relay, nil, proxy.Direct)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		conn, dialErr := dialer.Dial("tcp", strings.TrimPrefix(upstream.Path, "/"))
+		conn, dialErr := dialer.Dial("tcp", relayTarget.Target)
 		if dialErr != nil {
 			t.Log("dial through the relay:", dialErr)
 			return false
@@ -515,9 +513,9 @@ func TestMinikubeDownIsIdempotent(t *testing.T) {
 	req := &plugin.DownRequest{
 		Step:   "never-created",
 		Env:    plugin.Env{Project: "minikube-idempotent", Workspace: t.TempDir()},
-		Config: []byte(`{"driver":"minikube"}`),
+		Config: withDefaults(t, `{"driver":"minikube"}`),
 	}
-	if err := (Step{}).Down(t.Context(), req, &capture{}); err != nil {
+	if err := typed(Step{}).Down(t.Context(), req, &capture{}); err != nil {
 		t.Fatalf("Down of a cluster that never existed: %v", err)
 	}
 }
@@ -531,18 +529,18 @@ func TestMinikubeRebuildsOnConfigChange(t *testing.T) {
 
 	env := plugin.Env{Project: "minikube-rebuild-it", Workspace: t.TempDir()}
 	withMemory := func(memory string) []byte {
-		return []byte(fmt.Sprintf(`{"driver":"minikube","workers":{"worker":{}},"coredns":false,"trust_ca":false,`+
+		return withDefaults(t, fmt.Sprintf(`{"driver":"minikube","workers":{"worker":{}},"coredns":false,"trust_ca":false,`+
 			`"minikube":{"memory":%q}}`, memory))
 	}
 	down := func() error {
-		return Step{}.Down(context.WithoutCancel(t.Context()),
+		return typed(Step{}).Down(context.WithoutCancel(t.Context()),
 			&plugin.DownRequest{Step: minikubeStepName, Env: env, Config: withMemory("2g")}, &capture{})
 	}
 	t.Cleanup(func() { _ = down() })
 
 	up := func(memory string) (*plugin.Result, *capture) {
 		out := &capture{}
-		res, err := Step{}.Up(t.Context(), &plugin.UpRequest{Step: minikubeStepName, Env: env, Config: withMemory(memory)}, out)
+		res, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{Step: minikubeStepName, Env: env, Config: withMemory(memory)}, out)
 		require.NoError(t, err, "Up with memory %s", memory)
 		return res, out
 	}
@@ -603,13 +601,13 @@ func TestMinikubeRetainKeepsAFailedCluster(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			env := plugin.Env{Project: fmt.Sprintf("minikube-retain-%t-it", tc.retain), Workspace: t.TempDir()}
-			with := []byte(fmt.Sprintf(`{"driver":"minikube","wait":"10s","retain":%t,"coredns":false,"trust_ca":false}`, tc.retain))
+			with := withDefaults(t, fmt.Sprintf(`{"driver":"minikube","wait":"10s","retain":%t,"coredns":false,"trust_ca":false}`, tc.retain))
 			t.Cleanup(func() {
-				_ = Step{}.Down(context.WithoutCancel(t.Context()),
+				_ = typed(Step{}).Down(context.WithoutCancel(t.Context()),
 					&plugin.DownRequest{Step: minikubeStepName, Env: env, Config: with}, &capture{})
 			})
 
-			_, err := Step{}.Up(t.Context(), &plugin.UpRequest{Step: minikubeStepName, Env: env, Config: with}, &capture{})
+			_, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{Step: minikubeStepName, Env: env, Config: with}, &capture{})
 			require.Error(t, err, "a 10s wait must fail the start")
 
 			drv, err := newMinikubeDriver(config{}, plugin.Env{}, env.Project+"-"+minikubeStepName, "", dockerClient)
@@ -643,11 +641,11 @@ func TestMinikubeConcurrentClusters(t *testing.T) {
 	for i := range clusters {
 		clusters[i] = &cluster{
 			env: plugin.Env{Project: fmt.Sprintf("minikube-concurrent-%d-it", i), Workspace: t.TempDir()},
-			with: []byte(`{"driver":"minikube","coredns":false,"trust_ca":false,` +
+			with: withDefaults(t, `{"driver":"minikube","coredns":false,"trust_ca":false,`+
 				`"minikube":{"kubernetes_version":"v1.30.0"}}`),
 		}
 		t.Cleanup(func() {
-			_ = Step{}.Down(context.WithoutCancel(t.Context()),
+			_ = typed(Step{}).Down(context.WithoutCancel(t.Context()),
 				&plugin.DownRequest{Step: minikubeStepName, Env: clusters[i].env, Config: clusters[i].with}, &capture{})
 		})
 	}
@@ -655,7 +653,7 @@ func TestMinikubeConcurrentClusters(t *testing.T) {
 	var wg sync.WaitGroup
 	for _, c := range clusters {
 		wg.Go(func() {
-			c.res, c.err = Step{}.Up(t.Context(), &plugin.UpRequest{Step: minikubeStepName, Env: c.env, Config: c.with}, &capture{})
+			c.res, c.err = typed(Step{}).Up(t.Context(), &plugin.UpRequest{Step: minikubeStepName, Env: c.env, Config: c.with}, &capture{})
 		})
 	}
 	wg.Wait()

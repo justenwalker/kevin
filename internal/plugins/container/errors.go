@@ -13,10 +13,6 @@ const (
 	// does not publish.
 	ErrNoPort = Error("container: the exposed port is not published")
 
-	// ErrUnsupportedEngine reports that Env.Engine names an engine this
-	// plugin does not implement.
-	ErrUnsupportedEngine = Error("container: unsupported engine")
-
 	// ErrNoRelay reports that an expose entry sets relay, but no relay
 	// address is available.
 	ErrNoRelay = Error("container: expose relay: no relay address available")

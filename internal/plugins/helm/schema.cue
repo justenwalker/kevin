@@ -11,10 +11,10 @@
 	release!: string
 
 	// namespace is the target namespace.
-	namespace?: string | *"default"
+	namespace: string | *"default"
 
 	// create_namespace creates namespace if it does not exist.
-	create_namespace?: bool | *true
+	create_namespace: bool | *true
 
 	// chart is a local path (relative to the project directory unless
 	// absolute), an oci:// reference, or a chart name inside repo.
@@ -38,10 +38,10 @@
 
 	// wait is how long to wait for the release to become ready, such as
 	// "5m". An empty string does not wait.
-	wait?: string | *"5m"
+	wait: string | *"5m"
 
 	// atomic rolls the release back automatically on a failed upgrade.
-	atomic?: bool | *true
+	atomic: bool | *true
 
 	// keep leaves the release installed on teardown, instead of uninstalling
 	// it.

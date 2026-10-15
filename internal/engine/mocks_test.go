@@ -8,7 +8,7 @@ import (
 	"context"
 
 	"github.com/justenwalker/kevin/internal/proxy"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -40,26 +40,24 @@ func (_m *mockstepPlugin) EXPECT() *mockstepPlugin_Expecter {
 }
 
 // CallTool provides a mock function for the type mockstepPlugin
-func (_mock *mockstepPlugin) CallTool(ctx context.Context, req *pb.ToolCallRequest) (*pb.ToolCallResponse, error) {
+func (_mock *mockstepPlugin) CallTool(ctx context.Context, req step.ToolCall) (step.ToolResult, error) {
 	ret := _mock.Called(ctx, req)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CallTool")
 	}
 
-	var r0 *pb.ToolCallResponse
+	var r0 step.ToolResult
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *pb.ToolCallRequest) (*pb.ToolCallResponse, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, step.ToolCall) (step.ToolResult, error)); ok {
 		return returnFunc(ctx, req)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *pb.ToolCallRequest) *pb.ToolCallResponse); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, step.ToolCall) step.ToolResult); ok {
 		r0 = returnFunc(ctx, req)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*pb.ToolCallResponse)
-		}
+		r0 = ret.Get(0).(step.ToolResult)
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *pb.ToolCallRequest) error); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, step.ToolCall) error); ok {
 		r1 = returnFunc(ctx, req)
 	} else {
 		r1 = ret.Error(1)
@@ -74,20 +72,20 @@ type mockstepPlugin_CallTool_Call struct {
 
 // CallTool is a helper method to define mock.On call
 //   - ctx context.Context
-//   - req *pb.ToolCallRequest
+//   - req step.ToolCall
 func (_e *mockstepPlugin_Expecter) CallTool(ctx any, req any) *mockstepPlugin_CallTool_Call {
 	return &mockstepPlugin_CallTool_Call{Call: _e.mock.On("CallTool", ctx, req)}
 }
 
-func (_c *mockstepPlugin_CallTool_Call) Run(run func(ctx context.Context, req *pb.ToolCallRequest)) *mockstepPlugin_CallTool_Call {
+func (_c *mockstepPlugin_CallTool_Call) Run(run func(ctx context.Context, req step.ToolCall)) *mockstepPlugin_CallTool_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 *pb.ToolCallRequest
+		var arg1 step.ToolCall
 		if args[1] != nil {
-			arg1 = args[1].(*pb.ToolCallRequest)
+			arg1 = args[1].(step.ToolCall)
 		}
 		run(
 			arg0,
@@ -97,27 +95,27 @@ func (_c *mockstepPlugin_CallTool_Call) Run(run func(ctx context.Context, req *p
 	return _c
 }
 
-func (_c *mockstepPlugin_CallTool_Call) Return(toolCallResponse *pb.ToolCallResponse, err error) *mockstepPlugin_CallTool_Call {
-	_c.Call.Return(toolCallResponse, err)
+func (_c *mockstepPlugin_CallTool_Call) Return(toolResult step.ToolResult, err error) *mockstepPlugin_CallTool_Call {
+	_c.Call.Return(toolResult, err)
 	return _c
 }
 
-func (_c *mockstepPlugin_CallTool_Call) RunAndReturn(run func(ctx context.Context, req *pb.ToolCallRequest) (*pb.ToolCallResponse, error)) *mockstepPlugin_CallTool_Call {
+func (_c *mockstepPlugin_CallTool_Call) RunAndReturn(run func(ctx context.Context, req step.ToolCall) (step.ToolResult, error)) *mockstepPlugin_CallTool_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // Down provides a mock function for the type mockstepPlugin
-func (_mock *mockstepPlugin) Down(ctx context.Context, req *pb.DownRequest, onEvent func(*pb.Event)) error {
-	ret := _mock.Called(ctx, req, onEvent)
+func (_mock *mockstepPlugin) Down(ctx context.Context, req step.DownRequest, ev step.Events) error {
+	ret := _mock.Called(ctx, req, ev)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Down")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *pb.DownRequest, func(*pb.Event)) error); ok {
-		r0 = returnFunc(ctx, req, onEvent)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, step.DownRequest, step.Events) error); ok {
+		r0 = returnFunc(ctx, req, ev)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -131,25 +129,25 @@ type mockstepPlugin_Down_Call struct {
 
 // Down is a helper method to define mock.On call
 //   - ctx context.Context
-//   - req *pb.DownRequest
-//   - onEvent func(*pb.Event)
-func (_e *mockstepPlugin_Expecter) Down(ctx any, req any, onEvent any) *mockstepPlugin_Down_Call {
-	return &mockstepPlugin_Down_Call{Call: _e.mock.On("Down", ctx, req, onEvent)}
+//   - req step.DownRequest
+//   - ev step.Events
+func (_e *mockstepPlugin_Expecter) Down(ctx any, req any, ev any) *mockstepPlugin_Down_Call {
+	return &mockstepPlugin_Down_Call{Call: _e.mock.On("Down", ctx, req, ev)}
 }
 
-func (_c *mockstepPlugin_Down_Call) Run(run func(ctx context.Context, req *pb.DownRequest, onEvent func(*pb.Event))) *mockstepPlugin_Down_Call {
+func (_c *mockstepPlugin_Down_Call) Run(run func(ctx context.Context, req step.DownRequest, ev step.Events)) *mockstepPlugin_Down_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 *pb.DownRequest
+		var arg1 step.DownRequest
 		if args[1] != nil {
-			arg1 = args[1].(*pb.DownRequest)
+			arg1 = args[1].(step.DownRequest)
 		}
-		var arg2 func(*pb.Event)
+		var arg2 step.Events
 		if args[2] != nil {
-			arg2 = args[2].(func(*pb.Event))
+			arg2 = args[2].(step.Events)
 		}
 		run(
 			arg0,
@@ -165,32 +163,30 @@ func (_c *mockstepPlugin_Down_Call) Return(err error) *mockstepPlugin_Down_Call 
 	return _c
 }
 
-func (_c *mockstepPlugin_Down_Call) RunAndReturn(run func(ctx context.Context, req *pb.DownRequest, onEvent func(*pb.Event)) error) *mockstepPlugin_Down_Call {
+func (_c *mockstepPlugin_Down_Call) RunAndReturn(run func(ctx context.Context, req step.DownRequest, ev step.Events) error) *mockstepPlugin_Down_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // Export provides a mock function for the type mockstepPlugin
-func (_mock *mockstepPlugin) Export(ctx context.Context, req *pb.ExportRequest) (*pb.ExportResponse, error) {
+func (_mock *mockstepPlugin) Export(ctx context.Context, req step.ExportRequest) (step.ExportResult, error) {
 	ret := _mock.Called(ctx, req)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Export")
 	}
 
-	var r0 *pb.ExportResponse
+	var r0 step.ExportResult
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *pb.ExportRequest) (*pb.ExportResponse, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, step.ExportRequest) (step.ExportResult, error)); ok {
 		return returnFunc(ctx, req)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *pb.ExportRequest) *pb.ExportResponse); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, step.ExportRequest) step.ExportResult); ok {
 		r0 = returnFunc(ctx, req)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*pb.ExportResponse)
-		}
+		r0 = ret.Get(0).(step.ExportResult)
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *pb.ExportRequest) error); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, step.ExportRequest) error); ok {
 		r1 = returnFunc(ctx, req)
 	} else {
 		r1 = ret.Error(1)
@@ -205,20 +201,20 @@ type mockstepPlugin_Export_Call struct {
 
 // Export is a helper method to define mock.On call
 //   - ctx context.Context
-//   - req *pb.ExportRequest
+//   - req step.ExportRequest
 func (_e *mockstepPlugin_Expecter) Export(ctx any, req any) *mockstepPlugin_Export_Call {
 	return &mockstepPlugin_Export_Call{Call: _e.mock.On("Export", ctx, req)}
 }
 
-func (_c *mockstepPlugin_Export_Call) Run(run func(ctx context.Context, req *pb.ExportRequest)) *mockstepPlugin_Export_Call {
+func (_c *mockstepPlugin_Export_Call) Run(run func(ctx context.Context, req step.ExportRequest)) *mockstepPlugin_Export_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 *pb.ExportRequest
+		var arg1 step.ExportRequest
 		if args[1] != nil {
-			arg1 = args[1].(*pb.ExportRequest)
+			arg1 = args[1].(step.ExportRequest)
 		}
 		run(
 			arg0,
@@ -228,38 +224,36 @@ func (_c *mockstepPlugin_Export_Call) Run(run func(ctx context.Context, req *pb.
 	return _c
 }
 
-func (_c *mockstepPlugin_Export_Call) Return(exportResponse *pb.ExportResponse, err error) *mockstepPlugin_Export_Call {
-	_c.Call.Return(exportResponse, err)
+func (_c *mockstepPlugin_Export_Call) Return(exportResult step.ExportResult, err error) *mockstepPlugin_Export_Call {
+	_c.Call.Return(exportResult, err)
 	return _c
 }
 
-func (_c *mockstepPlugin_Export_Call) RunAndReturn(run func(ctx context.Context, req *pb.ExportRequest) (*pb.ExportResponse, error)) *mockstepPlugin_Export_Call {
+func (_c *mockstepPlugin_Export_Call) RunAndReturn(run func(ctx context.Context, req step.ExportRequest) (step.ExportResult, error)) *mockstepPlugin_Export_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // Up provides a mock function for the type mockstepPlugin
-func (_mock *mockstepPlugin) Up(ctx context.Context, req *pb.UpRequest, onEvent func(*pb.Event)) (*pb.Result, error) {
-	ret := _mock.Called(ctx, req, onEvent)
+func (_mock *mockstepPlugin) Up(ctx context.Context, req step.UpRequest, ev step.Events) (step.Result, error) {
+	ret := _mock.Called(ctx, req, ev)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Up")
 	}
 
-	var r0 *pb.Result
+	var r0 step.Result
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *pb.UpRequest, func(*pb.Event)) (*pb.Result, error)); ok {
-		return returnFunc(ctx, req, onEvent)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, step.UpRequest, step.Events) (step.Result, error)); ok {
+		return returnFunc(ctx, req, ev)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *pb.UpRequest, func(*pb.Event)) *pb.Result); ok {
-		r0 = returnFunc(ctx, req, onEvent)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, step.UpRequest, step.Events) step.Result); ok {
+		r0 = returnFunc(ctx, req, ev)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*pb.Result)
-		}
+		r0 = ret.Get(0).(step.Result)
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *pb.UpRequest, func(*pb.Event)) error); ok {
-		r1 = returnFunc(ctx, req, onEvent)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, step.UpRequest, step.Events) error); ok {
+		r1 = returnFunc(ctx, req, ev)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -273,25 +267,25 @@ type mockstepPlugin_Up_Call struct {
 
 // Up is a helper method to define mock.On call
 //   - ctx context.Context
-//   - req *pb.UpRequest
-//   - onEvent func(*pb.Event)
-func (_e *mockstepPlugin_Expecter) Up(ctx any, req any, onEvent any) *mockstepPlugin_Up_Call {
-	return &mockstepPlugin_Up_Call{Call: _e.mock.On("Up", ctx, req, onEvent)}
+//   - req step.UpRequest
+//   - ev step.Events
+func (_e *mockstepPlugin_Expecter) Up(ctx any, req any, ev any) *mockstepPlugin_Up_Call {
+	return &mockstepPlugin_Up_Call{Call: _e.mock.On("Up", ctx, req, ev)}
 }
 
-func (_c *mockstepPlugin_Up_Call) Run(run func(ctx context.Context, req *pb.UpRequest, onEvent func(*pb.Event))) *mockstepPlugin_Up_Call {
+func (_c *mockstepPlugin_Up_Call) Run(run func(ctx context.Context, req step.UpRequest, ev step.Events)) *mockstepPlugin_Up_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 *pb.UpRequest
+		var arg1 step.UpRequest
 		if args[1] != nil {
-			arg1 = args[1].(*pb.UpRequest)
+			arg1 = args[1].(step.UpRequest)
 		}
-		var arg2 func(*pb.Event)
+		var arg2 step.Events
 		if args[2] != nil {
-			arg2 = args[2].(func(*pb.Event))
+			arg2 = args[2].(step.Events)
 		}
 		run(
 			arg0,
@@ -302,12 +296,12 @@ func (_c *mockstepPlugin_Up_Call) Run(run func(ctx context.Context, req *pb.UpRe
 	return _c
 }
 
-func (_c *mockstepPlugin_Up_Call) Return(result *pb.Result, err error) *mockstepPlugin_Up_Call {
+func (_c *mockstepPlugin_Up_Call) Return(result step.Result, err error) *mockstepPlugin_Up_Call {
 	_c.Call.Return(result, err)
 	return _c
 }
 
-func (_c *mockstepPlugin_Up_Call) RunAndReturn(run func(ctx context.Context, req *pb.UpRequest, onEvent func(*pb.Event)) (*pb.Result, error)) *mockstepPlugin_Up_Call {
+func (_c *mockstepPlugin_Up_Call) RunAndReturn(run func(ctx context.Context, req step.UpRequest, ev step.Events) (step.Result, error)) *mockstepPlugin_Up_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -463,7 +457,7 @@ func (_m *mocktrafficRelay) EXPECT() *mocktrafficRelay_Expecter {
 }
 
 // ApplyFault provides a mock function for the type mocktrafficRelay
-func (_mock *mocktrafficRelay) ApplyFault(ctx context.Context, f *pb.NetworkFault) error {
+func (_mock *mocktrafficRelay) ApplyFault(ctx context.Context, f step.Fault) error {
 	ret := _mock.Called(ctx, f)
 
 	if len(ret) == 0 {
@@ -471,7 +465,7 @@ func (_mock *mocktrafficRelay) ApplyFault(ctx context.Context, f *pb.NetworkFaul
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *pb.NetworkFault) error); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, step.Fault) error); ok {
 		r0 = returnFunc(ctx, f)
 	} else {
 		r0 = ret.Error(0)
@@ -486,20 +480,20 @@ type mocktrafficRelay_ApplyFault_Call struct {
 
 // ApplyFault is a helper method to define mock.On call
 //   - ctx context.Context
-//   - f *pb.NetworkFault
+//   - f step.Fault
 func (_e *mocktrafficRelay_Expecter) ApplyFault(ctx any, f any) *mocktrafficRelay_ApplyFault_Call {
 	return &mocktrafficRelay_ApplyFault_Call{Call: _e.mock.On("ApplyFault", ctx, f)}
 }
 
-func (_c *mocktrafficRelay_ApplyFault_Call) Run(run func(ctx context.Context, f *pb.NetworkFault)) *mocktrafficRelay_ApplyFault_Call {
+func (_c *mocktrafficRelay_ApplyFault_Call) Run(run func(ctx context.Context, f step.Fault)) *mocktrafficRelay_ApplyFault_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 *pb.NetworkFault
+		var arg1 step.Fault
 		if args[1] != nil {
-			arg1 = args[1].(*pb.NetworkFault)
+			arg1 = args[1].(step.Fault)
 		}
 		run(
 			arg0,
@@ -514,7 +508,7 @@ func (_c *mocktrafficRelay_ApplyFault_Call) Return(err error) *mocktrafficRelay_
 	return _c
 }
 
-func (_c *mocktrafficRelay_ApplyFault_Call) RunAndReturn(run func(ctx context.Context, f *pb.NetworkFault) error) *mocktrafficRelay_ApplyFault_Call {
+func (_c *mocktrafficRelay_ApplyFault_Call) RunAndReturn(run func(ctx context.Context, f step.Fault) error) *mocktrafficRelay_ApplyFault_Call {
 	_c.Call.Return(run)
 	return _c
 }

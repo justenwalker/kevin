@@ -18,6 +18,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/command/commandtest"
 	kubectlcmd "github.com/justenwalker/kevin/internal/command/kubectl"
+	"github.com/justenwalker/kevin/internal/plugins/plugintest"
 	"github.com/justenwalker/kevin/internal/uerr"
 	"github.com/justenwalker/kevin/plugin"
 )
@@ -28,31 +29,24 @@ func (c *capture) Log(_, text string)            { c.logs = append(c.logs, text)
 func (c *capture) Progress(string, int64, int64) {}
 
 func TestSchemaCarriesTheEmbeddedSchema(t *testing.T) {
-	assert.NotEmpty(t, Step{}.Schema(), "Schema must return the embedded schema.cue")
+	assert.NotEmpty(t, schema, "Schema must return the embedded schema.cue")
 }
 
 func TestDecode(t *testing.T) {
-	t.Run("applies the same defaults as the schema", func(t *testing.T) {
-		cfg, err := decode(nil)
+	t.Run("a with block carries the schema's defaults", func(t *testing.T) {
+		cfg, err := decode(withDefaults(t, `{"tcp":{"address":"127.0.0.1:1"}}`))
 		require.NoError(t, err)
 		assert.Equal(t, "60s", cfg.Timeout)
 		assert.Equal(t, "1s", cfg.Interval)
-		assert.Nil(t, cfg.TCP)
-	})
-
-	t.Run("keeps the default when a field is omitted from JSON", func(t *testing.T) {
-		cfg, err := decode([]byte(`{"tcp":{"address":"127.0.0.1:1"}}`))
-		require.NoError(t, err)
-		assert.Equal(t, "60s", cfg.Timeout, "an omitted interval/timeout key must keep the Go-side default, not become an empty string")
-		assert.Equal(t, "1s", cfg.Interval)
+		assert.NotNil(t, cfg.TCP)
 	})
 
 	t.Run("applies HTTP defaults when omitted", func(t *testing.T) {
-		cfg, err := decode([]byte(`{"http":{"url":"http://example.com"}}`))
+		cfg, err := decode(withDefaults(t, `{"http":{"url":"http://example.com"}}`))
 		require.NoError(t, err)
 		require.NotNil(t, cfg.HTTP)
-		assert.Equal(t, http.MethodGet, cfg.HTTP.Method, "an omitted http.method must keep the Go-side default, not become empty")
-		assert.Equal(t, http.StatusOK, cfg.HTTP.Status, "an omitted http.status must keep the Go-side default, not become 0")
+		assert.Equal(t, http.MethodGet, cfg.HTTP.Method, "the schema fills in an omitted http.method")
+		assert.Equal(t, http.StatusOK, cfg.HTTP.Status, "the schema fills in an omitted http.status")
 	})
 
 	t.Run("reports broken JSON", func(t *testing.T) {
@@ -193,7 +187,7 @@ func TestRunExec(t *testing.T) {
 
 func TestUp(t *testing.T) {
 	t.Run("rejects zero checks", func(t *testing.T) {
-		_, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed().Up(t.Context(), &plugin.UpRequest{
 			Config: json.RawMessage(`{"timeout":"1s","interval":"1ms"}`),
 		}, &capture{})
 		assert.ErrorIs(t, err, ErrCheck)
@@ -206,13 +200,13 @@ func TestUp(t *testing.T) {
 		defer func() { _ = ln.Close() }()
 
 		cfg := `{"timeout":"1s","interval":"1ms","tcp":{"address":"` + ln.Addr().String() + `"}}`
-		_, err = Step{}.Up(t.Context(), &plugin.UpRequest{Config: json.RawMessage(cfg)}, &capture{})
+		_, err = typed().Up(t.Context(), &plugin.UpRequest{Config: json.RawMessage(cfg)}, &capture{})
 		assert.NoError(t, err)
 	})
 
 	t.Run("succeeds with a duration", func(t *testing.T) {
 		start := time.Now()
-		_, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed().Up(t.Context(), &plugin.UpRequest{
 			Config: json.RawMessage(`{"duration":"20ms"}`),
 		}, &capture{})
 		require.NoError(t, err)
@@ -223,14 +217,14 @@ func TestUp(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
-		_, err := Step{}.Up(ctx, &plugin.UpRequest{
+		_, err := typed().Up(ctx, &plugin.UpRequest{
 			Config: json.RawMessage(`{"duration":"1m"}`),
 		}, &capture{})
 		assert.ErrorIs(t, err, ctx.Err())
 	})
 
 	t.Run("rejects a malformed duration", func(t *testing.T) {
-		_, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed().Up(t.Context(), &plugin.UpRequest{
 			Config: json.RawMessage(`{"duration":"soon"}`),
 		}, &capture{})
 		assert.Error(t, err)
@@ -310,4 +304,31 @@ func TestRunExecRunner(t *testing.T) {
 		err := step(t, "", errors.New("exit status 1")).runExec(t.Context(), []string{"probe", "--ready"})
 		require.EqualError(t, err, "exit status 1")
 	})
+}
+
+// withDefaults feeds a with block to the plugin the way the engine does.
+func withDefaults(t *testing.T, with string) []byte {
+	t.Helper()
+	return plugintest.Defaulted(t, schema, with)
+}
+
+// stepAll is every optional part the SDK's typed adapter offers, so a test
+// can call it with a raw with block.
+type stepAll interface {
+	plugin.Step
+	plugin.Downer
+	plugin.Exporter
+}
+
+// typed wraps s the way New does.
+func typed() stepAll { return plugin.Typed(schema, Step{}).(stepAll) } //nolint:errcheck,ireturn // the adapter implements every part
+
+// decode parses a with block the way the SDK does for a typed step.
+func decode(data []byte) (config, error) {
+	var cfg config
+	if len(data) == 0 {
+		return cfg, nil
+	}
+	err := json.Unmarshal(data, &cfg)
+	return cfg, err
 }

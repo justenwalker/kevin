@@ -70,6 +70,11 @@ type Step interface {
 `Info` reports which optional interfaces a step type implements, so the
 engine never has to call one to find out and see what happens:
 
+- **`plugin.Typed(schema, step)`**: wraps a `TypedStep[C]` (`Kind` plus
+  `Up(ctx, cfg C, req, out)`) so the SDK decodes the `with` block into `C`.
+  The block already carries the CUE schema's defaults, but only for fields
+  declared without `?` (`wait: string | *"5m"`). `TypedDowner[C]`,
+  `TypedExporter[C]` and `TypedToolProvider[C]` add the optional parts.
 - **`Downer`** — `Down(ctx, *DownRequest, Emitter) error`. Implement this
   when `Up` creates something that needs removing. Must be idempotent: the
   engine may call it for a step that never came up, or one already gone.
@@ -101,16 +106,20 @@ engine never has to call one to find out and see what happens:
 - **`Env`** (embedded in every request, identical for every step in a
   session): `Project`, `Workspace` (`.kevin` dir), `Network` (shared
   docker network), `CAPath`, `HTTPProxyAddr`, `ConsoleAddr`, `ProxyEnv`,
-  `Domain`, `Relay`, `ProjectDir` (resolve a relative `with`-block path
-  against this).
+  `Domain`, `Relay`, `RelaySOCKS5Addr`, `RelaySOCKS5UDPAddrs`, `ProjectDir` (resolve a relative `with`-block path
+  against this), `Engine` (`plugin.EngineDocker` or `plugin.EnginePodman`),
+  `Scope` (`plugin.ScopeEnv` or `plugin.ScopeSetup`; `.String()` for labels).
 - **`UpRequest.Deps`** — `map[string]map[string]Value`, keyed by every
   step named in this step's `needs:` list, holding that step's published
   `Outputs`. Same data a `${needs.<step>.out.<key>}` expression reads.
-- **`DownRequest.Outputs`** — only this step's own prior outputs, replayed
-  from state, so `Down` works even after an engine restart.
+- **`DownRequest.Outputs`** - this step's own outputs from `Up`, when the
+  same kevin process ran it. After `kevin teardown` in a new process it can be
+  empty, so `Down` must not depend on it.
 - **`Result`** — `Outputs map[string]Value` (read by dependents' `Deps`
   and `${...}`), `Routes []Route` (joins the proxy's routing table),
-  `ExposedPorts []ExposedPort` (raw TCP/UDP published to the host),
+  `ExposedPorts []ExposedPort` (raw TCP/UDP published to the host; an
+  `ExposedPort`'s or `Route`'s `Upstream` is a `plugin.Upstream` with either
+  `Addr` or a `Relay` target),
   `EgressAllow []string` (hosts this step itself may reach - proxy denies
   by default), `Details []Detail` (the *only* channel that reaches the
   console card; `Route`/`ExposedPort` are purely functional and don't
@@ -140,7 +149,9 @@ would.
 `Step.Schema()` returns CUE constraining that step type's `with` block -
 `nil` if it takes none. Convention: a `schema.cue` file declaring
 `#Config: { field?: type }`, embedded with `//go:embed`. Optional fields
-use `?:`; the engine unifies the caller's `with` block against this
+use `?:`. A field with a default is declared without the `?`
+(`wait: string | *"5m"`): the engine sends the `with` block with those
+defaults filled in, and never fills one in for a `?` field. The engine unifies the caller's `with` block against this
 before `Up` ever runs, so a malformed environment fails before any
 plugin call.
 

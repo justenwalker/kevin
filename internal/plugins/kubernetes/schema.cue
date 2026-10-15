@@ -14,14 +14,14 @@
 
 	// wait is how long to wait for the control plane to become ready, such
 	// as "5m".
-	wait?: string | *"5m"
+	wait: string | *"5m"
 
 	// retain keeps the nodes when the cluster fails to start, so you can
 	// inspect them.
 	retain?: bool
 
 	// proxy sets the kevin proxy environment variables in every node.
-	proxy?: bool | *true
+	proxy: bool | *true
 
 	// egress lists external hosts that the nodes can reach when
 	// proxy.egress.deny is true.
@@ -29,11 +29,11 @@
 
 	// coredns configures the cluster DNS so that pods can resolve names on
 	// the environment domain, such as "web.kevin.home".
-	coredns?: bool | *true
+	coredns: bool | *true
 
 	// trust_ca installs the kevin root certificate in every node, so that
 	// image pulls through the kevin proxy succeed.
-	trust_ca?: bool | *true
+	trust_ca: bool | *true
 
 	// expose makes an address inside the cluster, such as a Service DNS name
 	// and port, reachable from the host through a relay pod. The key names

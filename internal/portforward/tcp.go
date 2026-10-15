@@ -24,15 +24,9 @@ type TCP struct {
 }
 
 // StartTCP opens a loopback listener for spec and starts accepting
-// connections on it. spec.Upstream must be a "socks5://<relay>/<target>"
-// address - the same shape a builtin:kubernetes step's expose entry reports.
+// connections on it, each forwarded through spec.Relay to spec.Target.
 func StartTCP(ctx context.Context, spec Spec) (*TCP, error) {
-	relay, target, ok := SplitSOCKS5(spec.Upstream)
-	if !ok {
-		return nil, fmt.Errorf("portforward: %s: not a socks5:// upstream: %q", spec.Name, spec.Upstream)
-	}
-
-	dialer, err := proxy.SOCKS5("tcp", relay, nil, proxy.Direct)
+	dialer, err := proxy.SOCKS5("tcp", spec.Relay, nil, proxy.Direct)
 	if err != nil {
 		return nil, fmt.Errorf("portforward: %s: socks5 dialer: %w", spec.Name, err)
 	}
@@ -47,7 +41,7 @@ func StartTCP(ctx context.Context, spec Spec) (*TCP, error) {
 		return nil, fmt.Errorf("portforward: %s: listen: %w", spec.Name, err)
 	}
 
-	pf := &TCP{Listener: ln, dialer: contextDialer, target: target}
+	pf := &TCP{Listener: ln, dialer: contextDialer, target: spec.Target}
 	go pf.accept() //nolint:contextcheck // deliberate - see the comment on handle for why
 	return pf, nil
 }

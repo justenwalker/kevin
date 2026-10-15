@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 
@@ -10,7 +9,6 @@ import (
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pluginhost"
-	"github.com/justenwalker/kevin/protos/pb"
 )
 
 // scopesFor builds the expr.Scopes name's `with` block renders against:
@@ -32,49 +30,33 @@ func (r *run) scopesFor(name string, deps, setupDeps map[string]output.Map) expr
 
 // renderWith resolves name's `with` block against deps and the recorded
 // system outputs of those deps, plus setupDeps for any cross-scope
-// "setup.<name>" needs entry, for either an Up or a Down request.
+// "setup.<name>" needs entry, for either an Up or a Down request. The result
+// carries every default its step type's schema declares.
 func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[string]output.Map) (json.RawMessage, error) {
 	with, err := expr.Render(step.With, name, r.scopesFor(name, deps, setupDeps))
 	if err != nil {
 		return nil, fmt.Errorf("%s: with: %w", name, err)
 	}
-	if err := r.validateRenderedWith(name, step, with); err != nil {
-		return nil, err
-	}
-	return with, nil
+	return r.applySchema(name, step, with)
 }
 
-// validateRenderedWith re-checks with - name's fully rendered with block -
-// against its own step type's schema. config-validate time (see
+// applySchema checks with - name's fully rendered with block - against its
+// own step type's schema, and returns it with the schema's defaults filled
+// in, so a plugin never has to repeat them. config-validate time (see
 // internal/config's validateStep) already checked every field whose value
 // wasn't a bare "${...}" marker, and deferred one that was, since a
 // needs/setup-sourced marker's real value doesn't exist until now - this
 // catches a deferred field whose rendered value doesn't actually satisfy
 // the schema (e.g. a variable declared "type: string" filling a field the
-// plugin types "int"). A with block with no marker at all never reaches
-// here with anything new to check.
-func (r *run) validateRenderedWith(name string, step config.Step, with json.RawMessage) error {
-	if !bytes.Contains(step.With, []byte("${")) {
-		return nil
-	}
+// plugin types "int").
+func (r *run) applySchema(name string, step config.Step, with json.RawMessage) (json.RawMessage, error) {
 	ref := step.Uses
 	for _, st := range r.caps[ref.Plugin].Steps {
 		if st.Name == ref.Step {
-			return config.ValidateAgainstSchema(name+".with", with, st.Schema)
+			return config.ApplySchema(name+".with", with, st.Schema)
 		}
 	}
-	return nil
-}
-
-func depsToProto(deps map[string]output.Map) map[string]*pb.Outputs {
-	if len(deps) == 0 {
-		return nil
-	}
-	out := make(map[string]*pb.Outputs, len(deps))
-	for name, values := range deps {
-		out[name] = values.ToProto()
-	}
-	return out
+	return with, nil
 }
 
 // stepSchema returns info's step type name's raw schema.cue bytes, or nil

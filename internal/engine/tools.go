@@ -8,7 +8,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/pluginhost"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 // run holds the state of one scope.
@@ -27,8 +27,8 @@ type toolRoute struct {
 func collectTools(ctx context.Context, steps map[string]config.Step, caps map[string]pluginhost.Info) ([]mcpserver.ToolDef, map[string]toolRoute) {
 	routes := make(map[string]toolRoute)
 	var defs []mcpserver.ToolDef
-	for _, step := range steps {
-		ref := step.Uses
+	for _, cfgStep := range steps {
+		ref := cfgStep.Uses
 		for _, st := range caps[ref.Plugin].Steps {
 			if st.Name != ref.Step {
 				continue
@@ -89,11 +89,11 @@ func (r *run) CallTool(ctx context.Context, name, tool string, args json.RawMess
 	if !ok {
 		return mcpserver.ToolResult{}, fmt.Errorf("engine: no such tool %q", tool)
 	}
-	step, ok := r.steps[name]
+	cfgStep, ok := r.steps[name]
 	if !ok {
 		return mcpserver.ToolResult{}, fmt.Errorf("engine: no step named %q", name)
 	}
-	ref := step.Uses
+	ref := cfgStep.Uses
 	if ref.Plugin != route.plugin || ref.Step != route.step {
 		return mcpserver.ToolResult{}, fmt.Errorf("engine: step %q is a %s step, not a %s:%s step", name, ref, route.plugin, route.step)
 	}
@@ -107,14 +107,14 @@ func (r *run) CallTool(ctx context.Context, name, tool string, args json.RawMess
 		return mcpserver.ToolResult{}, err
 	}
 	deps := r.sameScopeDeps(name)
-	with, err := r.renderWith(name, step, deps, setupDeps)
+	with, err := r.renderWith(name, cfgStep, deps, setupDeps)
 	if err != nil {
 		return mcpserver.ToolResult{}, err
 	}
 
-	resp, err := client.CallTool(ctx, &pb.ToolCallRequest{
+	resp, err := client.CallTool(ctx, step.ToolCall{
 		Step: name, Type: ref.Step, Env: r.env, Config: with,
-		Deps: depsToProto(depsWithSetup(deps, setupDeps)),
+		Deps: depsWithSetup(deps, setupDeps),
 		Tool: route.tool, Arguments: args,
 	})
 	if err != nil {
@@ -122,10 +122,10 @@ func (r *run) CallTool(ctx context.Context, name, tool string, args json.RawMess
 	}
 
 	var content any
-	if len(resp.GetContent()) > 0 {
-		if err := json.Unmarshal(resp.GetContent(), &content); err != nil {
+	if len(resp.Content) > 0 {
+		if err := json.Unmarshal(resp.Content, &content); err != nil {
 			return mcpserver.ToolResult{}, fmt.Errorf("engine: tool %s on %s: decode content: %w", tool, name, err)
 		}
 	}
-	return mcpserver.ToolResult{Content: content, IsError: resp.GetIsError(), Message: resp.GetErrorMessage()}, nil
+	return mcpserver.ToolResult{Content: content, IsError: resp.IsError, Message: resp.ErrorMessage}, nil
 }

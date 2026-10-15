@@ -6,7 +6,6 @@ package helm
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -51,19 +50,16 @@ type Step struct {
 }
 
 // New returns the helm step, running helm with [command.Default].
-func New() Step { return Step{cli: helmcmd.New(command.Default)} }
+func New() plugin.Step { return plugin.Typed(schema, Step{cli: helmcmd.New(command.Default)}) } //nolint:ireturn // the step is the SDK contract
 
-// Step must keep satisfying plugin.Step.
-var _ plugin.Step = Step{}
-
-// Schema constrains the with block of a helm step.
-func (Step) Schema() []byte { return schema }
+// Step must keep satisfying plugin.TypedStep.
+var _ plugin.TypedStep[config] = Step{}
 
 // Kind reports that a helm step performs an action.
 func (Step) Kind() plugin.StepKind { return plugin.StepKindAction }
 
-// Step must keep satisfying plugin.Downer.
-var _ plugin.Downer = Step{}
+// Step must keep satisfying plugin.TypedDowner.
+var _ plugin.TypedDowner[config] = Step{}
 
 // Step must keep satisfying plugin.IdempotentStep.
 var _ plugin.IdempotentStep = Step{}
@@ -74,12 +70,7 @@ var _ plugin.IdempotentStep = Step{}
 func (Step) Idempotent() bool { return true }
 
 // Up installs or upgrades the release.
-func (s Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
-	cfg, err := decode(req.Config)
-	if err != nil {
-		return nil, err
-	}
-
+func (s Step) Up(ctx context.Context, cfg config, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
 	wait, err := parseDuration(cfg.Wait)
 	if err != nil {
 		return nil, fmt.Errorf("helm: wait %q: %w", cfg.Wait, err)
@@ -122,18 +113,14 @@ func (s Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter)
 
 // Down uninstalls the release. If the step's with block sets keep, Down
 // does nothing and the release stays installed.
-func (s Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitter) error {
-	cfg, err := decode(req.Config)
-	if err != nil {
-		return err
-	}
+func (s Step) Down(ctx context.Context, cfg config, req *plugin.DownRequest, out plugin.Emitter) error {
 	if cfg.Keep {
 		out.Log("stdout", "keeping release "+cfg.Release)
 		return nil
 	}
 
 	out.Log("stdout", "uninstalling release "+cfg.Release)
-	if _, err = s.cli.Uninstall(ctx, helmcmd.UninstallSpec{
+	if _, err := s.cli.Uninstall(ctx, helmcmd.UninstallSpec{
 		Kubeconfig: cfg.Kubeconfig,
 		Context:    cfg.Context,
 		Release:    cfg.Release,
@@ -175,17 +162,4 @@ func resolvePath(path, projectDir string) string {
 		return path
 	}
 	return filepath.Join(projectDir, path)
-}
-
-// decode parses the with-block JSON into a config, applying defaults for
-// empty fields.
-func decode(data []byte) (config, error) {
-	cfg := config{Namespace: "default", CreateNamespace: true, Wait: "5m", Atomic: true}
-	if len(data) == 0 {
-		return cfg, nil
-	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("helm: decode config: %w", err)
-	}
-	return cfg, nil
 }

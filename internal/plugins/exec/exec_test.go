@@ -24,7 +24,7 @@ func (c *capture) Log(_, text string)            { c.logs = append(c.logs, text)
 func (c *capture) Progress(string, int64, int64) {}
 
 func TestSchemaCarriesTheEmbeddedSchema(t *testing.T) {
-	assert.NotEmpty(t, Step{}.Schema(), "Schema must return the embedded schema.cue")
+	assert.NotEmpty(t, schema, "Schema must return the embedded schema.cue")
 }
 
 func TestKind(t *testing.T) {
@@ -122,7 +122,7 @@ func TestUp(t *testing.T) {
 			Env:    plugin.Env{ProjectDir: dir, Workspace: t.TempDir()},
 			Config: json.RawMessage(`{"up":{"command":["sh","-c","echo hello; pwd"]}}`),
 		}
-		result, err := Step{}.Up(t.Context(), req, &capture{})
+		result, err := typed().Up(t.Context(), req, &capture{})
 		require.NoError(t, err)
 
 		stdout, ok := result.Outputs["stdout"]
@@ -143,7 +143,7 @@ func TestUp(t *testing.T) {
 			Env:    plugin.Env{Workspace: t.TempDir()},
 			Config: json.RawMessage(`{"up":{"command":["sh","-c","echo boom >&2; exit 1"]}}`),
 		}
-		_, err := Step{}.Up(t.Context(), req, &capture{})
+		_, err := typed().Up(t.Context(), req, &capture{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "boom")
 	})
@@ -155,7 +155,7 @@ func TestDown(t *testing.T) {
 			Env:    plugin.Env{Workspace: t.TempDir()},
 			Config: json.RawMessage(`{"up":{"command":["echo","hi"]}}`),
 		}
-		err := Step{}.Down(t.Context(), req, &capture{})
+		err := typed().Down(t.Context(), req, &capture{})
 		assert.NoError(t, err)
 	})
 
@@ -169,7 +169,7 @@ func TestDown(t *testing.T) {
 				"down": {"command": ["sh", "-c", "touch marker"], "cwd": "` + downDir + `"}
 			}`),
 		}
-		err := Step{}.Down(t.Context(), req, &capture{})
+		err := typed().Down(t.Context(), req, &capture{})
 		require.NoError(t, err)
 
 		assert.FileExists(t, filepath.Join(downDir, "marker"), "down must run in its own cwd, not up's")
@@ -183,7 +183,7 @@ func TestDown(t *testing.T) {
 			Env:    plugin.Env{Workspace: workspace},
 			Config: json.RawMessage(`{"up":{"command":["echo","hi"]}}`),
 		}
-		_, err := Step{}.Up(t.Context(), up, &capture{})
+		_, err := typed().Up(t.Context(), up, &capture{})
 		require.NoError(t, err)
 
 		down := &plugin.DownRequest{
@@ -191,9 +191,9 @@ func TestDown(t *testing.T) {
 			Env:    plugin.Env{Workspace: workspace},
 			Config: json.RawMessage(`{"up":{"command":["echo","hi"]}}`),
 		}
-		require.NoError(t, Step{}.Down(t.Context(), down, &capture{}))
+		require.NoError(t, typed().Down(t.Context(), down, &capture{}))
 
-		_, err = Step{}.Export(t.Context(), &plugin.ExportRequest{Step: "a", Env: plugin.Env{Workspace: workspace}})
+		_, err = typed().Export(t.Context(), &plugin.ExportRequest{Step: "a", Env: plugin.Env{Workspace: workspace}})
 		require.Error(t, err, "Down must remove the persisted stdout, so a later Export has nothing to read")
 	})
 }
@@ -206,16 +206,16 @@ func TestExport(t *testing.T) {
 			Env:    plugin.Env{Workspace: workspace},
 			Config: json.RawMessage(`{"up":{"command":["echo","hi"]}}`),
 		}
-		_, err := Step{}.Up(t.Context(), up, &capture{})
+		_, err := typed().Up(t.Context(), up, &capture{})
 		require.NoError(t, err)
 
-		result, err := Step{}.Export(t.Context(), &plugin.ExportRequest{Step: "a", Env: plugin.Env{Workspace: workspace}})
+		result, err := typed().Export(t.Context(), &plugin.ExportRequest{Step: "a", Env: plugin.Env{Workspace: workspace}})
 		require.NoError(t, err)
 		assert.Equal(t, "hi", result.Out["stdout"].Reveal())
 	})
 
 	t.Run("fails when Up has not run yet", func(t *testing.T) {
-		_, err := Step{}.Export(t.Context(), &plugin.ExportRequest{Step: "a", Env: plugin.Env{Workspace: t.TempDir()}})
+		_, err := typed().Export(t.Context(), &plugin.ExportRequest{Step: "a", Env: plugin.Env{Workspace: t.TempDir()}})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "run `kevin run` or `kevin setup` first")
 	})
@@ -227,10 +227,10 @@ func TestExport(t *testing.T) {
 			Env:    plugin.Env{Workspace: workspace},
 			Config: json.RawMessage(`{"up":{"command":["echo","hi"]}}`),
 		}
-		_, err := Step{}.Up(t.Context(), up, &capture{})
+		_, err := typed().Up(t.Context(), up, &capture{})
 		require.NoError(t, err)
 
-		_, err = Step{}.Export(t.Context(), &plugin.ExportRequest{Step: "b", Env: plugin.Env{Workspace: workspace}})
+		_, err = typed().Export(t.Context(), &plugin.ExportRequest{Step: "b", Env: plugin.Env{Workspace: workspace}})
 		require.Error(t, err, "a's captured stdout must not leak into b's Export")
 	})
 }
@@ -278,4 +278,25 @@ func TestRunExec(t *testing.T) {
 		_, err := s.runExec(t.Context(), cfg, false, env, &capture{})
 		require.ErrorContains(t, err, "make up")
 	})
+}
+
+// stepAll is every optional part the SDK's typed adapter offers, so a test
+// can call it with a raw with block.
+type stepAll interface {
+	plugin.Step
+	plugin.Downer
+	plugin.Exporter
+}
+
+// typed wraps s the way New does.
+func typed() stepAll { return plugin.Typed(schema, Step{}).(stepAll) } //nolint:errcheck,ireturn // the adapter implements every part
+
+// decode parses a with block the way the SDK does for a typed step.
+func decode(data []byte) (config, error) {
+	var cfg config
+	if len(data) == 0 {
+		return cfg, nil
+	}
+	err := json.Unmarshal(data, &cfg)
+	return cfg, err
 }

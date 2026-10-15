@@ -24,7 +24,7 @@ type captureTarget struct {
 // currently captured, and records the target only once that succeeds - a
 // failed call leaves nothing behind for reapplyCapture to retry against.
 func (p *relayProcess) RegisterCapture(ctx context.Context, req *pb.RegisterCaptureRequest) (*pb.RegisterCaptureResponse, error) {
-	target := captureTarget{netnsPath: req.GetNetnsPath(), excludeCIDRs: req.GetExcludeCidrs()}
+	target := captureTarget{netnsPath: req.GetNetns().GetPath(), excludeCIDRs: req.GetNetns().GetExcludeCidrs()}
 	if err := applyCapture(target.netnsPath, p.capturePorts(), p.self, target.excludeCIDRs); err != nil {
 		return nil, fmt.Errorf("relay: apply capture for %q: %w", req.GetId(), err)
 	}

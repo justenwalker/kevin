@@ -68,15 +68,19 @@ func udpRelayPortsArg(n int, args []string) []string {
 // published when it was created, regardless of the caller's own current
 // UDPPoolSizeEnvVar (a container reused across a pool-size change keeps
 // its original pool; see docs/site/content/docs/concepts/relay.md).
-func UDPAddrsFromInfo(info cri.Container) map[string]string {
-	var addrs map[string]string
+func UDPAddrsFromInfo(info cri.Container) map[int]string {
+	var addrs map[int]string
 	for port, addr := range info.Ports {
-		containerPort, ok := strings.CutSuffix(port, "/udp")
+		name, ok := strings.CutSuffix(port, "/udp")
 		if !ok {
 			continue
 		}
+		containerPort, err := strconv.Atoi(name)
+		if err != nil {
+			continue
+		}
 		if addrs == nil {
-			addrs = make(map[string]string, len(info.Ports))
+			addrs = make(map[int]string, len(info.Ports))
 		}
 		addrs[containerPort] = addr
 	}

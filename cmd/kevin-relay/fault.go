@@ -29,32 +29,33 @@ type faultTarget struct {
 }
 
 // ApplyFault implements [pb.RelayControlServer]. It installs (or
-// replaces) the netem qdisc for req.Id's namespace/interface, and records
+// replaces) the netem qdisc for the fault's namespace/interface, and records
 // it only once that succeeds - mirroring RegisterCapture's own
 // record-on-success discipline.
 func (p *relayProcess) ApplyFault(ctx context.Context, req *pb.ApplyFaultRequest) (*pb.ApplyFaultResponse, error) {
+	fault := req.GetFault()
 	cfg := faultConfig{
-		Interface:        req.GetInterface(),
-		DelayMS:          req.GetDelayMs(),
-		JitterMS:         req.GetJitterMs(),
-		LossPercent:      req.GetLossPercent(),
-		CorruptPercent:   req.GetCorruptPercent(),
-		DuplicatePercent: req.GetDuplicatePercent(),
-		ReorderPercent:   req.GetReorderPercent(),
-		RateKbit:         req.GetRateKbit(),
+		Interface:        fault.GetInterface(),
+		DelayMS:          fault.GetDelayMs(),
+		JitterMS:         fault.GetJitterMs(),
+		LossPercent:      fault.GetLossPercent(),
+		CorruptPercent:   fault.GetCorruptPercent(),
+		DuplicatePercent: fault.GetDuplicatePercent(),
+		ReorderPercent:   fault.GetReorderPercent(),
+		RateKbit:         fault.GetRateKbit(),
 	}
-	if err := applyFault(req.GetNetnsPath(), cfg); err != nil {
-		return nil, fmt.Errorf("relay: apply fault for %q: %w", req.GetId(), err)
+	if err := applyFault(fault.GetNetnsPath(), cfg); err != nil {
+		return nil, fmt.Errorf("relay: apply fault for %q: %w", fault.GetId(), err)
 	}
 
 	p.mu.Lock()
 	if p.faults == nil {
 		p.faults = make(map[string]faultTarget)
 	}
-	p.faults[req.GetId()] = faultTarget{netnsPath: req.GetNetnsPath(), iface: req.GetInterface()}
+	p.faults[fault.GetId()] = faultTarget{netnsPath: fault.GetNetnsPath(), iface: fault.GetInterface()}
 	p.mu.Unlock()
 
-	log.Ctx(ctx).Debug("relay: applied fault", "id", req.GetId(), "netns_path", req.GetNetnsPath())
+	log.Ctx(ctx).Debug("relay: applied fault", "id", fault.GetId(), "netns_path", fault.GetNetnsPath())
 	return &pb.ApplyFaultResponse{}, nil
 }
 

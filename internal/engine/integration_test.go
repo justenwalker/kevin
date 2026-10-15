@@ -23,7 +23,7 @@ import (
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/state"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 // newTestAuthority builds a fresh project authority for a test - relay.Start
@@ -107,19 +107,18 @@ func (s *RelaySuite) TestRunStartsRelayAndCleansUpEveryResource() {
 	defer cancel()
 	w := &integrationWatcher{until: "web              ready", cancel: cancel}
 
-	var env *pb.Environment
+	var env step.Env
 	err := Run(ctx, Options{
 		Dir:    dir,
 		Scope:  config.ScopeEnv,
 		Events: w,
-		OnEnvironment: func(e *pb.Environment) {
+		OnEnvironment: func(e step.Env) {
 			env = e
 		},
 	})
 	s.Require().NoError(err)
 
-	s.Require().NotNil(env, "OnEnvironment must run before any step")
-	s.NotEmpty(env.GetRelay(), "the environment must carry the relay address")
+	s.NotEmpty(env.Relay, "the environment must carry the relay address")
 
 	names, err := dockerClient.ListByLabel(context.Background(), cri.LabelProject, project)
 	s.Require().NoError(err)

@@ -12,7 +12,6 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -83,13 +82,10 @@ type Step struct {
 }
 
 // New returns the wait step, running kubectl with [command.Default].
-func New() Step { return Step{kubectl: kubectlcmd.New(command.Default)} }
+func New() plugin.Step { return plugin.Typed(schema, Step{kubectl: kubectlcmd.New(command.Default)}) } //nolint:ireturn // the step is the SDK contract
 
-// Step must keep satisfying plugin.Step.
-var _ plugin.Step = Step{}
-
-// Schema constrains the with block of a wait step.
-func (Step) Schema() []byte { return schema }
+// Step must keep satisfying plugin.TypedStep.
+var _ plugin.TypedStep[config] = Step{}
 
 // Kind reports that a wait step is a probe: it creates no resource.
 func (Step) Kind() plugin.StepKind { return plugin.StepKindProbe }
@@ -103,17 +99,13 @@ func (Step) Idempotent() bool { return true }
 
 // Up runs the configured check, retrying until it succeeds or the timeout
 // passes.
-func (s Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
-	cfg, err := decode(req.Config)
-	if err != nil {
-		return nil, err
-	}
-	if err = validate(cfg); err != nil {
+func (s Step) Up(ctx context.Context, cfg config, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
+	if err := validate(cfg); err != nil {
 		return nil, err
 	}
 
 	if cfg.Duration != "" {
-		if err = sleep(ctx, out, cfg.Duration); err != nil {
+		if err := sleep(ctx, out, cfg.Duration); err != nil {
 			return nil, err
 		}
 		return &plugin.Result{}, nil
@@ -315,28 +307,4 @@ func (s Step) run(ctx context.Context, cmd *exec.Cmd) error {
 		return command.Run(ctx, cmd)
 	}
 	return s.runner.Run(ctx, cmd)
-}
-
-// decode parses the with-block JSON into a config, applying schema.cue's
-// defaults.
-func decode(data []byte) (config, error) {
-	// Repeat the defaults of schema.cue. A caller can pass an empty config,
-	// and then CUE never applies them.
-	cfg := config{Timeout: "60s", Interval: "1s"}
-	if len(data) == 0 {
-		return cfg, nil
-	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("wait: decode config: %w", err)
-	}
-	// Repeat schema.cue's per-block defaults too, for the same reason.
-	if cfg.HTTP != nil {
-		if cfg.HTTP.Method == "" {
-			cfg.HTTP.Method = http.MethodGet
-		}
-		if cfg.HTTP.Status == 0 {
-			cfg.HTTP.Status = http.StatusOK
-		}
-	}
-	return cfg, nil
 }

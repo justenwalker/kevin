@@ -88,18 +88,13 @@ func (d *minikubeDriver) home() string {
 }
 
 // engineDriver is the minikube driver that matches the project's engine.
-func (d *minikubeDriver) engineDriver() string {
-	if d.env.Engine == enginePodman {
-		return enginePodman
-	}
-	return "docker"
-}
+func (d *minikubeDriver) engineDriver() string { return d.env.Engine.String() }
 
 // network is the name of the network that the nodes of the cluster join.
 // Podman ignores a requested network and names its own after the profile.
 // The docker prefix keeps Delete from removing a network of another name.
 func (d *minikubeDriver) network() string {
-	if d.env.Engine == enginePodman {
+	if d.env.Engine == plugin.EnginePodman {
 		return d.name
 	}
 	return "kevin-minikube-" + d.name
@@ -126,7 +121,7 @@ func (d *minikubeDriver) startSpec(spec createSpec) minikubecmd.StartSpec {
 		Home:              d.home(),
 		Kubeconfig:        d.kubeconfig,
 	}
-	if d.env.Engine != enginePodman {
+	if d.env.Engine != plugin.EnginePodman {
 		start.Network = d.network()
 	}
 	for _, m := range resolveMounts(d.cfg.Mounts, d.env.ProjectDir) {
@@ -279,7 +274,7 @@ func (d *minikubeDriver) Create(ctx context.Context, spec createSpec, out plugin
 func (d *minikubeDriver) createNodes(ctx context.Context, spec createSpec, out plugin.Emitter) ([]string, error) {
 	// minikube cannot parse a dual-stack docker network and falls back to the
 	// default bridge, so create an IPv4-only one for it to use.
-	if d.env.Engine != enginePodman {
+	if d.env.Engine != plugin.EnginePodman {
 		if err := d.rt.NetworkCreate(ctx, d.network(), cri.NetworkOptions{
 			Labels: map[string]string{cri.LabelProject: d.env.Project},
 		}); err != nil {

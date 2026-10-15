@@ -1,6 +1,7 @@
 package fault
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,7 +11,7 @@ import (
 )
 
 func TestSchemaCarriesTheEmbeddedSchema(t *testing.T) {
-	schema := Step{}.Schema()
+	schema := schema
 
 	assert.Contains(t, string(schema), "#Config")
 	assert.Contains(t, string(schema), "containers")
@@ -166,7 +167,7 @@ func TestUpBuildsNetworkFaults(t *testing.T) {
 	}
 
 	t.Run("a single resolved container gets the step's own name as ID", func(t *testing.T) {
-		result, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+		result, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{
 			Step:       "backend_fault",
 			Containers: single,
 			Config:     []byte(`{"interface": "eth1", "delay_ms": 500, "loss_percent": 10, "rate_kbit": 400}`),
@@ -180,7 +181,7 @@ func TestUpBuildsNetworkFaults(t *testing.T) {
 	})
 
 	t.Run("several resolved containers each get a step/name ID", func(t *testing.T) {
-		result, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+		result, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{
 			Step:       "cluster_fault",
 			Containers: multi,
 			Config:     []byte(`{"loss_percent": 50}`),
@@ -192,7 +193,7 @@ func TestUpBuildsNetworkFaults(t *testing.T) {
 	})
 
 	t.Run("rejects an all-zero config before resolving any target", func(t *testing.T) {
-		_, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+		_, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{
 			Step:       "backend_fault",
 			Containers: single,
 			Config:     []byte(`{}`),
@@ -205,3 +206,24 @@ type noopEmitter struct{}
 
 func (noopEmitter) Log(string, string)            {}
 func (noopEmitter) Progress(string, int64, int64) {}
+
+// stepAll is every optional part the SDK's typed adapter offers, so a test
+// can call it with a raw with block.
+type stepAll interface {
+	plugin.Step
+	plugin.Downer
+	plugin.Exporter
+}
+
+// typed wraps s the way New does.
+func typed(s Step) stepAll { return plugin.Typed(schema, s).(stepAll) } //nolint:errcheck,ireturn // the adapter implements every part
+
+// decode parses a with block the way the SDK does for a typed step.
+func decode(data []byte) (config, error) {
+	var cfg config
+	if len(data) == 0 {
+		return cfg, nil
+	}
+	err := json.Unmarshal(data, &cfg)
+	return cfg, err
+}

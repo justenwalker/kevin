@@ -6,15 +6,15 @@ import (
 	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/relay"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 // stepPlugin is the part of a plugin client that brings steps up and down.
 type stepPlugin interface {
-	Up(ctx context.Context, req *pb.UpRequest, onEvent func(*pb.Event)) (*pb.Result, error)
-	Down(ctx context.Context, req *pb.DownRequest, onEvent func(*pb.Event)) error
-	Export(ctx context.Context, req *pb.ExportRequest) (*pb.ExportResponse, error)
-	CallTool(ctx context.Context, req *pb.ToolCallRequest) (*pb.ToolCallResponse, error)
+	Up(ctx context.Context, req step.UpRequest, ev step.Events) (step.Result, error)
+	Down(ctx context.Context, req step.DownRequest, ev step.Events) error
+	Export(ctx context.Context, req step.ExportRequest) (step.ExportResult, error)
+	CallTool(ctx context.Context, req step.ToolCall) (step.ToolResult, error)
 }
 
 // routeTable is the part of the proxy that a step's result changes.
@@ -28,7 +28,7 @@ type routeTable interface {
 type trafficRelay interface {
 	EnsureListener(ctx context.Context, host string, ports []int) error
 	RegisterCapture(ctx context.Context, id, netnsPath string, excludeCIDRs []string) error
-	ApplyFault(ctx context.Context, f *pb.NetworkFault) error
+	ApplyFault(ctx context.Context, f step.Fault) error
 	ClearFault(ctx context.Context, id string) error
 	Close() error
 }

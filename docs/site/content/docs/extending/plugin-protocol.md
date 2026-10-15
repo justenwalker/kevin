@@ -26,7 +26,7 @@ One plugin process serves every step type of its provider.
 
 A step can also set a `timeout`. When `Up` outlives it, kevin cancels the context passed to `Up`, so `Up` must respect its context. The step then gets the same `Down` request.
 
-Each request has everything the plugin needs: the network name, the CA certificate, the proxy address, the workspace path, and the outputs of upstream steps. kevin has no callback service.
+Each request has everything the plugin needs: the network name, the CA certificate, the proxy address, the workspace path, and, for `Up` and `CallTool`, the outputs of upstream steps. kevin has no callback service.
 
 ## Start sequence
 

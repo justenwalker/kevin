@@ -16,8 +16,9 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/justenwalker/kevin/internal/logging"
+	"github.com/justenwalker/kevin/internal/pluginwire"
+	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/internal/uerr"
-	"github.com/justenwalker/kevin/plugin"
 	"github.com/justenwalker/kevin/protos/pb"
 )
 
@@ -68,8 +69,8 @@ func Launch(ctx context.Context, name string, spec Spec) (*Client, error) {
 
 	logger, closer := hclogToSlog(log.Ctx(ctx).With("plugin", name))
 	client := goplugin.NewClient(&goplugin.ClientConfig{
-		HandshakeConfig:  plugin.Handshake,
-		VersionedPlugins: map[int]goplugin.PluginSet{plugin.ProtocolVersion: {plugin.Name: &plugin.GRPCPlugin{}}},
+		HandshakeConfig:  pluginwire.Handshake,
+		VersionedPlugins: map[int]goplugin.PluginSet{pluginwire.ProtocolVersion: {pluginwire.Name: &pluginwire.GRPCPlugin{}}},
 		Cmd:              cmd,
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
 		AutoMTLS:         true,
@@ -87,7 +88,7 @@ func Launch(ctx context.Context, name string, spec Spec) (*Client, error) {
 		return nil, fmt.Errorf("pluginhost: connect to plugin %q: %w", name, err)
 	}
 
-	raw, err := rpc.Dispense(plugin.Name)
+	raw, err := rpc.Dispense(pluginwire.Name)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("pluginhost: dispense plugin %q: %w", name, err)
@@ -122,7 +123,7 @@ type StepInfo struct {
 	Down bool
 
 	// Kind reports what this step type is.
-	Kind pb.StepKind
+	Kind step.Kind
 
 	// Idempotent reports whether this step type is safe to call Up on
 	// again - safe to include in a cascading rerun triggered by a
@@ -184,7 +185,7 @@ func (c *Client) Info(ctx context.Context) (Info, error) {
 			Schema:     st.GetCueSchema(),
 			Export:     st.GetExport(),
 			Down:       st.GetDown(),
-			Kind:       st.GetKind(),
+			Kind:       kindFromProto(st.GetKind()),
 			Idempotent: st.GetIdempotent(),
 			Tools:      tools,
 		})
@@ -204,78 +205,78 @@ func (c *Client) Info(ctx context.Context) (Info, error) {
 
 // Configure sends the config block of the plugin. Configure must run once,
 // before any step of this plugin runs.
-func (c *Client) Configure(ctx context.Context, config []byte, env *pb.Environment) error {
-	if _, err := c.api.Configure(ctx, &pb.ConfigureRequest{Config: config, Env: env}); err != nil {
+func (c *Client) Configure(ctx context.Context, config []byte, env step.Env) error {
+	if _, err := c.api.Configure(ctx, &pb.ConfigureRequest{Config: config, Env: envToProto(env)}); err != nil {
 		return fmt.Errorf("pluginhost: %q Configure: %w", c.name, wrapRPCErr(err))
 	}
 	return nil
 }
 
-// Up creates a step. Up calls onEvent for every log line and every progress
-// report before it returns.
-func (c *Client) Up(ctx context.Context, req *pb.UpRequest, onEvent func(*pb.Event)) (*pb.Result, error) {
-	stream, err := c.api.Up(ctx, req)
+// Up creates a step. Up reports every log line and every progress report to
+// ev before it returns.
+func (c *Client) Up(ctx context.Context, req step.UpRequest, ev step.Events) (step.Result, error) {
+	stream, err := c.api.Up(ctx, upRequestToProto(req))
 	if err != nil {
-		return nil, fmt.Errorf("pluginhost: %q Up %q: %w", c.name, req.GetStep(), wrapRPCErr(err))
+		return step.Result{}, fmt.Errorf("pluginhost: %q Up %q: %w", c.name, req.Step, wrapRPCErr(err))
 	}
 
 	var result *pb.Result
 	for {
-		ev, recvErr := stream.Recv()
+		e, recvErr := stream.Recv()
 		if errors.Is(recvErr, io.EOF) {
 			break
 		}
 		if recvErr != nil {
-			return nil, fmt.Errorf("pluginhost: %q Up %q: %w", c.name, req.GetStep(), wrapRPCErr(recvErr))
+			return step.Result{}, fmt.Errorf("pluginhost: %q Up %q: %w", c.name, req.Step, wrapRPCErr(recvErr))
 		}
-		if r := ev.GetResult(); r != nil {
+		if r := e.GetResult(); r != nil {
 			result = r
 			continue
 		}
-		onEvent(ev)
+		dispatchEvent(ev, e)
 	}
 
 	if result == nil {
-		return nil, fmt.Errorf("pluginhost: %q step %q: %w", c.name, req.GetStep(), ErrNoResult)
+		return step.Result{}, fmt.Errorf("pluginhost: %q step %q: %w", c.name, req.Step, ErrNoResult)
 	}
-	return result, nil
+	return resultFromProto(result), nil
 }
 
 // Export asks a step how to reach what it created.
-func (c *Client) Export(ctx context.Context, req *pb.ExportRequest) (*pb.ExportResponse, error) {
-	resp, err := c.api.Export(ctx, req)
+func (c *Client) Export(ctx context.Context, req step.ExportRequest) (step.ExportResult, error) {
+	resp, err := c.api.Export(ctx, exportRequestToProto(req))
 	if err != nil {
-		return nil, fmt.Errorf("pluginhost: %q Export %q: %w", c.name, req.GetStep(), wrapRPCErr(err))
+		return step.ExportResult{}, fmt.Errorf("pluginhost: %q Export %q: %w", c.name, req.Step, wrapRPCErr(err))
 	}
-	return resp, nil
+	return exportResultFromProto(resp), nil
 }
 
 // CallTool runs one of a step type's declared tools against a step
 // instance.
-func (c *Client) CallTool(ctx context.Context, req *pb.ToolCallRequest) (*pb.ToolCallResponse, error) {
-	resp, err := c.api.CallTool(ctx, req)
+func (c *Client) CallTool(ctx context.Context, req step.ToolCall) (step.ToolResult, error) {
+	resp, err := c.api.CallTool(ctx, toolCallToProto(req))
 	if err != nil {
-		return nil, fmt.Errorf("pluginhost: %q CallTool %q on %q: %w", c.name, req.GetTool(), req.GetStep(), wrapRPCErr(err))
+		return step.ToolResult{}, fmt.Errorf("pluginhost: %q CallTool %q on %q: %w", c.name, req.Tool, req.Step, wrapRPCErr(err))
 	}
-	return resp, nil
+	return toolResultFromProto(resp), nil
 }
 
-// Down removes a step. Down calls onEvent for every log line and every
-// progress report before it returns.
-func (c *Client) Down(ctx context.Context, req *pb.DownRequest, onEvent func(*pb.Event)) error {
-	stream, err := c.api.Down(ctx, req)
+// Down removes a step. Down reports every log line and every progress report
+// to ev before it returns.
+func (c *Client) Down(ctx context.Context, req step.DownRequest, ev step.Events) error {
+	stream, err := c.api.Down(ctx, downRequestToProto(req))
 	if err != nil {
-		return fmt.Errorf("pluginhost: %q Down %q: %w", c.name, req.GetStep(), wrapRPCErr(err))
+		return fmt.Errorf("pluginhost: %q Down %q: %w", c.name, req.Step, wrapRPCErr(err))
 	}
 	for {
-		ev, recvErr := stream.Recv()
+		e, recvErr := stream.Recv()
 		if errors.Is(recvErr, io.EOF) {
 			return nil
 		}
 		if recvErr != nil {
-			return fmt.Errorf("pluginhost: %q Down %q: %w", c.name, req.GetStep(), wrapRPCErr(recvErr))
+			return fmt.Errorf("pluginhost: %q Down %q: %w", c.name, req.Step, wrapRPCErr(recvErr))
 		}
-		onEvent(ev)
+		dispatchEvent(ev, e)
 	}
 }
 

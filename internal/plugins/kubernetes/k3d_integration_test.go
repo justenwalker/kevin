@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -120,10 +119,10 @@ func (s *K3dSuite) SetupSuite() {
 	s.workspace = t.TempDir()
 	s.mountDir = t.TempDir()
 	s.Require().NoError(os.WriteFile(filepath.Join(s.mountDir, "probe.txt"), []byte("from the host"), 0o600))
-	res, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+	res, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{
 		Step:   k3dStepName,
 		Env:    s.env(),
-		Config: []byte(s.configJSON()),
+		Config: withDefaults(t, s.configJSON()),
 	}, &capture{})
 	s.Require().NoError(err, "Up must create the cluster")
 	s.up = res
@@ -138,10 +137,10 @@ func (s *K3dSuite) TearDownSuite() {
 	ctx := context.WithoutCancel(context.Background())
 
 	if s.clusterName != "" {
-		downErr := Step{}.Down(t.Context(), &plugin.DownRequest{
+		downErr := typed(Step{}).Down(t.Context(), &plugin.DownRequest{
 			Step:   k3dStepName,
 			Env:    plugin.Env{Project: k3dProject, Workspace: s.workspace},
-			Config: []byte(s.configJSON()),
+			Config: withDefaults(t, s.configJSON()),
 		}, &capture{})
 		s.NoError(downErr, "Down must remove the cluster without error")
 		if downErr != nil {
@@ -332,12 +331,11 @@ func (s *K3dSuite) TestExposeReachesTheAPIServerThroughSOCKS5() {
 	ep := s.up.ExposedPorts[0]
 	s.Equal("apiserver", ep.Name)
 
-	upstream, err := url.Parse(ep.Upstream)
-	s.Require().NoError(err)
-	target := strings.TrimPrefix(upstream.Path, "/")
+	s.Require().NotNil(ep.Upstream.Relay, "the upstream must be a relay target")
+	target := ep.Upstream.Relay.Target
 	s.Equal("kubernetes.default.svc:443", target)
 
-	dialer, err := proxy.SOCKS5("tcp", upstream.Host, nil, proxy.Direct)
+	dialer, err := proxy.SOCKS5("tcp", ep.Upstream.Relay.Relay, nil, proxy.Direct)
 	s.Require().NoError(err)
 	conn, err := dialer.Dial("tcp", target)
 	s.Require().NoError(err, "the relay must reach the api server from inside the cluster")
@@ -354,10 +352,10 @@ func (s *K3dSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 	s.Require().NoError(err)
 
 	out := &capture{}
-	_, err = Step{}.Up(t.Context(), &plugin.UpRequest{
+	_, err = typed(Step{}).Up(t.Context(), &plugin.UpRequest{
 		Step:   k3dStepName,
 		Env:    s.env(),
-		Config: []byte(s.configJSON()),
+		Config: withDefaults(t, s.configJSON()),
 	}, out)
 	s.Require().NoError(err)
 
@@ -379,15 +377,15 @@ func TestK3dOnPodman(t *testing.T) {
 		t.Skip("podman is unavailable:", err)
 	}
 
-	env := plugin.Env{Project: "k3d-podman-it", Workspace: t.TempDir(), Engine: "podman"}
-	config := []byte(`{"driver":"k3d","coredns":false,"trust_ca":false}`)
+	env := plugin.Env{Project: "k3d-podman-it", Workspace: t.TempDir(), Engine: plugin.EnginePodman}
+	config := withDefaults(t, `{"driver":"k3d","coredns":false,"trust_ca":false}`)
 	down := func() error {
-		return Step{}.Down(context.WithoutCancel(t.Context()),
+		return typed(Step{}).Down(context.WithoutCancel(t.Context()),
 			&plugin.DownRequest{Step: k3dStepName, Env: env, Config: config}, &capture{})
 	}
 	t.Cleanup(func() { _ = down() })
 
-	res, err := Step{}.Up(t.Context(), &plugin.UpRequest{Step: k3dStepName, Env: env, Config: config}, &capture{})
+	res, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{Step: k3dStepName, Env: env, Config: config}, &capture{})
 	if err != nil {
 		t.Fatalf("Up under podman: %v", err)
 	}
@@ -420,9 +418,9 @@ func TestK3dDownIsIdempotent(t *testing.T) {
 	req := &plugin.DownRequest{
 		Step:   "never-created",
 		Env:    plugin.Env{Project: "k3d-idempotent", Workspace: t.TempDir()},
-		Config: []byte(`{"driver":"k3d"}`),
+		Config: withDefaults(t, `{"driver":"k3d"}`),
 	}
-	if err := (Step{}).Down(t.Context(), req, &capture{}); err != nil {
+	if err := typed(Step{}).Down(t.Context(), req, &capture{}); err != nil {
 		t.Fatalf("Down of a cluster that never existed: %v", err)
 	}
 }

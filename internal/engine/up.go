@@ -11,8 +11,8 @@ import (
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/internal/uerr"
-	"github.com/justenwalker/kevin/protos/pb"
 )
 
 // upPlan is everything a step's Up call needs, resolved before it runs.
@@ -20,7 +20,7 @@ type upPlan struct {
 	name    string
 	ref     config.StepRef
 	client  stepPlugin
-	req     *pb.UpRequest
+	req     step.UpRequest
 	timeout time.Duration
 }
 
@@ -28,8 +28,8 @@ type upPlan struct {
 // request for Up, and publishes the rendered inputs. A failure is reported to
 // the session.
 func (r *run) planUp(ctx context.Context, name string, deps map[string]output.Map) (upPlan, error) {
-	step := r.steps[name]
-	ref := step.Uses
+	cfgStep := r.steps[name]
+	ref := cfgStep.Uses
 
 	setupDeps, setupContainers, err := r.crossScopeDeps(ctx, name)
 	if err != nil {
@@ -37,7 +37,7 @@ func (r *run) planUp(ctx context.Context, name string, deps map[string]output.Ma
 		return upPlan{}, err
 	}
 
-	with, err := r.renderWith(name, step, deps, setupDeps)
+	with, err := r.renderWith(name, cfgStep, deps, setupDeps)
 	if err != nil {
 		r.reportUpFailure(ctx, name, err)
 		return upPlan{}, err
@@ -45,7 +45,7 @@ func (r *run) planUp(ctx context.Context, name string, deps map[string]output.Ma
 	schemaSensitive, schemaErr := sensitiveWithFields(stepSchema(r.caps[ref.Plugin], ref.Step))
 	if schemaErr != nil {
 		r.emit(name, "warning: inputs: "+uerr.Display(schemaErr))
-	} else if rows, rowsErr := inputRows(step.With, with, r.scopesFor(name, deps, setupDeps), schemaSensitive, r.cfg.SensitiveVariables()); rowsErr != nil {
+	} else if rows, rowsErr := inputRows(cfgStep.With, with, r.scopesFor(name, deps, setupDeps), schemaSensitive, r.cfg.SensitiveVariables()); rowsErr != nil {
 		r.emit(name, "warning: inputs: "+uerr.Display(rowsErr))
 	} else {
 		r.store.SetStepInputs(name, rows)
@@ -55,22 +55,22 @@ func (r *run) planUp(ctx context.Context, name string, deps map[string]output.Ma
 		name:   name,
 		ref:    ref,
 		client: r.plugins[ref.Plugin],
-		req: &pb.UpRequest{
+		req: step.UpRequest{
 			Step:       name,
 			Type:       ref.Step,
 			Env:        r.env,
 			Config:     with,
-			Deps:       depsToProto(depsWithSetup(deps, setupDeps)),
+			Deps:       depsWithSetup(deps, setupDeps),
 			Containers: r.stepContainersFor(deps, setupContainers),
 		},
-		timeout: time.Duration(step.Timeout),
+		timeout: time.Duration(cfgStep.Timeout),
 	}, nil
 }
 
 // callUp calls Up for plan, bounded by its timeout when positive, and reports
 // a failure. A step whose Up outlived its timeout is not settled, so shutdown
 // calls Down for it.
-func (r *run) callUp(ctx context.Context, plan upPlan, start time.Time) (*pb.Result, error) {
+func (r *run) callUp(ctx context.Context, plan upPlan, start time.Time) (step.Result, error) {
 	upCtx := ctx
 	if plan.timeout > 0 {
 		var cancel context.CancelFunc
@@ -86,11 +86,11 @@ func (r *run) callUp(ctx context.Context, plan upPlan, start time.Time) (*pb.Res
 		err = uerr.Wrap(fmt.Errorf("%s: %w", plan.name, session.ErrStepTimeout),
 			"timed out after %s; raise timeout in kevin.cue", plan.timeout)
 		r.reportUpFailure(ctx, plan.name, err)
-		return nil, err
+		return step.Result{}, err
 	}
 	r.failUp(ctx, plan.name, err)
 	r.warnDenied(ctx, plan.name, start)
-	return nil, err
+	return step.Result{}, err
 }
 
 // upStep calls Up on one step. It is the dag.NodeFunc both the initial
@@ -148,38 +148,32 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]output.Ma
 
 // publish applies result to the relay, proxy, port forwards and session, marks
 // the step Ready, and records its outputs.
-func (r *run) publish(ctx context.Context, plan upPlan, result *pb.Result, start time.Time) (output.Map, error) {
+func (r *run) publish(ctx context.Context, plan upPlan, result step.Result, start time.Time) (output.Map, error) {
 	name := plan.name
 	if relayErr := r.wireRelay(ctx, name, result); relayErr != nil {
 		return nil, relayErr
 	}
-	r.state.SetContainers(name, result.GetContainers())
+	r.state.SetContainers(name, result.Containers)
 	systemThis := output.Map{}
 	r.closeStepForwards(name)
-	if err := r.exposePorts(ctx, name, result.GetExposedPorts(), systemThis); err != nil {
+	if err := r.exposePorts(ctx, name, result.ExposedPorts, systemThis); err != nil {
 		return nil, err
 	}
 	if len(systemThis) > 0 {
 		r.state.SetSystem(name, systemThis)
 	}
-	r.proxy.AllowEgress(result.GetEgressAllow()...)
+	r.proxy.AllowEgress(result.EgressAllow...)
 
-	for _, d := range result.GetDetails() {
-		r.emit(name, "detail: "+d.GetLabel())
-		r.store.AddStepDetail(name, session.Detail{
-			Label:     d.GetLabel(),
-			Value:     d.GetValue().GetStringValue(),
-			Copyable:  d.GetCopyable(),
-			Href:      d.GetHref(),
-			Sensitive: d.GetValue().GetSensitive(),
-		})
+	for _, d := range result.Details {
+		r.emit(name, "detail: "+d.Label)
+		r.store.AddStepDetail(name, sessionDetail(d))
 	}
 
 	r.emit(name, "ready")
 	r.store.SetStep(name, session.Ready, "")
 	r.timings.RecordUp(ctx, name, plan.ref.String(), time.Since(start))
 
-	out := output.FromProto(result.GetOutputs())
+	out := result.Outputs
 	r.state.Complete(map[string]output.Map{name: out})
 	r.store.SetStepOutputs(name, outputRows(out))
 	return out, nil
@@ -190,74 +184,79 @@ func (r *run) publish(ctx context.Context, plan upPlan, result *pb.Result, start
 // builtin:container step reports one, a builtin:kubernetes step one per node,
 // treated identically here. A step with none (exec, a resourceless step)
 // has nothing to register.
-func (r *run) wireRelay(ctx context.Context, name string, result *pb.Result) error {
-	if err := r.addRoutes(ctx, name, result.GetRoutes()); err != nil {
+func (r *run) wireRelay(ctx context.Context, name string, result step.Result) error {
+	if err := r.addRoutes(ctx, name, result.Routes); err != nil {
 		return err
 	}
-	containers := result.GetContainers()
+	containers := result.Containers
 	for _, c := range containers {
-		netnsPath := c.GetNetnsPath()
+		netnsPath := c.NetnsPath
 		if netnsPath == "" {
 			continue
 		}
 		id := name
 		if len(containers) > 1 {
-			id = name + "/" + c.GetName()
+			id = name + "/" + c.Name
 		}
-		if err := r.relay.RegisterCapture(ctx, id, netnsPath, c.GetExcludeCidrs()); err != nil {
+		if err := r.relay.RegisterCapture(ctx, id, netnsPath, c.ExcludeCIDRs); err != nil {
 			r.reportUpFailure(ctx, name, err)
 			return err
 		}
 	}
 
-	ids := make([]string, 0, len(result.GetFaults()))
-	for _, f := range result.GetFaults() {
+	ids := make([]string, 0, len(result.Faults))
+	for _, f := range result.Faults {
 		if err := r.relay.ApplyFault(ctx, f); err != nil {
 			r.reportUpFailure(ctx, name, err)
 			return err
 		}
-		ids = append(ids, f.GetId())
+		ids = append(ids, f.ID)
 	}
 	r.state.SetFaults(name, ids)
 	return nil
 }
 
-// routeModeFromProto maps the wire RouteMode to the proxy's own type.
-func routeModeFromProto(m pb.RouteMode) proxy.RouteMode {
-	switch m {
-	case pb.RouteMode_ROUTE_MODE_MITM:
-		return proxy.RouteModeMITM
-	case pb.RouteMode_ROUTE_MODE_PASSTHROUGH:
-		return proxy.RouteModePassthrough
-	case pb.RouteMode_ROUTE_MODE_RAW:
-		return proxy.RouteModeRaw
-	default:
-		return proxy.RouteModeMITM
+// sessionDetail is the console row for d.
+func sessionDetail(d step.Detail) session.Detail {
+	return session.Detail{
+		Label:     d.Label,
+		Value:     d.Value.String,
+		Copyable:  d.Copyable,
+		Href:      d.Href,
+		Sensitive: d.Value.Sensitive,
 	}
+}
+
+// proxyRoute is the proxy's form of rt.
+func proxyRoute(rt step.Route) proxy.Route {
+	mode := proxy.RouteModeMITM
+	switch rt.Mode {
+	case step.RouteModeMITM:
+	case step.RouteModePassthrough:
+		mode = proxy.RouteModePassthrough
+	case step.RouteModeRaw:
+		mode = proxy.RouteModeRaw
+	}
+	route := proxy.Route{Host: rt.Host, Upstream: rt.Upstream.Addr, TLS: rt.TLS, Mode: mode}
+	if rt.Upstream.Relay != nil {
+		route.Upstream = rt.Upstream.Relay.Target
+		route.Relay = rt.Upstream.Relay.Relay
+	}
+	return route
 }
 
 // addRoutes registers each of routes with the host proxy, and, for one
 // marked Intercept, registers it with the relay too - its own DNS answers
 // for the host, and it opens a listener for the route's declared ports.
-func (r *run) addRoutes(ctx context.Context, name string, routes []*pb.Route) error {
+func (r *run) addRoutes(ctx context.Context, name string, routes []step.Route) error {
 	for _, route := range routes {
-		r.proxy.AddRoutes(proxy.Route{
-			Host:     route.GetHost(),
-			Upstream: route.GetUpstream(),
-			TLS:      route.GetTls(),
-			Mode:     routeModeFromProto(route.GetMode()),
-		})
-		r.emit(name, "serving https://"+route.GetHost())
+		r.proxy.AddRoutes(proxyRoute(route))
+		r.emit(name, "serving https://"+route.Host)
 
-		ic := route.GetIntercept()
-		if ic == nil {
+		if route.Intercept == nil {
 			continue
 		}
-		ports := make([]int, len(ic.GetPorts()))
-		for i, p := range ic.GetPorts() {
-			ports[i] = int(p)
-		}
-		if err := r.relay.EnsureListener(ctx, route.GetHost(), ports); err != nil {
+		if err := r.relay.EnsureListener(ctx, route.Host, route.Intercept.Ports); err != nil {
 			r.reportUpFailure(ctx, name, err)
 			return err
 		}

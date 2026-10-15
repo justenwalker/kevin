@@ -14,7 +14,7 @@ import (
 	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/internal/runapi"
 	"github.com/justenwalker/kevin/internal/session"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 func TestRerun(t *testing.T) {
@@ -24,10 +24,10 @@ func TestRerun(t *testing.T) {
 		r := newUpRun(t, plugin, routes, newMocktrafficRelay(t))
 		r.store.Record(session.Request{Time: time.Now().Add(-time.Hour), Denied: true, Host: "stale.example.com"})
 		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-			func(context.Context, *pb.UpRequest, func(*pb.Event)) (*pb.Result, error) {
+			func(context.Context, step.UpRequest, step.Events) (step.Result, error) {
 				r.store.Record(session.Request{Time: time.Now().Add(time.Minute), Denied: true, Method: "GET", Host: "blocked.example.com", Path: "/data"})
 				r.store.Record(session.Request{Time: time.Now().Add(time.Minute), Host: "allowed.example.com"})
-				return &pb.Result{EgressAllow: []string{"x.example.com"}}, nil
+				return step.Result{EgressAllow: []string{"x.example.com"}}, nil
 			})
 		routes.EXPECT().AllowEgress([]string{"x.example.com"}).Return()
 
@@ -47,7 +47,7 @@ func TestRerun(t *testing.T) {
 	t.Run("a step that ran and failed is a result, not an error", func(t *testing.T) {
 		plugin := newMockstepPlugin(t)
 		r := newUpRun(t, plugin, newMockrouteTable(t), newMocktrafficRelay(t))
-		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(nil, assert.AnError)
+		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(step.Result{}, assert.AnError)
 
 		got, err := r.Rerun(t.Context(), runapi.RerunRequest{Step: "a"})
 
@@ -63,9 +63,9 @@ func TestRerun(t *testing.T) {
 		r := newUpRun(t, plugin, newMockrouteTable(t), newMocktrafficRelay(t))
 		ctx, cancel := context.WithCancel(t.Context())
 		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-			func(context.Context, *pb.UpRequest, func(*pb.Event)) (*pb.Result, error) {
+			func(context.Context, step.UpRequest, step.Events) (step.Result, error) {
 				cancel()
-				return nil, context.Canceled
+				return step.Result{}, context.Canceled
 			})
 
 		_, err := r.Rerun(ctx, runapi.RerunRequest{Step: "a"})
@@ -82,11 +82,11 @@ func TestRerun(t *testing.T) {
 		r.state.Complete(map[string]output.Map{"a": nil, "b": nil})
 		r.caps = map[string]pluginhost.Info{"echo": {Steps: []pluginhost.StepInfo{{Name: "echo", Idempotent: true}}}}
 		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-			func(_ context.Context, req *pb.UpRequest, _ func(*pb.Event)) (*pb.Result, error) {
-				if req.GetStep() == "b" {
-					return nil, assert.AnError
+			func(_ context.Context, req step.UpRequest, _ step.Events) (step.Result, error) {
+				if req.Step == "b" {
+					return step.Result{}, assert.AnError
 				}
-				return &pb.Result{EgressAllow: []string{"x.example.com"}}, nil
+				return step.Result{EgressAllow: []string{"x.example.com"}}, nil
 			})
 		routes.EXPECT().AllowEgress([]string{"x.example.com"}).Return()
 

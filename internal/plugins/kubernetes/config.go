@@ -1,10 +1,8 @@
 package kubernetes
 
 import (
-	"encoding/json"
-	"fmt"
-
 	"github.com/justenwalker/kevin/internal/cri"
+	"github.com/justenwalker/kevin/plugin"
 )
 
 // nodeLabelKey is the Kubernetes node label that names each node: the
@@ -82,9 +80,9 @@ type minikubeConfig struct {
 // expose is one entry of the with block's expose map: an in-cluster
 // address to reach through the SOCKS5 relay. The map key is its name.
 type expose struct {
-	Address  string `json:"address"`
-	Protocol string `json:"protocol"`
-	HostPort int    `json:"host_port"`
+	Address  string          `json:"address"`
+	Protocol plugin.Protocol `json:"protocol"`
+	HostPort int             `json:"host_port"`
 }
 
 // clusterName builds the name of the cluster.
@@ -93,24 +91,6 @@ func clusterName(cfg config, project, step string) string {
 		return cfg.Name
 	}
 	return project + "-" + step
-}
-
-func decode(data []byte) (config, error) {
-	cfg := config{Wait: "5m", Proxy: true, CoreDNS: true, TrustCA: true}
-	if len(data) == 0 {
-		return cfg, nil
-	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("kubernetes: decode config: %w", err)
-	}
-	// Repeat schema.cue's per-entry default, for a caller that bypasses CUE.
-	for name, e := range cfg.Expose {
-		if e.Protocol == "" {
-			e.Protocol = "tcp"
-			cfg.Expose[name] = e
-		}
-	}
-	return cfg, nil
 }
 
 // proxyEnv reports the proxy variables to set in the nodes, or nil when

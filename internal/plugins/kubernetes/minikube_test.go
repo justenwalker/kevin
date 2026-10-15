@@ -74,7 +74,7 @@ func TestMinikubeDriverStartSpec(t *testing.T) {
 	})
 
 	t.Run("podman picks its own network", func(t *testing.T) {
-		d := &minikubeDriver{name: "demo", env: plugin.Env{Engine: enginePodman}}
+		d := &minikubeDriver{name: "demo", env: plugin.Env{Engine: plugin.EnginePodman}}
 
 		got := d.startSpec(createSpec{})
 		assert.Equal(t, "podman", got.Driver)
@@ -158,7 +158,7 @@ func TestMinikubeDriverNames(t *testing.T) {
 	assert.Equal(t, "demo", docker.ControlPlane())
 	assert.Equal(t, "kevin-minikube-demo", docker.network())
 
-	podman := &minikubeDriver{name: "demo", env: plugin.Env{Engine: enginePodman}}
+	podman := &minikubeDriver{name: "demo", env: plugin.Env{Engine: plugin.EnginePodman}}
 	assert.Equal(t, "demo", podman.network())
 }
 
@@ -295,7 +295,7 @@ func TestMinikubeDriverCreate(t *testing.T) {
 			return nil
 		}
 		d, _ := stubbedMinikube(t, rt, nil)
-		d.env.Engine = enginePodman
+		d.env.Engine = plugin.EnginePodman
 
 		_, err := d.Create(t.Context(), createSpec{}, &capture{})
 		require.NoError(t, err)

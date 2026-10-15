@@ -10,7 +10,7 @@ import (
 )
 
 // socks5RelayKey is the request-context key that carries the relay a route's
-// Upstream (itself a socks5:// relay address) must be CONNECTed through.
+// Upstream must be CONNECTed through.
 type socks5RelayKey struct{}
 
 // withSOCKS5Relay attaches relay to ctx, for dialContext to read.
@@ -27,7 +27,7 @@ func socks5RelayFromContext(ctx context.Context) (string, bool) {
 
 // dialContext is p.rp's Transport.DialContext, and also what serveUpgrade
 // dials through. For an ordinary route it is a plain TCP dial to addr. For a
-// route whose Upstream is a socks5:// relay address, addr is already the
+// route that has a Relay, addr is already the
 // real target - forward left r.URL.Host alone - and ctx carries the relay
 // to CONNECT through.
 func (p *Proxy) dialContext(ctx context.Context, network, addr string) (net.Conn, error) {

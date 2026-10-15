@@ -26,7 +26,6 @@ package fault
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"fmt"
 
 	"github.com/justenwalker/kevin/plugin"
@@ -52,13 +51,10 @@ type config struct {
 type Step struct{}
 
 // New returns the fault step.
-func New() Step { return Step{} }
+func New() plugin.Step { return plugin.Typed(schema, Step{}) } //nolint:ireturn // the step is the SDK contract
 
-// Step must keep satisfying plugin.Step.
-var _ plugin.Step = Step{}
-
-// Schema constrains the with block of a fault step.
-func (Step) Schema() []byte { return schema }
+// Step must keep satisfying plugin.TypedStep.
+var _ plugin.TypedStep[config] = Step{}
 
 // Kind reports that a fault step is apply-only: it tells the relay how to
 // treat a namespace, but owns no lifecycle of its own - the namespace
@@ -80,11 +76,7 @@ func (Step) Idempotent() bool { return true }
 // receives the wiring step's name; more than one appends the container's
 // own name, the same "<step>/<name>" convention wireRelay already uses
 // for a multi-container RegisterCapture.
-func (Step) Up(_ context.Context, req *plugin.UpRequest, _ plugin.Emitter) (*plugin.Result, error) {
-	cfg, err := decode(req.Config)
-	if err != nil {
-		return nil, err
-	}
+func (Step) Up(_ context.Context, cfg config, req *plugin.UpRequest, _ plugin.Emitter) (*plugin.Result, error) {
 	if validateErr := validateImpairment(cfg); validateErr != nil {
 		return nil, validateErr
 	}
@@ -170,16 +162,4 @@ func resolveTargets(stepContainers []plugin.StepContainers, want []string) ([]pl
 		targets = append(targets, c)
 	}
 	return targets, nil
-}
-
-// decode parses the with-block JSON into a config.
-func decode(data []byte) (config, error) {
-	var cfg config
-	if len(data) == 0 {
-		return cfg, nil
-	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("fault: decode config: %w", err)
-	}
-	return cfg, nil
 }

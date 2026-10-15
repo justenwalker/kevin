@@ -25,9 +25,9 @@ import (
 	"github.com/justenwalker/kevin/internal/plugins"
 	"github.com/justenwalker/kevin/internal/runstate"
 	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/internal/version"
 	"github.com/justenwalker/kevin/plugin"
-	"github.com/justenwalker/kevin/protos/pb"
 )
 
 // Version holds the version string.
@@ -166,17 +166,17 @@ func NewRootCommand() (*cobra.Command, *options) {
 // printEnvironmentInfo prints the console, proxy, and MCP addresses, how to
 // route the caller's own shell through the proxy, and how to register the
 // MCP server with a coding agent, once all three are listening.
-func printEnvironmentInfo(w io.Writer, env *pb.Environment) {
-	mcpURL := "http://" + env.GetConsoleAddr() + mcpserver.Path
+func printEnvironmentInfo(w io.Writer, env step.Env) {
+	mcpURL := "http://" + env.ConsoleAddr + mcpserver.Path
 
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintf(w, "  console  http://%s\n", env.GetConsoleAddr())
-	_, _ = fmt.Fprintf(w, "  proxy    http://%s\n", env.GetHttpProxyAddr())
+	_, _ = fmt.Fprintf(w, "  console  http://%s\n", env.ConsoleAddr)
+	_, _ = fmt.Fprintf(w, "  proxy    http://%s\n", env.HTTPProxyAddr)
 	_, _ = fmt.Fprintf(w, "  mcp      %s\n", mcpURL)
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "  to route this shell through it:")
 	_, _ = fmt.Fprintf(w, "    export HTTP_PROXY=http://%s HTTPS_PROXY=http://%s\n",
-		env.GetHttpProxyAddr(), env.GetHttpProxyAddr())
+		env.HTTPProxyAddr, env.HTTPProxyAddr)
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "  to register this with a coding agent:")
 	_, _ = fmt.Fprintf(w, "    claude mcp add --transport http kevin %s\n", mcpURL)
@@ -260,9 +260,9 @@ func runForeground(ctx context.Context, opts *options, engineName string, state 
 		Keep:    keep,
 		Debug:   opts.debug,
 		Open:    open,
-		OnEnvironment: func(env *pb.Environment) {
+		OnEnvironment: func(env step.Env) {
 			printEnvironmentInfo(os.Stderr, env)
-			_ = state.WriteAddrs(runstate.Addrs{ConsoleAddr: env.GetConsoleAddr(), HTTPProxyAddr: env.GetHttpProxyAddr()})
+			_ = state.WriteAddrs(runstate.Addrs{ConsoleAddr: env.ConsoleAddr, HTTPProxyAddr: env.HTTPProxyAddr})
 		},
 	})
 }

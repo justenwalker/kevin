@@ -12,8 +12,8 @@ import (
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/internal/uerr"
-	"github.com/justenwalker/kevin/protos/pb"
 )
 
 // trackProgress starts a ticker that reports an estimated completion
@@ -171,21 +171,29 @@ func (r *run) warnDenied(ctx context.Context, name string, start time.Time) {
 // plugin. A step's own log lines go to the web console and the durable log
 // file, not to the terminal - the terminal only narrates kevin's own DAG
 // progress (up/ready/failed/removed, elsewhere in this package).
-func (r *run) onEvent(step string) func(*pb.Event) {
-	return func(ev *pb.Event) {
-		switch {
-		case ev.GetLog() != nil:
-			r.store.Log(step, ev.GetLog().GetStream(), ev.GetLog().GetText())
-			r.stepLog.Info(ev.GetLog().GetText(), "step", step, "stream", ev.GetLog().GetStream())
-		case ev.GetProgress() != nil:
-			p := ev.GetProgress()
-			if p.GetTotal() > 0 {
-				r.emit(step, fmt.Sprintf("%s (%d/%d)", p.GetLabel(), p.GetCurrent(), p.GetTotal()))
-				return
-			}
-			r.emit(step, p.GetLabel())
-		}
+func (r *run) onEvent(name string) stepEvents {
+	return stepEvents{r: r, name: name}
+}
+
+// stepEvents is the step.Events of one step's Up or Down call.
+type stepEvents struct {
+	r    *run
+	name string
+}
+
+var _ step.Events = stepEvents{}
+
+func (e stepEvents) Log(stream, text string, _ time.Time) {
+	e.r.store.Log(e.name, stream, text)
+	e.r.stepLog.Info(text, "step", e.name, "stream", stream)
+}
+
+func (e stepEvents) Progress(label string, current, total int64) {
+	if total > 0 {
+		e.r.emit(e.name, fmt.Sprintf("%s (%d/%d)", label, current, total))
+		return
 	}
+	e.r.emit(e.name, label)
 }
 
 func (r *run) emit(step, text string) {

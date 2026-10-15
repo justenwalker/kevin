@@ -1,0 +1,3 @@
+kind: Changed
+body: 'Plugin authors: Route and ExposedPort take a plugin.Upstream (an address or a relay target) instead of a socks5:// string, ExposedPort.Protocol is a plugin.Protocol, and Env.Engine, Env.Scope and StepContainers.Scope are typed, and StepContainers.Step no longer carries a setup. prefix. The plugin wire protocol changes with them, so rebuild plugins against this release.'
+time: 2026-10-10T16:00:00.000000-04:00

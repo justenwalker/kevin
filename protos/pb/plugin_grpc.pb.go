@@ -46,8 +46,9 @@ type PluginClient interface {
 	// The stream carries log lines and progress. But it sends no final Result.
 	// A step that does not destroy anything does not implement Down.
 	Down(ctx context.Context, in *DownRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
-	// Export reports the environment variables that let an external command
-	// reach what a step created.
+	// Export reports the structured outputs and containers of a step that
+	// already exists, so a cross-scope "setup.<name>" reference or a
+	// "commands:" entry can read them without bringing the step up.
 	//
 	// A step that has nothing to export does not implement Export.
 	Export(ctx context.Context, in *ExportRequest, opts ...grpc.CallOption) (*ExportResponse, error)
@@ -163,8 +164,9 @@ type PluginServer interface {
 	// The stream carries log lines and progress. But it sends no final Result.
 	// A step that does not destroy anything does not implement Down.
 	Down(*DownRequest, grpc.ServerStreamingServer[Event]) error
-	// Export reports the environment variables that let an external command
-	// reach what a step created.
+	// Export reports the structured outputs and containers of a step that
+	// already exists, so a cross-scope "setup.<name>" reference or a
+	// "commands:" entry can read them without bringing the step up.
 	//
 	// A step that has nothing to export does not implement Export.
 	Export(context.Context, *ExportRequest) (*ExportResponse, error)

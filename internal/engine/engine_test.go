@@ -38,7 +38,7 @@ import (
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/state"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 // echoPlugin is the path of the compiled echo plugin. Every test uses it.
@@ -390,19 +390,17 @@ func TestInterruptedSteps(t *testing.T) {
 func TestExportCrossScopeStepRetriesAfterFailure(t *testing.T) {
 	plugin := newMockstepPlugin(t)
 	plugin.EXPECT().Export(mock.Anything, mock.Anything).RunAndReturn(
-		func(ctx context.Context, _ *pb.ExportRequest) (*pb.ExportResponse, error) {
+		func(ctx context.Context, _ step.ExportRequest) (step.ExportResult, error) {
 			if err := ctx.Err(); err != nil {
-				return nil, err
+				return step.ExportResult{}, err
 			}
-			return &pb.ExportResponse{Out: &pb.Outputs{Values: map[string]*pb.Value{
-				"greeting": {Kind: &pb.Value_StringValue{StringValue: "from-setup"}},
-			}}}, nil
+			return step.ExportResult{Out: output.Map{"greeting": {String: "from-setup"}}}, nil
 		})
 	r := &run{
 		cfg:     &config.Config{Setup: map[string]config.Step{"cluster": {Uses: config.StepRef{Plugin: "echo", Step: "echo"}}}},
 		plugins: map[string]stepPlugin{"echo": plugin},
 		caps:    map[string]pluginhost.Info{"echo": {Steps: []pluginhost.StepInfo{{Name: "echo", Export: true}}}},
-		env:     &pb.Environment{},
+		env:     step.Env{},
 	}
 
 	canceledCtx, cancel := context.WithCancel(t.Context())
@@ -547,24 +545,24 @@ env: a: uses: "nope:echo"
 func TestRunOnEvent(t *testing.T) {
 	tests := []struct {
 		name string
-		ev   *pb.Event
+		ev   func(step.Events)
 		want string
 	}{
 		{
 			// A log line goes to the console and the durable log file, not
 			// the terminal writer.
 			name: "a log line",
-			ev:   &pb.Event{Event: &pb.Event_Log{Log: &pb.LogLine{Text: "hello"}}},
+			ev:   func(e step.Events) { e.Log("stdout", "hello", time.Time{}) },
 			want: "",
 		},
 		{
 			name: "progress with no total",
-			ev:   &pb.Event{Event: &pb.Event_Progress{Progress: &pb.Progress{Label: "waiting"}}},
+			ev:   func(e step.Events) { e.Progress("waiting", 0, 0) },
 			want: fmt.Sprintf("%-16s %s\n", "step", "waiting"),
 		},
 		{
 			name: "progress with a total",
-			ev:   &pb.Event{Event: &pb.Event_Progress{Progress: &pb.Progress{Label: "copying", Current: 3, Total: 10}}},
+			ev:   func(e step.Events) { e.Progress("copying", 3, 10) },
 			want: fmt.Sprintf("%-16s %s\n", "step", "copying (3/10)"),
 		},
 	}
@@ -576,7 +574,7 @@ func TestRunOnEvent(t *testing.T) {
 				store:   session.NewStore(),
 				stepLog: slog.New(slog.DiscardHandler),
 			}
-			r.onEvent("step")(tt.ev)
+			tt.ev(r.onEvent("step"))
 			assert.Equal(t, tt.want, buf.String())
 		})
 	}
@@ -587,6 +585,16 @@ func TestInputRows(t *testing.T) {
 		rows, err := inputRows(nil, nil, expr.Scopes{}, nil, nil)
 		require.NoError(t, err)
 		assert.Nil(t, rows)
+	})
+
+	t.Run("a field only the schema's defaults added is not an input", func(t *testing.T) {
+		raw := json.RawMessage(`{"image":"postgres:16"}`)
+		rendered := json.RawMessage(`{"image":"postgres:16","wait":"5m"}`)
+
+		rows, err := inputRows(raw, rendered, expr.Scopes{}, nil, nil)
+
+		require.NoError(t, err)
+		assert.Equal(t, []session.Detail{{Label: "image", Value: "postgres:16", Copyable: true}}, rows)
 	})
 
 	t.Run("one row per top-level field, sorted, with the rendered value, and a copy button since neither is sensitive", func(t *testing.T) {
@@ -635,46 +643,54 @@ func TestInputRows(t *testing.T) {
 	})
 }
 
-// TestValidateRenderedWith proves renderWith's post-render schema check
-// (validateRenderedWith) catches a rendered with block that doesn't
-// actually satisfy its step type's schema - the case config-validate time
-// couldn't yet, since a bare "${...}" marker's real value (a declared
+// TestApplySchema proves applySchema catches a rendered with block that
+// doesn't actually satisfy its step type's schema - the case config-validate
+// time couldn't yet, since a bare "${...}" marker's real value (a declared
 // variable's, or a needs/setup-sourced one) is only known once it's
-// rendered. A with block with no marker at all never reaches this check
-// with anything new to verify, since config-validate time already fully
-// checked it.
-func TestValidateRenderedWith(t *testing.T) {
+// rendered - and fills in the schema's defaults for a plugin.
+func TestApplySchema(t *testing.T) {
 	caps := map[string]pluginhost.Info{
 		"myplugin": {Steps: []pluginhost.StepInfo{
-			{Name: "mystep", Schema: []byte(`#Config: {port: int}`)},
+			{Name: "mystep", Schema: []byte(`#Config: {port: int, wait: string | *"5m"}`)},
 		}},
 	}
 	step := config.Step{Uses: config.StepRef{Plugin: "myplugin", Step: "mystep"}, With: json.RawMessage(`{"port":"${vars.port}"}`)}
 
-	t.Run("a rendered value matching the schema passes", func(t *testing.T) {
+	t.Run("a rendered value matching the schema passes, with defaults filled in", func(t *testing.T) {
 		r := &run{caps: caps}
-		err := r.validateRenderedWith("app", step, json.RawMessage(`{"port":3}`))
+		got, err := r.applySchema("app", step, json.RawMessage(`{"port":3}`))
 		require.NoError(t, err)
+		assert.JSONEq(t, `{"port":3,"wait":"5m"}`, string(got))
+	})
+
+	t.Run("a value the user set beats the default", func(t *testing.T) {
+		r := &run{caps: caps}
+		got, err := r.applySchema("app", step, json.RawMessage(`{"port":3,"wait":"1s"}`))
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"port":3,"wait":"1s"}`, string(got))
 	})
 
 	t.Run("a rendered value of the wrong type fails", func(t *testing.T) {
 		r := &run{caps: caps}
-		err := r.validateRenderedWith("app", step, json.RawMessage(`{"port":"not-an-int"}`))
+		_, err := r.applySchema("app", step, json.RawMessage(`{"port":"not-an-int"}`))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "app.with")
 	})
 
-	t.Run("a with block with no marker at all skips the check", func(t *testing.T) {
-		r := &run{caps: caps}
-		noMarker := config.Step{Uses: config.StepRef{Plugin: "myplugin", Step: "mystep"}, With: json.RawMessage(`{"port":3}`)}
-		err := r.validateRenderedWith("app", noMarker, json.RawMessage(`{"port":"not-an-int"}`))
-		require.NoError(t, err, "no marker means config-validate time already fully checked this field")
+	t.Run("an empty with block still gets the defaults", func(t *testing.T) {
+		r := &run{caps: map[string]pluginhost.Info{"myplugin": {Steps: []pluginhost.StepInfo{
+			{Name: "mystep", Schema: []byte(`#Config: {wait: string | *"5m"}`)},
+		}}}}
+		got, err := r.applySchema("app", config.Step{Uses: step.Uses}, nil)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"wait":"5m"}`, string(got))
 	})
 
-	t.Run("an unknown plugin skips the check", func(t *testing.T) {
+	t.Run("an unknown plugin passes the block through", func(t *testing.T) {
 		r := &run{caps: map[string]pluginhost.Info{}}
-		err := r.validateRenderedWith("app", step, json.RawMessage(`{"port":"not-an-int"}`))
+		got, err := r.applySchema("app", step, json.RawMessage(`{"port":"not-an-int"}`))
 		require.NoError(t, err)
+		assert.JSONEq(t, `{"port":"not-an-int"}`, string(got))
 	})
 }
 
@@ -900,26 +916,42 @@ func TestEventsWriter(t *testing.T) {
 	})
 }
 
-func TestRouteModeFromProto(t *testing.T) {
+func TestProxyRoute(t *testing.T) {
 	tests := []struct {
-		mode pb.RouteMode
+		name string
+		mode step.RouteMode
 		want proxy.RouteMode
 	}{
-		{mode: pb.RouteMode_ROUTE_MODE_MITM, want: proxy.RouteModeMITM},
-		{mode: pb.RouteMode_ROUTE_MODE_PASSTHROUGH, want: proxy.RouteModePassthrough},
-		{mode: pb.RouteMode_ROUTE_MODE_RAW, want: proxy.RouteModeRaw},
-		{mode: pb.RouteMode(99), want: proxy.RouteModeMITM},
+		{name: "mitm", mode: step.RouteModeMITM, want: proxy.RouteModeMITM},
+		{name: "passthrough", mode: step.RouteModePassthrough, want: proxy.RouteModePassthrough},
+		{name: "raw", mode: step.RouteModeRaw, want: proxy.RouteModeRaw},
 	}
 	for _, tt := range tests {
-		t.Run(tt.mode.String(), func(t *testing.T) {
-			assert.Equal(t, tt.want, routeModeFromProto(tt.mode))
+		t.Run(tt.name, func(t *testing.T) {
+			got := proxyRoute(step.Route{Host: "a.test", Mode: tt.mode})
+
+			assert.Equal(t, tt.want, got.Mode)
 		})
 	}
+
+	t.Run("a relay upstream names the target and the relay", func(t *testing.T) {
+		got := proxyRoute(step.Route{Host: "a.test", Upstream: step.Upstream{Relay: &step.RelayTarget{Relay: "r:1080", Target: "svc:80"}}})
+
+		assert.Equal(t, "svc:80", got.Upstream)
+		assert.Equal(t, "r:1080", got.Relay)
+	})
+
+	t.Run("a direct upstream has no relay", func(t *testing.T) {
+		got := proxyRoute(step.Route{Host: "a.test", Upstream: step.Upstream{Addr: "127.0.0.1:80"}})
+
+		assert.Equal(t, "127.0.0.1:80", got.Upstream)
+		assert.Empty(t, got.Relay)
+	})
 }
 
 func TestStepContainersFor(t *testing.T) {
-	backend := []*pb.ContainerInfo{{Id: "abc", Name: "kevin-demo-backend"}}
-	cluster := []*pb.ContainerInfo{{Id: "def", Name: "kevin-demo-cluster-worker"}}
+	backend := []step.Container{{ID: "abc", Name: "kevin-demo-backend"}}
+	cluster := []step.Container{{ID: "def", Name: "kevin-demo-cluster-worker"}}
 
 	t.Run("a same-scope need with containers contributes an entry", func(t *testing.T) {
 		r := &run{}
@@ -927,8 +959,8 @@ func TestStepContainersFor(t *testing.T) {
 
 		got := r.stepContainersFor(map[string]output.Map{"backend": {}}, nil)
 		require.Len(t, got, 1)
-		assert.Equal(t, "backend", got[0].GetStep())
-		assert.Equal(t, backend, got[0].GetContainers())
+		assert.Equal(t, "backend", got[0].Step)
+		assert.Equal(t, backend, got[0].Containers)
 	})
 
 	t.Run("a same-scope need with no containers contributes nothing", func(t *testing.T) {
@@ -937,12 +969,13 @@ func TestStepContainersFor(t *testing.T) {
 		assert.Empty(t, got)
 	})
 
-	t.Run("a cross-scope need is prefixed with setup.", func(t *testing.T) {
+	t.Run("a cross-scope need carries the setup scope", func(t *testing.T) {
 		r := &run{}
-		got := r.stepContainersFor(nil, map[string][]*pb.ContainerInfo{"cluster": cluster})
+		got := r.stepContainersFor(nil, map[string][]step.Container{"cluster": cluster})
 		require.Len(t, got, 1)
-		assert.Equal(t, "setup.cluster", got[0].GetStep())
-		assert.Equal(t, cluster, got[0].GetContainers())
+		assert.Equal(t, config.ScopeSetup, got[0].Scope)
+		assert.Equal(t, "cluster", got[0].Step)
+		assert.Equal(t, cluster, got[0].Containers)
 	})
 }
 
@@ -979,29 +1012,56 @@ func TestCloseStepForwards(t *testing.T) {
 }
 
 func TestExposePort(t *testing.T) {
-	newEP := func(protocol string) *pb.ExposedPort {
-		return &pb.ExposedPort{Name: "u", Protocol: protocol, Upstream: "not-socks5", Relay: true}
+	// busyPort is a loopback port that stays bound for the test, so a TCP
+	// forward pinned to it cannot listen.
+	busyPort := func(t *testing.T) int {
+		t.Helper()
+		var lc net.ListenConfig
+		ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ln.Close() })
+		addr, ok := ln.Addr().(*net.TCPAddr)
+		require.True(t, ok)
+		return addr.Port
+	}
+	// A relay nothing listens on makes a UDP forward fail while it dials.
+	newEP := func(protocol step.Protocol, hostPort int) step.ExposedPort {
+		return step.ExposedPort{
+			Name: "u", Protocol: protocol, HostPort: hostPort,
+			Upstream: step.Upstream{Relay: &step.RelayTarget{Relay: "127.0.0.1:1", Target: "svc:80"}},
+		}
 	}
 
 	t.Run("a failed UDP forward is an error", func(t *testing.T) {
 		var events bytes.Buffer
 		r := &run{events: &events}
-		err := r.exposePort(t.Context(), "udp", newEP("udp"), output.Map{})
+		err := r.exposePort(t.Context(), "udp", newEP(step.UDP, 0), output.Map{})
 		require.ErrorContains(t, err, "local forward for u")
 	})
 
 	t.Run("a failed TCP forward is only a warning", func(t *testing.T) {
 		var events bytes.Buffer
 		r := &run{events: &events}
-		require.NoError(t, r.exposePort(t.Context(), "web", newEP("tcp"), output.Map{}))
+		require.NoError(t, r.exposePort(t.Context(), "web", newEP(step.TCP, busyPort(t)), output.Map{}))
 		assert.Contains(t, events.String(), "warning: local forward for u")
+	})
+
+	t.Run("a direct upstream opens no forward", func(t *testing.T) {
+		var events bytes.Buffer
+		r := &run{events: &events}
+		ep := step.ExposedPort{Name: "db", Upstream: step.Upstream{Addr: "127.0.0.1:5432"}}
+		out := output.Map{}
+
+		require.NoError(t, r.exposePort(t.Context(), "db", ep, out))
+
+		assert.Equal(t, output.Map{"expose_db": {String: "127.0.0.1:5432"}}, out)
 	})
 
 	t.Run("exposePorts marks the step failed", func(t *testing.T) {
 		var events bytes.Buffer
 		store := session.NewStore()
 		r := &run{events: &events, store: store}
-		eps := []*pb.ExposedPort{newEP("udp")}
+		eps := []step.ExposedPort{newEP(step.UDP, 0)}
 		require.Error(t, r.exposePorts(t.Context(), "udp", eps, output.Map{}))
 		assert.Contains(t, events.String(), "failed: ")
 	})
@@ -1077,7 +1137,7 @@ func newUpRun(t *testing.T, plugin stepPlugin, routes routeTable, rl trafficRela
 		plugins: map[string]stepPlugin{"echo": plugin},
 		proxy:   routes,
 		relay:   rl,
-		env:     &pb.Environment{},
+		env:     step.Env{},
 		events:  io.Discard,
 		stepLog: slog.New(slog.DiscardHandler),
 		timings: &timingStore{},
@@ -1094,16 +1154,14 @@ func TestUpStep(t *testing.T) {
 		rl := newMocktrafficRelay(t)
 		r := newUpRun(t, plugin, routes, rl)
 
-		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(&pb.Result{
-			Outputs: &pb.Outputs{Values: map[string]*pb.Value{
-				"url": {Kind: &pb.Value_StringValue{StringValue: "http://a"}},
-			}},
-			Routes: []*pb.Route{
-				{Host: "a.kevin.test", Upstream: "127.0.0.1:8080", Tls: true},
-				{Host: "fake.example.com", Upstream: "127.0.0.1:9090", Intercept: &pb.Intercept{Ports: []int32{443}}},
+		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(step.Result{
+			Outputs: output.Map{"url": {String: "http://a"}},
+			Routes: []step.Route{
+				{Host: "a.kevin.test", Upstream: step.Upstream{Addr: "127.0.0.1:8080"}, TLS: true},
+				{Host: "fake.example.com", Upstream: step.Upstream{Addr: "127.0.0.1:9090"}, Intercept: &step.Intercept{Ports: []int{443}}},
 			},
 			EgressAllow: []string{"registry.example.com"},
-			Faults:      []*pb.NetworkFault{{Id: "f1"}},
+			Faults:      []step.Fault{{ID: "f1"}},
 		}, nil)
 		routes.EXPECT().AddRoutes([]proxy.Route{{Host: "a.kevin.test", Upstream: "127.0.0.1:8080", TLS: true, Mode: proxy.RouteModeMITM}}).Return()
 		routes.EXPECT().AddRoutes([]proxy.Route{{Host: "fake.example.com", Upstream: "127.0.0.1:9090", Mode: proxy.RouteModeMITM}}).Return()
@@ -1124,8 +1182,8 @@ func TestUpStep(t *testing.T) {
 		routes := newMockrouteTable(t)
 		rl := newMocktrafficRelay(t)
 		r := newUpRun(t, plugin, routes, rl)
-		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(&pb.Result{
-			Routes: []*pb.Route{{Host: "fake.example.com", Upstream: "127.0.0.1:9090", Intercept: &pb.Intercept{Ports: []int32{443}}}},
+		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(step.Result{
+			Routes: []step.Route{{Host: "fake.example.com", Upstream: step.Upstream{Addr: "127.0.0.1:9090"}, Intercept: &step.Intercept{Ports: []int{443}}}},
 		}, nil)
 		routes.EXPECT().AddRoutes(mock.Anything).Return()
 		rl.EXPECT().EnsureListener(mock.Anything, "fake.example.com", []int{443}).Return(assert.AnError)
@@ -1139,7 +1197,7 @@ func TestUpStep(t *testing.T) {
 	t.Run("a failed Up publishes nothing", func(t *testing.T) {
 		plugin := newMockstepPlugin(t)
 		r := newUpRun(t, plugin, newMockrouteTable(t), newMocktrafficRelay(t))
-		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(nil, assert.AnError)
+		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(step.Result{}, assert.AnError)
 
 		_, err := r.upStep(t.Context(), "a", nil)
 

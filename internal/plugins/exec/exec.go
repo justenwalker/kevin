@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -44,29 +43,21 @@ type Step struct {
 }
 
 // New returns the exec step.
-func New() Step { return Step{} }
+func New() plugin.Step { return plugin.Typed(schema, Step{}) } //nolint:ireturn // the step is the SDK contract
 
-// Step must keep satisfying plugin.Step.
-var _ plugin.Step = Step{}
-
-// Schema constrains the with block of an exec step.
-func (Step) Schema() []byte { return schema }
+// Step must keep satisfying plugin.TypedStep.
+var _ plugin.TypedStep[config] = Step{}
 
 // Kind reports that an exec step performs an action.
 func (Step) Kind() plugin.StepKind { return plugin.StepKindAction }
 
-// Step must keep satisfying plugin.Downer.
-var _ plugin.Downer = Step{}
+// Step must keep satisfying plugin.TypedDowner.
+var _ plugin.TypedDowner[config] = Step{}
 
 // Up runs the configured command. Its stdout, trimmed, becomes the
 // step's "stdout" output, and is also persisted under the workspace so a
 // later, possibly cross-scope Export call can read it back.
-func (s Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
-	cfg, err := decode(req.Config)
-	if err != nil {
-		return nil, err
-	}
-
+func (s Step) Up(ctx context.Context, cfg config, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
 	stdout, err := s.runExec(ctx, cfg.Up, cfg.Proxy, req.Env, out)
 	if err != nil {
 		return nil, err
@@ -84,31 +75,26 @@ func (s Step) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter)
 // Down removes the stdout Up persisted, then runs the configured cleanup
 // command. The command itself does nothing when the with block sets no
 // down.
-func (s Step) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitter) error {
-	cfg, err := decode(req.Config)
-	if err != nil {
-		return err
-	}
-
+func (s Step) Down(ctx context.Context, cfg config, req *plugin.DownRequest, out plugin.Emitter) error {
 	path := stdoutFile(req.Env.Workspace, req.Step)
-	if err = os.Remove(path); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("exec: remove %s: %w", path, err)
 	}
 
 	if cfg.Down == nil {
 		return nil
 	}
-	_, err = s.runExec(ctx, *cfg.Down, cfg.Proxy, req.Env, out)
+	_, err := s.runExec(ctx, *cfg.Down, cfg.Proxy, req.Env, out)
 	return err
 }
 
-// Step must keep satisfying plugin.Exporter.
-var _ plugin.Exporter = Step{}
+// Step must keep satisfying plugin.TypedExporter.
+var _ plugin.TypedExporter[config] = Step{}
 
 // Export reports the stdout Up persisted for this step. It never runs the
 // command again - Export must only report what Up already produced - and
 // fails when Up hasn't run yet.
-func (Step) Export(_ context.Context, req *plugin.ExportRequest) (*plugin.ExportResult, error) {
+func (Step) Export(_ context.Context, _ config, req *plugin.ExportRequest) (*plugin.ExportResult, error) {
 	path := stdoutFile(req.Env.Workspace, req.Step)
 	data, err := os.ReadFile(path) //nolint:gosec // path is a workspace file this plugin itself wrote
 	if err != nil {
@@ -212,18 +198,6 @@ func setDefault(m map[string]string, key, value string) {
 	if _, ok := m[key]; !ok {
 		m[key] = value
 	}
-}
-
-// decode parses the with-block JSON into a config.
-func decode(data []byte) (config, error) {
-	var cfg config
-	if len(data) == 0 {
-		return cfg, nil
-	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("exec: decode config: %w", err)
-	}
-	return cfg, nil
 }
 
 // run runs cmd with the runner of s, or with command.Default when s has

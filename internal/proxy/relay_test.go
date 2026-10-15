@@ -40,7 +40,7 @@ func TestRoutesThroughASOCKS5RelayToTheRealUpstream(t *testing.T) {
 
 	p.AddRoutes(proxy.Route{
 		Host:     "app.kevin.test",
-		Upstream: "socks5://" + relay + "/" + getTestURLHost(t, target.URL),
+		Upstream: getTestURLHost(t, target.URL), Relay: relay,
 	})
 
 	resp, body := getTestURL(t, client, "http://app.kevin.test/")
@@ -58,8 +58,8 @@ func TestTwoRoutesThroughTheSameRelayReachTheirOwnUpstream(t *testing.T) {
 	second := createTestUpstream(t, "from second")
 
 	p.AddRoutes(
-		proxy.Route{Host: "first.kevin.test", Upstream: "socks5://" + relay + "/" + getTestURLHost(t, first.URL)},
-		proxy.Route{Host: "second.kevin.test", Upstream: "socks5://" + relay + "/" + getTestURLHost(t, second.URL)},
+		proxy.Route{Host: "first.kevin.test", Upstream: getTestURLHost(t, first.URL), Relay: relay},
+		proxy.Route{Host: "second.kevin.test", Upstream: getTestURLHost(t, second.URL), Relay: relay},
 	)
 
 	// A request to first leaves an idle keep-alive connection through the
@@ -81,7 +81,7 @@ func TestRouteThroughAnUnreachableRelayFailsCleanly(t *testing.T) {
 	// panic, and the client must see a normal gateway error.
 	p.AddRoutes(proxy.Route{
 		Host:     "broken.kevin.test",
-		Upstream: "socks5://127.0.0.1:1/unreachable:80",
+		Upstream: "unreachable:80", Relay: "127.0.0.1:1",
 	})
 
 	resp, _ := getTestURL(t, client, "http://broken.kevin.test/")

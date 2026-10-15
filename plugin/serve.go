@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/justenwalker/kevin/internal/pluginwire"
 	"github.com/justenwalker/kevin/internal/uerr"
 	"github.com/justenwalker/kevin/protos/pb"
 )
@@ -26,9 +27,9 @@ import (
 func Serve(p Plugin) {
 	go exitWhenOrphaned(os.Getppid(), time.Second, func() { os.Exit(1) })
 	goplugin.Serve(&goplugin.ServeConfig{
-		HandshakeConfig: Handshake,
+		HandshakeConfig: pluginwire.Handshake,
 		VersionedPlugins: map[int]goplugin.PluginSet{
-			ProtocolVersion: {Name: &GRPCPlugin{Plugin: p}},
+			pluginwire.ProtocolVersion: {pluginwire.Name: &pluginwire.GRPCPlugin{Register: p.register}},
 		},
 		GRPCServer: goplugin.DefaultGRPCServer,
 	})
@@ -45,24 +46,9 @@ func exitWhenOrphaned(parent int, interval time.Duration, exit func()) {
 	}
 }
 
-// GRPCPlugin adapts a [Plugin] to go-plugin. A supervisor uses GRPCPlugin
-// with a zero Plugin to get a client. A plugin sets Plugin to serve.
-type GRPCPlugin struct {
-	goplugin.NetRPCUnsupportedPlugin
-
-	// Plugin is the plugin implementation.
-	Plugin Plugin
-}
-
-// GRPCServer registers the provider with the gRPC server of the plugin.
-func (p *GRPCPlugin) GRPCServer(_ *goplugin.GRPCBroker, s *grpc.Server) error {
-	pb.RegisterPluginServer(s, &server{provider: p.Plugin})
-	return nil
-}
-
-// GRPCClient returns the client that the supervisor uses to call the plugin.
-func (p *GRPCPlugin) GRPCClient(_ context.Context, _ *goplugin.GRPCBroker, c *grpc.ClientConn) (any, error) {
-	return pb.NewPluginClient(c), nil
+// register adds the plugin service for p to the gRPC server of the plugin.
+func (p Plugin) register(s *grpc.Server) {
+	pb.RegisterPluginServer(s, &server{provider: p})
 }
 
 // server translates the gRPC surface into calls on a [Plugin].
@@ -75,12 +61,12 @@ func (s *server) Info(context.Context, *pb.InfoRequest) (*pb.InfoResponse, error
 	steps := make([]*pb.StepType, 0, len(names))
 	for _, name := range names {
 		step := s.provider.Steps[name]
-		_, exports := step.(Exporter)
-		_, downs := step.(Downer)
+		_, exports := exporterOf(step)
+		_, downs := downerOf(step)
 		idempotentStep, _ := step.(IdempotentStep)
-		toolProvider, _ := step.(ToolProvider)
+		toolProvider, hasTools := toolProviderOf(step)
 		var tools []*pb.ToolDefinition
-		if toolProvider != nil {
+		if hasTools {
 			for _, t := range toolProvider.Tools() {
 				tools = append(tools, &pb.ToolDefinition{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema})
 			}
@@ -116,6 +102,34 @@ func (s *server) Configure(ctx context.Context, req *pb.ConfigureRequest) (*pb.C
 		return nil, withUserMessage(err)
 	}
 	return &pb.ConfigureResponse{}, nil
+}
+
+// downerOf returns step's Downer, if it has one. A [Typed] step has Down only
+// when the step it wraps does.
+func downerOf(step Step) (Downer, bool) { //nolint:ireturn // Downer is the SDK's contract
+	d, ok := step.(Downer)
+	return d, ok && supports(step, capDown)
+}
+
+// exporterOf returns step's Exporter, if it has one.
+func exporterOf(step Step) (Exporter, bool) { //nolint:ireturn // Exporter is the SDK's contract
+	e, ok := step.(Exporter)
+	return e, ok && supports(step, capExport)
+}
+
+// toolProviderOf returns step's ToolProvider, if it has one.
+func toolProviderOf(step Step) (ToolProvider, bool) { //nolint:ireturn // ToolProvider is the SDK's contract
+	p, ok := step.(ToolProvider)
+	return p, ok && supports(step, capTools)
+}
+
+// supports reports whether step has the optional part c. A step that is not
+// [capable] has whatever its method set shows.
+func supports(step Step, c capability) bool {
+	if cs, ok := step.(capable); ok {
+		return cs.supports(c)
+	}
+	return true
 }
 
 // withUserMessage returns err unchanged, unless err carries a human-facing
@@ -173,7 +187,7 @@ func (s *server) Up(req *pb.UpRequest, stream grpc.ServerStreamingServer[pb.Even
 
 	routes := make([]*pb.Route, 0, len(result.Routes))
 	for _, r := range result.Routes {
-		pr := &pb.Route{Host: r.Host, Upstream: r.Upstream, Tls: r.TLS, Mode: routeModeToProto(r.Mode)}
+		pr := &pb.Route{Host: r.Host, Upstream: upstreamToProto(r.Upstream), Tls: r.TLS, Mode: routeModeToProto(r.Mode)}
 		if r.Intercept != nil {
 			ports := make([]int32, len(r.Intercept.Ports))
 			for i, p := range r.Intercept.Ports {
@@ -187,10 +201,9 @@ func (s *server) Up(req *pb.UpRequest, stream grpc.ServerStreamingServer[pb.Even
 	exposedPorts := make([]*pb.ExposedPort, 0, len(result.ExposedPorts))
 	for _, ep := range result.ExposedPorts {
 		exposedPorts = append(exposedPorts, &pb.ExposedPort{
-			Name: ep.Name, Protocol: ep.Protocol, Upstream: ep.Upstream,
+			Name: ep.Name, Protocol: protocolToProto(ep.Protocol), Upstream: upstreamToProto(ep.Upstream),
 			HostPort:      int32(ep.HostPort), //nolint:gosec // HostPort is a TCP port, always within int32 range
-			Relay:         ep.Relay,
-			RelayUdpAddrs: ep.RelayUDPAddrs,
+			RelayUdpAddrs: pluginwire.PortsToProto(ep.RelayUDPAddrs),
 		})
 	}
 
@@ -230,7 +243,7 @@ func (s *server) Down(req *pb.DownRequest, stream grpc.ServerStreamingServer[pb.
 		return err
 	}
 
-	downer, ok := step.(Downer)
+	downer, ok := downerOf(step)
 	if !ok {
 		// In practice, this should not be called by a well-behaved plugin that indicated it doesn't support Down.
 		// However, this case is here for defensive purposes.
@@ -253,7 +266,7 @@ func (s *server) Export(ctx context.Context, req *pb.ExportRequest) (*pb.ExportR
 		return nil, err
 	}
 
-	exporter, ok := step.(Exporter)
+	exporter, ok := exporterOf(step)
 	if !ok {
 		// In practice, this should not be called by a well-behaved plugin that indicated it doesn't support Export.
 		// However, this case is here for defensive purposes.
@@ -284,7 +297,7 @@ func (s *server) CallTool(ctx context.Context, req *pb.ToolCallRequest) (*pb.Too
 		return nil, err
 	}
 
-	toolProvider, ok := step.(ToolProvider)
+	toolProvider, ok := toolProviderOf(step)
 	if !ok {
 		// In practice, this should not be called by a well-behaved plugin that indicated it doesn't support tools.
 		// However, this case is here for defensive purposes.
@@ -318,7 +331,7 @@ func envFromProto(e *pb.Environment) Env {
 		Project:             e.GetProject(),
 		Workspace:           e.GetWorkspace(),
 		Network:             e.GetNetwork(),
-		Engine:              e.GetEngine(),
+		Engine:              engineFromProto(e.GetEngine()),
 		CAPath:              e.GetCaPath(),
 		HTTPProxyAddr:       e.GetHttpProxyAddr(),
 		ConsoleAddr:         e.GetConsoleAddr(),
@@ -326,9 +339,9 @@ func envFromProto(e *pb.Environment) Env {
 		Domain:              e.GetDomain(),
 		Relay:               e.GetRelay(),
 		RelaySOCKS5Addr:     e.GetRelaySocks5Addr(),
-		RelaySOCKS5UDPAddrs: e.GetRelaySocks5UdpAddrs(),
+		RelaySOCKS5UDPAddrs: pluginwire.PortsFromProto(e.GetRelaySocks5UdpAddrs()),
 		ProjectDir:          e.GetProjectDir(),
-		Scope:               e.GetScope(),
+		Scope:               scopeFromProto(e.GetScope()),
 	}
 }
 
@@ -346,8 +359,8 @@ func depsFromProto(deps map[string]*pb.Outputs) map[string]map[string]Value {
 // containerInfoFromProto lifts a wire ContainerInfo into its SDK form.
 func containerInfoFromProto(c *pb.ContainerInfo) ContainerInfo {
 	return ContainerInfo{
-		ID: c.GetId(), Name: c.GetName(), NetnsPath: c.GetNetnsPath(),
-		ExcludeCIDRs: c.GetExcludeCidrs(),
+		ID: c.GetId(), Name: c.GetName(), NetnsPath: c.GetNetns().GetPath(),
+		ExcludeCIDRs: c.GetNetns().GetExcludeCidrs(),
 	}
 }
 
@@ -362,7 +375,7 @@ func containersFromProto(containers []*pb.StepContainers) []StepContainers {
 		for _, c := range sc.GetContainers() {
 			infos = append(infos, containerInfoFromProto(c))
 		}
-		out = append(out, StepContainers{Step: sc.GetStep(), Containers: infos})
+		out = append(out, StepContainers{Scope: scopeFromProto(sc.GetScope()), Step: sc.GetStep(), Containers: infos})
 	}
 	return out
 }
@@ -371,11 +384,48 @@ func containersFromProto(containers []*pb.StepContainers) []StepContainers {
 func containersToProto(containers []ContainerInfo) []*pb.ContainerInfo {
 	out := make([]*pb.ContainerInfo, 0, len(containers))
 	for _, c := range containers {
-		out = append(out, &pb.ContainerInfo{
-			Id: c.ID, Name: c.Name, NetnsPath: c.NetnsPath, ExcludeCidrs: c.ExcludeCIDRs,
-		})
+		info := &pb.ContainerInfo{Id: c.ID, Name: c.Name}
+		if c.NetnsPath != "" || len(c.ExcludeCIDRs) > 0 {
+			info.Netns = &pb.Netns{Path: c.NetnsPath, ExcludeCidrs: c.ExcludeCIDRs}
+		}
+		out = append(out, info)
 	}
 	return out
+}
+
+// upstreamToProto lowers an SDK Upstream to its wire form.
+func upstreamToProto(u Upstream) *pb.Upstream {
+	if u.Relay != nil {
+		return &pb.Upstream{Kind: &pb.Upstream_Relay{Relay: &pb.RelayTarget{Relay: u.Relay.Relay, Target: u.Relay.Target}}}
+	}
+	return &pb.Upstream{Kind: &pb.Upstream_Addr{Addr: u.Addr}}
+}
+
+func protocolToProto(p Protocol) pb.Protocol {
+	if p == ProtocolUDP {
+		return pb.Protocol_PROTOCOL_UDP
+	}
+	return pb.Protocol_PROTOCOL_TCP
+}
+
+func engineFromProto(e pb.Engine) Engine {
+	if e == pb.Engine_ENGINE_PODMAN {
+		return EnginePodman
+	}
+	return EngineDocker
+}
+
+func scopeFromProto(s pb.Scope) Scope {
+	switch s {
+	case pb.Scope_SCOPE_ENV:
+		return ScopeEnv
+	case pb.Scope_SCOPE_SETUP:
+		return ScopeSetup
+	case pb.Scope_SCOPE_UNSPECIFIED:
+		return ScopeUnspecified
+	default:
+		return ScopeUnspecified
+	}
 }
 
 // valueToProto lowers an SDK Value to its wire form.

@@ -8,8 +8,6 @@ import (
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"maps"
 	"path/filepath"
@@ -65,23 +63,20 @@ type buildConfig struct {
 // reachable from the host, either published directly as raw TCP or UDP, or
 // routed through the environment's relay. The map key is its name.
 type expose struct {
-	Port     int    `json:"port"`
-	Protocol string `json:"protocol"`
-	HostPort int    `json:"host_port"`
-	Relay    bool   `json:"relay"`
+	Port     int             `json:"port"`
+	Protocol plugin.Protocol `json:"protocol"`
+	HostPort int             `json:"host_port"`
+	Relay    bool            `json:"relay"`
 }
 
 // Container is the container step.
 type Container struct{}
 
 // New returns a container step.
-func New() Container { return Container{} }
+func New() plugin.Step { return plugin.Typed(schema, Container{}) } //nolint:ireturn // the step is the SDK contract
 
-// Container must keep satisfying plugin.Step.
-var _ plugin.Step = Container{}
-
-// Schema constrains the with block of a container step.
-func (Container) Schema() []byte { return schema }
+// Container must keep satisfying plugin.TypedStep.
+var _ plugin.TypedStep[config] = Container{}
 
 // Kind reports that a container step creates and destroys a resource.
 func (Container) Kind() plugin.StepKind { return plugin.StepKindResource }
@@ -94,21 +89,13 @@ var _ plugin.IdempotentStep = Container{}
 func (Container) Idempotent() bool { return true }
 
 // Up creates the container.
-func (Container) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
-	cfg, err := decode(req.Config)
-	if err != nil {
-		return nil, err
-	}
-
+func (Container) Up(ctx context.Context, cfg config, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
 	timeout, err := time.ParseDuration(cfg.StartTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("container: start_timeout %q: %w", cfg.StartTimeout, err)
 	}
 
-	runtime, err := newRuntime(req.Env)
-	if err != nil {
-		return nil, err
-	}
+	runtime := newRuntime(req.Env)
 
 	name := containerName(req.Env.Project, req.Step)
 
@@ -120,8 +107,8 @@ func (Container) Up(ctx context.Context, req *plugin.UpRequest, out plugin.Emitt
 
 	labels := map[string]string{
 		cri.LabelProject: req.Env.Project,
-		cri.LabelScope:   cri.ScopeLabel(req.Env.Project, req.Env.Scope),
-		cri.LabelURN:     cri.URNLabel(req.Env.Project, req.Env.Scope, req.Step),
+		cri.LabelScope:   cri.ScopeLabel(req.Env.Project, req.Env.Scope.String()),
+		cri.LabelURN:     cri.URNLabel(req.Env.Project, req.Env.Scope.String(), req.Step),
 	}
 
 	image := cfg.Image
@@ -248,7 +235,7 @@ func publishSpec(e expose) string {
 		host = strconv.Itoa(e.HostPort)
 	}
 	spec := "127.0.0.1:" + host + ":" + strconv.Itoa(e.Port)
-	if e.Protocol == "udp" {
+	if e.Protocol == plugin.ProtocolUDP {
 		spec += "/udp"
 	}
 	return spec
@@ -269,7 +256,7 @@ func stepDetails(exposed []plugin.ExposedPort) []plugin.Detail {
 // Iterates cfg.Expose in name order, so the reported list (and the card/log
 // output built from it) stays stable run to run despite Go's randomized
 // map iteration.
-func exposedPorts(cfg config, info cri.Container, step, relaySOCKS5Addr string, relaySOCKS5UDPAddrs map[string]string) ([]plugin.ExposedPort, error) {
+func exposedPorts(cfg config, info cri.Container, step, relaySOCKS5Addr string, relaySOCKS5UDPAddrs map[int]string) ([]plugin.ExposedPort, error) {
 	out := make([]plugin.ExposedPort, 0, len(cfg.Expose))
 	for _, name := range slices.Sorted(maps.Keys(cfg.Expose)) {
 		e := cfg.Expose[name]
@@ -282,10 +269,12 @@ func exposedPorts(cfg config, info cri.Container, step, relaySOCKS5Addr string, 
 			ep := plugin.ExposedPort{
 				Name:     name,
 				Protocol: e.Protocol,
-				Relay:    true,
-				Upstream: fmt.Sprintf("socks5://%s/%s:%d", relaySOCKS5Addr, step, e.Port),
+				Upstream: plugin.Upstream{Relay: &plugin.RelayTarget{
+					Relay:  relaySOCKS5Addr,
+					Target: fmt.Sprintf("%s:%d", step, e.Port),
+				}},
 			}
-			if e.Protocol == "udp" {
+			if e.Protocol == plugin.ProtocolUDP {
 				if len(relaySOCKS5UDPAddrs) == 0 {
 					return nil, plugin.Wrap(
 						fmt.Errorf("container: expose %s: %w", name, ErrNoRelayUDPPool),
@@ -296,30 +285,27 @@ func exposedPorts(cfg config, info cri.Container, step, relaySOCKS5Addr string, 
 			out = append(out, ep)
 			continue
 		}
-		upstream, ok := info.Ports[strconv.Itoa(e.Port)+"/"+e.Protocol]
+		upstream, ok := info.Ports[strconv.Itoa(e.Port)+"/"+e.Protocol.String()]
 		if !ok {
 			return nil, plugin.Wrap(
 				fmt.Errorf("container: expose %s %d: the container publishes no such port: %w", e.Protocol, e.Port, ErrNoPort),
 				"the container isn't listening on %s %s - check the image actually exposes it, or fix the expose block", e.Protocol, strconv.Itoa(e.Port))
 		}
-		out = append(out, plugin.ExposedPort{Name: name, Protocol: e.Protocol, Upstream: upstream})
+		out = append(out, plugin.ExposedPort{Name: name, Protocol: e.Protocol, Upstream: plugin.Upstream{Addr: upstream}})
 	}
 	return out, nil
 }
 
 // Down removes the container.
-func (Container) Down(ctx context.Context, req *plugin.DownRequest, out plugin.Emitter) error {
-	runtime, err := newRuntime(req.Env)
-	if err != nil {
-		return err
-	}
+func (Container) Down(ctx context.Context, _ config, req *plugin.DownRequest, out plugin.Emitter) error {
+	runtime := newRuntime(req.Env)
 	name := containerName(req.Env.Project, req.Step)
 	out.Log("stdout", "removing "+name)
 	return runtime.Remove(ctx, name)
 }
 
-// Container must keep satisfying plugin.Exporter.
-var _ plugin.Exporter = Container{}
+// Container must keep satisfying plugin.TypedExporter.
+var _ plugin.TypedExporter[config] = Container{}
 
 // Export reports the container's deterministic name, id, network address,
 // and published ports - the same shape Up's own outputs use, for a
@@ -328,11 +314,8 @@ var _ plugin.Exporter = Container{}
 // Export inspects the running container, unlike kind's Export, since
 // there's no static file to read instead - it fails when the container
 // hasn't come up yet or isn't running.
-func (Container) Export(ctx context.Context, req *plugin.ExportRequest) (*plugin.ExportResult, error) {
-	runtime, err := newRuntime(req.Env)
-	if err != nil {
-		return nil, err
-	}
+func (Container) Export(ctx context.Context, _ config, req *plugin.ExportRequest) (*plugin.ExportResult, error) {
+	runtime := newRuntime(req.Env)
 	name := containerName(req.Env.Project, req.Step)
 	info, err := runtime.Inspect(ctx, name)
 	if err != nil {
@@ -349,17 +332,8 @@ func (Container) Export(ctx context.Context, req *plugin.ExportRequest) (*plugin
 }
 
 // newRuntime picks the container engine that env names.
-var newRuntime = func(env plugin.Env) (cri.Runtime, error) { // a var so tests can substitute a fake engine
-	rt, err := engines.New(env.Engine)
-	if err != nil {
-		if errors.Is(err, engines.ErrUnsupported) {
-			return nil, plugin.Wrap(
-				fmt.Errorf("container: unsupported engine %q: %w", env.Engine, ErrUnsupportedEngine),
-				"kevin doesn't support engine %q - pass --engine or KEVIN_ENGINE as \"docker\" or \"podman\"", env.Engine)
-		}
-		return nil, fmt.Errorf("container: %w", err)
-	}
-	return rt, nil
+var newRuntime = func(env plugin.Env) cri.Runtime { // a var so tests can substitute a fake engine
+	return engines.Of(env.Engine)
 }
 
 // containerName builds the container name for one step of one project, with
@@ -436,27 +410,4 @@ func trimProto(port string) string {
 		}
 	}
 	return port
-}
-
-func decode(data []byte) (config, error) {
-	// Repeat the defaults of schema.cue. A caller can pass an empty config,
-	// and then CUE never applies them.
-	cfg := config{Proxy: true, StartTimeout: "30s"}
-	if len(data) == 0 {
-		return cfg, nil
-	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("container: decode config: %w", err)
-	}
-	if cfg.Build != nil && cfg.Build.Dockerfile == "" {
-		cfg.Build.Dockerfile = "Dockerfile"
-	}
-	// Repeat schema.cue's per-entry default too, for the same reason.
-	for name, e := range cfg.Expose {
-		if e.Protocol == "" {
-			e.Protocol = "tcp"
-			cfg.Expose[name] = e
-		}
-	}
-	return cfg, nil
 }

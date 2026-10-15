@@ -172,7 +172,7 @@ func TestLookupForwarder(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, ok)
 		assert.Equal(t, "127.0.0.1:50000", got.Addr)
-		assert.Equal(t, map[string]string{"40000": "127.0.0.1:50001"}, got.UDPAddrs)
+		assert.Equal(t, map[int]string{40000: "127.0.0.1:50001"}, got.UDPAddrs)
 	})
 
 	t.Run("a running container with no socks5 port is an error", func(t *testing.T) {

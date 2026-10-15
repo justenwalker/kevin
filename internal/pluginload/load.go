@@ -8,7 +8,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/logging"
 	"github.com/justenwalker/kevin/internal/pluginhost"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 var log = logging.New("pluginload")
@@ -151,7 +151,7 @@ func (l Loaded) Close() {
 // Configure sends the config block of every plugin, once before any step of
 // that plugin runs. A plugin with no config block still receives the call,
 // with an empty config.
-func (l Loaded) Configure(ctx context.Context, env *pb.Environment) error {
+func (l Loaded) Configure(ctx context.Context, env step.Env) error {
 	for name, client := range l.Plugins {
 		if err := client.Configure(ctx, l.Config.Plugins[name].Config, env); err != nil {
 			return err

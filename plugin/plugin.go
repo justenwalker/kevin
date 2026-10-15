@@ -14,25 +14,9 @@ package plugin
 
 import (
 	"context"
+	"fmt"
 	"strings"
-
-	goplugin "github.com/hashicorp/go-plugin"
 )
-
-// ProtocolVersion is the version of the wire protocol. A supervisor refuses a
-// plugin that reports a different version.
-const ProtocolVersion = 1
-
-// Handshake is the magic that the supervisor and the plugin exchange. A
-// binary that a user runs directly prints a message and exits.
-var Handshake = goplugin.HandshakeConfig{
-	ProtocolVersion:  ProtocolVersion,
-	MagicCookieKey:   "KEVIN_PLUGIN",
-	MagicCookieValue: "0b0f5a3c-2a4f-4d9d-9a55-3f3b5f2f2f34",
-}
-
-// Name is the key that the plugin is dispensed under. There is exactly one.
-const Name = "step"
 
 // Plugin provides the implementation of one or more Steps.
 type Plugin struct {
@@ -72,9 +56,8 @@ type Env struct {
 	// Network is the shared network that all workloads join.
 	Network string
 
-	// Engine names the container runtime a plugin should use, such as
-	// "docker" or "podman". Empty means "docker".
-	Engine string
+	// Engine is the container runtime a plugin should use.
+	Engine Engine
 
 	// CAPath is the host path to the kevin root CA certificate file. Empty
 	// means no CA is available.
@@ -98,25 +81,67 @@ type Env struct {
 	Relay string
 
 	// RelaySOCKS5Addr is the host-reachable address of the relay's SOCKS5
-	// gateway. A step builds a "socks5://<addr>/<target>" upstream against
-	// it to reach a docker-network address through a single host port
-	// instead of a dedicated published port. Empty when the relay is
+	// gateway. A step sets an Upstream.Relay target with this address to
+	// reach a docker-network address through a single host port instead of a
+	// dedicated published port. Empty when the relay is
 	// disabled.
 	RelaySOCKS5Addr string
 
-	// RelaySOCKS5UDPAddrs maps a container-side UDP relay port (decimal
-	// string) to its host-reachable address - see
-	// ExposedPort.RelayUDPAddrs. Empty when the relay is disabled.
-	RelaySOCKS5UDPAddrs map[string]string
+	// RelaySOCKS5UDPAddrs maps a container-side UDP relay port to its
+	// host-reachable address - see ExposedPort.RelayUDPAddrs. Empty when the
+	// relay is disabled.
+	RelaySOCKS5UDPAddrs map[int]string
 
 	// ProjectDir is the absolute path of the directory that holds kevin.cue.
 	// A step resolves a relative with-block path against this.
 	ProjectDir string
 
-	// Scope is which DAG this step belongs to: "setup" or "env". A plugin
-	// should carry it as the "kevin.scope" label alongside
+	// Scope is which DAG this step belongs to. A plugin should carry its
+	// String form as the "kevin.scope" label alongside
 	// "kevin.project"/"kevin.urn".
-	Scope string
+	Scope Scope
+}
+
+// Engine is a container runtime kevin can drive. The zero value is docker.
+type Engine uint8
+
+// The container runtimes a plugin can be told to use.
+const (
+	EngineDocker Engine = iota
+	EnginePodman
+)
+
+// String returns the engine's name, "docker" or "podman".
+func (e Engine) String() string {
+	if e == EnginePodman {
+		return "podman"
+	}
+	return "docker"
+}
+
+// Scope is one of the two independent DAGs of an environment.
+type Scope uint8
+
+// The scopes of an environment. ScopeUnspecified is the zero value.
+const (
+	ScopeUnspecified Scope = iota
+	ScopeEnv
+	ScopeSetup
+)
+
+// String returns the scope's name, "env" or "setup", or "" for
+// ScopeUnspecified.
+func (s Scope) String() string {
+	switch s {
+	case ScopeEnv:
+		return "env"
+	case ScopeSetup:
+		return "setup"
+	case ScopeUnspecified:
+		return ""
+	default:
+		return ""
+	}
 }
 
 // UpRequest asks the plugin to create one step.
@@ -236,9 +261,9 @@ type Route struct {
 	// Host is the hostname that clients use.
 	Host string
 
-	// Upstream is the address to forward to. The address must be reachable on
-	// the docker network.
-	Upstream string
+	// Upstream is where to forward to. It must be reachable from the host,
+	// directly or through the relay.
+	Upstream Upstream
 
 	// TLS is true when the upstream itself speaks TLS.
 	TLS bool
@@ -263,6 +288,67 @@ type RouteIntercept struct {
 	Ports []int
 }
 
+// Upstream is where a route or exposed port sends traffic. Set exactly one of
+// Addr and Relay.
+type Upstream struct {
+	// Addr is a host-reachable address, such as "127.0.0.1:54321".
+	Addr string
+
+	// Relay is a target reached through the environment's SOCKS5 relay.
+	Relay *RelayTarget
+}
+
+// RelayTarget is a target reached through the environment's SOCKS5 relay.
+type RelayTarget struct {
+	// Relay is the host-reachable address of the relay's SOCKS5 listener,
+	// such as [Env.RelaySOCKS5Addr].
+	Relay string
+
+	// Target is the host:port to reach inside the project network.
+	Target string
+}
+
+// String returns the upstream's address, or "socks5://<relay>/<target>" for a
+// relay target.
+func (u Upstream) String() string {
+	if u.Relay != nil {
+		return "socks5://" + u.Relay.Relay + "/" + u.Relay.Target
+	}
+	return u.Addr
+}
+
+// Protocol is the wire protocol spoken to an exposed port's target. The zero
+// value is TCP.
+type Protocol uint8
+
+// The protocols an exposed port can speak.
+const (
+	ProtocolTCP Protocol = iota
+	ProtocolUDP
+)
+
+// String returns "tcp" or "udp".
+func (p Protocol) String() string {
+	if p == ProtocolUDP {
+		return "udp"
+	}
+	return "tcp"
+}
+
+// UnmarshalText decodes "tcp", "udp", or "" (TCP), so a with-block field can
+// have the type Protocol.
+func (p *Protocol) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "", "tcp":
+		*p = ProtocolTCP
+	case "udp":
+		*p = ProtocolUDP
+	default:
+		return fmt.Errorf("plugin: %q: %w", text, ErrUnknownProtocol)
+	}
+	return nil
+}
+
 // ExposedPort is a raw TCP or UDP endpoint that a step publishes, bypassing
 // the HTTP proxy - for a service that doesn't speak HTTP, such as a
 // database's wire protocol - either directly on the host or through the
@@ -270,31 +356,25 @@ type RouteIntercept struct {
 type ExposedPort struct {
 	Name string
 
-	// Protocol is "tcp" or "udp" - the real wire protocol spoken to the
-	// target, regardless of whether Relay routes it through the SOCKS5
-	// gateway.
-	Protocol string
+	// Protocol is the real wire protocol spoken to the target, regardless of
+	// whether Upstream routes it through the SOCKS5 gateway.
+	Protocol Protocol
 
-	// Upstream is the host-reachable address when !Relay, such as
-	// "127.0.0.1:54321", or a "socks5://<relay>/<target>" upstream when
-	// Relay is true.
-	Upstream string
+	// Upstream is where the port is reached. A relay Upstream is reached
+	// through the environment's SOCKS5 relay instead of dialed directly.
+	Upstream Upstream
 
 	// HostPort pins the port of the engine's local forward. Ignored unless
-	// Relay is true; zero lets the OS assign one.
+	// Upstream is a relay target; zero lets the OS assign one.
 	HostPort int
 
-	// Relay is true when Upstream must be reached through the
-	// environment's SOCKS5 relay instead of dialed directly.
-	Relay bool
-
-	// RelayUDPAddrs maps a container-side UDP relay port (decimal string)
-	// to its host-reachable address. Set only when Relay and Protocol ==
-	// "udp": the relay's ASSOCIATE reply names one of these container
-	// ports, and the engine's local UDP forward looks it up here, since
-	// the relay's own bind address is a docker-network address the host
-	// can't dial directly.
-	RelayUDPAddrs map[string]string
+	// RelayUDPAddrs maps a container-side UDP relay port to its
+	// host-reachable address. Set only for a relay Upstream with
+	// ProtocolUDP: the relay's ASSOCIATE reply names one of these container
+	// ports, and the engine's local UDP forward looks it up here, since the
+	// relay's own bind address is a docker-network address the host can't
+	// dial directly.
+	RelayUDPAddrs map[int]string
 }
 
 // Detail is one extra piece of information a step shows on its console
@@ -331,11 +411,11 @@ func (r Route) Detail() Detail {
 // to Result.Details to keep an exposed port visible on the card, or build a
 // Detail by hand for something different.
 func (e ExposedPort) Detail() Detail {
-	label := e.Protocol + " " + e.Name
-	if e.Relay {
+	label := e.Protocol.String() + " " + e.Name
+	if e.Upstream.Relay != nil {
 		label += " (relay)"
 	}
-	return Detail{Label: label, Value: String(e.Upstream), Copyable: true}
+	return Detail{Label: label, Value: String(e.Upstream.String()), Copyable: true}
 }
 
 // Result is what a successful Up publishes.
@@ -405,9 +485,11 @@ type ContainerInfo struct {
 // the engine into UpRequest.Containers - order matches that step's
 // position in needs.
 type StepContainers struct {
-	// Step is the needs-step this container list belongs to - a
-	// same-scope step name, or "setup.<name>" for a cross-scope
-	// reference, the same string form needs itself already uses.
+	// Scope is the DAG the needs-step belongs to: ScopeSetup for a
+	// cross-scope "setup.<name>" reference.
+	Scope Scope
+
+	// Step is the needs-step's name, without any "setup." prefix.
 	Step string
 
 	Containers []ContainerInfo
@@ -441,27 +523,6 @@ type NetworkFault struct {
 	// RateKbit caps the interface's throughput, in kilobits/second. 0
 	// means no cap.
 	RateKbit int32
-}
-
-// NetnsTarget is one network namespace the relay should capture, for a step
-// that manages more than one - see Result.NetnsTargets.
-type NetnsTarget struct {
-	// ID identifies this network namespace for the relay's own bookkeeping
-	// and logs, such as "<step>/<node>" for one of a kind cluster's nodes.
-	ID string
-
-	// NetnsPath is the host path of the network namespace, such as
-	// "/var/run/docker/netns/1234abcd".
-	NetnsPath string
-
-	// ExcludeCIDRs lists destination CIDRs that must never be redirected to
-	// the relay - a Kubernetes cluster's own pod and service subnets, so
-	// pod-to-pod and pod-to-service traffic keeps working normally. A
-	// non-empty list is also what tells the relay this namespace routes
-	// traffic for others rather than only generating its own, so it
-	// captures what transits the namespace instead of what originates in
-	// it.
-	ExcludeCIDRs []string
 }
 
 // Emitter reports progress while a step runs. Everything that a Step emits

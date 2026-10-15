@@ -12,7 +12,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/runstate"
 	"github.com/justenwalker/kevin/internal/state"
-	"github.com/justenwalker/kevin/protos/pb"
+	"github.com/justenwalker/kevin/internal/step"
 )
 
 // logFileName is the log of a detached run, in the run directory.
@@ -120,7 +120,7 @@ func waitForAddrs(ctx context.Context, state runstate.State, proc *command.Proce
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if addrs, err := state.ReadAddrs(); err == nil && addrs.ConsoleAddr != "" {
-			printEnvironmentInfo(os.Stderr, &pb.Environment{ConsoleAddr: addrs.ConsoleAddr, HttpProxyAddr: addrs.HTTPProxyAddr})
+			printEnvironmentInfo(os.Stderr, step.Env{ConsoleAddr: addrs.ConsoleAddr, HTTPProxyAddr: addrs.HTTPProxyAddr})
 			return nil
 		}
 		select {

@@ -40,7 +40,7 @@ type Forwarder struct {
 	// UDPAddrs maps each node-internal UDP pool port to its host address,
 	// the shape plugin.ExposedPort.RelayUDPAddrs expects. Nil when the pool
 	// is disabled.
-	UDPAddrs map[string]string
+	UDPAddrs map[int]string
 }
 
 // ForwarderSpec describes the forwarder container for one cluster.

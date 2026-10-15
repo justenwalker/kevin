@@ -23,8 +23,9 @@ service Plugin {
   // A step that does not destroy anything does not implement Down.
   rpc Down(DownRequest) returns (stream Event);
 
-  // Export reports the environment variables that let an external command
-  // reach what a step created.
+  // Export reports the structured outputs and containers of a step that
+  // already exists, so a cross-scope "setup.<name>" reference or a
+  // "commands:" entry can read them without bringing the step up.
   //
   // A step that has nothing to export does not implement Export.
   rpc Export(ExportRequest) returns (ExportResponse);
@@ -159,26 +160,38 @@ message Environment {
   // ProjectDir is the absolute path of the directory that holds kevin.cue.
   string project_dir = 10;
 
-  // Engine names the container runtime that a plugin should use: "docker"
-  // or "podman". Empty means "docker".
-  string engine = 11;
+  // Engine is the container runtime that a plugin should use.
+  Engine engine = 11;
 
-  // Scope is which DAG this step belongs to: "setup" or "env". A plugin
-  // should carry it as the "kevin.scope" label alongside
-  // "kevin.project"/"kevin.urn".
-  string scope = 13;
+  // Scope is which DAG this step belongs to. A plugin should carry it as
+  // the "kevin.scope" label alongside "kevin.project"/"kevin.urn".
+  Scope scope = 13;
 
   // RelaySocks5Addr is the host-reachable address of the relay's SOCKS5
-  // gateway. A plugin builds a "socks5://<addr>/<target>" upstream against
-  // it to reach a docker-network address through a single host port
-  // instead of a dedicated published port.
+  // gateway. A plugin sets an Upstream.relay target with this address to
+  // reach a docker-network address through a single host port instead of a
+  // dedicated published port.
   string relay_socks5_addr = 14;
 
-  // RelaySocks5UdpAddrs maps a container-side UDP relay port (decimal
-  // string) to its host-reachable address. The relay publishes a fixed
-  // pool of these so a SOCKS5 UDP ASSOCIATE session can bind one before
-  // the container/pod that needs it exists - see ExposedPort.relay_udp_addrs.
-  map<string, string> relay_socks5_udp_addrs = 15;
+  // RelaySocks5UdpAddrs maps a container-side UDP relay port to its
+  // host-reachable address. The relay publishes a fixed pool of these so a
+  // SOCKS5 UDP ASSOCIATE session can bind one before the container/pod that
+  // needs it exists - see ExposedPort.relay_udp_addrs.
+  map<int32, string> relay_socks5_udp_addrs = 15;
+}
+
+// Engine is a container runtime kevin can drive.
+enum Engine {
+  // ENGINE_DOCKER is the zero value: an unset engine means docker.
+  ENGINE_DOCKER = 0;
+  ENGINE_PODMAN = 1;
+}
+
+// Scope is one of the two independent DAGs of an environment.
+enum Scope {
+  SCOPE_UNSPECIFIED = 0;
+  SCOPE_ENV = 1;
+  SCOPE_SETUP = 2;
 }
 
 // Value is one output value - a step's published output, an upstream
@@ -232,9 +245,6 @@ message DownRequest {
 
   // Config is the with block of the step, in JSON form.
   bytes config = 4;
-
-  // Deps maps the name of each upstream step to the outputs of that step.
-  map<string, Outputs> deps = 5;
 
   // Outputs is what Up published for this step.
   // Outputs are used by other steps as inputs to chain together more complex setup operations.
@@ -307,9 +317,15 @@ message ContainerInfo {
   // Name is the container engine's own name.
   string name = 2;
 
-  // NetnsPath is the host path of this container's network namespace,
-  // such as "/proc/1234/ns/net" - empty if the container isn't running.
-  string netns_path = 3;
+  // Netns is this container's network namespace. Unset if the container
+  // isn't running.
+  Netns netns = 3;
+}
+
+// Netns is a network namespace the relay can capture the egress of.
+message Netns {
+  // Path is the host path of the namespace, such as "/proc/1234/ns/net".
+  string path = 1;
 
   // ExcludeCIDRs lists destination CIDRs that must never be redirected to
   // the relay when capturing this namespace's egress - a Kubernetes
@@ -318,16 +334,18 @@ message ContainerInfo {
   // also what tells the relay this namespace routes traffic for others
   // rather than only generating its own, so it captures what transits the
   // namespace instead of what originates in it.
-  repeated string exclude_cidrs = 4;
+  repeated string exclude_cidrs = 2;
 }
 
 // StepContainers is one needs-step's reported containers, aggregated by
 // the engine into UpRequest.containers - order matches that step's
 // position in needs.
 message StepContainers {
-  // Step is the needs-step this container list belongs to - a same-scope
-  // step name, or "setup.<name>" for a cross-scope reference, the same
-  // string form needs itself already uses.
+  // Scope is the DAG the needs-step belongs to: SCOPE_SETUP for a
+  // cross-scope "setup.<name>" reference, otherwise the step's own scope.
+  Scope scope = 3;
+
+  // Step is the needs-step's name, without any "setup." prefix.
   string step = 1;
 
   repeated ContainerInfo containers = 2;
@@ -367,35 +385,56 @@ message NetworkFault {
   int32 rate_kbit = 10;
 }
 
+// Protocol is the wire protocol spoken to an exposed port's target.
+enum Protocol {
+  PROTOCOL_TCP = 0;
+  PROTOCOL_UDP = 1;
+}
+
+// RelayTarget is a target reached through the environment's SOCKS5 relay.
+message RelayTarget {
+  // Relay is the host-reachable address of the relay's SOCKS5 listener.
+  string relay = 1;
+
+  // Target is the host:port to reach inside the project network.
+  string target = 2;
+}
+
+// Upstream is where a route or exposed port sends traffic.
+message Upstream {
+  oneof kind {
+    // Addr is a host-reachable address, such as "127.0.0.1:54321".
+    string addr = 1;
+
+    // Relay is a target reached through the SOCKS5 relay.
+    RelayTarget relay = 2;
+  }
+}
+
 // ExposedPort is a raw TCP or UDP endpoint that a step publishes, either
 // directly on the host or through the environment's relay.
 message ExposedPort {
   string name = 1;
 
-  // Protocol is "tcp" or "udp" - the real wire protocol spoken to the
-  // target, regardless of whether Relay routes it through the SOCKS5
-  // gateway.
-  string protocol = 2;
+  // Protocol is the real wire protocol spoken to the target, regardless of
+  // whether the upstream routes it through the SOCKS5 gateway.
+  Protocol protocol = 2;
 
-  // Upstream is the host-reachable address when !Relay, such as
-  // "127.0.0.1:54321", or a "socks5://<relay>/<target>" upstream when
-  // Relay is true.
-  string upstream = 3;
+  // Upstream is where the port is reached. A relay upstream is reached
+  // through the environment's SOCKS5 relay instead of dialed directly.
+  Upstream upstream = 3;
 
   // HostPort pins the port of the engine's local forward. Ignored unless
-  // Relay is true; zero lets the OS assign one.
+  // the upstream is a relay; zero lets the OS assign one.
   int32 host_port = 4;
 
-  // Relay is true when Upstream must be reached through the environment's
-  // SOCKS5 relay instead of dialed directly.
-  bool relay = 5;
-
-  // RelayUdpAddrs maps a container-side UDP relay port (decimal string) to
-  // its host-reachable address. Set only when Relay and Protocol == "udp":
-  // the relay's ASSOCIATE reply names one of these container ports, and
-  // the engine's local UDP forward looks it up here, since the relay's own
-  // bind address is a docker-network address the host can't dial directly.
-  map<string, string> relay_udp_addrs = 6;
+  // RelayUdpAddrs maps a container-side UDP relay port to its
+  // host-reachable address. Set only for a relay upstream with
+  // PROTOCOL_UDP: the relay's ASSOCIATE reply names one of these container
+  // ports, and the engine's local UDP forward looks it up here, since the
+  // relay's own bind address is a docker-network address the host can't
+  // dial directly.
+  map<int32, string> relay_udp_addrs = 6;
 }
 
 // Detail is one extra piece of information that a step shows on its
@@ -501,8 +540,9 @@ message Route {
   // Host is the hostname that clients use.
   string host = 1;
 
-  // Upstream is the address to forward to. The address must be reachable on the docker network.
-  string upstream = 2;
+  // Upstream is where to forward to. The address must be reachable from the
+  // host, directly or through the relay.
+  Upstream upstream = 2;
 
   // Tls is true when the upstream itself speaks TLS.
   bool tls = 3;

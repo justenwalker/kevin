@@ -132,7 +132,7 @@ func (r *run) registerScopeSteps(store *session.Store) error {
 
 		step := r.steps[name]
 		ref := step.Uses
-		kindLabel := stepKindLabel(stepKind(r.caps[ref.Plugin], ref.Step))
+		kindLabel := stepKind(r.caps[ref.Plugin], ref.Step).String()
 
 		group, label := "", step.Label
 		if g, member, ok := strings.Cut(name, groupSep); ok {

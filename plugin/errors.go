@@ -14,4 +14,12 @@ const (
 	// config block, sent to a provider whose Configure is nil. Without this
 	// check the config would be silently discarded.
 	ErrConfigureNotSupported = Error("plugin: provider takes no configuration")
+
+	// ErrUnknownProtocol reports a protocol name that is neither "tcp" nor
+	// "udp".
+	ErrUnknownProtocol = Error("plugin: unknown protocol")
+
+	// ErrNotImplemented reports a call to an optional part of a step, such as
+	// Down, that the step does not have.
+	ErrNotImplemented = Error("plugin: not implemented")
 )

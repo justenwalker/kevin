@@ -81,6 +81,31 @@ For a provider-wide `config` block, set `Plugin.ConfigSchema` and `Plugin.Config
 | `plugin.StepKindAction` | Changes something it does not own, such as applying a manifest to a cluster. |
 | `plugin.StepKindProbe` | Creates nothing. Checks that something is ready. |
 
+## Decode the with block
+
+`req.Config` is the step's `with` block as JSON, with every default your CUE schema declares already in it. To get it as a Go struct, implement `plugin.TypedStep[C]` and wrap the step with `plugin.Typed`:
+
+```go
+type config struct {
+    Image string `json:"image"`
+}
+
+func (widgetStep) Kind() plugin.StepKind { return plugin.StepKindResource }
+
+func (widgetStep) Up(ctx context.Context, cfg config, req *plugin.UpRequest, out plugin.Emitter) (*plugin.Result, error) {
+    // cfg.Image is set.
+}
+
+func main() {
+    plugin.Serve(plugin.Plugin{
+        Name:  "acme",
+        Steps: map[string]plugin.Step{"widget": plugin.Typed(schema, widgetStep{})},
+    })
+}
+```
+
+`schema` is the CUE source of the `with` block. `Typed` takes it, so the step has no `Schema` method. A default only reaches your step when the schema declares the field without `?`, as in `wait: string | *"5m"`. `Typed` passes `Down`, `Export`, and `CallTool` through when the step implements `plugin.TypedDowner[C]`, `plugin.TypedExporter[C]`, or `plugin.TypedToolProvider[C]`, which take `cfg C` before the request.
+
 ## Implement teardown
 
 If `Up` creates something, implement `plugin.Downer`:
@@ -123,11 +148,11 @@ Every request has a `plugin.Env`, the same for every step in a run:
 | Field | Value |
 |:------|:------|
 | `Project` | Project name. |
-| `Scope` | `"setup"` or `"env"`. |
+| `Scope` | `plugin.ScopeSetup` or `plugin.ScopeEnv`. Call `.String()` for `"setup"` or `"env"`. |
 | `Workspace` | The project's `.kevin` state directory. |
 | `ProjectDir` | The project directory. Resolve relative paths in `with` against it. |
 | `Network` | Name of the project network. |
-| `Engine` | `"docker"` or `"podman"`. |
+| `Engine` | `plugin.EngineDocker` or `plugin.EnginePodman`. |
 | `CAPath` | Path of the CA certificate file. |
 | `HTTPProxyAddr` | Address of the proxy. |
 | `ConsoleAddr` | Address of the console. |
@@ -135,6 +160,7 @@ Every request has a `plugin.Env`, the same for every step in a run:
 | `Domain` | The environment domain. |
 | `Relay` | Address of the relay on the project network. |
 | `RelaySOCKS5Addr` | Host address of the relay's SOCKS5 server. |
+| `RelaySOCKS5UDPAddrs` | Host address of each UDP port the relay publishes, by container port. |
 
 `UpRequest.Deps` has the `Outputs` of each step in `needs`, by step name. These are the values that `${needs...}` expressions read.
 
@@ -143,8 +169,8 @@ Label every container or other resource you create, so kevin can find and remove
 | Label | Value |
 |:------|:------|
 | `kevin.project` | `Env.Project` |
-| `kevin.scope` | `<Env.Project>:<Env.Scope>` |
-| `kevin.urn` | `<Env.Project>:<Env.Scope>:<step name>` |
+| `kevin.scope` | `<Env.Project>:<Env.Scope.String()>` |
+| `kevin.urn` | `<Env.Project>:<Env.Scope.String()>:<step name>` |
 
 ## Mark secrets as sensitive
 
@@ -157,6 +183,12 @@ kevin cannot protect a secret that your plugin prints to its own output.
 ## Add rows to the console
 
 `Result.Details` is the list of rows on the step's console card, shown in its detail dialog's Details tab. Add a `plugin.Detail{Label, Value, Copyable, Href}` for each row. `Route` and `ExposedPort` each have a `Detail()` method that returns a row for them.
+
+## Reach a service through the proxy or the relay
+
+A `plugin.Route` and a `plugin.ExposedPort` each take a `plugin.Upstream`. Set `Upstream.Addr` to an address the host can dial, such as `127.0.0.1:54321`. To reach a target inside the project network instead, set `Upstream.Relay` to a `plugin.RelayTarget{Relay: env.RelaySOCKS5Addr, Target: "db:5432"}`. kevin reaches it through the relay.
+
+An `ExposedPort` also sets `Protocol` to `plugin.ProtocolTCP` (the default) or `plugin.ProtocolUDP`. A UDP port behind the relay needs `RelayUDPAddrs`, which is `Env.RelaySOCKS5UDPAddrs`.
 
 If a `Detail`'s `Value` is `plugin.Sensitive`, the console masks it and does not show it as a link or tooltip. If it is also `Copyable`, the copy button copies the real value.
 

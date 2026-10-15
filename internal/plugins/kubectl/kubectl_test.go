@@ -20,7 +20,7 @@ func (c *capture) Log(_, text string)            { c.logs = append(c.logs, text)
 func (c *capture) Progress(string, int64, int64) {}
 
 func TestSchemaCarriesTheEmbeddedSchema(t *testing.T) {
-	assert.NotEmpty(t, Step{}.Schema(), "Schema must return the embedded schema.cue")
+	assert.NotEmpty(t, schema, "Schema must return the embedded schema.cue")
 }
 
 func TestDecode(t *testing.T) {
@@ -52,7 +52,7 @@ func TestValidateSource(t *testing.T) {
 }
 
 func TestUpRejectsZeroSources(t *testing.T) {
-	_, err := Step{}.Up(t.Context(), &plugin.UpRequest{
+	_, err := typed(Step{}).Up(t.Context(), &plugin.UpRequest{
 		Config: json.RawMessage(`{"kubeconfig":"/tmp/kubeconfig"}`),
 	}, &capture{})
 	assert.ErrorIs(t, err, ErrSource)
@@ -79,7 +79,7 @@ func TestKindIsAction(t *testing.T) {
 }
 
 func TestStepImplementsDowner(t *testing.T) {
-	_, ok := any(Step{}).(plugin.Downer)
+	_, ok := any(Step{}).(plugin.TypedDowner[config])
 	assert.True(t, ok, "a kubectl step must delete what it applied on teardown")
 }
 
@@ -88,7 +88,7 @@ func TestStepIsIdempotent(t *testing.T) {
 }
 
 func TestDownRejectsZeroSources(t *testing.T) {
-	err := Step{}.Down(t.Context(), &plugin.DownRequest{
+	err := typed(Step{}).Down(t.Context(), &plugin.DownRequest{
 		Config: json.RawMessage(`{"kubeconfig":"/tmp/kubeconfig"}`),
 	}, &capture{})
 	assert.ErrorIs(t, err, ErrSource)
@@ -96,7 +96,7 @@ func TestDownRejectsZeroSources(t *testing.T) {
 
 func TestDownKeepSkipsDelete(t *testing.T) {
 	out := &capture{}
-	err := Step{}.Down(t.Context(), &plugin.DownRequest{
+	err := typed(Step{}).Down(t.Context(), &plugin.DownRequest{
 		Config: json.RawMessage(`{"kubeconfig":"/tmp/kubeconfig","manifest":"apiVersion: v1\n","keep":true}`),
 	}, out)
 	require.NoError(t, err)
@@ -115,7 +115,7 @@ func TestUp(t *testing.T) {
 			Kubeconfig: "/kc", Path: "/proj/deploy.yaml",
 		}).Return("", nil)
 
-		res, err := Step{cli: cli}.Up(t.Context(), req, &capture{})
+		res, err := typed(Step{cli: cli}).Up(t.Context(), req, &capture{})
 		require.NoError(t, err)
 		assert.Equal(t, plugin.StringMap(map[string]string{
 			"kubeconfig": "/kc", "context": "", "namespace": "",
@@ -126,7 +126,7 @@ func TestUp(t *testing.T) {
 		cli := newMockcli(t)
 		cli.EXPECT().Apply(mock.Anything, mock.Anything).Return("", errors.New("boom"))
 
-		_, err := Step{cli: cli}.Up(t.Context(), req, &capture{})
+		_, err := typed(Step{cli: cli}).Up(t.Context(), req, &capture{})
 		require.ErrorContains(t, err, "kubectl: boom")
 	})
 }
@@ -141,7 +141,7 @@ func TestDown(t *testing.T) {
 		}).Return("", nil)
 
 		out := &capture{}
-		require.NoError(t, Step{cli: cli}.Down(t.Context(), req, out))
+		require.NoError(t, typed(Step{cli: cli}).Down(t.Context(), req, out))
 		assert.Contains(t, out.logs, "deleted")
 	})
 
@@ -149,6 +149,27 @@ func TestDown(t *testing.T) {
 		cli := newMockcli(t)
 		cli.EXPECT().Delete(mock.Anything, mock.Anything).Return("", errors.New("boom"))
 
-		require.ErrorContains(t, Step{cli: cli}.Down(t.Context(), req, &capture{}), "kubectl: boom")
+		require.ErrorContains(t, typed(Step{cli: cli}).Down(t.Context(), req, &capture{}), "kubectl: boom")
 	})
+}
+
+// stepAll is every optional part the SDK's typed adapter offers, so a test
+// can call it with a raw with block.
+type stepAll interface {
+	plugin.Step
+	plugin.Downer
+	plugin.Exporter
+}
+
+// typed wraps s the way New does.
+func typed(s Step) stepAll { return plugin.Typed(schema, s).(stepAll) } //nolint:errcheck,ireturn // the adapter implements every part
+
+// decode parses a with block the way the SDK does for a typed step.
+func decode(data []byte) (config, error) {
+	var cfg config
+	if len(data) == 0 {
+		return cfg, nil
+	}
+	err := json.Unmarshal(data, &cfg)
+	return cfg, err
 }

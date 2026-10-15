@@ -15,6 +15,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/protos/pb"
 )
 
@@ -116,8 +117,8 @@ func TestRelayRegisterCapture(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, fake.lastRegisterCapture)
 		assert.Equal(t, "web", fake.lastRegisterCapture.GetId())
-		assert.Equal(t, "/var/run/docker/netns/abc123", fake.lastRegisterCapture.GetNetnsPath())
-		assert.Empty(t, fake.lastRegisterCapture.GetExcludeCidrs())
+		assert.Equal(t, "/var/run/docker/netns/abc123", fake.lastRegisterCapture.GetNetns().GetPath())
+		assert.Empty(t, fake.lastRegisterCapture.GetNetns().GetExcludeCidrs())
 	})
 
 	t.Run("a router namespace, with exclusions", func(t *testing.T) {
@@ -128,7 +129,7 @@ func TestRelayRegisterCapture(t *testing.T) {
 			[]string{"10.244.0.0/16", "10.96.0.0/12"})
 		require.NoError(t, err)
 		require.NotNil(t, fake.lastRegisterCapture)
-		assert.Equal(t, []string{"10.244.0.0/16", "10.96.0.0/12"}, fake.lastRegisterCapture.GetExcludeCidrs())
+		assert.Equal(t, []string{"10.244.0.0/16", "10.96.0.0/12"}, fake.lastRegisterCapture.GetNetns().GetExcludeCidrs())
 	})
 }
 
@@ -137,24 +138,24 @@ func TestRelayApplyFault(t *testing.T) {
 		fake := &fakeControlServer{}
 		r := newTestRelay(t, fake)
 
-		err := r.ApplyFault(t.Context(), &pb.NetworkFault{
-			Id: "backend_fault", NetnsPath: "/proc/123/ns/net", Interface: "eth1",
-			DelayMs: 500, JitterMs: 100, LossPercent: 10,
+		err := r.ApplyFault(t.Context(), step.Fault{
+			ID: "backend_fault", NetnsPath: "/proc/123/ns/net", Interface: "eth1",
+			DelayMS: 500, JitterMS: 100, LossPercent: 10,
 			CorruptPercent: 1, DuplicatePercent: 2, ReorderPercent: 3,
 			RateKbit: 400,
 		})
 		require.NoError(t, err)
 		require.NotNil(t, fake.lastApplyFault)
-		assert.Equal(t, "backend_fault", fake.lastApplyFault.GetId())
-		assert.Equal(t, "/proc/123/ns/net", fake.lastApplyFault.GetNetnsPath())
-		assert.Equal(t, "eth1", fake.lastApplyFault.GetInterface())
-		assert.Equal(t, int32(500), fake.lastApplyFault.GetDelayMs())
-		assert.Equal(t, int32(100), fake.lastApplyFault.GetJitterMs())
-		assert.InDelta(t, 10, fake.lastApplyFault.GetLossPercent(), 0)
-		assert.InDelta(t, 1, fake.lastApplyFault.GetCorruptPercent(), 0)
-		assert.InDelta(t, 2, fake.lastApplyFault.GetDuplicatePercent(), 0)
-		assert.InDelta(t, 3, fake.lastApplyFault.GetReorderPercent(), 0)
-		assert.Equal(t, int32(400), fake.lastApplyFault.GetRateKbit())
+		assert.Equal(t, "backend_fault", fake.lastApplyFault.GetFault().GetId())
+		assert.Equal(t, "/proc/123/ns/net", fake.lastApplyFault.GetFault().GetNetnsPath())
+		assert.Equal(t, "eth1", fake.lastApplyFault.GetFault().GetInterface())
+		assert.Equal(t, int32(500), fake.lastApplyFault.GetFault().GetDelayMs())
+		assert.Equal(t, int32(100), fake.lastApplyFault.GetFault().GetJitterMs())
+		assert.InDelta(t, 10, fake.lastApplyFault.GetFault().GetLossPercent(), 0)
+		assert.InDelta(t, 1, fake.lastApplyFault.GetFault().GetCorruptPercent(), 0)
+		assert.InDelta(t, 2, fake.lastApplyFault.GetFault().GetDuplicatePercent(), 0)
+		assert.InDelta(t, 3, fake.lastApplyFault.GetFault().GetReorderPercent(), 0)
+		assert.Equal(t, int32(400), fake.lastApplyFault.GetFault().GetRateKbit())
 	})
 
 	t.Run("wraps a server error", func(t *testing.T) {
@@ -162,7 +163,7 @@ func TestRelayApplyFault(t *testing.T) {
 		fake := &fakeControlServer{err: wantErr}
 		r := newTestRelay(t, fake)
 
-		err := r.ApplyFault(t.Context(), &pb.NetworkFault{Id: "backend_fault"})
+		err := r.ApplyFault(t.Context(), step.Fault{ID: "backend_fault"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "boom")
 	})
