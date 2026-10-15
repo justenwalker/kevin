@@ -1,4 +1,4 @@
-package engine
+package portforward
 
 import (
 	"context"
@@ -6,55 +6,48 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strings"
 
 	"golang.org/x/net/proxy"
-
-	"github.com/justenwalker/kevin/protos/pb"
 )
 
-// portForward is one local loopback TCP listener that transparently
+// TCP is one local loopback TCP listener that transparently
 // forwards every accepted connection through a SOCKS5 dial to a fixed
 // target, so a plain TCP client (psql, curl, ...) can use it without being
 // SOCKS5-aware itself. Addr and Close come from the embedded net.Listener -
 // Close stops accepting new connections; a connection already piping keeps
-// running until its own two sides close.
-type portForward struct {
+// running until its own two sides close. Create one with [StartTCP].
+type TCP struct {
 	net.Listener
 
 	dialer proxy.ContextDialer
 	target string
 }
 
-// newPortForward opens a loopback listener for ep and starts accepting
-// connections on it. ep.Upstream must be a "socks5://<relay>/<target>"
+// StartTCP opens a loopback listener for spec and starts accepting
+// connections on it. spec.Upstream must be a "socks5://<relay>/<target>"
 // address - the same shape a builtin:kubernetes step's expose entry reports.
-func newPortForward(ctx context.Context, ep *pb.ExposedPort) (*portForward, error) {
-	relay, target, ok := splitSOCKS5(ep.GetUpstream())
+func StartTCP(ctx context.Context, spec Spec) (*TCP, error) {
+	relay, target, ok := SplitSOCKS5(spec.Upstream)
 	if !ok {
-		return nil, fmt.Errorf("supervisor: %s: not a socks5:// upstream: %q", ep.GetName(), ep.GetUpstream())
+		return nil, fmt.Errorf("portforward: %s: not a socks5:// upstream: %q", spec.Name, spec.Upstream)
 	}
 
 	dialer, err := proxy.SOCKS5("tcp", relay, nil, proxy.Direct)
 	if err != nil {
-		return nil, fmt.Errorf("supervisor: %s: socks5 dialer: %w", ep.GetName(), err)
+		return nil, fmt.Errorf("portforward: %s: socks5 dialer: %w", spec.Name, err)
 	}
 	contextDialer, ok := dialer.(proxy.ContextDialer)
 	if !ok {
-		return nil, errors.New("supervisor: socks5 dialer does not support DialContext")
+		return nil, errors.New("portforward: socks5 dialer does not support DialContext")
 	}
 
-	addr := "127.0.0.1:0"
-	if hostPort := ep.GetHostPort(); hostPort > 0 {
-		addr = fmt.Sprintf("127.0.0.1:%d", hostPort)
-	}
 	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", addr)
+	ln, err := lc.Listen(ctx, "tcp", spec.listenAddr())
 	if err != nil {
-		return nil, fmt.Errorf("supervisor: %s: listen: %w", ep.GetName(), err)
+		return nil, fmt.Errorf("portforward: %s: listen: %w", spec.Name, err)
 	}
 
-	pf := &portForward{Listener: ln, dialer: contextDialer, target: target}
+	pf := &TCP{Listener: ln, dialer: contextDialer, target: target}
 	go pf.accept() //nolint:contextcheck // deliberate - see the comment on handle for why
 	return pf, nil
 }
@@ -64,7 +57,7 @@ func newPortForward(ctx context.Context, ep *pb.ExposedPort) (*portForward, erro
 // never stops the loop - only the listener closing (by the caller, at
 // teardown) does, which Accept reports as an error and accept then returns
 // on.
-func (pf *portForward) accept() {
+func (pf *TCP) accept() {
 	for {
 		conn, err := pf.Accept()
 		if err != nil {
@@ -80,7 +73,7 @@ func (pf *portForward) accept() {
 // unreachable plain TCP target.
 //
 // The dial deliberately uses context.Background(), not the context
-// newPortForward was given: that context comes from the DAG walk's
+// StartTCP was given: that context comes from the DAG walk's
 // NodeFunc closure, which is errgroup.WithContext-derived and gets
 // canceled the moment the whole walk finishes - often within milliseconds
 // of the step that created this forward reaching "ready". A forward must
@@ -90,7 +83,7 @@ func (pf *portForward) accept() {
 // closing it before any bytes move. The listener itself, not this context,
 // is what stops new work - pf.Close() at session teardown ends Accept and
 // the accept loop returns.
-func (pf *portForward) handle(conn net.Conn) {
+func (pf *TCP) handle(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 
 	upstream, err := pf.dialer.DialContext(context.Background(), "tcp", pf.target)
@@ -111,16 +104,4 @@ func pipe(a, b net.Conn) {
 	go func() { _, _ = io.Copy(a, b); done <- struct{}{} }()
 	go func() { _, _ = io.Copy(b, a); done <- struct{}{} }()
 	<-done
-}
-
-// splitSOCKS5 splits a "socks5://<relay>/<target>" address into its relay
-// and target parts. ok is false when address carries no socks5:// prefix.
-// Mirrors internal/plugins/wait's identical helper - not importable here
-// (wait is a leaf plugin process, supervisor is upstream of it).
-func splitSOCKS5(address string) (string, string, bool) {
-	rest, ok := strings.CutPrefix(address, "socks5://")
-	if !ok {
-		return "", "", false
-	}
-	return strings.Cut(rest, "/")
 }

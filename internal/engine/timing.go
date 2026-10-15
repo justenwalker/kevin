@@ -10,15 +10,15 @@ import (
 	"time"
 )
 
-// TimingsFile holds the timing history of a project, relative to the
+// timingsFileName holds the timing history of a project, relative to the
 // workspace.
-const TimingsFile = "timings.json"
+const timingsFileName = "timings.json"
 
 // maxSamples bounds the history kept for one key, so the file stays small
 // and one old outlier ages out.
 const maxSamples = 5
 
-// timingsFile is the on-disk shape of TimingsFile.
+// timingsFile is the on-disk shape of timingsFileName.
 type timingsFile struct {
 	// Steps keys a sample list by step name.
 	Steps map[string]samples `json:"steps,omitempty"`
@@ -34,7 +34,7 @@ type samples struct {
 	Down []int64 `json:"down,omitempty"`
 }
 
-// timingStore is the in-memory, mutex-guarded view of TimingsFile. A nil
+// timingStore is the in-memory, mutex-guarded view of timingsFileName. A nil
 // *timingStore is valid: every method no-ops, so a caller that builds a run
 // without loading timings (as tests do) needs no nil check of its own.
 type timingStore struct {

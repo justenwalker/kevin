@@ -1,4 +1,4 @@
-package engine
+package pluginload
 
 import (
 	"archive/tar"
@@ -23,6 +23,7 @@ import (
 	"github.com/justenwalker/kevin/internal/pkgtrust"
 	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/internal/pluginpkg"
+	"github.com/justenwalker/kevin/internal/state"
 )
 
 // writePackage builds a fixture plugin package tar at dir/pkg.tar, with a
@@ -190,7 +191,7 @@ func TestResolveSpec(t *testing.T) {
 			},
 			check: func(t *testing.T, dir string, spec pluginhost.Spec) {
 				t.Helper()
-				wantDir := filepath.Join(dir, WorkspaceDir, PluginPkgDir, "acme")
+				wantDir := filepath.Join(dir, state.WorkspaceDir, pluginPkgDir, "acme")
 				assert.Equal(t, filepath.Join(wantDir, "acme-plugin"), spec.Cmd)
 				assert.Equal(t, wantDir, spec.Dir)
 				assert.Equal(t, map[string]string{"K": "V"}, spec.Env, "env must come from kevin.cue, never the manifest")
@@ -287,7 +288,7 @@ func testResolveSpecSignedFile(t *testing.T) {
 		specs := map[string]config.PluginSpec{"acme": {File: pkgPath, Signing: &config.SigningSpec{Scheme: config.SigningSchemeMinisign}}}
 		spec, err := resolveSpec(t.Context(), "acme", dir, specs)
 		require.NoError(t, err)
-		assert.Equal(t, filepath.Join(dir, WorkspaceDir, PluginPkgDir, "acme", "acme-plugin"), spec.Cmd)
+		assert.Equal(t, filepath.Join(dir, state.WorkspaceDir, pluginPkgDir, "acme", "acme-plugin"), spec.Cmd)
 	})
 
 	t.Run("fails closed with no signature file", func(t *testing.T) {

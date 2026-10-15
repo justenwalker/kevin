@@ -26,6 +26,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/command"
 	kubectlcmd "github.com/justenwalker/kevin/internal/command/kubectl"
+	"github.com/justenwalker/kevin/internal/portforward"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -234,7 +235,7 @@ func dialTCP(ctx context.Context, address string) error {
 }
 
 func tcpDialer(address string) (proxy.ContextDialer, string, error) { //nolint:ireturn // a plain dial and a SOCKS5 dial are genuinely different concrete types, same as registry.Lookup
-	relay, target, ok := splitSOCKS5(address)
+	relay, target, ok := portforward.SplitSOCKS5(address)
 	if !ok {
 		return &net.Dialer{}, address, nil
 	}
@@ -247,16 +248,6 @@ func tcpDialer(address string) (proxy.ContextDialer, string, error) { //nolint:i
 		return nil, "", errors.New("wait: socks5 dialer does not support DialContext")
 	}
 	return cd, target, nil
-}
-
-// splitSOCKS5 splits a "socks5://<relay>/<target>" address into its relay
-// and target parts. ok is false when address carries no socks5:// prefix.
-func splitSOCKS5(address string) (string, string, bool) {
-	rest, ok := strings.CutPrefix(address, "socks5://")
-	if !ok {
-		return "", "", false
-	}
-	return strings.Cut(rest, "/")
 }
 
 func probeHTTP(ctx context.Context, cfg httpConfig) error {

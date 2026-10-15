@@ -13,10 +13,10 @@ import (
 // small live tail; this file is the full history.
 const LogsFile = "logs.ndjson"
 
-// TrafficFile holds the durable, full record of every proxy request for one
+// trafficFileName holds the durable, full record of every proxy request for one
 // session, in newline-delimited JSON. The console's Proxy tab keeps only a
 // bounded live tail; this file is the full history.
-const TrafficFile = "traffic.ndjson"
+const trafficFileName = "traffic.ndjson"
 
 // ndjsonLog is a JSON-lines slog.Logger over a session-scoped file.
 type ndjsonLog struct {

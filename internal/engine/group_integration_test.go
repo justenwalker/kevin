@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/justenwalker/kevin/internal/state"
 )
 
 // TestRunStepGroups covers a step group end to end: a member picks up its
@@ -30,7 +32,7 @@ env: app: {uses: "echo:echo", needs: ["setup.cluster"], with: message: "${setup.
 		require.NoError(t, err)
 		assert.Contains(t, w.String(), fmt.Sprintf("%-16s %s", "app", "ready"))
 
-		logs, err := os.ReadFile(filepath.Join(dir, WorkspaceDir, LogsFile))
+		logs, err := os.ReadFile(filepath.Join(dir, state.WorkspaceDir, LogsFile))
 		require.NoError(t, err)
 		assert.Contains(t, string(logs), "from-cluster",
 			"a setup-scope group's computed outputs must reach an env step across scopes")

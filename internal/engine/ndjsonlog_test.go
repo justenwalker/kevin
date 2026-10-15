@@ -60,7 +60,7 @@ func TestOpenNDJSONLog(t *testing.T) {
 
 	t.Run("a concurrent write produces well-formed lines", func(t *testing.T) {
 		workspace := t.TempDir()
-		logger, err := openNDJSONLog(workspace, TrafficFile)
+		logger, err := openNDJSONLog(workspace, trafficFileName)
 		require.NoError(t, err)
 
 		const n = 100
@@ -73,7 +73,7 @@ func TestOpenNDJSONLog(t *testing.T) {
 		wg.Wait()
 		require.NoError(t, logger.Close())
 
-		b, err := os.ReadFile(filepath.Join(workspace, TrafficFile))
+		b, err := os.ReadFile(filepath.Join(workspace, trafficFileName))
 		require.NoError(t, err)
 
 		count := 0

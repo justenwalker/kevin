@@ -79,7 +79,7 @@ func TestRerun(t *testing.T) {
 		r := newUpRun(t, plugin, routes, newMocktrafficRelay(t))
 		r.steps["b"] = config.Step{Uses: config.StepRef{Plugin: "echo", Step: "echo"}, Needs: []config.Need{{Step: "a"}}}
 		require.NoError(t, r.registerScopeSteps(r.store))
-		r.mergeCompleted(map[string]output.Map{"a": nil, "b": nil})
+		r.state.Complete(map[string]output.Map{"a": nil, "b": nil})
 		r.caps = map[string]pluginhost.Info{"echo": {Steps: []pluginhost.StepInfo{{Name: "echo", Idempotent: true}}}}
 		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 			func(_ context.Context, req *pb.UpRequest, _ func(*pb.Event)) (*pb.Result, error) {
@@ -112,9 +112,9 @@ func TestRerun(t *testing.T) {
 
 	t.Run("rejects a step that is already running", func(t *testing.T) {
 		r := newUpRun(t, newMockstepPlugin(t), newMockrouteTable(t), newMocktrafficRelay(t))
-		mu := r.stepLock("a")
-		mu.Lock()
-		defer mu.Unlock()
+		unlock, ok := r.state.TryLock("a")
+		require.True(t, ok)
+		defer unlock()
 
 		_, err := r.Rerun(t.Context(), runapi.RerunRequest{Step: "a"})
 

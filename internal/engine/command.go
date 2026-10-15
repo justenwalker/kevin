@@ -12,6 +12,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/output"
+	"github.com/justenwalker/kevin/internal/pluginload"
 )
 
 // CommandPlan is a command from the commands block, resolved and ready to
@@ -28,15 +29,16 @@ type CommandPlan struct {
 // needs, the way a step's own cross-scope needs are exported, and renders
 // run against what they published. No step comes up.
 func PlanCommand(ctx context.Context, opts Options, name string) (CommandPlan, error) {
-	loaded, err := LoadAndLaunch(ctx, opts.Dir, opts.Name, opts.Tags, config.VariableInputs{File: opts.VarFile, Set: opts.Vars})
-	defer CloseAll(loaded.Plugins)
+	loaded, err := pluginload.Load(ctx, opts.Dir, opts.Name, opts.Tags, config.VariableInputs{File: opts.VarFile, Set: opts.Vars})
 	if err != nil {
+		loaded.Close()
 		return CommandPlan{}, err
 	}
+	defer loaded.Close()
 	cfg := loaded.Config
 
 	env := setupEnvironment(cfg, opts.Engine)
-	if err = ConfigureAll(ctx, cfg.Plugins, loaded.Plugins, env); err != nil {
+	if err = loaded.Configure(ctx, env); err != nil {
 		return CommandPlan{}, err
 	}
 

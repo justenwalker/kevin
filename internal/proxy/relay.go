@@ -5,22 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
 
 	socks5 "golang.org/x/net/proxy"
 )
-
-// splitSOCKS5 splits a "socks5://<relay>/<target>" address into its relay
-// and target parts. ok is false when address carries no socks5:// prefix.
-// Mirrors internal/engine/socks5forward.go's identical helper - not
-// importable here, proxy sits below supervisor in the dependency graph.
-func splitSOCKS5(address string) (string, string, bool) {
-	rest, ok := strings.CutPrefix(address, "socks5://")
-	if !ok {
-		return "", "", false
-	}
-	return strings.Cut(rest, "/")
-}
 
 // socks5RelayKey is the request-context key that carries the relay a route's
 // Upstream (itself a socks5:// relay address) must be CONNECTed through.

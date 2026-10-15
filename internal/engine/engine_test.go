@@ -351,33 +351,33 @@ func TestWarnDenied(t *testing.T) {
 func TestInterruptedSteps(t *testing.T) {
 	t.Run("a step that started and never completed", func(t *testing.T) {
 		r := &run{}
-		r.markStarted("a")
+		r.state.MarkStarted("a")
 
-		assert.Equal(t, []string{"a"}, r.snapshotInterrupted())
+		assert.Equal(t, []string{"a"}, r.state.Interrupted())
 	})
 
 	t.Run("a step whose Up failed on its own is left to its plugin", func(t *testing.T) {
 		r := &run{}
-		r.markStarted("a")
-		r.markSettled("a")
+		r.state.MarkStarted("a")
+		r.state.MarkSettled("a")
 
-		assert.Empty(t, r.snapshotInterrupted())
+		assert.Empty(t, r.state.Interrupted())
 	})
 
 	t.Run("a completed step is not interrupted, even when a rerun started it again", func(t *testing.T) {
 		r := &run{}
-		r.markStarted("a")
-		r.mergeCompleted(map[string]output.Map{"a": {"k": {String: "v"}}})
-		r.markStarted("a")
+		r.state.MarkStarted("a")
+		r.state.Complete(map[string]output.Map{"a": {"k": {String: "v"}}})
+		r.state.MarkStarted("a")
 
-		assert.Empty(t, r.snapshotInterrupted())
+		assert.Empty(t, r.state.Interrupted())
 	})
 
 	t.Run("a step that never called Up", func(t *testing.T) {
 		r := &run{}
-		r.mergeCompleted(map[string]output.Map{"a": nil})
+		r.state.Complete(map[string]output.Map{"a": nil})
 
-		assert.Empty(t, r.snapshotInterrupted())
+		assert.Empty(t, r.state.Interrupted())
 	})
 }
 
@@ -418,7 +418,7 @@ func TestExportCrossScopeStepRetriesAfterFailure(t *testing.T) {
 // TestRunRejectsInvalidConfiguration covers every way Run must fail before it
 // ever launches a plugin or touches docker: a bad reference, a schema
 // violation, a reserved namespace, a filesystem problem. None of these needs
-// requireDocker - LoadAndLaunch or prepare's own validation rejects the
+// requireDocker - pluginload.Load or prepare's own validation rejects the
 // config first.
 func TestRunRejectsInvalidConfiguration(t *testing.T) {
 	t.Run("reports a plugin that will not start", func(t *testing.T) {
@@ -533,11 +533,11 @@ env: a: uses: "nope:echo"
 	// sits where the workspace directory must go.
 	t.Run("reports a workspace creation failure", func(t *testing.T) {
 		dir := project(t, `env: {}`)
-		require.NoError(t, os.WriteFile(filepath.Join(dir, WorkspaceDir), []byte("not a directory"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, state.WorkspaceDir), []byte("not a directory"), 0o600))
 
 		err := runEnv(t, dir)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), WorkspaceDir)
+		assert.Contains(t, err.Error(), state.WorkspaceDir)
 	})
 }
 
@@ -719,9 +719,9 @@ func TestOutputRows(t *testing.T) {
 }
 
 func TestProxyEnvKeepsInternalTrafficOffTheProxy(t *testing.T) {
-	env := ProxyEnv("127.0.0.1:18080", "kevin-demo", []string{"web", "api"})
+	env := proxyEnv("127.0.0.1:18080", "kevin-demo", []string{"web", "api"})
 
-	endpoint := "http://" + HostGateway + ":18080"
+	endpoint := "http://" + hostGateway + ":18080"
 	assert.Equal(t, endpoint, env["HTTP_PROXY"])
 	assert.Equal(t, endpoint, env["HTTPS_PROXY"])
 	assert.Equal(t, env["HTTP_PROXY"], env["http_proxy"], "some images read the lowercase name only")
@@ -922,8 +922,8 @@ func TestStepContainersFor(t *testing.T) {
 	cluster := []*pb.ContainerInfo{{Id: "def", Name: "kevin-demo-cluster-worker"}}
 
 	t.Run("a same-scope need with containers contributes an entry", func(t *testing.T) {
-		r := &run{appliedFaults: map[string][]string{}}
-		r.recordContainers("backend", backend)
+		r := &run{}
+		r.state.SetContainers("backend", backend)
 
 		got := r.stepContainersFor(map[string]output.Map{"backend": {}}, nil)
 		require.Len(t, got, 1)
@@ -946,21 +946,7 @@ func TestStepContainersFor(t *testing.T) {
 	})
 }
 
-func TestRecordAndClearFaults(t *testing.T) {
-	t.Run("recordFaults replaces a prior entry, not accumulates", func(t *testing.T) {
-		r := &run{}
-		r.recordFaults("fault", []string{"fault"})
-		r.recordFaults("fault", []string{"fault-v2"})
-		assert.Equal(t, []string{"fault-v2"}, r.appliedFaults["fault"])
-	})
-
-	t.Run("recordFaults with no ids clears the entry", func(t *testing.T) {
-		r := &run{appliedFaults: map[string][]string{"fault": {"fault"}}}
-		r.recordFaults("fault", nil)
-		_, ok := r.appliedFaults["fault"]
-		assert.False(t, ok)
-	})
-
+func TestClearFaults(t *testing.T) {
 	t.Run("clearFaults on a step that applied none never touches the relay", func(t *testing.T) {
 		// r.relay is nil here - a call into it would panic, proving
 		// clearFaults returns before dereferencing it when there is
@@ -1129,7 +1115,7 @@ func TestUpStep(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, output.Map{"url": {String: "http://a"}}, out)
-		assert.Equal(t, []string{"f1"}, r.appliedFaults["a"])
+		assert.Equal(t, []string{"f1"}, r.state.faults["a"])
 		assert.Equal(t, session.Ready, r.store.Snapshot().Steps[0].State)
 	})
 
@@ -1163,9 +1149,9 @@ func TestUpStep(t *testing.T) {
 
 	t.Run("a step that is already running reports ErrStepBusy", func(t *testing.T) {
 		r := newUpRun(t, newMockstepPlugin(t), newMockrouteTable(t), newMocktrafficRelay(t))
-		mu := r.stepLock("a")
-		mu.Lock()
-		defer mu.Unlock()
+		unlock, ok := r.state.TryLock("a")
+		require.True(t, ok)
+		defer unlock()
 
 		_, err := r.upStep(t.Context(), "a", nil)
 

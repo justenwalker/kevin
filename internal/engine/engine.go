@@ -2,25 +2,17 @@
 package engine
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"net"
 	"net/http"
-	"net/netip"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
-	"syscall"
 	"time"
 
 	"github.com/mattn/go-isatty"
@@ -32,11 +24,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/console"
 	"github.com/justenwalker/kevin/internal/cri"
-	"github.com/justenwalker/kevin/internal/cueschema"
 	"github.com/justenwalker/kevin/internal/dag"
-	"github.com/justenwalker/kevin/internal/engines"
-	"github.com/justenwalker/kevin/internal/expr"
-	"github.com/justenwalker/kevin/internal/httpserver"
 	"github.com/justenwalker/kevin/internal/logging"
 	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/output"
@@ -44,8 +32,7 @@ import (
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/session"
-	"github.com/justenwalker/kevin/internal/termui"
-	"github.com/justenwalker/kevin/internal/uerr"
+	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/protos/pb"
 )
 
@@ -77,10 +64,6 @@ func eventsWriter(opts Options, live bool) io.Writer {
 		return os.Stderr
 	}
 }
-
-// WorkspaceDir is the state directory of one project, relative to the project
-// directory.
-const WorkspaceDir = ".kevin"
 
 // Options control one run.
 type Options struct {
@@ -151,26 +134,18 @@ func Run(ctx context.Context, opts Options) error {
 	if !opts.Scope.Valid() {
 		return fmt.Errorf("engine: run needs a scope, got %v", opts.Scope)
 	}
-	live := wantsLiveUI(ctx, opts)
-	opts.Events = eventsWriter(opts, live)
-
-	loaded, err := LoadAndLaunch(ctx, opts.Dir, opts.Name, opts.Tags, config.VariableInputs{File: opts.VarFile, Set: opts.Vars})
-	defer CloseAll(loaded.Plugins)
+	h, err := bootstrap(ctx, opts)
 	if err != nil {
 		return err
 	}
-	cfg, plugins, caps := loaded.Config, loaded.Plugins, loaded.Caps
-
-	rt, err := engines.New(opts.Engine, nil)
-	if err != nil {
-		return err
-	}
+	defer h.Close()
+	cfg, rt := h.Config, h.Runtime
 
 	// r exists from here on, and every subsequent early return past this
 	// point has already created some project-labeled docker resource
 	// (network, relay). committed flips true only once r.up is about to
 	// run - shutdown owns cleanup from there.
-	r := &run{cfg: cfg, runtime: rt, scope: opts.Scope, events: opts.Events}
+	r := &run{cfg: cfg, runtime: rt, scope: opts.Scope, events: h.Events}
 	committed := false
 	defer earlyCleanup(ctx, r, &committed)()
 
@@ -178,7 +153,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	timings := loadTimings(ctx, filepath.Join(workspace, TimingsFile))
+	timings := loadTimings(ctx, filepath.Join(workspace, timingsFileName))
 
 	stepLog, err := openNDJSONLog(workspace, LogsFile)
 	if err != nil {
@@ -186,7 +161,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer func() { _ = stepLog.Close() }()
 
-	traffic, err := openNDJSONLog(workspace, TrafficFile)
+	traffic, err := openNDJSONLog(workspace, trafficFileName)
 	if err != nil {
 		return err
 	}
@@ -238,13 +213,10 @@ func Run(ctx context.Context, opts Options) error {
 
 	r.proxy = server.proxy
 	r.store = store
-	r.steps = cfg.Steps(opts.Scope)
-	r.groups = cfg.Groups(opts.Scope)
-	r.plugins = stepPlugins(plugins)
-	r.caps = caps
+	r.fill(h)
 	r.timings = timings
 	r.stepLog = stepLog.Logger
-	tools, toolRoutes := collectTools(ctx, r.steps, caps)
+	tools, toolRoutes := collectTools(ctx, r.steps, h.Caps)
 	r.toolRoutes = toolRoutes
 	mcpServer := mcpserver.New(mcpserver.Options{
 		Project:  cfg.Project,
@@ -286,7 +258,7 @@ func Run(ctx context.Context, opts Options) error {
 		CaPath:              ca.RootCertPath(),
 		HttpProxyAddr:       server.addr,
 		ConsoleAddr:         web.addr,
-		ProxyEnv:            ProxyEnv(server.addr, network, stepNames(cfg)),
+		ProxyEnv:            proxyEnv(server.addr, network, stepNames(cfg)),
 		Domain:              cfg.Domain,
 		Relay:               rl.Addr(),
 		RelaySocks5Addr:     rl.SOCKS5Addr(),
@@ -296,12 +268,11 @@ func Run(ctx context.Context, opts Options) error {
 		Engine:              opts.Engine,
 	}
 	r.env = env
-	r.project = ca.ProjectVars(cfg.Dir, cfg.Name)
 	r.project["http_proxy_addr"] = server.addr
 	r.project["relay"] = rl.Addr()
 	notifyEnvironment(opts, env)
 
-	if err := ConfigureAll(ctx, cfg.Plugins, plugins, env); err != nil {
+	if err := h.Configure(ctx, env); err != nil {
 		return err
 	}
 
@@ -309,10 +280,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	if live {
-		stop := termui.New(os.Stderr).Start(ctx, store)
-		defer stop()
-	}
+	defer h.startUI(ctx, store)()
 
 	// Every step's own resources are now shutdown's responsibility, called
 	// unconditionally below - the deferred cleanup above must step aside.
@@ -345,10 +313,6 @@ func awaitDone(ctx context.Context, noWait bool) {
 	<-ctx.Done()
 }
 
-// earlyCleanup returns Run's deferred cleanup for everything created before
-// *committed goes true. reap derives what to remove from live docker state,
-// so it does nothing wherever nothing was created yet, and correctly leaves
-// a network or relay still shared with the other scope alone.
 // openBrowser opens url, and logs a failure rather than failing the run.
 func openBrowser(ctx context.Context, url string) {
 	if err := browser.Open(ctx, command.DefaultStarter, url); err != nil {
@@ -356,6 +320,10 @@ func openBrowser(ctx context.Context, url string) {
 	}
 }
 
+// earlyCleanup returns Run's deferred cleanup for everything created before
+// *committed goes true. reap derives what to remove from live docker state,
+// so it does nothing wherever nothing was created yet, and correctly leaves
+// a network or relay still shared with the other scope alone.
 func earlyCleanup(ctx context.Context, r *run, committed *bool) func() {
 	return func() {
 		if *committed {
@@ -389,12 +357,7 @@ func (r *run) shutdown(ctx context.Context, rl trafficRelay, keep bool) error {
 		// relay ever started. Stop the relay before reap removes the
 		// network: a container still joined to the network blocks the
 		// removal.
-		otherLive, liveErr := r.otherScopeLive(downCtx)
-		if liveErr != nil {
-			relayErr = liveErr
-		} else if len(otherLive) == 0 {
-			relayErr = rl.Close()
-		}
+		relayErr = r.stopRelayIfAlone(downCtx, rl)
 	}
 	var reapErr error
 	if !keep {
@@ -421,7 +384,7 @@ func startRelay(ctx context.Context, rt cri.Runtime, cfg *config.Config, network
 		Project:       cfg.Project,
 		Network:       network,
 		Domain:        cfg.Domain,
-		ProxyAddr:     HostGateway + ":" + portOf(gatewayAddr),
+		ProxyAddr:     hostGateway + ":" + portOf(gatewayAddr),
 		Image:         relay.Ref(cfg.Relay.Image),
 		Scope:         scope.String(),
 		Authority:     authority,
@@ -454,44 +417,10 @@ func portOf(addr string) string {
 	return port
 }
 
-// consoleServer is a running console and the means to stop it.
-type consoleServer struct {
-	addr string
-
-	stop context.CancelFunc
-	done <-chan error
-	once sync.Once
-	err  error
-}
-
-// startConsole binds the listener and serves handler on it.
-func startConsole(ctx context.Context, handler http.Handler, listen string) (*consoleServer, error) {
-	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", listen)
-	if err != nil {
-		return nil, fmt.Errorf("supervisor: listen on %s: %w", listen, err)
-	}
-
-	serveCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
-	done := make(chan error, 1)
-	go func() { done <- httpserver.Serve(serveCtx, ln, handler) }()
-
-	return &consoleServer{addr: ln.Addr().String(), stop: stop, done: done}, nil
-}
-
-// Close stops the console. Close is idempotent.
-func (s *consoleServer) Close() error {
-	s.once.Do(func() {
-		s.stop()
-		s.err = <-s.done
-	})
-	return s.err
-}
-
 // prepare creates the workspace, the shared network, and the authority. It
 // returns the workspace path and the authority.
 func prepare(ctx context.Context, cfg *config.Config, rt cri.Runtime) (string, *ca.CA, error) {
-	workspace := filepath.Join(cfg.Dir, WorkspaceDir, cfg.Name)
+	workspace := filepath.Join(cfg.Dir, state.WorkspaceDir, cfg.Name)
 	if err := os.MkdirAll(workspace, 0o700); err != nil {
 		return "", nil, fmt.Errorf("supervisor: create %s: %w", workspace, err)
 	}
@@ -517,143 +446,6 @@ func prepare(ctx context.Context, cfg *config.Config, rt cri.Runtime) (string, *
 	return workspace, authority, nil
 }
 
-// proxyServer is a running proxy and the means to stop it.
-type proxyServer struct {
-	proxy *proxy.Proxy
-	addr  string
-
-	// gatewayAddr is where the proxy listens on the docker bridge gateway.
-	// The relay reaches the proxy there, from inside the shared network.
-	gatewayAddr string
-
-	stop context.CancelFunc
-	done <-chan error
-	once sync.Once
-	err  error
-}
-
-// proxyOptions configures [startProxy].
-type proxyOptions struct {
-	// Network is the shared docker network. The gateway listener binds its
-	// gateway address.
-	Network string
-
-	// Listen is the address of the primary, host-facing listener.
-	Listen string
-
-	// GatewayPort is the gateway listener's port, used as-is with no
-	// fallback - a bind failure is a hard error.
-	GatewayPort int
-
-	Domain      string
-	Allow       []string
-	Deny        bool
-	Passthrough bool
-
-	// OnRecord receives one Record per request.
-	OnRecord func(proxy.Record)
-}
-
-// startProxy binds the listener and serves on it. The listener binds before
-// the DAG runs, because kind copies the proxy address into its node containers
-// when it creates them, and the address must not change afterwards.
-//
-// startProxy also binds a second listener on the gateway address of
-// opts.Network, when the host can bind that address. A container on that
-// network reaches the proxy there. The proxy never binds 0.0.0.0.
-func startProxy(ctx context.Context, rt cri.Runtime, authority *ca.CA, opts proxyOptions) (*proxyServer, error) {
-	p, err := proxy.New(authority, proxy.Options{
-		Domain:      opts.Domain,
-		Allow:       opts.Allow,
-		Deny:        opts.Deny,
-		Passthrough: opts.Passthrough,
-		OnRecord:    opts.OnRecord,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", opts.Listen)
-	if err != nil {
-		return nil, fmt.Errorf("supervisor: listen on %s: %w", opts.Listen, err)
-	}
-
-	listeners := []net.Listener{ln}
-	closeAll := func() {
-		for _, l := range listeners {
-			_ = l.Close()
-		}
-	}
-
-	gateway, err := rt.NetworkGateway(ctx, opts.Network)
-	if err != nil {
-		closeAll()
-		return nil, err
-	}
-
-	gatewayAddr := ln.Addr().String()
-	if gateway.V4.IsValid() {
-		gatewayLn, bindErr := bindGatewayAddr(ctx, &lc, gateway.V4, opts.GatewayPort)
-		switch {
-		case bindErr == nil:
-			listeners = append(listeners, gatewayLn)
-			gatewayAddr = gatewayLn.Addr().String()
-		case errors.Is(bindErr, syscall.EADDRNOTAVAIL):
-			// Docker Desktop on macOS and Windows runs the daemon inside a VM.
-			// The gateway address exists only inside that VM, and the host
-			// cannot bind it there. host.docker.internal already reaches a
-			// listener on the host loopback, so the primary listener covers
-			// the relay too.
-		default:
-			closeAll()
-			return nil, bindErr
-		}
-	}
-	if gateway.V6.IsValid() {
-		// Best-effort: a relay reaches the proxy over host.docker.internal
-		// or the v4 gateway bind above regardless, so a v6 bind failure here
-		// is not fatal.
-		if gatewayLn, bindErr := bindGatewayAddr(ctx, &lc, gateway.V6, opts.GatewayPort); bindErr == nil {
-			listeners = append(listeners, gatewayLn)
-		}
-	}
-
-	// The proxy must outlive an interrupt, because removal of a step can still
-	// need it.
-	serveCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
-	done := make(chan error, 1)
-	go func() { done <- p.Serve(serveCtx, listeners...) }()
-
-	return &proxyServer{
-		proxy:       p,
-		addr:        ln.Addr().String(),
-		gatewayAddr: gatewayAddr,
-		stop:        stop,
-		done:        done,
-	}, nil
-}
-
-// bindGatewayAddr listens on addr:port, for a proxy listener on one of a
-// docker network's gateway addresses.
-func bindGatewayAddr(ctx context.Context, lc *net.ListenConfig, addr netip.Addr, port int) (net.Listener, error) {
-	hostPort := net.JoinHostPort(addr.String(), strconv.Itoa(port))
-	ln, err := lc.Listen(ctx, "tcp", hostPort)
-	if err != nil {
-		return nil, fmt.Errorf("supervisor: listen on %s: %w", hostPort, err)
-	}
-	return ln, nil
-}
-
-// Close stops the proxy and reports how serving ended. Close is idempotent.
-func (s *proxyServer) Close() error {
-	s.once.Do(func() {
-		s.stop()
-		s.err = <-s.done
-	})
-	return s.err
-}
-
 // stepNames lists every step of the environment, in both scopes. A workload of
 // one scope can still reach a workload of the other.
 func stepNames(cfg *config.Config) []string {
@@ -671,37 +463,37 @@ func stepNames(cfg *config.Config) []string {
 // NetworkName is the docker network of one project.
 func NetworkName(project string) string { return "kevin-" + project }
 
-// ProxyEnv is the proxy environment for a workload. NO_PROXY keeps traffic
+// proxyEnv is the proxy environment for a workload. NO_PROXY keeps traffic
 // between two workloads, and traffic to the host, away from the proxy. Pass
 // every step name: a step reaches another by that name on the docker network,
 // and the proxy runs outside the network and cannot resolve it.
-func ProxyEnv(proxyAddr, network string, steps []string) map[string]string {
+func proxyEnv(proxyAddr, network string, steps []string) map[string]string {
 	// A workload reaches the proxy on the gateway of the network, not on the
 	// loopback of the host.
 	_, port, err := net.SplitHostPort(proxyAddr)
 	if err != nil {
 		port = proxyAddr
 	}
-	endpoint := "http://" + net.JoinHostPort(HostGateway, port)
+	endpoint := "http://" + net.JoinHostPort(hostGateway, port)
 
 	return map[string]string{
 		"HTTP_PROXY":  endpoint,
 		"HTTPS_PROXY": endpoint,
 		"http_proxy":  endpoint,
 		"https_proxy": endpoint,
-		"NO_PROXY":    NoProxy(network, steps),
-		"no_proxy":    NoProxy(network, steps),
+		"NO_PROXY":    noProxy(network, steps),
+		"no_proxy":    noProxy(network, steps),
 	}
 }
 
-// NoProxy lists the destinations that a workload reaches directly.
-func NoProxy(network string, steps []string) string {
+// noProxy lists the destinations that a workload reaches directly.
+func noProxy(network string, steps []string) string {
 	direct := make([]string, 0, 7+len(steps))
 	direct = append(direct,
 		"localhost",
 		"127.0.0.1",
 		"::1",
-		HostGateway,
+		hostGateway,
 		network,
 		".svc",
 		".cluster.local",
@@ -711,13 +503,9 @@ func NoProxy(network string, steps []string) string {
 	return strings.Join(append(direct, steps...), ",")
 }
 
-// HostGateway is the name that Docker resolves to the host from inside a
+// hostGateway is the name that Docker resolves to the host from inside a
 // container.
-const HostGateway = "host.docker.internal"
-
-// PluginPkgDir holds the extracted contents of every file: source plugin,
-// one subdirectory per plugin name, inside the workspace.
-const PluginPkgDir = "plugins"
+const hostGateway = "host.docker.internal"
 
 // progressTick is how often trackProgress reports an estimate to the
 // console while a step runs.
@@ -733,7 +521,7 @@ const progressCap = 0.95
 func setupEnvironment(cfg *config.Config, engineName string) *pb.Environment {
 	return &pb.Environment{
 		Project:    cfg.Project,
-		Workspace:  filepath.Join(cfg.Dir, WorkspaceDir, cfg.Name),
+		Workspace:  filepath.Join(cfg.Dir, state.WorkspaceDir, cfg.Name),
 		Network:    NetworkName(cfg.Project),
 		CaPath:     ca.RootCertPath(),
 		Domain:     cfg.Domain,
@@ -747,25 +535,16 @@ func setupEnvironment(cfg *config.Config, engineName string) *pb.Environment {
 // in reverse dependency order, whether or not the step is present. A Down must
 // be idempotent, thus a step that is gone already is not an error.
 func Teardown(ctx context.Context, opts Options) error {
-	live := wantsLiveUI(ctx, opts)
-	opts.Events = eventsWriter(opts, live)
-
-	loaded, err := LoadAndLaunch(ctx, opts.Dir, opts.Name, opts.Tags, config.VariableInputs{File: opts.VarFile, Set: opts.Vars})
-	defer CloseAll(loaded.Plugins)
+	h, err := bootstrap(ctx, opts)
 	if err != nil {
 		return err
 	}
-	cfg, plugins, caps := loaded.Config, loaded.Plugins, loaded.Caps
-
-	rt, err := engines.New(opts.Engine, nil)
-	if err != nil {
-		return err
-	}
+	defer h.Close()
+	cfg, rt, workspace := h.Config, h.Runtime, h.Workspace
 
 	steps := cfg.Steps(config.ScopeSetup)
-	workspace := filepath.Join(cfg.Dir, WorkspaceDir, cfg.Name)
 	env := setupEnvironment(cfg, opts.Engine)
-	if err = ConfigureAll(ctx, cfg.Plugins, plugins, env); err != nil {
+	if err = h.Configure(ctx, env); err != nil {
 		return err
 	}
 
@@ -779,38 +558,33 @@ func Teardown(ctx context.Context, opts Options) error {
 		cfg:     cfg,
 		runtime: rt,
 		scope:   config.ScopeSetup,
-		steps:   steps,
-		groups:  cfg.Groups(config.ScopeSetup),
-		plugins: stepPlugins(plugins),
-		caps:    caps,
-		events:  opts.Events,
+		events:  h.Events,
 		// Teardown serves no page - just a store for r's step-mutation calls
 		// and, when live, the terminal UI to read.
-		store: session.NewStore(),
-		env:   env,
-		// No proxy runs during Teardown, so unlike Run, there's no
-		// http_proxy_addr to offer - the CA files still exist on disk
-		// regardless.
-		project: ca.ProjectVars(cfg.Dir, cfg.Name),
-		timings: loadTimings(ctx, filepath.Join(workspace, TimingsFile)),
+		store:   session.NewStore(),
+		env:     env,
+		timings: loadTimings(ctx, filepath.Join(workspace, timingsFileName)),
 		stepLog: stepLog.Logger,
-		// There is no state file for step outputs. Every step is a candidate
-		// for removal, and Down carries no outputs.
-		completed: make(map[string]output.Map, len(steps)),
 	}
+	// No proxy runs during Teardown, so unlike Run, there's no
+	// http_proxy_addr in r.project to offer - the CA files still exist on
+	// disk regardless.
+	r.fill(h)
+	// There is no state file for step outputs. Every step is a candidate
+	// for removal, and Down carries no outputs.
 	for name, step := range steps {
-		r.completed[name] = nil
+		r.state.Complete(map[string]output.Map{name: nil})
 
 		// Backfills a same-scope "needs.<name>.out.*" reference for Down's
 		// own rendering, the same way exportCrossScopeStep already does for
 		// a cross-scope one. Leaves nil - Down still runs - for a plugin
 		// with no Export, or one that never actually came up.
 		ref := step.Uses
-		if !stepExports(caps[ref.Plugin], ref.Step) {
+		if !stepExports(h.Caps[ref.Plugin], ref.Step) {
 			continue
 		}
 		if exported, expErr := r.exportCrossScopeStep(ctx, name); expErr == nil {
-			r.completed[name] = exported.Outputs
+			r.state.Complete(map[string]output.Map{name: exported.Outputs})
 		}
 	}
 
@@ -818,10 +592,7 @@ func Teardown(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	if live {
-		stop := termui.New(os.Stderr).Start(ctx, r.store)
-		defer stop()
-	}
+	defer h.startUI(ctx, r.store)()
 
 	downErr := r.down(ctx)
 
@@ -839,170 +610,11 @@ func Teardown(ctx context.Context, opts Options) error {
 // closeSetupRelay removes the project's relay container, if one exists and
 // the env scope isn't still live and sharing it.
 func (r *run) closeSetupRelay(ctx context.Context, cfg *config.Config) error {
-	otherLive, err := r.otherScopeLive(ctx)
-	if err != nil || len(otherLive) > 0 {
-		return err
-	}
 	rl, err := relay.Lookup(ctx, r.runtime, cfg.Project, NetworkName(cfg.Project))
 	if err != nil || rl == nil {
 		return err
 	}
-	return rl.Close()
-}
-
-// ConfigureAll sends the config block of every plugin, once before any step
-// of that plugin runs. A plugin with no config block still receives the
-// call, with an empty config.
-func ConfigureAll(ctx context.Context, specs map[string]config.PluginSpec, clients map[string]*pluginhost.Client, env *pb.Environment) error {
-	for name, client := range clients {
-		if err := client.Configure(ctx, specs[name].Config, env); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// stepKindLabel returns the console-facing label for k, or "" for an
-// unspecified kind.
-// stepKind returns the Kind that info's step type name reports, or
-// STEP_KIND_UNSPECIFIED when info offers no such step.
-func stepKind(info pluginhost.Info, name string) pb.StepKind {
-	for _, st := range info.Steps {
-		if st.Name == name {
-			return st.Kind
-		}
-	}
-	return pb.StepKind_STEP_KIND_UNSPECIFIED
-}
-
-// stepIdempotent reports whether info's step type name is safe to call Up on
-// again.
-func stepIdempotent(info pluginhost.Info, name string) bool {
-	for _, st := range info.Steps {
-		if st.Name == name {
-			return st.Idempotent
-		}
-	}
-	return false
-}
-
-// stepImplementsDown reports whether info's step type name implements Down.
-func stepImplementsDown(info pluginhost.Info, name string) bool {
-	for _, st := range info.Steps {
-		if st.Name == name {
-			return st.Down
-		}
-	}
-	return false
-}
-
-func stepKindLabel(k pb.StepKind) string {
-	switch k {
-	case pb.StepKind_STEP_KIND_UNSPECIFIED:
-		return ""
-	case pb.StepKind_STEP_KIND_RESOURCE:
-		return "resource"
-	case pb.StepKind_STEP_KIND_ACTION:
-		return "action"
-	case pb.StepKind_STEP_KIND_PROBE:
-		return "probe"
-	default:
-		return ""
-	}
-}
-
-// isCompactStep reports whether the console should render this step as a
-// single muted line instead of a full card: a probe by definition, plus
-// builtin:route, which only registers a proxy mapping and creates nothing
-// of its own despite being kind action. Both are gates for some other
-// resource/action, not something worth equal visual weight.
-func isCompactStep(kind, plugin, step string) bool {
-	return kind == "probe" || (plugin == "builtin" && step == "route")
-}
-
-// collectCaps asks every plugin for its Info: the configuration schema, the
-// schema and capabilities of each step type it offers.
-func collectCaps(ctx context.Context, plugins map[string]*pluginhost.Client) (map[string]pluginhost.Info, error) {
-	caps := make(map[string]pluginhost.Info, len(plugins))
-	for name, client := range plugins {
-		info, err := client.Info(ctx)
-		if err != nil {
-			return nil, err
-		}
-		caps[name] = info
-		log.Ctx(ctx).Debug("plugin ready", "plugin", name, "version", info.Version)
-	}
-	return caps, nil
-}
-
-// run holds the state of one scope.
-// toolRoute maps a namespaced MCP tool name back to the plugin, step
-// type, and bare tool name a plugin declared it under.
-type toolRoute struct {
-	plugin string
-	step   string
-	tool   string
-}
-
-// collectTools builds the MCP tool list for every distinct step type
-// referenced in steps that declares tools, namespaced
-// "<plugin>_<type>_<tool>". Returns the tool list alongside the route
-// each namespaced name resolves to.
-func collectTools(ctx context.Context, steps map[string]config.Step, caps map[string]pluginhost.Info) ([]mcpserver.ToolDef, map[string]toolRoute) {
-	routes := make(map[string]toolRoute)
-	var defs []mcpserver.ToolDef
-	for _, step := range steps {
-		ref := step.Uses
-		for _, st := range caps[ref.Plugin].Steps {
-			if st.Name != ref.Step {
-				continue
-			}
-			for _, t := range st.Tools {
-				name := ref.Plugin + "_" + ref.Step + "_" + t.Name
-				if _, ok := routes[name]; ok {
-					continue
-				}
-				schema, mergeErr := mergeStepProperty(t.InputSchema, ref)
-				if mergeErr != nil {
-					log.Ctx(ctx).Warn("skipping mcp tool with an invalid input schema", "tool", name, "error", mergeErr)
-					continue
-				}
-				routes[name] = toolRoute{plugin: ref.Plugin, step: ref.Step, tool: t.Name}
-				defs = append(defs, mcpserver.ToolDef{Name: name, Description: t.Description, InputSchema: schema})
-			}
-		}
-	}
-	return defs, routes
-}
-
-// mergeStepProperty adds a required "step" string property to schema, a
-// plugin-declared "object" JSON Schema document, naming the step
-// instance a call to this tool targets.
-func mergeStepProperty(schema []byte, ref config.StepRef) ([]byte, error) {
-	doc := map[string]any{"type": "object"}
-	if len(schema) > 0 {
-		if err := json.Unmarshal(schema, &doc); err != nil {
-			return nil, fmt.Errorf("%s: %w", ref, err)
-		}
-	}
-	props, _ := doc["properties"].(map[string]any)
-	if props == nil {
-		props = map[string]any{}
-	}
-	props["step"] = map[string]any{
-		"type":        "string",
-		"description": fmt.Sprintf("the name of a %s step, from kevin.cue", ref),
-	}
-	doc["properties"] = props
-
-	required, _ := doc["required"].([]any)
-	doc["required"] = append(required, "step")
-
-	out, err := json.Marshal(doc)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", ref, err)
-	}
-	return out, nil
+	return r.stopRelayIfAlone(ctx, rl)
 }
 
 type run struct {
@@ -1023,27 +635,7 @@ type run struct {
 	timings    *timingStore
 	stepLog    *slog.Logger
 
-	forwardsMu sync.Mutex
-	forwards   map[string][]forward
-
-	// systemOutputs maps a step name to kevin-computed values (currently
-	// expose_<name>/forward_<name> for an ExposedPort) - kept separate from
-	// a step's own plugin-authored outputs so it can never collide with
-	// one, and read into the "system" CEL variable.
-	systemMu      sync.Mutex
-	systemOutputs map[string]output.Map
-
-	// completed maps a step name to the outputs that the step published.
-	// completedContainers maps a step name to the containers it
-	// published, the same way, for a dependent step's own
-	// UpRequest.Containers. completedMu guards both: r.up and a rerun
-	// triggered from the console can run concurrently once a step reaches
-	// Ready or Failed. started holds the steps that called Up and have not
-	// failed on their own since, under the same lock.
-	completedMu         sync.Mutex
-	completed           map[string]output.Map
-	completedContainers map[string][]*pb.ContainerInfo
-	started             map[string]struct{}
+	state runState
 
 	// exportGroup deduplicates concurrent exportCrossScopeStep calls for
 	// the same setup step name, so several consumers up at once share one
@@ -1052,209 +644,6 @@ type run struct {
 	// call (e.g. a canceled console/MCP rerun request) never poisons a
 	// later, independent retry.
 	exportGroup singleflight.Group
-
-	// stepLocksMu guards stepLocks, one per-step mutex per step name.
-	// upStep holds a step's lock for the length of its call and rejects
-	// with ErrStepBusy rather than wait when it's already held, so a
-	// rerun requested for a step still Pending in the initial r.up walk -
-	// or already mid-rerun - can never run Up twice at once for it.
-	stepLocksMu sync.Mutex
-	stepLocks   map[string]*sync.Mutex
-
-	// appliedFaults maps a step name to the fault IDs its most recent Up
-	// applied via the relay, so downStep can clear them at teardown even
-	// though DownRequest carries no Result (only Outputs) - see wireRelay
-	// and downStep. Session-lifetime only, no persistence, same as every
-	// other in-memory run field.
-	faultsMu      sync.Mutex
-	appliedFaults map[string][]string
-}
-
-// stepLock returns the mutex serializing upStep calls for name, creating it
-// on first use.
-func (r *run) stepLock(name string) *sync.Mutex {
-	r.stepLocksMu.Lock()
-	defer r.stepLocksMu.Unlock()
-	if r.stepLocks == nil {
-		r.stepLocks = map[string]*sync.Mutex{}
-	}
-	mu, ok := r.stepLocks[name]
-	if !ok {
-		mu = &sync.Mutex{}
-		r.stepLocks[name] = mu
-	}
-	return mu
-}
-
-// snapshotCompleted returns a copy of r.completed, safe to read without
-// holding completedMu.
-func (r *run) snapshotCompleted() map[string]output.Map {
-	r.completedMu.Lock()
-	defer r.completedMu.Unlock()
-	out := make(map[string]output.Map, len(r.completed))
-	maps.Copy(out, r.completed)
-	return out
-}
-
-// markStarted records that name called Up.
-func (r *run) markStarted(name string) {
-	r.completedMu.Lock()
-	defer r.completedMu.Unlock()
-	if r.started == nil {
-		r.started = make(map[string]struct{})
-	}
-	r.started[name] = struct{}{}
-}
-
-// markSettled records that name's Up failed on its own, which leaves any
-// cleanup to the plugin.
-func (r *run) markSettled(name string) {
-	r.completedMu.Lock()
-	defer r.completedMu.Unlock()
-	delete(r.started, name)
-}
-
-// snapshotInterrupted returns the steps that called Up and never completed,
-// because the run was canceled while Up ran, or because a later stage of
-// the step failed after Up succeeded.
-func (r *run) snapshotInterrupted() []string {
-	r.completedMu.Lock()
-	defer r.completedMu.Unlock()
-	var names []string
-	for name := range r.started {
-		if _, done := r.completed[name]; !done {
-			names = append(names, name)
-		}
-	}
-	return names
-}
-
-// completedContainersFor returns the containers name last published, or
-// nil if it never published any.
-func (r *run) completedContainersFor(name string) []*pb.ContainerInfo {
-	r.completedMu.Lock()
-	defer r.completedMu.Unlock()
-	return r.completedContainers[name]
-}
-
-// recordContainers records name's published containers, replacing
-// whatever an earlier Up recorded for it.
-func (r *run) recordContainers(name string, containers []*pb.ContainerInfo) {
-	r.completedMu.Lock()
-	defer r.completedMu.Unlock()
-	if len(containers) == 0 {
-		delete(r.completedContainers, name)
-		return
-	}
-	if r.completedContainers == nil {
-		r.completedContainers = make(map[string][]*pb.ContainerInfo)
-	}
-	r.completedContainers[name] = containers
-}
-
-// mergeCompleted records every step in results as complete.
-func (r *run) mergeCompleted(results map[string]output.Map) {
-	r.completedMu.Lock()
-	defer r.completedMu.Unlock()
-	if r.completed == nil {
-		r.completed = make(map[string]output.Map, len(results))
-	}
-	maps.Copy(r.completed, results)
-}
-
-// forward is a local loopback listener that r.up opened for a relay-routed
-// exposed port - a TCP *portForward or a UDP *udpPortForward - closed at
-// session teardown by closeForwards.
-type forward interface {
-	Addr() net.Addr
-	Close() error
-}
-
-// addForward records f under step for closeForwards to close at session
-// teardown. Concurrent DAG steps call this from separate goroutines during
-// r.up.
-func (r *run) addForward(step string, f forward) {
-	r.forwardsMu.Lock()
-	if r.forwards == nil {
-		r.forwards = make(map[string][]forward)
-	}
-	r.forwards[step] = append(r.forwards[step], f)
-	r.forwardsMu.Unlock()
-}
-
-// closeStepForwards closes the forwards a previous Up of step opened, so a
-// rerun does not stack listeners.
-func (r *run) closeStepForwards(step string) {
-	r.forwardsMu.Lock()
-	old := r.forwards[step]
-	delete(r.forwards, step)
-	r.forwardsMu.Unlock()
-	for _, f := range old {
-		_ = f.Close()
-	}
-}
-
-// exposePorts runs exposePort for each of eps, and reports the step failed on
-// the first error.
-func (r *run) exposePorts(ctx context.Context, name string, eps []*pb.ExposedPort, systemThis output.Map) error {
-	for _, ep := range eps {
-		if err := r.exposePort(ctx, name, ep, systemThis); err != nil {
-			r.reportUpFailure(ctx, name, err)
-			return err
-		}
-	}
-	return nil
-}
-
-// exposePort records ep's upstream as a system output, and - for a
-// relay-routed entry - opens a local forward for it (a TCP dial-per-
-// connection forward, or a UDP ASSOCIATE session, by ep's protocol),
-// recording that too. A failed UDP forward is an error; a failed TCP one is
-// only a warning. Extracted from upStep to keep its complexity down.
-func (r *run) exposePort(ctx context.Context, name string, ep *pb.ExposedPort, systemThis output.Map) error {
-	r.emit(name, fmt.Sprintf("exposing %s %s at %s", ep.GetProtocol(), ep.GetName(), ep.GetUpstream()))
-	systemThis["expose_"+ep.GetName()] = output.Value{String: ep.GetUpstream()}
-
-	if !ep.GetRelay() {
-		return nil
-	}
-	var pf forward
-	var fwdErr error
-	if ep.GetProtocol() == "udp" {
-		pf, fwdErr = newUDPPortForward(ctx, ep)
-	} else {
-		pf, fwdErr = newPortForward(ctx, ep)
-	}
-	if fwdErr != nil {
-		if ep.GetProtocol() == "udp" {
-			return fmt.Errorf("local forward for %s: %w", ep.GetName(), fwdErr)
-		}
-		r.emit(name, "warning: local forward for "+ep.GetName()+": "+fwdErr.Error())
-		return nil
-	}
-	r.addForward(name, pf)
-	addr := pf.Addr().String()
-	r.emit(name, fmt.Sprintf("forwarding %s at %s", ep.GetName(), addr))
-	r.store.AddStepDetail(name, session.Detail{
-		Label: ep.GetName() + " (local)", Value: addr, Copyable: true,
-	})
-	systemThis["forward_"+ep.GetName()] = output.Value{String: addr}
-	return nil
-}
-
-// closeForwards closes every forward listener r.up opened.
-func (r *run) closeForwards() error {
-	r.forwardsMu.Lock()
-	forwards := r.forwards
-	r.forwards = nil
-	r.forwardsMu.Unlock()
-	var errs []error
-	for _, fs := range forwards {
-		for _, pf := range fs {
-			errs = append(errs, pf.Close())
-		}
-	}
-	return errors.Join(errs...)
 }
 
 // graph builds the DAG for r's own scope, keeping only needs entries that
@@ -1282,988 +671,3 @@ func (r *run) graph() *dag.Graph {
 	}
 	return dag.New(needs)
 }
-
-// trackProgress starts a ticker that reports an estimated completion
-// fraction for step name to the console, based on estimate. estimate <= 0
-// means no history exists for this step; trackProgress then does nothing,
-// and the console keeps showing the plain state pill with no bar. The
-// returned stop func must be called exactly once, when the step's plugin
-// call returns; it also stops the ticker if ctx is canceled first.
-func (r *run) trackProgress(ctx context.Context, name string, estimate time.Duration) func() {
-	if estimate <= 0 {
-		return func() {}
-	}
-
-	ctx, cancel := context.WithCancel(ctx)
-	start := time.Now()
-	go func() {
-		ticker := time.NewTicker(progressTick)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				fraction := float64(time.Since(start)) / float64(estimate)
-				if fraction > progressCap {
-					fraction = progressCap
-				}
-				r.store.SetStepProgress(name, fraction)
-			}
-		}
-	}()
-	return cancel
-}
-
-// scopesFor builds the expr.Scopes name's `with` block renders against:
-// deps' own outputs plus the recorded system outputs of those deps, and
-// setupDeps for any cross-scope "setup.<name>" needs entry.
-func (r *run) scopesFor(name string, deps, setupDeps map[string]output.Map) expr.Scopes {
-	r.systemMu.Lock()
-	system := make(map[string]output.Map, len(deps))
-	for dep := range deps {
-		if so, ok := r.systemOutputs[dep]; ok {
-			system[dep] = so
-		}
-	}
-	r.systemMu.Unlock()
-
-	// A group member's own needs/with block names a sibling by that
-	// sibling's bare name (graph() joins the DAG edge to its
-	// "<group>.<sibling>" node internally) - expose it under that bare
-	// name here too, so needs.<sibling>... resolves the way the member
-	// actually wrote it.
-	deps = localizeDeps(name, deps)
-	system = localizeDeps(name, system)
-
-	return expr.Scopes{Needs: deps, System: system, Setup: setupDeps, Project: r.project, Vars: r.cfg.VariableValues}
-}
-
-// renderWith resolves name's `with` block against deps and the recorded
-// system outputs of those deps, plus setupDeps for any cross-scope
-// "setup.<name>" needs entry, for either an Up or a Down request.
-func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[string]output.Map) (json.RawMessage, error) {
-	with, err := expr.Render(step.With, name, r.scopesFor(name, deps, setupDeps))
-	if err != nil {
-		return nil, fmt.Errorf("%s: with: %w", name, err)
-	}
-	if err := r.validateRenderedWith(name, step, with); err != nil {
-		return nil, err
-	}
-	return with, nil
-}
-
-// validateRenderedWith re-checks with - name's fully rendered with block -
-// against its own step type's schema. config-validate time (see
-// internal/config's validateStep) already checked every field whose value
-// wasn't a bare "${...}" marker, and deferred one that was, since a
-// needs/setup-sourced marker's real value doesn't exist until now - this
-// catches a deferred field whose rendered value doesn't actually satisfy
-// the schema (e.g. a variable declared "type: string" filling a field the
-// plugin types "int"). A with block with no marker at all never reaches
-// here with anything new to check.
-func (r *run) validateRenderedWith(name string, step config.Step, with json.RawMessage) error {
-	if !bytes.Contains(step.With, []byte("${")) {
-		return nil
-	}
-	ref := step.Uses
-	for _, st := range r.caps[ref.Plugin].Steps {
-		if st.Name == ref.Step {
-			return config.ValidateAgainstSchema(name+".with", with, st.Schema)
-		}
-	}
-	return nil
-}
-
-// inputRows builds one Detail row per top-level field of raw (name's
-// declared `with:` block, before rendering), pairing it with rendered's
-// corresponding value. A field is Sensitive when schemaSensitive names it,
-// or when any of its "${needs.../setup.../vars...}" markers resolve to a
-// sensitive value in scopes or name a variable sensitiveVars marks. A
-// `with` block with no fields (a step that declared none) reports no rows.
-func inputRows(raw, rendered json.RawMessage, scopes expr.Scopes, schemaSensitive, sensitiveVars map[string]bool) ([]session.Detail, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	var rawFields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &rawFields); err != nil {
-		return nil, fmt.Errorf("with: decode: %w", err)
-	}
-	var renderedFields map[string]json.RawMessage
-	if err := json.Unmarshal(rendered, &renderedFields); err != nil {
-		return nil, fmt.Errorf("with: decode rendered: %w", err)
-	}
-
-	names := make([]string, 0, len(rawFields))
-	for field := range rawFields {
-		names = append(names, field)
-	}
-	sort.Strings(names)
-
-	rows := make([]session.Detail, 0, len(names))
-	for _, field := range names {
-		markerSensitive, err := expr.FieldSensitive(rawFields[field], scopes, sensitiveVars)
-		if err != nil {
-			return nil, fmt.Errorf("with.%s: %w", field, err)
-		}
-		sensitive := schemaSensitive[field] || markerSensitive
-		rows = append(rows, session.Detail{
-			Label:     field,
-			Value:     scalarString(renderedFields[field]),
-			Sensitive: sensitive,
-			Copyable:  !sensitive,
-		})
-	}
-	return rows, nil
-}
-
-// scalarString renders one with-field's rendered value for display: a JSON
-// string unquotes to its bare text, anything else (a number, bool, object,
-// array) keeps its compact JSON form.
-func scalarString(raw json.RawMessage) string {
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
-	}
-	return strings.TrimSpace(string(raw))
-}
-
-// outputRows converts a step's outputs into the rows its detail dialog
-// shows, sorted by key for a stable order across renders.
-func outputRows(values map[string]output.Value) []session.Detail {
-	if len(values) == 0 {
-		return nil
-	}
-	keys := make([]string, 0, len(values))
-	for k := range values {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	rows := make([]session.Detail, 0, len(keys))
-	for _, k := range keys {
-		v := values[k]
-		rows = append(rows, session.Detail{Label: k, Value: v.String, Sensitive: v.Sensitive, Copyable: !v.Sensitive})
-	}
-	return rows
-}
-
-// reportUpFailure marks name Failed and logs err, unless ctx is already
-// canceled - then err is just this step's in-flight call reacting to the
-// same shutdown that's tearing down the whole run, not a genuine failure.
-// markSkipped gives an unreported step this treatment its final state.
-func (r *run) reportUpFailure(ctx context.Context, name string, err error) {
-	if ctx.Err() != nil {
-		return
-	}
-	msg := uerr.Display(err)
-	r.emit(name, "failed: "+msg)
-	r.store.SetStep(name, session.Failed, msg)
-}
-
-// failUp reports that name's Up returned err. A step that failed on its own
-// is settled and left to its plugin; a step that Up canceled stays started,
-// and shutdown calls Down for it.
-func (r *run) failUp(ctx context.Context, name string, err error) {
-	// Read the context before the report: the report reaches a watcher,
-	// which can cancel the run.
-	canceled := ctx.Err() != nil
-	r.reportUpFailure(ctx, name, err)
-	if !canceled {
-		r.markSettled(name)
-	}
-}
-
-// callUp calls Up on client, bounded by timeout when it is positive, and
-// reports a failure. A step whose Up outlived its timeout is not settled, so
-// shutdown calls Down for it.
-func (r *run) callUp(ctx context.Context, name string, client stepPlugin, req *pb.UpRequest, timeout time.Duration, start time.Time) (*pb.Result, error) {
-	upCtx := ctx
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		upCtx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
-	result, err := client.Up(upCtx, req, r.onEvent(name))
-	if err == nil {
-		return result, nil
-	}
-	// The parent ctx, not upCtx, tells a timeout from an interrupted run.
-	if ctx.Err() == nil && errors.Is(upCtx.Err(), context.DeadlineExceeded) {
-		err = uerr.Wrap(fmt.Errorf("%s: %w", name, session.ErrStepTimeout),
-			"timed out after %s; raise timeout in kevin.cue", timeout)
-		r.reportUpFailure(ctx, name, err)
-		return nil, err
-	}
-	r.failUp(ctx, name, err)
-	r.warnDenied(ctx, name, start)
-	return nil, err
-}
-
-// warnDenied names the hosts that the proxy denied since start, after the Up
-// of step name failed, unless a canceled run caused the failure. Another step
-// can have made some of the requests.
-func (r *run) warnDenied(ctx context.Context, name string, start time.Time) {
-	if ctx.Err() != nil {
-		return
-	}
-	var hosts []string
-	for _, req := range session.DeniedSince(r.store.Snapshot().Requests, start) {
-		if !slices.Contains(hosts, req.Host) {
-			hosts = append(hosts, req.Host)
-		}
-	}
-	if len(hosts) == 0 {
-		return
-	}
-	r.emit(name, fmt.Sprintf("warning: the proxy denied requests to %s while %s was starting; to allow them, add the hosts to proxy.egress.allow in kevin.cue",
-		strings.Join(hosts, ", "), name))
-}
-
-// upStep calls Up on one step. It is the dag.NodeFunc both the initial
-// bring-up and a console-triggered rerun run through, so a rerun gets route
-// registration, egress allow, detail/progress reporting, and timing history
-// exactly like the first attempt. On success it also records its own
-// output into r.completed directly, rather than leaving that to the
-// walk's aggregate return value.
-func (r *run) upStep(ctx context.Context, name string, deps map[string]output.Map) (output.Map, error) {
-	if grp, ok := r.groups[name]; ok {
-		out, err := r.upGroup(ctx, name, grp, deps)
-		if err == nil {
-			// Record as soon as this step succeeds: up's Walk and
-			// RerunStep's WalkFrom run every step in one goroutine group
-			// with no ordering guarantee between them, so a slow step
-			// still in flight elsewhere would otherwise leave this one's
-			// output unrecorded for as long as that other step runs - a
-			// rerun requested on anything else in that window would see
-			// no prior output for a dependency that is, in fact, long
-			// since Ready.
-			r.mergeCompleted(map[string]output.Map{name: out})
-		}
-		return out, err
-	}
-
-	mu := r.stepLock(name)
-	if !mu.TryLock() {
-		return nil, fmt.Errorf("%s: %w", name, session.ErrStepBusy)
-	}
-	defer mu.Unlock()
-
-	step := r.steps[name]
-	ref := step.Uses
-	client := r.plugins[ref.Plugin]
-
-	setupDeps, setupContainers, err := r.crossScopeDeps(ctx, name)
-	if err != nil {
-		r.reportUpFailure(ctx, name, err)
-		return nil, err
-	}
-
-	with, err := r.renderWith(name, step, deps, setupDeps)
-	if err != nil {
-		r.reportUpFailure(ctx, name, err)
-		return nil, err
-	}
-	schemaSensitive, schemaErr := sensitiveWithFields(stepSchema(r.caps[ref.Plugin], ref.Step))
-	if schemaErr != nil {
-		r.emit(name, "warning: inputs: "+uerr.Display(schemaErr))
-	} else if rows, rowsErr := inputRows(step.With, with, r.scopesFor(name, deps, setupDeps), schemaSensitive, r.cfg.SensitiveVariables()); rowsErr != nil {
-		r.emit(name, "warning: inputs: "+uerr.Display(rowsErr))
-	} else {
-		r.store.SetStepInputs(name, rows)
-	}
-
-	req := &pb.UpRequest{
-		Step:       name,
-		Type:       ref.Step,
-		Env:        r.env,
-		Config:     with,
-		Deps:       depsToProto(depsWithSetup(deps, setupDeps)),
-		Containers: r.stepContainersFor(deps, setupContainers),
-	}
-
-	estimate, _ := r.timings.EstimateUp(name, ref.String())
-	start := time.Now()
-	stop := r.trackProgress(ctx, name, estimate)
-	defer stop()
-
-	r.emit(name, "up")
-	r.store.SetStep(name, session.Running, "")
-	// A rerun's Up republishes whatever detail rows are still true; clear
-	// the old ones first so a rerun doesn't pile a second copy onto them.
-	r.store.ClearStepDetails(name)
-
-	r.markStarted(name)
-	result, upErr := r.callUp(ctx, name, client, req, time.Duration(step.Timeout), start)
-	if upErr != nil {
-		return nil, upErr
-	}
-
-	if relayErr := r.wireRelay(ctx, name, result); relayErr != nil {
-		return nil, relayErr
-	}
-	r.recordContainers(name, result.GetContainers())
-	systemThis := output.Map{}
-	r.closeStepForwards(name)
-	if err := r.exposePorts(ctx, name, result.GetExposedPorts(), systemThis); err != nil {
-		return nil, err
-	}
-	if len(systemThis) > 0 {
-		r.systemMu.Lock()
-		if r.systemOutputs == nil {
-			r.systemOutputs = make(map[string]output.Map)
-		}
-		r.systemOutputs[name] = systemThis
-		r.systemMu.Unlock()
-	}
-	r.proxy.AllowEgress(result.GetEgressAllow()...)
-
-	for _, d := range result.GetDetails() {
-		r.emit(name, "detail: "+d.GetLabel())
-		r.store.AddStepDetail(name, session.Detail{
-			Label:     d.GetLabel(),
-			Value:     d.GetValue().GetStringValue(),
-			Copyable:  d.GetCopyable(),
-			Href:      d.GetHref(),
-			Sensitive: d.GetValue().GetSensitive(),
-		})
-	}
-
-	r.emit(name, "ready")
-	r.store.SetStep(name, session.Ready, "")
-	r.timings.RecordUp(ctx, name, ref.String(), time.Since(start))
-
-	out := output.FromProto(result.GetOutputs())
-	r.mergeCompleted(map[string]output.Map{name: out})
-	r.store.SetStepOutputs(name, outputRows(output.FromProto(result.GetOutputs())))
-	return out, nil
-}
-
-// wireRelay registers result's routes with the host proxy, and tells the
-// relay to transparently capture each of result's Containers' egress - a
-// builtin:container step reports one, a builtin:kubernetes step one per node,
-// treated identically here. A step with none (exec, a resourceless step)
-// has nothing to register.
-func (r *run) wireRelay(ctx context.Context, name string, result *pb.Result) error {
-	if err := r.addRoutes(ctx, name, result.GetRoutes()); err != nil {
-		return err
-	}
-	containers := result.GetContainers()
-	for _, c := range containers {
-		netnsPath := c.GetNetnsPath()
-		if netnsPath == "" {
-			continue
-		}
-		id := name
-		if len(containers) > 1 {
-			id = name + "/" + c.GetName()
-		}
-		if err := r.relay.RegisterCapture(ctx, id, netnsPath, c.GetExcludeCidrs()); err != nil {
-			r.reportUpFailure(ctx, name, err)
-			return err
-		}
-	}
-
-	ids := make([]string, 0, len(result.GetFaults()))
-	for _, f := range result.GetFaults() {
-		if err := r.relay.ApplyFault(ctx, f); err != nil {
-			r.reportUpFailure(ctx, name, err)
-			return err
-		}
-		ids = append(ids, f.GetId())
-	}
-	r.recordFaults(name, ids)
-	return nil
-}
-
-// routeModeFromProto maps the wire RouteMode to the proxy's own type.
-func routeModeFromProto(m pb.RouteMode) proxy.RouteMode {
-	switch m {
-	case pb.RouteMode_ROUTE_MODE_MITM:
-		return proxy.RouteModeMITM
-	case pb.RouteMode_ROUTE_MODE_PASSTHROUGH:
-		return proxy.RouteModePassthrough
-	case pb.RouteMode_ROUTE_MODE_RAW:
-		return proxy.RouteModeRaw
-	default:
-		return proxy.RouteModeMITM
-	}
-}
-
-// addRoutes registers each of routes with the host proxy, and, for one
-// marked Intercept, registers it with the relay too - its own DNS answers
-// for the host, and it opens a listener for the route's declared ports.
-func (r *run) addRoutes(ctx context.Context, name string, routes []*pb.Route) error {
-	for _, route := range routes {
-		r.proxy.AddRoutes(proxy.Route{
-			Host:     route.GetHost(),
-			Upstream: route.GetUpstream(),
-			TLS:      route.GetTls(),
-			Mode:     routeModeFromProto(route.GetMode()),
-		})
-		r.emit(name, "serving https://"+route.GetHost())
-
-		ic := route.GetIntercept()
-		if ic == nil {
-			continue
-		}
-		ports := make([]int, len(ic.GetPorts()))
-		for i, p := range ic.GetPorts() {
-			ports[i] = int(p)
-		}
-		if err := r.relay.EnsureListener(ctx, route.GetHost(), ports); err != nil {
-			r.reportUpFailure(ctx, name, err)
-			return err
-		}
-	}
-	return nil
-}
-
-func (r *run) up(ctx context.Context) error {
-	results, err := dag.Walk(ctx, r.graph(), r.upStep, r.cfg.Engine.MaxParallel)
-	r.markSkipped(r.graph().Steps(), results)
-	return err
-}
-
-// RerunStep re-executes step name. With cascade false, only name runs -
-// every other step keeps its recorded output. With cascade true, name's
-// transitive dependents are re-run too: a dependent that never completed
-// always joins (it was skipped, nothing of its own to protect); a
-// dependent that already completed joins only when its step type is
-// idempotent. name itself always runs, regardless of its own idempotent
-// flag - it was targeted directly.
-func (r *run) RerunStep(ctx context.Context, name string, cascade bool) error {
-	if _, ok := r.steps[name]; !ok {
-		return fmt.Errorf("%s: %w", name, session.ErrUnknownStep)
-	}
-
-	completed := r.snapshotCompleted()
-
-	toRun := map[string]bool{name: true}
-	if cascade {
-		for _, dep := range r.graph().Dependents(name) {
-			if _, ok := completed[dep]; !ok {
-				toRun[dep] = true
-				continue
-			}
-			if r.idempotent(dep) {
-				toRun[dep] = true
-			}
-		}
-	}
-
-	names := make([]string, 0, len(toRun))
-	for step := range toRun {
-		names = append(names, step)
-	}
-
-	results, err := dag.WalkFrom(ctx, r.graph(), toRun, completed, r.upStep, r.cfg.Engine.MaxParallel)
-	r.markSkipped(names, results)
-	return err
-}
-
-// Export asks name's plugin how to reach what it created, against this
-// session's already-running plugin client.
-func (r *run) Export(ctx context.Context, name string) (output.Map, error) {
-	step, ok := r.steps[name]
-	if !ok {
-		return nil, fmt.Errorf("engine: no step named %q", name)
-	}
-	ref := step.Uses
-	client, ok := r.plugins[ref.Plugin]
-	if !ok {
-		return nil, fmt.Errorf("engine: plugin %q not loaded", ref.Plugin)
-	}
-	setupDeps, _, err := r.crossScopeDeps(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	with, err := r.renderWith(name, step, r.sameScopeDeps(name), setupDeps)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := client.Export(ctx, &pb.ExportRequest{
-		Step: name, Type: ref.Step, Env: r.env, Config: with,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("engine: export %s: %w", name, err)
-	}
-	return output.FromProto(resp.GetOut()), nil
-}
-
-// CallTool runs tool - a namespaced name from collectTools - against the
-// step named name. It rejects a step whose actual type doesn't match the
-// tool's declared owner.
-func (r *run) CallTool(ctx context.Context, name, tool string, args json.RawMessage) (mcpserver.ToolResult, error) {
-	route, ok := r.toolRoutes[tool]
-	if !ok {
-		return mcpserver.ToolResult{}, fmt.Errorf("engine: no such tool %q", tool)
-	}
-	step, ok := r.steps[name]
-	if !ok {
-		return mcpserver.ToolResult{}, fmt.Errorf("engine: no step named %q", name)
-	}
-	ref := step.Uses
-	if ref.Plugin != route.plugin || ref.Step != route.step {
-		return mcpserver.ToolResult{}, fmt.Errorf("engine: step %q is a %s step, not a %s:%s step", name, ref, route.plugin, route.step)
-	}
-	client, ok := r.plugins[ref.Plugin]
-	if !ok {
-		return mcpserver.ToolResult{}, fmt.Errorf("engine: plugin %q not loaded", ref.Plugin)
-	}
-
-	setupDeps, _, err := r.crossScopeDeps(ctx, name)
-	if err != nil {
-		return mcpserver.ToolResult{}, err
-	}
-	deps := r.sameScopeDeps(name)
-	with, err := r.renderWith(name, step, deps, setupDeps)
-	if err != nil {
-		return mcpserver.ToolResult{}, err
-	}
-
-	resp, err := client.CallTool(ctx, &pb.ToolCallRequest{
-		Step: name, Type: ref.Step, Env: r.env, Config: with,
-		Deps: depsToProto(depsWithSetup(deps, setupDeps)),
-		Tool: route.tool, Arguments: args,
-	})
-	if err != nil {
-		return mcpserver.ToolResult{}, fmt.Errorf("engine: call tool %s on %s: %w", tool, name, err)
-	}
-
-	var content any
-	if len(resp.GetContent()) > 0 {
-		if err := json.Unmarshal(resp.GetContent(), &content); err != nil {
-			return mcpserver.ToolResult{}, fmt.Errorf("engine: tool %s on %s: decode content: %w", tool, name, err)
-		}
-	}
-	return mcpserver.ToolResult{Content: content, IsError: resp.GetIsError(), Message: resp.GetErrorMessage()}, nil
-}
-
-// idempotent reports whether step's step type declares itself safe to call
-// Up on again. An unparseable step.Uses reports false - the same as any
-// step type that never declared IdempotentStep.
-func (r *run) idempotent(step string) bool {
-	if _, ok := r.groups[step]; ok {
-		return true
-	}
-	ref := r.steps[step].Uses
-	return stepIdempotent(r.caps[ref.Plugin], ref.Step)
-}
-
-// markSkipped marks every step in considered that dag.Walk (or WalkFrom)
-// attempted but has neither a recorded output in results nor already
-// reports Failed - a step whose dependency failed, or was itself skipped
-// by that cascade.
-func (r *run) markSkipped(considered []string, results map[string]output.Map) {
-	states := make(map[string]session.State, len(considered))
-	for _, s := range r.store.Snapshot().Steps {
-		states[s.Name] = s.State
-	}
-	for _, name := range considered {
-		if _, ok := results[name]; ok {
-			continue
-		}
-		if states[name] == session.Failed {
-			continue
-		}
-		r.store.SetStep(name, session.Skipped, "")
-	}
-}
-
-func (r *run) down(ctx context.Context) error {
-	completed := r.snapshotCompleted()
-	// An interrupted step gets a Down with no outputs.
-	for _, name := range r.snapshotInterrupted() {
-		completed[name] = nil
-	}
-	if len(completed) == 0 {
-		return nil
-	}
-
-	// Walk only the steps in completed, in reverse dependency order: a name
-	// absent from it never ran, or failed on its own.
-	needs := r.downNeeds(completed)
-
-	_, err := dag.Walk(ctx, dag.New(needs).Reverse(), func(ctx context.Context, name string, _ map[string]output.Map) (output.Map, error) {
-		return r.downStep(ctx, name, needs[name], completed)
-	}, r.cfg.Engine.MaxParallel)
-	return err
-}
-
-// downNeeds builds down's reduced needs map: only the steps and groups
-// that actually came up (are keys in completed), each with only the needs
-// edges among those.
-func (r *run) downNeeds(completed map[string]output.Map) map[string][]string {
-	needs := make(map[string][]string, len(completed))
-	for name := range completed {
-		var deps []string
-		if grp, ok := r.groups[name]; ok {
-			for _, member := range grp.Members {
-				dotted := memberName(name, member)
-				if _, ok := completed[dotted]; ok {
-					deps = append(deps, dotted)
-				}
-			}
-		} else {
-			for _, dep := range r.steps[name].Needs {
-				resolved, ok := r.resolveNeed(name, dep)
-				if !ok {
-					continue
-				}
-				if _, ok := completed[resolved]; ok {
-					deps = append(deps, resolved)
-				}
-			}
-		}
-		needs[name] = deps
-	}
-	return needs
-}
-
-// downStep removes one step or group, the dag.NodeFunc down's reversed
-// walk runs per node. deps is name's own downNeeds entry.
-func (r *run) downStep(ctx context.Context, name string, deps []string, completed map[string]output.Map) (output.Map, error) {
-	if _, ok := r.groups[name]; ok {
-		r.store.SetStep(name, session.Removed, "")
-		return nil, nil //nolint:nilnil // a nil output.Map is a valid empty result, not the caller ever mistaking it for "not found"
-	}
-
-	r.clearFaults(ctx, name)
-
-	step := r.steps[name]
-	ref := step.Uses
-	client := r.plugins[ref.Plugin]
-
-	if !stepImplementsDown(r.caps[ref.Plugin], ref.Step) {
-		r.store.SetStep(name, session.Removed, "")
-		return nil, nil //nolint:nilnil // a nil output.Map is a valid empty result, not the caller ever mistaking it for "not found"
-	}
-
-	depOutputs := make(map[string]output.Map, len(deps))
-	for _, dep := range deps {
-		depOutputs[dep] = completed[dep]
-	}
-	setupDeps, _, err := r.crossScopeDeps(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	with, renderErr := r.renderWith(name, step, depOutputs, setupDeps)
-	if renderErr != nil {
-		return nil, renderErr
-	}
-
-	estimate, _ := r.timings.EstimateDown(name, ref.String())
-	start := time.Now()
-	stop := r.trackProgress(ctx, name, estimate)
-	defer stop()
-
-	r.emit(name, "down")
-	r.store.SetStep(name, session.Removing, "")
-
-	downErr := client.Down(ctx, &pb.DownRequest{
-		Step:    name,
-		Type:    ref.Step,
-		Env:     r.env,
-		Config:  with,
-		Outputs: completed[name].ToProto(),
-	}, r.onEvent(name))
-	if downErr != nil {
-		downMsg := uerr.Display(downErr)
-		r.emit(name, "teardown failed: "+downMsg)
-		r.store.SetStep(name, session.Failed, downMsg)
-		return nil, downErr
-	}
-	r.emit(name, "removed")
-	r.store.SetStep(name, session.Removed, "")
-	r.timings.RecordDown(ctx, name, ref.String(), time.Since(start))
-	return nil, nil //nolint:nilnil // a nil output.Map is a valid empty result, not the caller ever mistaking it for "not found"
-}
-
-// onEvent returns a handler that renders the log and progress events of one
-// plugin. A step's own log lines go to the web console and the durable log
-// file, not to the terminal - the terminal only narrates kevin's own DAG
-// progress (up/ready/failed/removed, elsewhere in this package).
-func (r *run) onEvent(step string) func(*pb.Event) {
-	return func(ev *pb.Event) {
-		switch {
-		case ev.GetLog() != nil:
-			r.store.Log(step, ev.GetLog().GetStream(), ev.GetLog().GetText())
-			r.stepLog.Info(ev.GetLog().GetText(), "step", step, "stream", ev.GetLog().GetStream())
-		case ev.GetProgress() != nil:
-			p := ev.GetProgress()
-			if p.GetTotal() > 0 {
-				r.emit(step, fmt.Sprintf("%s (%d/%d)", p.GetLabel(), p.GetCurrent(), p.GetTotal()))
-				return
-			}
-			r.emit(step, p.GetLabel())
-		}
-	}
-}
-
-func (r *run) emit(step, text string) {
-	_, _ = fmt.Fprintf(r.events, "%-16s %s\n", step, text)
-}
-
-func depsToProto(deps map[string]output.Map) map[string]*pb.Outputs {
-	if len(deps) == 0 {
-		return nil
-	}
-	out := make(map[string]*pb.Outputs, len(deps))
-	for name, values := range deps {
-		out[name] = values.ToProto()
-	}
-	return out
-}
-
-// stepExports reports whether info's step type name implements Export.
-func stepExports(info pluginhost.Info, name string) bool {
-	for _, st := range info.Steps {
-		if st.Name == name {
-			return st.Export
-		}
-	}
-	return false
-}
-
-// stepSchema returns info's step type name's raw schema.cue bytes, or nil
-// if name names no step this plugin offers.
-func stepSchema(info pluginhost.Info, name string) []byte {
-	for _, st := range info.Steps {
-		if st.Name == name {
-			return st.Schema
-		}
-	}
-	return nil
-}
-
-// sensitiveWithFields reports which of schema's #Config fields carry a
-// "@sensitive()" attribute, keyed by field name.
-func sensitiveWithFields(schema []byte) (map[string]bool, error) {
-	if len(schema) == 0 {
-		return nil, nil //nolint:nilnil // no schema means no sensitive fields, a valid empty result
-	}
-	s, err := cueschema.ParseSource("schema.cue", schema)
-	if err != nil {
-		return nil, fmt.Errorf("with: parse schema: %w", err)
-	}
-	fields := s.Definitions["Config"].Fields
-	sensitive := make(map[string]bool, len(fields))
-	for _, f := range fields {
-		if f.Sensitive {
-			sensitive[f.Name] = true
-		}
-	}
-	return sensitive, nil
-}
-
-// exportedStep is what exportCrossScopeStep resolves for one setup-scope
-// step: its Outputs (the "setup" CEL variable and cross-scope Deps use
-// this) and its Containers (UpRequest.Containers uses this) - one Export
-// call answers both.
-type exportedStep struct {
-	Outputs    output.Map
-	Containers []*pb.ContainerInfo
-}
-
-// exportCrossScopeStep asks a setup-scope step's plugin how to reach what
-// it created - the same request Export makes against this session's
-// already-running plugin, sent with the setup step's own unrendered with
-// block, the same as Export. setupName is the name
-// with the "setup." prefix already stripped.
-func (r *run) exportCrossScopeStep(ctx context.Context, setupName string) (exportedStep, error) {
-	v, err, _ := r.exportGroup.Do(setupName, func() (any, error) {
-		if grp, ok := r.cfg.Groups(config.ScopeSetup)[setupName]; ok {
-			return r.doExportCrossScopeGroup(ctx, setupName, grp)
-		}
-		return r.doExportCrossScopeStep(ctx, setupName)
-	})
-	if err != nil {
-		return exportedStep{}, err //nolint:wrapcheck // doExportCrossScopeStep already wraps its own errors; singleflight only relays them
-	}
-	exported, _ := v.(exportedStep) // this Group's Do calls only ever return exportedStep
-	return exported, nil
-}
-
-// doExportCrossScopeStep is exportCrossScopeStep's uncached call.
-func (r *run) doExportCrossScopeStep(ctx context.Context, setupName string) (exportedStep, error) {
-	return r.doExportStep(ctx, config.ScopeSetup, setupName)
-}
-
-// doExportStep asks the plugin of the named step of scope how to reach what
-// the step created. An env step's own setup needs are exported first, so its
-// with block renders.
-func (r *run) doExportStep(ctx context.Context, scope config.Scope, name string) (exportedStep, error) {
-	step, ok := r.cfg.Steps(scope)[name]
-	if !ok {
-		return exportedStep{}, fmt.Errorf("no such step in scope %q", scope)
-	}
-	ref := step.Uses
-	client, ok := r.plugins[ref.Plugin]
-	if !ok {
-		return exportedStep{}, fmt.Errorf("plugin %q not loaded", ref.Plugin)
-	}
-	if !stepExports(r.caps[ref.Plugin], ref.Step) {
-		return exportedStep{}, fmt.Errorf("%s step %q (%s) does not implement export", scope, name, ref)
-	}
-	var setupDeps map[string]output.Map
-	if scope == config.ScopeEnv {
-		var err error
-		if setupDeps, _, err = r.crossScopeDeps(ctx, name); err != nil {
-			return exportedStep{}, err
-		}
-	}
-	with, err := expr.Render(step.With, name, expr.Scopes{Setup: setupDeps, Project: r.project, Vars: r.cfg.VariableValues})
-	if err != nil {
-		return exportedStep{}, fmt.Errorf("%s step %q: %w", scope, name, err)
-	}
-	if validateErr := r.validateRenderedWith(name, step, with); validateErr != nil {
-		return exportedStep{}, validateErr
-	}
-	resp, err := client.Export(ctx, &pb.ExportRequest{
-		Step: name, Type: ref.Step, Env: r.env, Config: with,
-	})
-	if err != nil {
-		return exportedStep{}, fmt.Errorf("export %s step %q: %w", scope, name, err)
-	}
-	return exportedStep{Outputs: output.FromProto(resp.GetOut()), Containers: resp.GetContainers()}, nil
-}
-
-// crossScopeDeps resolves every "setup."-prefixed entry in name's own
-// needs list via Export, keyed by the unprefixed setup-step name - the
-// shape both the "setup" CEL variable and the step's wire Deps use. The
-// second return value carries the same steps' Containers, for
-// UpRequest.Containers. A name with no such entry returns (nil, nil,
-// nil) - the common case, most steps use only same-scope needs.
-func (r *run) crossScopeDeps(ctx context.Context, name string) (map[string]output.Map, map[string][]*pb.ContainerInfo, error) {
-	var out map[string]output.Map
-	var containers map[string][]*pb.ContainerInfo
-	for _, dep := range r.steps[name].Needs {
-		if !dep.Setup {
-			continue // same-scope, resolved by the dag walk already.
-		}
-		setupName := dep.Step
-		exported, err := r.exportCrossScopeStep(ctx, setupName)
-		if err != nil {
-			return nil, nil, fmt.Errorf("%s: needs %q: %w", name, dep, err)
-		}
-		if out == nil {
-			out = make(map[string]output.Map)
-		}
-		out[setupName] = exported.Outputs
-		if len(exported.Containers) > 0 {
-			if containers == nil {
-				containers = make(map[string][]*pb.ContainerInfo)
-			}
-			containers[setupName] = exported.Containers
-		}
-	}
-	return out, containers, nil
-}
-
-// sameScopeDeps builds name's same-scope deps map from already-completed
-// step outputs. Use it outside the DAG walk, such as from Export.
-func (r *run) sameScopeDeps(name string) map[string]output.Map {
-	completed := r.snapshotCompleted()
-	var out map[string]output.Map
-	for _, dep := range r.steps[name].Needs {
-		if dep.Setup {
-			continue // cross-scope, resolved by crossScopeDeps instead.
-		}
-		resolved, ok := r.resolveNeed(name, dep)
-		if !ok {
-			continue
-		}
-		outputs, ok := completed[resolved]
-		if !ok {
-			continue
-		}
-		if out == nil {
-			out = make(map[string]output.Map)
-		}
-		out[resolved] = outputs
-	}
-	return out
-}
-
-// setupKey is the key a setup step's value carries on the wire, where it
-// shares a map with same-scope steps.
-func setupKey(name string) string {
-	return config.Need{Setup: true, Step: name}.String()
-}
-
-// depsWithSetup folds setupDeps into deps for the wire Deps field, each
-// entry keyed "setup.<name>". This is the one channel that still carries
-// a value's Sensitive flag once it crosses scopes.
-func depsWithSetup(deps, setupDeps map[string]output.Map) map[string]output.Map {
-	if len(setupDeps) == 0 {
-		return deps
-	}
-	out := make(map[string]output.Map, len(deps)+len(setupDeps))
-	maps.Copy(out, deps)
-	for name, vals := range setupDeps {
-		out[setupKey(name)] = vals
-	}
-	return out
-}
-
-// recordFaults replaces name's entry in appliedFaults with ids - a
-// rerun's new Up fully supersedes what an earlier Up recorded, mirroring
-// how ApplyFault itself replaces rather than stacks.
-func (r *run) recordFaults(name string, ids []string) {
-	r.faultsMu.Lock()
-	defer r.faultsMu.Unlock()
-	if len(ids) == 0 {
-		delete(r.appliedFaults, name)
-		return
-	}
-	if r.appliedFaults == nil {
-		r.appliedFaults = make(map[string][]string)
-	}
-	r.appliedFaults[name] = ids
-}
-
-// clearFaults removes every fault name's last Up applied, regardless of
-// whether name's own plugin implements Downer at all - a netem qdisc is
-// relay-side state a plugin process has no way to reach directly (see
-// wireRelay), so this must run engine-side, unconditionally, on the way
-// down. Does nothing for a step that never applied one. A ClearFault
-// failure (a namespace that's already gone, e.g. its container step was
-// torn down first) is logged, not fatal - the fault is moot either way.
-func (r *run) clearFaults(ctx context.Context, name string) {
-	r.faultsMu.Lock()
-	ids := r.appliedFaults[name]
-	delete(r.appliedFaults, name)
-	r.faultsMu.Unlock()
-
-	for _, id := range ids {
-		if err := r.relay.ClearFault(ctx, id); err != nil {
-			r.emit(name, "warning: clear fault: "+err.Error())
-		}
-	}
-}
-
-// stepContainersFor builds the UpRequest.Containers a step's own needs
-// resolve to: deps' keys name its same-scope needs, looked up in
-// r.completedContainers; setupContainers is what crossScopeDeps already
-// resolved for its "setup."-prefixed ones, reattaching that prefix here -
-// the same shape depsWithSetup gives the wire Deps field. A needs entry
-// that reported no containers (most step types) contributes no entry, not
-// an empty one.
-func (r *run) stepContainersFor(deps map[string]output.Map, setupContainers map[string][]*pb.ContainerInfo) []*pb.StepContainers {
-	var out []*pb.StepContainers
-	for name := range deps {
-		if containers := r.completedContainersFor(name); len(containers) > 0 {
-			out = append(out, &pb.StepContainers{Step: name, Containers: containers})
-		}
-	}
-	for name, containers := range setupContainers {
-		out = append(out, &pb.StepContainers{Step: setupKey(name), Containers: containers})
-	}
-	return out
-}
-
-// executablePath resolves the path of the running binary. A builtin plugin
-// runs this path with "plugin run <name>". A test overrides this variable,
-// because os.Executable reports the test binary under go test.
-var executablePath = os.Executable

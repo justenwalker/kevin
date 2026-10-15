@@ -5,6 +5,10 @@ import (
 	"path/filepath"
 )
 
+// WorkspaceDir is the state directory of one project, relative to the project
+// directory.
+const WorkspaceDir = ".kevin"
+
 // Environment variables that override the default state directories.
 const (
 	UserStateDirEnv    = "KEVIN_USER_STATE_DIR"
@@ -27,7 +31,7 @@ func ProjectStateDir(cwd, name string) string {
 	if v := os.Getenv(ProjectStateDirEnv); v != "" {
 		return v
 	}
-	return filepath.Join(cwd, ".kevin", name)
+	return filepath.Join(cwd, WorkspaceDir, name)
 }
 
 func mustHomeDir() string {

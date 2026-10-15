@@ -20,9 +20,11 @@ import (
 	"github.com/justenwalker/kevin/internal/logging"
 	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/ocipkg"
+	"github.com/justenwalker/kevin/internal/pluginload"
 	"github.com/justenwalker/kevin/internal/pluginpkg"
 	"github.com/justenwalker/kevin/internal/plugins"
 	"github.com/justenwalker/kevin/internal/runstate"
+	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/internal/version"
 	"github.com/justenwalker/kevin/plugin"
 	"github.com/justenwalker/kevin/protos/pb"
@@ -182,11 +184,11 @@ func printEnvironmentInfo(w io.Writer, env *pb.Environment) {
 }
 
 // openLogFile opens the project's debug log file for appending, creating
-// engine.WorkspaceDir under dir if needed. It returns nil if either step
+// state.WorkspaceDir under dir if needed. It returns nil if either step
 // fails, so a read-only or missing project directory just forgoes the file
 // and keeps logging to the terminal.
 func openLogFile(dir string) *os.File {
-	workspace := filepath.Join(dir, engine.WorkspaceDir)
+	workspace := filepath.Join(dir, state.WorkspaceDir)
 	if err := os.MkdirAll(workspace, 0o750); err != nil {
 		return nil
 	}
@@ -345,7 +347,7 @@ func initCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			names, err := engine.FetchPlugins(cmd.Context(), opts.dir, opts.name, opts.tags)
+			names, err := pluginload.Fetch(cmd.Context(), opts.dir, opts.name, opts.tags)
 			if err != nil {
 				return err
 			}
@@ -370,9 +372,9 @@ func validateCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			loaded, err := engine.LoadAndLaunch(cmd.Context(), opts.dir, opts.name, opts.tags,
+			loaded, err := pluginload.Load(cmd.Context(), opts.dir, opts.name, opts.tags,
 				config.VariableInputs{File: opts.varFile, Set: opts.vars})
-			engine.CloseAll(loaded.Plugins)
+			loaded.Close()
 			if err != nil {
 				return err
 			}

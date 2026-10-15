@@ -1,4 +1,4 @@
-package engine
+package portforward
 
 import (
 	"context"
@@ -13,8 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/things-go/go-socks5"
 	"github.com/things-go/go-socks5/statute"
-
-	"github.com/justenwalker/kevin/protos/pb"
 )
 
 // newUDPEcho starts a UDP echo listener on loopback and returns its
@@ -156,24 +154,24 @@ func relayOneDestination(bindLn *net.UDPConn) {
 	}
 }
 
-// newUDPRelayExposedPort builds an ExposedPort naming a relay-routed udp
+// newUDPRelaySpec builds an ExposedPort naming a relay-routed udp
 // entry through relayAddr/poolPort at echoAddr - the shape container's or
 // kind's own exposedPorts()/exposedViaRelay() report.
-func newUDPRelayExposedPort(relayAddr string, poolPort int, echoAddr string) *pb.ExposedPort {
-	return &pb.ExposedPort{
-		Name: "dns", Protocol: "udp", Relay: true,
+func newUDPRelaySpec(relayAddr string, poolPort int, echoAddr string) Spec {
+	return Spec{
+		Name:          "dns",
 		Upstream:      fmt.Sprintf("socks5://%s/%s", relayAddr, echoAddr),
-		RelayUdpAddrs: map[string]string{strconv.Itoa(poolPort): fmt.Sprintf("127.0.0.1:%d", poolPort)},
+		RelayUDPAddrs: map[string]string{strconv.Itoa(poolPort): fmt.Sprintf("127.0.0.1:%d", poolPort)},
 	}
 }
 
-func TestNewUDPPortForward(t *testing.T) {
+func TestStartUDP(t *testing.T) {
 	t.Run("round trips a datagram through the associate session", func(t *testing.T) {
 		relayAddr, poolPort := newFakeUDPRelay(t)
 		echoAddr := newUDPEcho(t)
 
-		ep := newUDPRelayExposedPort(relayAddr, poolPort, echoAddr)
-		pf, err := newUDPPortForward(t.Context(), ep)
+		ep := newUDPRelaySpec(relayAddr, poolPort, echoAddr)
+		pf, err := StartUDP(t.Context(), ep)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = pf.Close() })
 
@@ -193,8 +191,8 @@ func TestNewUDPPortForward(t *testing.T) {
 	})
 
 	t.Run("a malformed upstream errors", func(t *testing.T) {
-		ep := &pb.ExposedPort{Name: "dns", Protocol: "udp", Relay: true, Upstream: "127.0.0.1:53"}
-		pf, err := newUDPPortForward(t.Context(), ep)
+		ep := Spec{Name: "dns", Upstream: "127.0.0.1:53"}
+		pf, err := StartUDP(t.Context(), ep)
 		require.Error(t, err)
 		assert.Nil(t, pf)
 	})
@@ -203,10 +201,10 @@ func TestNewUDPPortForward(t *testing.T) {
 		relayAddr, poolPort := newFakeUDPRelay(t)
 		echoAddr := newUDPEcho(t)
 
-		ep := newUDPRelayExposedPort(relayAddr, poolPort, echoAddr)
-		ep.RelayUdpAddrs = map[string]string{"1": "127.0.0.1:1"} // wrong key - the real pool port is poolPort
+		ep := newUDPRelaySpec(relayAddr, poolPort, echoAddr)
+		ep.RelayUDPAddrs = map[string]string{"1": "127.0.0.1:1"} // wrong key - the real pool port is poolPort
 
-		pf, err := newUDPPortForward(t.Context(), ep)
+		pf, err := StartUDP(t.Context(), ep)
 		require.Error(t, err)
 		assert.Nil(t, pf)
 	})
@@ -215,8 +213,8 @@ func TestNewUDPPortForward(t *testing.T) {
 		relayAddr, poolPort := newFakeUDPRelay(t)
 		echoAddr := newUDPEcho(t)
 
-		ep := newUDPRelayExposedPort(relayAddr, poolPort, echoAddr)
-		f, err := newUDPPortForward(t.Context(), ep)
+		ep := newUDPRelaySpec(relayAddr, poolPort, echoAddr)
+		f, err := StartUDP(t.Context(), ep)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = f.Close() })
 
@@ -233,8 +231,8 @@ func TestNewUDPPortForward(t *testing.T) {
 		relayAddr, poolPort := newFakeUDPRelay(t)
 		echoAddr := newUDPEcho(t)
 
-		ep := newUDPRelayExposedPort(relayAddr, poolPort, echoAddr)
-		pf, err := newUDPPortForward(t.Context(), ep)
+		ep := newUDPRelaySpec(relayAddr, poolPort, echoAddr)
+		pf, err := StartUDP(t.Context(), ep)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = pf.Close() })
 

@@ -10,8 +10,8 @@ import (
 
 	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/engine"
 	"github.com/justenwalker/kevin/internal/runstate"
+	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/protos/pb"
 )
 
@@ -21,7 +21,7 @@ const logFileName = "run.log"
 // runStateFor returns the run state of the project environment named name
 // in dir, keyed by the same slugged name the engine uses for its workspace.
 func runStateFor(dir, name string) runstate.State {
-	return runstate.At(filepath.Join(dir, engine.WorkspaceDir, config.SlugName(name)))
+	return runstate.At(filepath.Join(dir, state.WorkspaceDir, config.SlugName(name)))
 }
 
 // backgroundArgs is what runInBackground needs to reconstruct the child's

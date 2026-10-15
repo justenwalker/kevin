@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/justenwalker/kevin/internal/portforward"
 )
 
 // tunnelRoute serves a CONNECT for a route in RouteModePassthrough or
@@ -18,7 +20,7 @@ func (p *Proxy) tunnelRoute(w http.ResponseWriter, r *http.Request, target Route
 
 	dialAddr := target.Upstream
 	ctx := r.Context()
-	if relay, connectTarget, ok := splitSOCKS5(dialAddr); ok {
+	if relay, connectTarget, ok := portforward.SplitSOCKS5(dialAddr); ok {
 		// target.Upstream names a relay-reachable target, not something this
 		// process can dial directly - dialAddr stays the real target, and the
 		// relay itself goes on the context for dialContext to CONNECT through.

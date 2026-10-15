@@ -39,6 +39,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/logging"
+	"github.com/justenwalker/kevin/internal/portforward"
 )
 
 var log = logging.New("proxy")
@@ -528,7 +529,7 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request) {
 		// Keep the original Host header. The workload sees the name that the
 		// client asked for, and a virtual host on the upstream still works.
 		upstream := target.Upstream
-		if relay, connectTarget, ok := splitSOCKS5(upstream); ok {
+		if relay, connectTarget, ok := portforward.SplitSOCKS5(upstream); ok {
 			// Upstream names a relay-reachable target, not something this
 			// process can dial directly (see relay.go). r.URL.Host stays the
 			// real target - never the relay's own address - so Transport's
