@@ -64,9 +64,13 @@ const (
 	// members are addressable only through the group's own name.
 	ErrUnaddressableMember = Error("config: needs references a group member by its internal name, a group is addressable only by its own name")
 
-	// ErrUnknownStep reports a command's needs list naming a step that does
-	// not exist in the scope the entry implies.
+	// ErrUnknownStep reports a needs entry, of a step or a command, naming a
+	// step that does not exist in the scope the entry implies.
 	ErrUnknownStep = Error("config: needs references a step that does not exist")
+
+	// ErrCrossScopeNeed reports a setup step whose needs list uses a
+	// "setup." entry: only an env step can need a step of the setup scope.
+	ErrCrossScopeNeed = Error("config: only an env step can need a setup step")
 
 	// ErrExportNotSupported reports a command's needs list naming a step
 	// whose plugin does not implement Export for that step type.

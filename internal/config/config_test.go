@@ -583,6 +583,12 @@ env: {
 		require.ErrorIs(t, err, config.ErrBadStepRef)
 	})
 
+	t.Run("reports a bad step reference in a group member", func(t *testing.T) {
+		f := load(t, `env: g: steps: m: uses: "Not Valid"`)
+		_, err := f.StepPlugins()
+		require.ErrorIs(t, err, config.ErrBadStepRef)
+	})
+
 	t.Run("reports an incomplete value", func(t *testing.T) {
 		// cmd has no default and no value here, thus the environment is not
 		// concrete and cannot decode.
@@ -1432,7 +1438,7 @@ env: {
 
 		env := cfg.Steps(config.ScopeEnv)
 		require.Len(t, env, 2)
-		assert.Equal(t, []string{"a"}, env["b"].Needs)
+		assert.Equal(t, []string{"a"}, config.NeedStrings(env["b"].Needs))
 		assert.JSONEq(t, `{"image":"nginx"}`, string(env["b"].With))
 		assert.Empty(t, env["a"].With, "a step without a with block carries no config")
 	})
@@ -1477,9 +1483,9 @@ env: {
 		require.NoError(t, err)
 
 		env := cfg.Steps(config.ScopeEnv)
-		assert.Zero(t, env["a"].TimeoutDuration, "a step without a timeout has no limit")
-		assert.Equal(t, 90*time.Second, env["b"].TimeoutDuration)
-		assert.Equal(t, 2*time.Minute, env["g.m"].TimeoutDuration)
+		assert.Zero(t, env["a"].Timeout, "a step without a timeout has no limit")
+		assert.Equal(t, config.Timeout(90*time.Second), env["b"].Timeout)
+		assert.Equal(t, config.Timeout(2*time.Minute), env["g.m"].Timeout)
 	})
 
 	t.Run("rejects a bad timeout", func(t *testing.T) {
@@ -1503,6 +1509,19 @@ env: a: {uses: "echo:echo", timeout: "`+timeout+`"}
 				}
 			})
 		}
+	})
+
+	t.Run("rejects a bad timeout on a group member, at the member", func(t *testing.T) {
+		f, err := config.Load(write(t, `
+plugins: echo: cmd: "echo"
+env: g: steps: m: {uses: "echo:echo", timeout: "0s"}
+`), "", nil)
+		require.NoError(t, err)
+
+		err = f.Validate(offers("echo", "echo"))
+
+		require.ErrorIs(t, err, config.ErrBadTimeout)
+		assert.Contains(t, err.Error(), "env.g.steps.m")
 	})
 
 	t.Run("rejects timeout on a group", func(t *testing.T) {
@@ -1605,4 +1624,77 @@ func offersExport(export bool) map[string]config.PluginSchemas {
 		Steps:  map[string][]byte{"echo": nil},
 		Export: map[string]bool{"echo": export},
 	}}
+}
+
+func TestValidateNeeds(t *testing.T) {
+	tests := []struct {
+		name         string
+		src          string
+		wantErr      error
+		wantContains string
+	}{
+		{
+			name: "accepts a same-scope step, a group, and a setup step from env",
+			src: `
+setup: cluster: uses: "echo:echo"
+env: {
+	db: uses: "echo:echo"
+	g: steps: m: uses: "echo:echo"
+	app: {uses: "echo:echo", needs: ["db", "g", "setup.cluster"]}
+}
+`,
+		},
+		{
+			name: "accepts a sibling member by its bare name",
+			src: `
+env: g: steps: {
+	a: uses: "echo:echo"
+	b: {uses: "echo:echo", needs: ["a"]}
+}
+`,
+		},
+		{
+			name:         "rejects an unknown same-scope step",
+			src:          `env: app: {uses: "echo:echo", needs: ["missing"]}`,
+			wantErr:      config.ErrUnknownStep,
+			wantContains: `env.app: needs "missing": no such step in scope "env"`,
+		},
+		{
+			name:         "rejects an unknown setup step",
+			src:          `env: app: {uses: "echo:echo", needs: ["setup.missing"]}`,
+			wantErr:      config.ErrUnknownStep,
+			wantContains: `env.app: needs "setup.missing": no such step in scope "setup"`,
+		},
+		{
+			name: "accepts a setup group from env",
+			src: `
+setup: g: steps: m: uses: "echo:echo"
+env: app: {uses: "echo:echo", needs: ["setup.g"]}
+`,
+		},
+		{
+			name: "rejects a setup entry in the setup scope",
+			src: `
+setup: {
+	a: {uses: "echo:echo", needs: ["setup.b"]}
+	b: uses: "echo:echo"
+}
+`,
+			wantErr:      config.ErrCrossScopeNeed,
+			wantContains: `setup.a: needs "setup.b": only an env step can use a "setup." dependency`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := load(t, `plugins: echo: cmd: "echo"
+`+tt.src).Validate(offers("echo", "echo"))
+
+			if tt.wantErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tt.wantErr)
+			assert.Contains(t, err.Error(), tt.wantContains)
+		})
+	}
 }

@@ -112,7 +112,7 @@ type Options struct {
 	Engine string
 
 	// Scope selects which DAG to run: config.ScopeSetup or config.ScopeEnv.
-	Scope string
+	Scope config.Scope
 
 	// Keep waits for ctx like a normal run, but removes no step on exit.
 	Keep bool
@@ -148,6 +148,9 @@ type Options struct {
 // With [Options.Keep], Run still blocks until ctx is canceled, but removes
 // nothing.
 func Run(ctx context.Context, opts Options) error {
+	if !opts.Scope.Valid() {
+		return fmt.Errorf("engine: run needs a scope, got %v", opts.Scope)
+	}
 	live := wantsLiveUI(ctx, opts)
 	opts.Events = eventsWriter(opts, live)
 
@@ -275,11 +278,7 @@ func Run(ctx context.Context, opts Options) error {
 	log.Ctx(ctx).Info("console listening", "url", consoleURL)
 	log.Ctx(ctx).Info("mcp listening", "url", consoleURL+mcpserver.Path)
 	if opts.Open {
-		go func() {
-			if openErr := browser.Open(ctx, command.DefaultStarter, consoleURL); openErr != nil {
-				log.Ctx(ctx).Warn("open browser", "error", openErr)
-			}
-		}()
+		go openBrowser(ctx, consoleURL)
 	}
 
 	env := &pb.Environment{
@@ -295,7 +294,7 @@ func Run(ctx context.Context, opts Options) error {
 		RelaySocks5Addr:     rl.SOCKS5Addr(),
 		RelaySocks5UdpAddrs: rl.SOCKS5UDPAddrs(),
 		ProjectDir:          cfg.Dir,
-		Scope:               opts.Scope,
+		Scope:               opts.Scope.String(),
 		Engine:              opts.Engine,
 	}
 	r.env = env
@@ -352,6 +351,13 @@ func awaitDone(ctx context.Context, noWait bool) {
 // *committed goes true. reap derives what to remove from live docker state,
 // so it does nothing wherever nothing was created yet, and correctly leaves
 // a network or relay still shared with the other scope alone.
+// openBrowser opens url, and logs a failure rather than failing the run.
+func openBrowser(ctx context.Context, url string) {
+	if err := browser.Open(ctx, command.DefaultStarter, url); err != nil {
+		log.Ctx(ctx).Warn("open browser", "error", err)
+	}
+}
+
 func earlyCleanup(ctx context.Context, r *run, committed *bool) func() {
 	return func() {
 		if *committed {
@@ -412,14 +418,14 @@ func (r *run) finalStepErr() error {
 }
 
 // startRelay starts the relay.
-func startRelay(ctx context.Context, rt cri.Runtime, cfg *config.Config, network, gatewayAddr, scope string, authority *ca.CA) (*relay.Relay, error) {
+func startRelay(ctx context.Context, rt cri.Runtime, cfg *config.Config, network, gatewayAddr string, scope config.Scope, authority *ca.CA) (*relay.Relay, error) {
 	rl, err := relay.Start(ctx, rt, relay.Options{
 		Project:       cfg.Project,
 		Network:       network,
 		Domain:        cfg.Domain,
 		ProxyAddr:     HostGateway + ":" + portOf(gatewayAddr),
 		Image:         relay.Ref(cfg.Relay.Image),
-		Scope:         scope,
+		Scope:         scope.String(),
 		Authority:     authority,
 		FakeIPv4Range: cfg.Relay.Intercept.IPv4Range,
 		FakeIPv6Range: cfg.Relay.Intercept.IPv6Range,
@@ -748,7 +754,7 @@ func Teardown(ctx context.Context, opts Options) error {
 		Project:   cfg.Project,
 		Workspace: workspace,
 		Network:   NetworkName(cfg.Project),
-		Scope:     config.ScopeSetup,
+		Scope:     config.ScopeSetup.String(),
 		Engine:    opts.Engine,
 	}
 	if err = ConfigureAll(ctx, cfg.Plugins, plugins, env); err != nil {
@@ -791,10 +797,7 @@ func Teardown(ctx context.Context, opts Options) error {
 		// own rendering, the same way exportCrossScopeStep already does for
 		// a cross-scope one. Leaves nil - Down still runs - for a plugin
 		// with no Export, or one that never actually came up.
-		ref, refErr := config.ParseStepRef(step.Uses)
-		if refErr != nil {
-			return refErr
-		}
+		ref := step.Uses
 		if !stepExports(caps[ref.Plugin], ref.Step) {
 			continue
 		}
@@ -941,10 +944,7 @@ func collectTools(ctx context.Context, steps map[string]config.Step, caps map[st
 	routes := make(map[string]toolRoute)
 	var defs []mcpserver.ToolDef
 	for _, step := range steps {
-		ref, refErr := config.ParseStepRef(step.Uses)
-		if refErr != nil {
-			continue
-		}
+		ref := step.Uses
 		for _, st := range caps[ref.Plugin].Steps {
 			if st.Name != ref.Step {
 				continue
@@ -1002,7 +1002,7 @@ type run struct {
 	runtime    cri.Runtime
 	proxy      routeTable
 	store      *session.Store
-	scope      string
+	scope      config.Scope
 	steps      map[string]config.Step
 	groups     map[string]config.Group
 	plugins    map[string]stepPlugin
@@ -1249,66 +1249,6 @@ func (r *run) closeForwards() error {
 	return errors.Join(errs...)
 }
 
-// setupPrefix marks a needs entry as naming a setup-scope step instead of
-// one in the running scope. Only meaningful on an env-scope needs entry.
-// Lives in [session] (not here) so the console can split same-scope from
-// cross-scope needs without importing this package.
-const setupPrefix = session.SetupPrefix
-
-// validateNeeds checks every needs entry of both of cfg's scopes. Called
-// once from LoadAndLaunch, before graph() or docker is touched. A
-// same-scope name is left for dag.Validate to check later. An env step's
-// needs may additionally name a step prefixed "setup.", resolved in the
-// setup scope via Export instead of Up; a setup step accepts no such
-// prefix.
-func validateNeeds(cfg *config.Config) error {
-	for _, scope := range []string{config.ScopeSetup, config.ScopeEnv} {
-		steps := cfg.Steps(scope)
-		names := make([]string, 0, len(steps))
-		for name := range steps {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-
-		for _, name := range names {
-			for _, dep := range steps[name].Needs {
-				if err := validateNeedsEntry(cfg, scope, name, dep); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
-}
-
-// validateNeedsEntry checks that dep, one needs entry of name in scope,
-// resolves to a real step or group - same-scope, or (only for an env
-// step) a "setup.<name>" cross-scope entry.
-func validateNeedsEntry(cfg *config.Config, scope, name, dep string) error {
-	if setupName, ok := strings.CutPrefix(dep, setupPrefix); ok {
-		if scope != config.ScopeEnv {
-			return fmt.Errorf("%s: needs %q: only an env step can use a %q dependency", name, dep, setupPrefix)
-		}
-		if _, ok := cfg.Setup[setupName]; ok {
-			return nil
-		}
-		if _, ok := cfg.Groups(config.ScopeSetup)[setupName]; ok {
-			return nil
-		}
-		return fmt.Errorf("%s: needs %q: no such step in scope %q", name, dep, config.ScopeSetup)
-	}
-	if group, _, ok := strings.Cut(name, groupSep); ok && slices.Contains(cfg.Groups(scope)[group].Members, dep) {
-		return nil
-	}
-	if _, ok := cfg.Steps(scope)[dep]; ok {
-		return nil
-	}
-	if _, ok := cfg.Groups(scope)[dep]; ok {
-		return nil
-	}
-	return fmt.Errorf("%s: needs %q: no such step in scope %q", name, dep, scope)
-}
-
 // graph builds the DAG for r's own scope, keeping only needs entries that
 // name a step or group in this scope. A "setup."-prefixed cross-scope
 // entry is dropped here and resolved separately by crossScopeDeps. Every
@@ -1418,10 +1358,7 @@ func (r *run) validateRenderedWith(name string, step config.Step, with json.RawM
 	if !bytes.Contains(step.With, []byte("${")) {
 		return nil
 	}
-	ref, err := config.ParseStepRef(step.Uses)
-	if err != nil {
-		return fmt.Errorf("%s: with: %w", name, err)
-	}
+	ref := step.Uses
 	for _, st := range r.caps[ref.Plugin].Steps {
 		if st.Name == ref.Step {
 			return config.ValidateAgainstSchema(name+".with", with, st.Schema)
@@ -1605,11 +1542,7 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]output.Ma
 	defer mu.Unlock()
 
 	step := r.steps[name]
-	ref, refErr := config.ParseStepRef(step.Uses)
-	if refErr != nil {
-		r.reportUpFailure(ctx, name, refErr)
-		return nil, refErr
-	}
+	ref := step.Uses
 	client := r.plugins[ref.Plugin]
 
 	setupDeps, setupContainers, err := r.crossScopeDeps(ctx, name)
@@ -1653,7 +1586,7 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]output.Ma
 	r.store.ClearStepDetails(name)
 
 	r.markStarted(name)
-	result, upErr := r.callUp(ctx, name, client, req, step.TimeoutDuration, start)
+	result, upErr := r.callUp(ctx, name, client, req, time.Duration(step.Timeout), start)
 	if upErr != nil {
 		return nil, upErr
 	}
@@ -1828,10 +1761,7 @@ func (r *run) exportStep(ctx context.Context, name string) (map[string]output.Va
 	if !ok {
 		return nil, fmt.Errorf("engine: no step named %q", name)
 	}
-	ref, err := config.ParseStepRef(step.Uses)
-	if err != nil {
-		return nil, err
-	}
+	ref := step.Uses
 	client, ok := r.plugins[ref.Plugin]
 	if !ok {
 		return nil, fmt.Errorf("engine: plugin %q not loaded", ref.Plugin)
@@ -1865,10 +1795,7 @@ func (r *run) callTool(ctx context.Context, name, tool string, args json.RawMess
 	if !ok {
 		return mcpserver.ToolResult{}, fmt.Errorf("engine: no step named %q", name)
 	}
-	ref, err := config.ParseStepRef(step.Uses)
-	if err != nil {
-		return mcpserver.ToolResult{}, err
-	}
+	ref := step.Uses
 	if ref.Plugin != route.plugin || ref.Step != route.step {
 		return mcpserver.ToolResult{}, fmt.Errorf("engine: step %q is a %s step, not a %s:%s step", name, ref, route.plugin, route.step)
 	}
@@ -1912,10 +1839,7 @@ func (r *run) idempotent(step string) bool {
 	if _, ok := r.groups[step]; ok {
 		return true
 	}
-	ref, err := config.ParseStepRef(r.steps[step].Uses)
-	if err != nil {
-		return false
-	}
+	ref := r.steps[step].Uses
 	return stepIdempotent(r.caps[ref.Plugin], ref.Step)
 }
 
@@ -2000,10 +1924,7 @@ func (r *run) downStep(ctx context.Context, name string, deps []string, complete
 	r.clearFaults(ctx, name)
 
 	step := r.steps[name]
-	ref, refErr := config.ParseStepRef(step.Uses)
-	if refErr != nil {
-		return nil, refErr
-	}
+	ref := step.Uses
 	client := r.plugins[ref.Plugin]
 
 	if !stepImplementsDown(r.caps[ref.Plugin], ref.Step) {
@@ -2159,10 +2080,7 @@ func (r *run) exportCrossScopeStep(ctx context.Context, setupName string) (expor
 // doExportCrossScopeStep is exportCrossScopeStep's uncached call.
 func (r *run) doExportCrossScopeStep(ctx context.Context, setupName string) (exportedStep, error) {
 	step := r.cfg.Setup[setupName]
-	ref, err := config.ParseStepRef(step.Uses)
-	if err != nil {
-		return exportedStep{}, err
-	}
+	ref := step.Uses
 	client, ok := r.plugins[ref.Plugin]
 	if !ok {
 		return exportedStep{}, fmt.Errorf("plugin %q not loaded", ref.Plugin)
@@ -2196,10 +2114,10 @@ func (r *run) crossScopeDeps(ctx context.Context, name string) (map[string]outpu
 	var out map[string]output.Map
 	var containers map[string][]*pb.ContainerInfo
 	for _, dep := range r.steps[name].Needs {
-		setupName, ok := strings.CutPrefix(dep, setupPrefix)
-		if !ok {
+		if !dep.Setup {
 			continue // same-scope, resolved by the dag walk already.
 		}
+		setupName := dep.Step
 		exported, err := r.exportCrossScopeStep(ctx, setupName)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: needs %q: %w", name, dep, err)
@@ -2224,7 +2142,7 @@ func (r *run) sameScopeDeps(name string) map[string]output.Map {
 	completed := r.snapshotCompleted()
 	var out map[string]output.Map
 	for _, dep := range r.steps[name].Needs {
-		if strings.HasPrefix(dep, setupPrefix) {
+		if dep.Setup {
 			continue // cross-scope, resolved by crossScopeDeps instead.
 		}
 		resolved, ok := r.resolveNeed(name, dep)
@@ -2243,6 +2161,12 @@ func (r *run) sameScopeDeps(name string) map[string]output.Map {
 	return out
 }
 
+// setupKey is the key a setup step's value carries on the wire, where it
+// shares a map with same-scope steps.
+func setupKey(name string) string {
+	return config.Need{Setup: true, Step: name}.String()
+}
+
 // depsWithSetup folds setupDeps into deps for the wire Deps field, each
 // entry keyed "setup.<name>". This is the one channel that still carries
 // a value's Sensitive flag once it crosses scopes.
@@ -2253,7 +2177,7 @@ func depsWithSetup(deps, setupDeps map[string]output.Map) map[string]output.Map 
 	out := make(map[string]output.Map, len(deps)+len(setupDeps))
 	maps.Copy(out, deps)
 	for name, vals := range setupDeps {
-		out[setupPrefix+name] = vals
+		out[setupKey(name)] = vals
 	}
 	return out
 }
@@ -2309,7 +2233,7 @@ func (r *run) stepContainersFor(deps map[string]output.Map, setupContainers map[
 		}
 	}
 	for name, containers := range setupContainers {
-		out = append(out, &pb.StepContainers{Step: setupPrefix + name, Containers: containers})
+		out = append(out, &pb.StepContainers{Step: setupKey(name), Containers: containers})
 	}
 	return out
 }

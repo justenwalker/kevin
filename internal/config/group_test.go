@@ -30,13 +30,13 @@ env: {
 
 		env := cfg.Steps(config.ScopeEnv)
 		require.Len(t, env, 3)
-		assert.ElementsMatch(t, []string{"net"}, env["db.primary"].Needs)
-		assert.ElementsMatch(t, []string{"primary", "net"}, env["db.replica"].Needs)
+		assert.ElementsMatch(t, []string{"net"}, config.NeedStrings(env["db.primary"].Needs))
+		assert.ElementsMatch(t, []string{"primary", "net"}, config.NeedStrings(env["db.replica"].Needs))
 
 		groups := cfg.Groups(config.ScopeEnv)
 		require.Contains(t, groups, "db")
 		assert.Equal(t, []string{"primary", "replica"}, groups["db"].Members)
-		assert.Equal(t, []string{"net"}, groups["db"].Needs)
+		assert.Equal(t, []string{"net"}, config.NeedStrings(groups["db"].Needs))
 	})
 
 	t.Run("a member that already declares its group's need is not given it twice", func(t *testing.T) {
@@ -54,7 +54,7 @@ env: {
 		cfg, err := f.Config()
 		require.NoError(t, err)
 
-		assert.Equal(t, []string{"net"}, cfg.Steps(config.ScopeEnv)["db.primary"].Needs)
+		assert.Equal(t, []string{"net"}, config.NeedStrings(cfg.Steps(config.ScopeEnv)["db.primary"].Needs))
 	})
 
 	t.Run("validates a member's with block against its effective needs", func(t *testing.T) {

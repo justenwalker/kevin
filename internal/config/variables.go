@@ -236,7 +236,7 @@ func (cfg *Config) SensitiveVariables() map[string]bool {
 // the same reasoning validateNeedsReferences applies to needs/setup. field
 // names the block in an error message ("with" for a step, "run" for a
 // command).
-func validateVarReferences(scopeName, step, field string, declared map[string]Variable, raw json.RawMessage) error {
+func validateVarReferences(scopeName string, step, field string, declared map[string]Variable, raw json.RawMessage) error {
 	refs, err := expr.ReferencedVars(raw)
 	if err != nil {
 		return fmt.Errorf("config: %s.%s.%s: %w", scopeName, step, field, err)

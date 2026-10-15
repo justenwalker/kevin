@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/justenwalker/kevin/internal/browser"
+	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/session"
 )
@@ -248,7 +249,7 @@ func stepsByGroup(steps []Step) map[string][]Step {
 func sameScopeNeeds(needs []string) []string {
 	out := make([]string, 0, len(needs))
 	for _, n := range needs {
-		if !strings.HasPrefix(n, session.SetupPrefix) {
+		if !config.ParseNeed(n).Setup {
 			out = append(out, n)
 		}
 	}
@@ -263,8 +264,8 @@ func sameScopeNeeds(needs []string) []string {
 func crossScopeNeeds(needs []string) []string {
 	var out []string
 	for _, n := range needs {
-		if name, ok := strings.CutPrefix(n, session.SetupPrefix); ok {
-			out = append(out, name)
+		if need := config.ParseNeed(n); need.Setup {
+			out = append(out, need.Step)
 		}
 	}
 	return out

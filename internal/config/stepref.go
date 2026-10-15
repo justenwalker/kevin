@@ -36,6 +36,16 @@ func (r StepRef) String() string {
 	return r.Plugin + ":" + r.Step
 }
 
+// UnmarshalText decodes a reference with [ParseStepRef].
+func (r *StepRef) UnmarshalText(text []byte) error {
+	ref, err := ParseStepRef(string(text))
+	if err != nil {
+		return err
+	}
+	*r = ref
+	return nil
+}
+
 // ParseStepRef parses a step type reference.
 // A step type reference is two identifiers separated by a colon.
 // Example: "builtin:wait"

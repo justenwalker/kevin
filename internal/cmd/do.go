@@ -87,7 +87,7 @@ func runDo(ctx context.Context, dir, name string, tags []string, vars config.Var
 		CaPath:     ca.RootCertPath(),
 		Domain:     cfg.Domain,
 		ProjectDir: cfg.Dir,
-		Scope:      config.ScopeSetup,
+		Scope:      config.ScopeSetup.String(),
 	}
 	if err = engine.ConfigureAll(ctx, cfg.Plugins, plugins, env); err != nil {
 		return err
@@ -141,21 +141,18 @@ func chdirToCwd(projectDir, cwd string) error {
 // under setupOut (read back as "${setup.<name>...}") - the same convention
 // a step's own needs list uses. config.File.Validate already proved each of
 // these steps implements Export, so this never sees one that doesn't.
-func resolveCommandOutputs(ctx context.Context, cfg *config.Config, plugins map[string]*pluginhost.Client, caps map[string]pluginhost.Info, env *pb.Environment, needs []string) (map[string]output.Map, map[string]output.Map, error) {
+func resolveCommandOutputs(ctx context.Context, cfg *config.Config, plugins map[string]*pluginhost.Client, caps map[string]pluginhost.Info, env *pb.Environment, needs []config.Need) (map[string]output.Map, map[string]output.Map, error) {
 	var needsOut, setupOut map[string]output.Map
 	for _, n := range needs {
-		scopeName, steps, stepName := config.ScopeEnv, cfg.Env, n
-		if rest, ok := strings.CutPrefix(n, "setup."); ok {
-			scopeName, steps, stepName = config.ScopeSetup, cfg.Setup, rest
+		scopeName, steps, stepName := config.ScopeEnv, cfg.Env, n.Step
+		if n.Setup {
+			scopeName, steps, stepName = config.ScopeSetup, cfg.Setup, n.Step
 		}
 		step, ok := steps[stepName]
 		if !ok {
 			return nil, nil, fmt.Errorf("do: needs %q: no such step in scope %q", n, scopeName)
 		}
-		ref, refErr := config.ParseStepRef(step.Uses)
-		if refErr != nil {
-			return nil, nil, fmt.Errorf("do: needs %q: %w", n, refErr)
-		}
+		ref := step.Uses
 		client, ok := plugins[ref.Plugin]
 		if !ok {
 			return nil, nil, fmt.Errorf("do: needs %q: plugin %q not loaded", n, ref.Plugin)

@@ -735,7 +735,7 @@ env: {}
 		Cmd:   []string{"sleep", "300"},
 		Labels: map[string]string{
 			cri.LabelProject: "kevin-reap-test",
-			cri.LabelURN:     cri.URNLabel("kevin-reap-test", config.ScopeEnv, "orphan"),
+			cri.LabelURN:     cri.URNLabel("kevin-reap-test", config.ScopeEnv.String(), "orphan"),
 		},
 	})
 	require.NoError(t, err)

@@ -2,11 +2,11 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	"cuelang.org/go/cue"
 	cueerrors "cuelang.org/go/cue/errors"
@@ -33,7 +33,7 @@ func clipPath(p cue.Path) cue.Path {
 // what a member doesn't: the needs every member implicitly shares, the
 // member list, the group's own computed outputs, and its label.
 type Group struct {
-	Needs   []string
+	Needs   []Need
 	Members []string // bare member names, sorted
 	Outputs map[string]string
 	Label   string
@@ -42,10 +42,10 @@ type Group struct {
 // rawGroupEntry is #StepGroup's JSON shape - decoded only once
 // [isGroupEntry] has identified a scope entry as a group, not a step.
 type rawGroupEntry struct {
-	Steps   map[string]Step   `json:"steps"`
-	Needs   []string          `json:"needs"`
-	Outputs map[string]string `json:"outputs"`
-	Label   string            `json:"label"`
+	Steps   map[string]json.RawMessage `json:"steps"`
+	Needs   []Need                     `json:"needs"`
+	Outputs map[string]string          `json:"outputs"`
+	Label   string                     `json:"label"`
 }
 
 // isGroupEntry reports whether raw is a #StepGroup (it carries a "steps"
@@ -66,11 +66,10 @@ func isGroupEntry(raw json.RawMessage) (bool, error) {
 // member's internal "<group>.<member>" name unaddressable from outside its
 // own group: a step, a group, or a command can only ever spell out a bare
 // name (or "setup.<bare name>"), never a flattened member name.
-func validateNeedsSyntax(needs []string) error {
+func validateNeedsSyntax(needs []Need) error {
 	for _, n := range needs {
-		rest := strings.TrimPrefix(n, "setup.")
-		if strings.Contains(rest, groupMemberSep) {
-			return fmt.Errorf("%w: %q", ErrUnaddressableMember, n)
+		if strings.Contains(n.Step, groupMemberSep) {
+			return fmt.Errorf("%w: %q", ErrUnaddressableMember, n.String())
 		}
 	}
 	return nil
@@ -92,7 +91,7 @@ type scopeEntries struct {
 // statically validates the group's own outputs block the same way an
 // ordinary step's with block gets validated - all before anything runs,
 // per ADR-0002.
-func (f *File) decodeScope(scopeName string) (scopeEntries, error) {
+func (f *File) decodeScope(scopeName Scope) (scopeEntries, error) {
 	// A whole-document decode, like every other File method uses (not
 	// decodePath scoped to just this field) - so an incomplete value
 	// elsewhere in the file (e.g. an unset plugins.<name>.cmd) still
@@ -109,7 +108,7 @@ func (f *File) decodeScope(scopeName string) (scopeEntries, error) {
 		raw = out.Setup
 	}
 
-	scopePath := clipPath(cue.MakePath(cue.Str(scopeName)))
+	scopePath := clipPath(cue.MakePath(cue.Str(scopeName.String())))
 	names := make([]string, 0, len(raw))
 	for name := range raw {
 		names = append(names, name)
@@ -133,16 +132,13 @@ func (f *File) decodeScope(scopeName string) (scopeEntries, error) {
 			return scopeEntries{}, err
 		}
 		if !isGroup {
-			var step Step
-			if err := json.Unmarshal(raw[name], &step); err != nil {
-				return scopeEntries{}, fmt.Errorf("config: %s.%s: %w", scopeName, name, err)
+			step, err := f.decodeStep(raw[name], entryPath, fmt.Sprintf("%s.%s", scopeName, name))
+			if err != nil {
+				return scopeEntries{}, err
 			}
 			if err := validateNeedsSyntax(step.Needs); err != nil {
 				return scopeEntries{}, f.wrapAt(entryPath.Append(cue.Str("needs")),
 					fmt.Errorf("config: %s.%s.needs: %w", scopeName, name, err))
-			}
-			if err := f.parseTimeout(scopeName+"."+name, entryPath, &step); err != nil {
-				return scopeEntries{}, err
 			}
 			entries.Steps[name] = step
 			entries.Paths[name] = entryPath
@@ -157,12 +153,32 @@ func (f *File) decodeScope(scopeName string) (scopeEntries, error) {
 	return entries, nil
 }
 
+// decodeStep decodes raw into a Step. A bad step type reference or timeout
+// is reported at its own field of the step at path, as [File.Validate] reports
+// every other field. label names the step in the message.
+func (f *File) decodeStep(raw json.RawMessage, path cue.Path, label string) (Step, error) {
+	var step Step
+	err := json.Unmarshal(raw, &step)
+	if err == nil {
+		return step, nil
+	}
+	err = fmt.Errorf("config: %s: %w", label, err)
+	switch {
+	case errors.Is(err, ErrBadTimeout):
+		return Step{}, f.wrapAt(path.Append(cue.Str("timeout")), err)
+	case errors.Is(err, ErrBadStepRef):
+		return Step{}, f.wrapAt(path.Append(cue.Str("uses")), err)
+	default:
+		return Step{}, err
+	}
+}
+
 // decodeGroup decodes name's #StepGroup entry (already identified by
 // isGroupEntry) into entries: flattens its members into entries.Steps at
 // "<group>.<member>" (each member's needs unioned with the group's own),
 // statically validates its outputs block, and records its own Group
 // metadata.
-func (f *File) decodeGroup(scopeName, name string, groupPath cue.Path, raw json.RawMessage, entries *scopeEntries) error {
+func (f *File) decodeGroup(scopeName Scope, name string, groupPath cue.Path, raw json.RawMessage, entries *scopeEntries) error {
 	var g rawGroupEntry
 	if err := json.Unmarshal(raw, &g); err != nil {
 		return fmt.Errorf("config: %s.%s: %w", scopeName, name, err)
@@ -183,15 +199,15 @@ func (f *File) decodeGroup(scopeName, name string, groupPath cue.Path, raw json.
 		if strings.Contains(member, groupMemberSep) {
 			return f.reservedKeyErr(memberPath)
 		}
-		step := g.Steps[member]
+		step, err := f.decodeStep(g.Steps[member], memberPath, fmt.Sprintf("%s.%s.steps.%s", scopeName, name, member))
+		if err != nil {
+			return err
+		}
 		if err := validateNeedsSyntax(step.Needs); err != nil {
 			return f.wrapAt(memberPath.Append(cue.Str("needs")),
 				fmt.Errorf("config: %s.%s.steps.%s.needs: %w", scopeName, name, member, err))
 		}
 		step.Needs = unionNeeds(step.Needs, g.Needs)
-		if err := f.parseTimeout(fmt.Sprintf("%s.%s.steps.%s", scopeName, name, member), memberPath, &step); err != nil {
-			return err
-		}
 
 		flat := name + groupMemberSep + member
 		entries.Steps[flat] = step
@@ -203,7 +219,7 @@ func (f *File) decodeGroup(scopeName, name string, groupPath cue.Path, raw json.
 		if err != nil {
 			return fmt.Errorf("config: %s.%s.outputs: %w", scopeName, name, err)
 		}
-		if refErr := validateNeedsReferences(scopeName, name, "outputs", members, outputsJSON); refErr != nil {
+		if refErr := validateNeedsReferences(scopeName.String(), name, "outputs", memberNeeds(members), outputsJSON); refErr != nil {
 			return f.wrapAt(groupPath.Append(cue.Str("outputs")), refErr)
 		}
 	}
@@ -217,14 +233,24 @@ func (f *File) decodeGroup(scopeName, name string, groupPath cue.Path, raw json.
 	return nil
 }
 
+// memberNeeds lists members as same-scope needs, for checking a group's
+// outputs block against them.
+func memberNeeds(members []string) []Need {
+	out := make([]Need, len(members))
+	for i, m := range members {
+		out[i] = Need{Step: m}
+	}
+	return out
+}
+
 // unionNeeds returns a's entries followed by any of b's entries not
 // already in a, preserving a's order - a member's own needs first, then
 // whatever its group implicitly adds.
-func unionNeeds(a, b []string) []string {
+func unionNeeds(a, b []Need) []Need {
 	if len(b) == 0 {
 		return a
 	}
-	seen := make(map[string]struct{}, len(a)+len(b))
+	seen := make(map[Need]struct{}, len(a)+len(b))
 	for _, n := range a {
 		seen[n] = struct{}{}
 	}
@@ -237,21 +263,6 @@ func unionNeeds(a, b []string) []string {
 		out = append(out, n)
 	}
 	return out
-}
-
-// parseTimeout sets step.TimeoutDuration from step.Timeout. who names the
-// step in the error, and path is the step's own CUE source path.
-func (f *File) parseTimeout(who string, path cue.Path, step *Step) error {
-	if step.Timeout == "" {
-		return nil
-	}
-	d, err := time.ParseDuration(step.Timeout)
-	if err != nil || d <= 0 {
-		return f.wrapAt(path.Append(cue.Str("timeout")),
-			fmt.Errorf("config: %s.timeout %q: %w", who, step.Timeout, ErrBadTimeout))
-	}
-	step.TimeoutDuration = d
-	return nil
 }
 
 // reservedKeyErr reports [ErrReservedKeyChar] for the key at p.

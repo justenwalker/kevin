@@ -63,7 +63,7 @@ func (r *run) otherScopeLive(ctx context.Context) (map[string]struct{}, error) {
 		otherScope = config.ScopeEnv
 	}
 
-	names, err := r.runtime.ListByLabel(ctx, cri.LabelScope, cri.ScopeLabel(r.cfg.Project, otherScope))
+	names, err := r.runtime.ListByLabel(ctx, cri.LabelScope, cri.ScopeLabel(r.cfg.Project, otherScope.String()))
 	if err != nil {
 		return nil, err
 	}

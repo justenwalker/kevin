@@ -248,7 +248,7 @@ func runUntil(t *testing.T, dir, until string) (*watcher, error) {
 // runKeep runs dir's environment under scope with Keep set, canceling once
 // until appears in the output. Keep only skips teardown - Run still waits
 // for cancellation like a normal run.
-func runKeep(t *testing.T, dir, scope, until string) (*watcher, error) {
+func runKeep(t *testing.T, dir string, scope config.Scope, until string) (*watcher, error) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -399,7 +399,7 @@ func TestExportCrossScopeStepRetriesAfterFailure(t *testing.T) {
 			}}}, nil
 		})
 	r := &run{
-		cfg:     &config.Config{Setup: map[string]config.Step{"cluster": {Uses: "echo:echo"}}},
+		cfg:     &config.Config{Setup: map[string]config.Step{"cluster": {Uses: config.StepRef{Plugin: "echo", Step: "echo"}}}},
 		plugins: map[string]stepPlugin{"echo": plugin},
 		caps:    map[string]pluginhost.Info{"echo": {Steps: []pluginhost.StepInfo{{Name: "echo", Export: true}}}},
 		env:     &pb.Environment{},
@@ -462,6 +462,12 @@ env: app: {uses: "echo:echo", needs: ["setup.missing"]}
 		err := runEnv(t, dir)
 
 		require.ErrorContains(t, err, `app: needs "setup.missing": no such step in scope "setup"`)
+	})
+
+	t.Run("a run without a scope", func(t *testing.T) {
+		err := Run(t.Context(), Options{Dir: project(t, `env: a: uses: "echo:echo"`)})
+
+		require.ErrorContains(t, err, "needs a scope")
 	})
 
 	t.Run("the setup prefix outside the env scope", func(t *testing.T) {
@@ -643,7 +649,7 @@ func TestValidateRenderedWith(t *testing.T) {
 			{Name: "mystep", Schema: []byte(`#Config: {port: int}`)},
 		}},
 	}
-	step := config.Step{Uses: "myplugin:mystep", With: json.RawMessage(`{"port":"${vars.port}"}`)}
+	step := config.Step{Uses: config.StepRef{Plugin: "myplugin", Step: "mystep"}, With: json.RawMessage(`{"port":"${vars.port}"}`)}
 
 	t.Run("a rendered value matching the schema passes", func(t *testing.T) {
 		r := &run{caps: caps}
@@ -660,7 +666,7 @@ func TestValidateRenderedWith(t *testing.T) {
 
 	t.Run("a with block with no marker at all skips the check", func(t *testing.T) {
 		r := &run{caps: caps}
-		noMarker := config.Step{Uses: "myplugin:mystep", With: json.RawMessage(`{"port":3}`)}
+		noMarker := config.Step{Uses: config.StepRef{Plugin: "myplugin", Step: "mystep"}, With: json.RawMessage(`{"port":3}`)}
 		err := r.validateRenderedWith("app", noMarker, json.RawMessage(`{"port":"not-an-int"}`))
 		require.NoError(t, err, "no marker means config-validate time already fully checked this field")
 	})
@@ -1050,8 +1056,8 @@ func TestCallTool(t *testing.T) {
 		return &run{
 			toolRoutes: map[string]toolRoute{"echo_echo_echo": {plugin: "echo", step: "echo", tool: "echo"}},
 			steps: map[string]config.Step{
-				"a": {Uses: "echo:echo"},
-				"w": {Uses: "builtin:wait"},
+				"a": {Uses: config.StepRef{Plugin: "echo", Step: "echo"}},
+				"w": {Uses: config.StepRef{Plugin: "builtin", Step: "wait"}},
 			},
 		}
 	}
@@ -1081,7 +1087,7 @@ func newUpRun(t *testing.T, plugin stepPlugin, routes routeTable, rl trafficRela
 	t.Helper()
 	r := &run{
 		cfg:     &config.Config{},
-		steps:   map[string]config.Step{"a": {Uses: "echo:echo"}},
+		steps:   map[string]config.Step{"a": {Uses: config.StepRef{Plugin: "echo", Step: "echo"}}},
 		plugins: map[string]stepPlugin{"echo": plugin},
 		proxy:   routes,
 		relay:   rl,

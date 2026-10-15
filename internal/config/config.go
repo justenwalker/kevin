@@ -19,7 +19,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
@@ -125,18 +124,16 @@ type SigningSpec struct {
 
 // Step is one node of the DAG.
 type Step struct {
-	Uses  string          `json:"uses"`
-	Needs []string        `json:"needs"`
+	Uses  StepRef         `json:"uses"`
+	Needs []Need          `json:"needs"`
 	With  json.RawMessage `json:"with"`
 
 	// Label is a friendly display name for the console. Empty means the
 	// step's own key names it instead.
 	Label string `json:"label"`
 
-	// Timeout is the step's timeout field as written. TimeoutDuration is its
-	// parsed value, set by decodeScope; zero means no limit.
-	Timeout         string        `json:"timeout"`
-	TimeoutDuration time.Duration `json:"-"`
+	// Timeout bounds the step's Up call. Zero means no limit.
+	Timeout Timeout `json:"timeout"`
 
 	// Watch lists the paths, relative to the project directory, whose
 	// changes rerun the step.
@@ -145,7 +142,7 @@ type Step struct {
 
 // Command is one entry of the commands block, run on demand by name.
 type Command struct {
-	Needs []string        `json:"needs"`
+	Needs []Need          `json:"needs"`
 	Run   json.RawMessage `json:"run"`
 	Cwd   string          `json:"cwd"`
 	Label string          `json:"label"`
@@ -243,11 +240,11 @@ type Config struct {
 	// populated by [File.Config] - a group's member Steps already live in
 	// Setup/Env at "<group>.<member>", groups carries only a group's own
 	// metadata.
-	groups map[string]map[string]Group
+	groups map[Scope]map[string]Group
 }
 
-// Steps returns the steps of one scope. The scope is "setup" or "env".
-func (c *Config) Steps(scope string) map[string]Step {
+// Steps returns the steps of one scope.
+func (c *Config) Steps(scope Scope) map[string]Step {
 	if scope == ScopeSetup {
 		return c.Setup
 	}
@@ -258,15 +255,9 @@ func (c *Config) Steps(scope string) map[string]Step {
 // the same "setup"/"env" convention [Config.Steps] uses. A group's member
 // Step already appears in [Config.Steps] at "<group>.<member>"; Groups
 // exists for a group's own metadata (needs, outputs, label).
-func (c *Config) Groups(scope string) map[string]Group {
+func (c *Config) Groups(scope Scope) map[string]Group {
 	return c.groups[scope]
 }
-
-// Scopes are the two independent DAGs in an environment.
-const (
-	ScopeSetup = "setup"
-	ScopeEnv   = "env"
-)
 
 // File is an environment that kevin read but did not validate in full.
 type File struct {
@@ -558,18 +549,13 @@ func (f *File) Plugins() (map[string]PluginSpec, error) {
 // StepPlugins before [File.Plugins] starts a plugin.
 func (f *File) StepPlugins() ([]string, error) {
 	seen := make(map[string]struct{})
-	for _, scopeName := range []string{ScopeSetup, ScopeEnv} {
-		entries, err := f.decodeScope(scopeName)
+	for _, scope := range []Scope{ScopeSetup, ScopeEnv} {
+		entries, err := f.decodeScope(scope)
 		if err != nil {
 			return nil, err
 		}
-		for step, spec := range entries.Steps {
-			ref, err := ParseStepRef(spec.Uses)
-			if err != nil {
-				return nil, f.wrapAt(entries.Paths[step].Append(cue.Str("uses")),
-					fmt.Errorf("config: step names step type %q: %w", spec.Uses, err))
-			}
-			seen[ref.Plugin] = struct{}{}
+		for _, spec := range entries.Steps {
+			seen[spec.Uses.Plugin] = struct{}{}
 		}
 	}
 
@@ -633,7 +619,7 @@ func (f *File) Validate(schemas map[string]PluginSchemas) error {
 	_ = f.decode(&out)
 
 	for _, scope := range []struct {
-		name    string
+		name    Scope
 		entries scopeEntries
 	}{{ScopeSetup, setupEntries}, {ScopeEnv, envEntries}} {
 		for step, spec := range scope.entries.Steps {
@@ -641,6 +627,13 @@ func (f *File) Validate(schemas map[string]PluginSchemas) error {
 				return err
 			}
 		}
+	}
+
+	if err := f.validateNeeds(ScopeSetup, setupEntries, setupEntries); err != nil {
+		return err
+	}
+	if err := f.validateNeeds(ScopeEnv, envEntries, setupEntries); err != nil {
+		return err
 	}
 
 	for name, cmd := range out.Commands {
@@ -689,13 +682,10 @@ func (f *File) compileSchema(label string, src []byte) (cue.Value, bool, error) 
 // unifies the step's with block against the schema of that step type. path
 // is the step's own CUE source path - a plain step's own key, or a
 // flattened group member's "<scope>.<group>.steps.<member>" path.
-func (f *File) validateStep(scopeName, step string, path cue.Path, spec Step, plugins map[string]PluginSpec, schemas map[string]PluginSchemas, variables map[string]Variable) error {
+func (f *File) validateStep(scopeName Scope, step string, path cue.Path, spec Step, plugins map[string]PluginSpec, schemas map[string]PluginSchemas, variables map[string]Variable) error {
 	pos := f.value.LookupPath(path.Append(cue.Str("uses"))).Pos()
 
-	ref, err := ParseStepRef(spec.Uses)
-	if err != nil {
-		return f.invalid(cueerrors.Wrapf(fmt.Errorf("config: %s.%s.uses: %w", scopeName, step, err), pos, ""))
-	}
+	ref := spec.Uses
 	if watchErr := f.validateWatch(scopeName, step, path, spec.Watch); watchErr != nil {
 		return watchErr
 	}
@@ -721,13 +711,13 @@ func (f *File) validateStep(scopeName, step string, path cue.Path, spec Step, pl
 		with = f.ctx.CompileString("{}")
 	}
 
-	if refErr := validateNeedsReferences(scopeName, step, "with", spec.Needs, spec.With); refErr != nil {
+	if refErr := validateNeedsReferences(scopeName.String(), step, "with", spec.Needs, spec.With); refErr != nil {
 		// pos (the step's "uses" field), not with.Pos(): a "with" value that
 		// exists only via the core schema's own optional "with?: {...}"
 		// declaration reports schema.cue's position, not the actual file's.
 		return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
 	}
-	if refErr := validateVarReferences(scopeName, step, "with", variables, spec.With); refErr != nil {
+	if refErr := validateVarReferences(scopeName.String(), step, "with", variables, spec.With); refErr != nil {
 		return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
 	}
 
@@ -756,7 +746,7 @@ func (f *File) validateStep(scopeName, step string, path cue.Path, spec Step, pl
 
 // validateWatch checks a step's watch paths: only an env step may watch, and
 // each path must be relative, stay inside the project directory, and exist.
-func (f *File) validateWatch(scopeName, step string, path cue.Path, watch []string) error {
+func (f *File) validateWatch(scopeName Scope, step string, path cue.Path, watch []string) error {
 	if len(watch) == 0 {
 		return nil
 	}
@@ -791,7 +781,7 @@ func (f *File) validateWatch(scopeName, step string, path cue.Path, watch []stri
 // declares) already sit in the parsed file, no plugin process or Docker
 // resource required to check them against each other. field names the
 // block in an error message ("with" for a step, "run" for a command).
-func validateNeedsReferences(scopeName, step, field string, needs []string, raw json.RawMessage) error {
+func validateNeedsReferences(scopeName string, step, field string, needs []Need, raw json.RawMessage) error {
 	needsRefs, setupRefs, err := expr.ReferencedSteps(raw)
 	if err != nil {
 		return fmt.Errorf("config: %s.%s.%s: %w", scopeName, step, field, err)
@@ -800,11 +790,11 @@ func validateNeedsReferences(scopeName, step, field string, needs []string, raw 
 	declaredNeeds := make(map[string]struct{}, len(needs))
 	declaredSetup := make(map[string]struct{}, len(needs))
 	for _, n := range needs {
-		if rest, ok := strings.CutPrefix(n, "setup."); ok {
-			declaredSetup[rest] = struct{}{}
+		if n.Setup {
+			declaredSetup[n.Step] = struct{}{}
 			continue
 		}
-		declaredNeeds[n] = struct{}{}
+		declaredNeeds[n.Step] = struct{}{}
 	}
 
 	for _, name := range needsRefs {
@@ -818,7 +808,7 @@ func validateNeedsReferences(scopeName, step, field string, needs []string, raw 
 		if _, ok := declaredSetup[name]; !ok {
 			return fmt.Errorf(
 				"config: %s.%s.%s: references %q via setup.%s, but %q is not in %s.%s's needs list as %q: %w",
-				scopeName, step, field, name, name, name, scopeName, step, "setup."+name, ErrUndeclaredNeed)
+				scopeName, step, field, name, name, name, scopeName, step, Need{Setup: true, Step: name}.String(), ErrUndeclaredNeed)
 		}
 	}
 	return nil
@@ -840,20 +830,17 @@ func (f *File) validateCommand(name string, cmd Command, env, setup map[string]S
 	}
 
 	for _, n := range cmd.Needs {
-		scopeName, scope, stepName := ScopeEnv, env, n
-		if rest, ok := strings.CutPrefix(n, "setup."); ok {
-			scopeName, scope, stepName = ScopeSetup, setup, rest
+		scopeName, scope, stepName := ScopeEnv, env, n.Step
+		if n.Setup {
+			scopeName, scope, stepName = ScopeSetup, setup, n.Step
 		}
 		step, ok := scope[stepName]
 		if !ok {
 			err := fmt.Errorf("config: commands.%s.needs: %q names no step in scope %q: %w",
-				name, n, scopeName, ErrUnknownStep)
+				name, n.String(), scopeName, ErrUnknownStep)
 			return f.invalid(cueerrors.Wrapf(err, pos, ""))
 		}
-		ref, err := ParseStepRef(step.Uses)
-		if err != nil {
-			return f.invalid(cueerrors.Wrapf(fmt.Errorf("config: commands.%s.needs: %w", name, err), pos, ""))
-		}
+		ref := step.Uses
 		if !schemas[ref.Plugin].Export[ref.Step] {
 			err := fmt.Errorf("config: commands.%s.needs: step %q (%s) does not implement export: %w",
 				name, stepName, ref, ErrExportNotSupported)
@@ -956,7 +943,7 @@ func (f *File) Config() (*Config, error) {
 	}
 	cfg.Setup = setupEntries.Steps
 	cfg.Env = envEntries.Steps
-	cfg.groups = map[string]map[string]Group{
+	cfg.groups = map[Scope]map[string]Group{
 		ScopeSetup: setupEntries.Groups,
 		ScopeEnv:   envEntries.Groups,
 	}

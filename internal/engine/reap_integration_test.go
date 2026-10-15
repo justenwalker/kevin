@@ -94,8 +94,8 @@ func TestReapKeepsTheOtherScopeAlive(t *testing.T) {
 		Cmd:   []string{"sleep", "300"},
 		Labels: map[string]string{
 			cri.LabelProject: project,
-			cri.LabelScope:   cri.ScopeLabel(project, config.ScopeSetup),
-			cri.LabelURN:     cri.URNLabel(project, config.ScopeSetup, "db"),
+			cri.LabelScope:   cri.ScopeLabel(project, config.ScopeSetup.String()),
+			cri.LabelURN:     cri.URNLabel(project, config.ScopeSetup.String(), "db"),
 		},
 	})
 	require.NoError(t, err)
@@ -106,8 +106,8 @@ func TestReapKeepsTheOtherScopeAlive(t *testing.T) {
 		Cmd:   []string{"sleep", "300"},
 		Labels: map[string]string{
 			cri.LabelProject: project,
-			cri.LabelScope:   cri.ScopeLabel(project, config.ScopeEnv),
-			cri.LabelURN:     cri.URNLabel(project, config.ScopeEnv, "orphan"),
+			cri.LabelScope:   cri.ScopeLabel(project, config.ScopeEnv.String()),
+			cri.LabelURN:     cri.URNLabel(project, config.ScopeEnv.String(), "orphan"),
 		},
 	})
 	require.NoError(t, err)

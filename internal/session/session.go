@@ -8,11 +8,6 @@ import (
 	"time"
 )
 
-// SetupPrefix marks a Step.Needs entry as naming a setup-scope step instead
-// of one in the running scope - the engine resolves it via that step's
-// Export RPC rather than as an edge in this scope's own DAG.
-const SetupPrefix = "setup."
-
 // State is where a step is in its life.
 type State string
 

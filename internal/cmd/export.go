@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 	"syscall"
 
 	"github.com/justenwalker/kevin/internal/ca"
@@ -22,18 +21,15 @@ import (
 func setupCrossScopeDeps(ctx context.Context, cfg *config.Config, plugins map[string]*pluginhost.Client, caps map[string]pluginhost.Info, env *pb.Environment, step config.Step) (map[string]output.Map, error) {
 	var out map[string]output.Map
 	for _, dep := range step.Needs {
-		setupName, ok := strings.CutPrefix(dep, "setup.")
-		if !ok {
+		if !dep.Setup {
 			continue
 		}
+		setupName := dep.Step
 		setupStep, ok := cfg.Setup[setupName]
 		if !ok {
-			return nil, fmt.Errorf("needs %q: no such step in scope \"setup\"", dep)
+			return nil, fmt.Errorf("needs %q: no such step in scope \"setup\"", dep.String())
 		}
-		ref, err := config.ParseStepRef(setupStep.Uses)
-		if err != nil {
-			return nil, err
-		}
+		ref := setupStep.Uses
 		client, ok := plugins[ref.Plugin]
 		if !ok {
 			return nil, fmt.Errorf("plugin %q not loaded", ref.Plugin)

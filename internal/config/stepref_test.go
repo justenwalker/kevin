@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -119,4 +120,12 @@ func TestIsValidIdentifier(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStepRefUnmarshalText(t *testing.T) {
+	var got StepRef
+	require.NoError(t, json.Unmarshal([]byte(`"builtin:wait"`), &got))
+	assert.Equal(t, StepRef{Plugin: "builtin", Step: "wait"}, got)
+
+	require.ErrorIs(t, json.Unmarshal([]byte(`"Not Valid"`), &got), ErrBadStepRef)
 }

@@ -86,18 +86,17 @@ func evalSymlinks(t *testing.T, path string) string {
 
 func TestResolveCommandOutputs(t *testing.T) {
 	cfg := &config.Config{
-		Env:   map[string]config.Step{"bad": {Uses: "container"}, "web": {Uses: "builtin:container"}},
-		Setup: map[string]config.Step{"db": {Uses: "builtin:container"}},
+		Env:   map[string]config.Step{"web": {Uses: config.StepRef{Plugin: "builtin", Step: "container"}}},
+		Setup: map[string]config.Step{"db": {Uses: config.StepRef{Plugin: "builtin", Step: "container"}}},
 	}
 	tests := []struct {
 		name  string
-		needs []string
+		needs []config.Need
 		want  string
 	}{
-		{name: "an env step that does not exist", needs: []string{"nope"}, want: `no such step in scope "env"`},
-		{name: "a setup step that does not exist", needs: []string{"setup.nope"}, want: `no such step in scope "setup"`},
-		{name: "a malformed step type", needs: []string{"bad"}, want: "not a step type"},
-		{name: "a plugin that is not loaded", needs: []string{"web"}, want: `plugin "builtin" not loaded`},
+		{name: "an env step that does not exist", needs: []config.Need{{Step: "nope"}}, want: `no such step in scope "env"`},
+		{name: "a setup step that does not exist", needs: []config.Need{{Setup: true, Step: "nope"}}, want: `no such step in scope "setup"`},
+		{name: "a plugin that is not loaded", needs: []config.Need{{Step: "web"}}, want: `plugin "builtin" not loaded`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

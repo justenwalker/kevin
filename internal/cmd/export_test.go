@@ -18,37 +18,31 @@ func TestSetupCrossScopeDeps(t *testing.T) {
 	tests := []struct {
 		name    string
 		cfg     config.Config
-		needs   []string
+		needs   []config.Need
 		plugins map[string]*pluginhost.Client
 		want    string
 	}{
 		{
 			name:  "ignores a need that is not a setup step",
 			cfg:   config.Config{},
-			needs: []string{"db"},
+			needs: []config.Need{{Step: "db"}},
 		},
 		{
 			name:  "names a setup step that does not exist",
 			cfg:   config.Config{},
-			needs: []string{"setup.db"},
+			needs: []config.Need{{Setup: true, Step: "db"}},
 			want:  `no such step in scope "setup"`,
 		},
 		{
-			name:  "rejects a malformed step type",
-			cfg:   config.Config{Setup: map[string]config.Step{"db": {Uses: "container"}}},
-			needs: []string{"setup.db"},
-			want:  "not a step type",
-		},
-		{
 			name:  "names a plugin that is not loaded",
-			cfg:   config.Config{Setup: map[string]config.Step{"db": {Uses: "builtin:container"}}},
-			needs: []string{"setup.db"},
+			cfg:   config.Config{Setup: map[string]config.Step{"db": {Uses: config.StepRef{Plugin: "builtin", Step: "container"}}}},
+			needs: []config.Need{{Setup: true, Step: "db"}},
 			want:  `plugin "builtin" not loaded`,
 		},
 		{
 			name:    "rejects a step type without export",
-			cfg:     config.Config{Setup: map[string]config.Step{"db": {Uses: "builtin:wait"}}},
-			needs:   []string{"setup.db"},
+			cfg:     config.Config{Setup: map[string]config.Step{"db": {Uses: config.StepRef{Plugin: "builtin", Step: "wait"}}}},
+			needs:   []config.Need{{Setup: true, Step: "db"}},
 			plugins: map[string]*pluginhost.Client{"builtin": nil},
 			want:    "does not implement export",
 		},

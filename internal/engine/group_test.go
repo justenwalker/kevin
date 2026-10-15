@@ -38,12 +38,12 @@ func TestEvalGroupOutputs(t *testing.T) {
 func TestRegisterScopeStepsHidesGroupNeedsFromMembers(t *testing.T) {
 	r := &run{
 		steps: map[string]config.Step{
-			"net":        {Uses: "echo:echo"},
-			"db.primary": {Uses: "echo:echo", Needs: []string{"net"}},
-			"db.replica": {Uses: "echo:echo", Needs: []string{"net", "primary", "setup.cluster"}},
+			"net":        {Uses: config.StepRef{Plugin: "echo", Step: "echo"}},
+			"db.primary": {Uses: config.StepRef{Plugin: "echo", Step: "echo"}, Needs: []config.Need{{Step: "net"}}},
+			"db.replica": {Uses: config.StepRef{Plugin: "echo", Step: "echo"}, Needs: []config.Need{{Step: "net"}, {Step: "primary"}, {Setup: true, Step: "cluster"}}},
 		},
 		groups: map[string]config.Group{
-			"db": {Needs: []string{"net"}, Members: []string{"primary", "replica"}},
+			"db": {Needs: []config.Need{{Step: "net"}}, Members: []string{"primary", "replica"}},
 		},
 	}
 

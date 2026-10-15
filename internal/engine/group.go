@@ -34,15 +34,18 @@ func memberName(group, member string) string {
 // happens for a value that actually reached here, but graph()/downNeeds()
 // still need a filter to drop a cross-scope "setup.<name>" entry, resolved
 // separately by crossScopeDeps.
-func (r *run) resolveNeed(name, dep string) (string, bool) {
-	if group, _, ok := strings.Cut(name, groupSep); ok && slices.Contains(r.groups[group].Members, dep) {
-		return memberName(group, dep), true
+func (r *run) resolveNeed(name string, dep config.Need) (string, bool) {
+	if dep.Setup {
+		return "", false
 	}
-	if _, ok := r.steps[dep]; ok {
-		return dep, true
+	if group, _, ok := strings.Cut(name, groupSep); ok && slices.Contains(r.groups[group].Members, dep.Step) {
+		return memberName(group, dep.Step), true
 	}
-	if _, ok := r.groups[dep]; ok {
-		return dep, true
+	if _, ok := r.steps[dep.Step]; ok {
+		return dep.Step, true
+	}
+	if _, ok := r.groups[dep.Step]; ok {
+		return dep.Step, true
 	}
 	return "", false
 }
@@ -70,15 +73,15 @@ func localizeDeps(name string, deps map[string]output.Map) map[string]output.Map
 
 // subtractNeeds returns needs with every entry in exclude removed,
 // preserving order.
-func subtractNeeds(needs, exclude []string) []string {
+func subtractNeeds(needs, exclude []config.Need) []config.Need {
 	if len(exclude) == 0 {
 		return needs
 	}
-	skip := make(map[string]bool, len(exclude))
+	skip := make(map[config.Need]bool, len(exclude))
 	for _, n := range exclude {
 		skip[n] = true
 	}
-	out := make([]string, 0, len(needs))
+	out := make([]config.Need, 0, len(needs))
 	for _, n := range needs {
 		if !skip[n] {
 			out = append(out, n)
@@ -87,14 +90,23 @@ func subtractNeeds(needs, exclude []string) []string {
 	return out
 }
 
+// hasStep reports whether name is a step of the run, a group member included.
+func (r *run) hasStep(name string) bool {
+	_, ok := r.steps[name]
+	return ok
+}
+
 // qualifySiblings returns needs with each bare sibling member name replaced
 // by its "<group>.<member>" step name, the one a console row is keyed by.
-func (r *run) qualifySiblings(group string, needs []string) []string {
-	out := make([]string, len(needs))
+func (r *run) qualifySiblings(group string, needs []config.Need) []config.Need {
+	out := make([]config.Need, len(needs))
 	for i, n := range needs {
 		out[i] = n
-		if qualified := memberName(group, n); r.steps[qualified].Uses != "" {
-			out[i] = qualified
+		if n.Setup {
+			continue
+		}
+		if qualified := memberName(group, n.Step); r.hasStep(qualified) {
+			out[i] = config.Need{Step: qualified}
 		}
 	}
 	return out
@@ -111,7 +123,7 @@ func (r *run) registerScopeSteps(store *session.Store) error {
 	// read roughly as installation order, a dependency after what it needs.
 	for _, name := range r.graph().TopoSort() {
 		if grp, ok := r.groups[name]; ok {
-			store.AddStep(name, grp.Label, "group", "", nil, grp.Needs, false, "", true)
+			store.AddStep(name, grp.Label, "group", "", nil, config.NeedStrings(grp.Needs), false, "", true)
 			// A group is a pure recompute, always safe to sweep into a
 			// cascading rerun.
 			store.SetStepIdempotent(name, true)
@@ -119,10 +131,7 @@ func (r *run) registerScopeSteps(store *session.Store) error {
 		}
 
 		step := r.steps[name]
-		ref, refErr := config.ParseStepRef(step.Uses)
-		if refErr != nil {
-			return refErr
-		}
+		ref := step.Uses
 		kindLabel := stepKindLabel(stepKind(r.caps[ref.Plugin], ref.Step))
 
 		group, label := "", step.Label
@@ -144,7 +153,7 @@ func (r *run) registerScopeSteps(store *session.Store) error {
 			needs = subtractNeeds(needs, r.groups[group].Needs)
 			needs = r.qualifySiblings(group, needs)
 		}
-		store.AddStep(name, label, kindLabel, ref.Plugin, r.caps[ref.Plugin].Icon, needs,
+		store.AddStep(name, label, kindLabel, ref.Plugin, r.caps[ref.Plugin].Icon, config.NeedStrings(needs),
 			isCompactStep(kindLabel, ref.Plugin, ref.Step), group, false)
 		store.SetStepIdempotent(name, stepIdempotent(r.caps[ref.Plugin], ref.Step))
 	}
