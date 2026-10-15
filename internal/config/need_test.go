@@ -53,6 +53,8 @@ func TestResolveNeed(t *testing.T) {
 		{name: "a plain step", from: "web", dep: Need{Step: "web"}, want: "web", ok: true},
 		{name: "a group by its own name", from: "web", dep: Need{Step: "db"}, want: "db", ok: true},
 		{name: "a sibling by its bare name", from: "db.replica", dep: Need{Step: "primary"}, want: "db.primary", ok: true},
+		{name: "a member naming a plain step", from: "db.replica", dep: Need{Step: "web"}, want: "web", ok: true},
+		{name: "a dotted name outside any group", from: "x.y", dep: Need{Step: "primary"}},
 		{name: "a setup entry", from: "web", dep: Need{Setup: true, Step: "web"}},
 		{name: "an unknown name", from: "web", dep: Need{Step: "missing"}},
 	}

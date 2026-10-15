@@ -18,12 +18,12 @@ import (
 // using only signers' own matching-scheme entries, never the global
 // trust store. Neither sibling existing is [ErrVersionSignatureMissing];
 // either existing but not verifying is [ErrVersionSignatureInvalid].
-func verifyVersionFile(ctx context.Context, path string, signers []Signer) error {
+func verifyVersionFile(ctx context.Context, path string, signers []Signer, cosignRunner command.Runner) error {
 	if _, err := os.Stat(path + ".minisig"); err == nil {
 		return verifyMinisignFile(path, path+".minisig", signers)
 	}
 	if _, err := os.Stat(path + ".sigstore.json"); err == nil {
-		return verifySigstoreFile(ctx, path, path+".sigstore.json", signers)
+		return verifySigstoreFile(ctx, path, path+".sigstore.json", signers, cosignRunner)
 	}
 	return fmt.Errorf("pluginindex: %q: %w", path, ErrVersionSignatureMissing)
 }
@@ -75,13 +75,13 @@ func minisignKeyring(signers []Signer) pkgtrust.Keyring {
 // succeeding on the first match. path is already a real file on disk
 // (this plugin's own cloned version source), so unlike package
 // verification of an in-memory HTTP/OCI fetch, no temp file is needed.
-func verifySigstoreFile(ctx context.Context, path, bundlePath string, signers []Signer) error {
+func verifySigstoreFile(ctx context.Context, path, bundlePath string, signers []Signer, cosignRunner command.Runner) error {
 	var lastErr error
 	for _, s := range signers {
 		if s.Scheme != config.SigningSchemeSigstore {
 			continue
 		}
-		err := cosign.New(command.Default).VerifyBlob(ctx, path, bundlePath, s.Identity, s.Issuer)
+		err := cosign.New(cosignRunner).VerifyBlob(ctx, path, bundlePath, s.Identity, s.Issuer)
 		if err == nil {
 			return nil
 		}

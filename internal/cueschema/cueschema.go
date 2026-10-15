@@ -35,6 +35,9 @@ type Field struct {
 	Name     string
 	Required bool
 
+	// Optional is true for a field declared with "?".
+	Optional bool
+
 	// Type is the field's type, rendered for display (e.g. "string",
 	// "bool", "[...string]", "[...#Expose]"). Empty when Enum is set.
 	Type string
@@ -114,6 +117,7 @@ func fields(s *ast.StructLit) []Field {
 		out = append(out, Field{
 			Name:      labelName(astField.Label),
 			Required:  astField.Constraint == token.NOT,
+			Optional:  astField.Constraint == token.OPTION,
 			Type:      typ,
 			Enum:      enum,
 			Default:   def,

@@ -5,6 +5,7 @@ package pluginload
 import (
 	"context"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/logging"
 	"github.com/justenwalker/kevin/internal/pluginhost"
@@ -41,7 +42,7 @@ func Fetch(ctx context.Context, dir, name string, tags []string) ([]string, erro
 		if n == config.Builtin {
 			continue
 		}
-		if _, err := resolveSpec(ctx, n, file.Dir(), specs); err != nil {
+		if _, err := resolveSpec(ctx, n, file.Dir(), specs, command.Default); err != nil {
 			return fetched, err
 		}
 		fetched = append(fetched, n)
@@ -75,6 +76,10 @@ type Options struct {
 
 	// Vars are the inputs for the environment's variables.
 	Vars config.VariableInputs
+
+	// Cosign runs cosign to verify a sigstore signature. Nil runs the cosign
+	// on PATH.
+	Cosign command.Runner
 }
 
 // Load reads the environment file, starts every plugin that a step
@@ -99,7 +104,11 @@ func Load(ctx context.Context, opts Options) (Loaded, error) {
 		return Loaded{}, err
 	}
 
-	plugins, err := launchAll(ctx, file.Dir(), specs, names)
+	cosignRunner := opts.Cosign
+	if cosignRunner == nil {
+		cosignRunner = command.Default
+	}
+	plugins, err := launchAll(ctx, file.Dir(), specs, names, cosignRunner)
 	if err != nil {
 		return Loaded{Plugins: plugins}, err
 	}
@@ -140,10 +149,10 @@ func Load(ctx context.Context, opts Options) (Loaded, error) {
 // scope references. Two step types of one plugin share the same process. On
 // failure launchAll returns the plugins that did start, together with the
 // error. The caller must stop them.
-func launchAll(ctx context.Context, dir string, specs map[string]config.PluginSpec, names []string) (map[string]*pluginhost.Client, error) {
+func launchAll(ctx context.Context, dir string, specs map[string]config.PluginSpec, names []string, cosignRunner command.Runner) (map[string]*pluginhost.Client, error) {
 	clients := make(map[string]*pluginhost.Client, len(names))
 	for _, name := range names {
-		spec, err := resolveSpec(ctx, name, dir, specs)
+		spec, err := resolveSpec(ctx, name, dir, specs, cosignRunner)
 		if err != nil {
 			return clients, err
 		}

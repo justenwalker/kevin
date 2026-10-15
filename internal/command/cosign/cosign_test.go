@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,14 +13,6 @@ import (
 
 	"github.com/justenwalker/kevin/internal/command/commandtest"
 )
-
-func TestLookPath(t *testing.T) {
-	t.Run("reports ErrCosignNotFound when PATH has no cosign", func(t *testing.T) {
-		t.Setenv("PATH", t.TempDir())
-		_, err := LookPath()
-		require.ErrorIs(t, err, ErrCosignNotFound)
-	})
-}
 
 func TestVerifyBlobArgs(t *testing.T) {
 	got := verifyBlobArgs("plugin.tar.gz", "plugin.tar.gz.sigstore.json", "ci@acme.example", "https://token.actions.githubusercontent.com")
@@ -54,17 +44,7 @@ func TestVerifyErr(t *testing.T) {
 }
 
 func TestClientVerifyBlob(t *testing.T) {
-	// withCosignOnPath puts a file named cosign on PATH; the mocked runner
-	// never starts it, but LookPath has to find it.
-	withCosignOnPath := func(t *testing.T) {
-		t.Helper()
-		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "cosign"), []byte("#!/bin/sh\n"), 0o700))
-		t.Setenv("PATH", dir)
-	}
-
 	t.Run("passes the bundle, identity, and issuer to cosign", func(t *testing.T) {
-		withCosignOnPath(t)
 		runner := commandtest.NewMockRunner(t)
 		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
 			func(_ context.Context, cmd *exec.Cmd) error {
@@ -78,7 +58,6 @@ func TestClientVerifyBlob(t *testing.T) {
 	})
 
 	t.Run("reports cosign's stderr as ErrVerifyFailed", func(t *testing.T) {
-		withCosignOnPath(t)
 		runner := commandtest.NewMockRunner(t)
 		runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
 			func(_ context.Context, cmd *exec.Cmd) error {
@@ -91,9 +70,9 @@ func TestClientVerifyBlob(t *testing.T) {
 		assert.ErrorContains(t, err, "no matching signatures")
 	})
 
-	t.Run("reports ErrCosignNotFound without running anything", func(t *testing.T) {
-		t.Setenv("PATH", t.TempDir())
+	t.Run("reports ErrCosignNotFound when the runner cannot find cosign", func(t *testing.T) {
 		runner := commandtest.NewMockRunner(t)
+		runner.EXPECT().Run(mock.Anything, mock.Anything).Return(exec.ErrNotFound)
 
 		err := New(runner).VerifyBlob(t.Context(), "/pkg", "/bundle", "id", "iss")
 		require.ErrorIs(t, err, ErrCosignNotFound)

@@ -1,6 +1,7 @@
 package pluginindex
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
@@ -11,8 +12,12 @@ import (
 
 	"github.com/jedisct1/go-minisign"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/command"
+	"github.com/justenwalker/kevin/internal/command/commandtest"
+	"github.com/justenwalker/kevin/internal/command/cosign"
 	"github.com/justenwalker/kevin/internal/config"
 )
 
@@ -70,7 +75,7 @@ func TestVerifyVersionFile(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte("version: 1.0.0\n"), 0o600))
 		key.signFile(t, path)
 
-		err := verifyVersionFile(t.Context(), path, []Signer{key.signer()})
+		err := verifyVersionFile(t.Context(), path, []Signer{key.signer()}, command.Default)
 		require.NoError(t, err)
 	})
 
@@ -80,7 +85,7 @@ func TestVerifyVersionFile(t *testing.T) {
 		path := filepath.Join(dir, "1.0.0.yaml")
 		require.NoError(t, os.WriteFile(path, []byte("version: 1.0.0\n"), 0o600))
 
-		err := verifyVersionFile(t.Context(), path, []Signer{key.signer()})
+		err := verifyVersionFile(t.Context(), path, []Signer{key.signer()}, command.Default)
 		require.ErrorIs(t, err, ErrVersionSignatureMissing)
 	})
 
@@ -92,7 +97,7 @@ func TestVerifyVersionFile(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte("version: 1.0.0\n"), 0o600))
 		signingKey.signFile(t, path)
 
-		err := verifyVersionFile(t.Context(), path, []Signer{declaredKey.signer()})
+		err := verifyVersionFile(t.Context(), path, []Signer{declaredKey.signer()}, command.Default)
 		require.ErrorIs(t, err, ErrVersionSignatureInvalid)
 	})
 
@@ -105,22 +110,47 @@ func TestVerifyVersionFile(t *testing.T) {
 
 		require.NoError(t, os.WriteFile(path, []byte("version: 1.0.0\nsource:\n  oci: evil\n"), 0o600))
 
-		err := verifyVersionFile(t.Context(), path, []Signer{key.signer()})
+		err := verifyVersionFile(t.Context(), path, []Signer{key.signer()}, command.Default)
 		require.ErrorIs(t, err, ErrVersionSignatureInvalid)
 	})
 
-	t.Run("a sigstore.json sibling with cosign unavailable fails, not silently skipped", func(t *testing.T) {
-		if _, err := exec.LookPath("cosign"); err == nil {
-			t.Setenv("PATH", t.TempDir())
-		}
+	t.Run("a sigstore.json sibling is verified through the runner", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "1.0.0.yaml")
 		require.NoError(t, os.WriteFile(path, []byte("version: 1.0.0\n"), 0o600))
 		require.NoError(t, os.WriteFile(path+".sigstore.json", []byte("{}"), 0o600))
-
 		signers := []Signer{{Scheme: config.SigningSchemeSigstore, Identity: "ci@example.com", Issuer: "https://issuer.example"}}
-		err := verifyVersionFile(t.Context(), path, signers)
-		require.ErrorIs(t, err, ErrVersionSignatureInvalid)
+
+		t.Run("accepts a signature the runner accepts", func(t *testing.T) {
+			runner := commandtest.NewMockRunner(t)
+			runner.EXPECT().Run(mock.Anything, mock.Anything).RunAndReturn(
+				func(_ context.Context, cmd *exec.Cmd) error {
+					assert.Contains(t, cmd.Args, "ci@example.com")
+					assert.Contains(t, cmd.Args, path)
+					return nil
+				})
+
+			require.NoError(t, verifyVersionFile(t.Context(), path, signers, runner))
+		})
+
+		t.Run("a signature the runner rejects is ErrVersionSignatureInvalid", func(t *testing.T) {
+			runner := commandtest.NewMockRunner(t)
+			runner.EXPECT().Run(mock.Anything, mock.Anything).Return(assert.AnError)
+
+			err := verifyVersionFile(t.Context(), path, signers, runner)
+
+			require.ErrorIs(t, err, ErrVersionSignatureInvalid)
+		})
+
+		t.Run("a missing cosign is ErrVersionSignatureInvalid, not skipped", func(t *testing.T) {
+			runner := commandtest.NewMockRunner(t)
+			runner.EXPECT().Run(mock.Anything, mock.Anything).Return(exec.ErrNotFound)
+
+			err := verifyVersionFile(t.Context(), path, signers, runner)
+
+			require.ErrorIs(t, err, ErrVersionSignatureInvalid)
+			require.ErrorIs(t, err, cosign.ErrCosignNotFound)
+		})
 	})
 }
 

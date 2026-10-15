@@ -1,0 +1,3 @@
+kind: Changed
+body: 'A plugin config: block receives the defaults its schema declares, as a step with block does.'
+time: 2026-10-11T11:00:00.000000-04:00

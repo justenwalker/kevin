@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/state"
 )
@@ -93,7 +94,7 @@ func AddSource(ctx context.Context, url, alias string) (AddResult, error) {
 		return AddResult{}, writeErr
 	}
 
-	plugins, warnings, err := syncSource(ctx, src)
+	plugins, warnings, err := syncSource(ctx, src, command.Default)
 	if err != nil {
 		return AddResult{}, err
 	}

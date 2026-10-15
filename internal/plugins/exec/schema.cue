@@ -9,7 +9,7 @@
 	// proxy sets the proxy environment variables and the kevin CA for up and
 	// down, so their requests go through the kevin proxy and show in the
 	// console.
-	proxy?: bool | *false
+	proxy?: bool
 
 	// egress lists external hosts that the commands can reach when
 	// proxy.egress.deny is true. Has an effect only when proxy is true.

@@ -45,7 +45,7 @@
 	// relay deploys the relay pod even when expose is empty, and sets the
 	// relay_addr output. Use it with builtin:route to give a Service in the
 	// cluster a name on the environment domain.
-	relay?: bool | *false
+	relay?: bool
 
 	// mounts makes host paths visible in every node of the cluster.
 	mounts?: [...#Mount]
@@ -159,7 +159,7 @@
 	address!: string
 
 	// protocol is the transport protocol of the address.
-	protocol?: "tcp" | "udp" | *"tcp"
+	protocol: *"tcp" | "udp"
 
 	// host_port sets the port of the "forward_<name>" address on the host.
 	// Unset, the OS picks a free port.

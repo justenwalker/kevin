@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/cueschema"
 	"github.com/justenwalker/kevin/internal/plugins"
 )
 
@@ -54,5 +55,23 @@ func TestProvider(t *testing.T) {
 		step, ok := p.Steps[name]
 		assert.True(t, ok, "the provider must offer %q", name)
 		assert.NotEmpty(t, step.Schema(), "%q must declare a schema", name)
+	}
+}
+
+// TestSchemasHaveNoOptionalDefaults checks that no field of a definition is
+// declared with "?" and a default: such a default is never sent to the
+// plugin. Fields of nested inline structs are not checked.
+func TestSchemasHaveNoOptionalDefaults(t *testing.T) {
+	for _, name := range plugins.Names() {
+		step, ok := plugins.Lookup(name)
+		require.True(t, ok)
+
+		schema, err := cueschema.ParseSource(name, step.Schema())
+		require.NoError(t, err)
+		for def, d := range schema.Definitions {
+			for _, f := range d.Fields {
+				assert.False(t, f.Optional && f.Default != "", "%s #%s.%s is optional with default %s", name, def, f.Name, f.Default)
+			}
+		}
 	}
 }

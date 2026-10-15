@@ -8,17 +8,6 @@ import (
 	"cuelang.org/go/cue/cuecontext"
 )
 
-// ValidateAgainstSchema checks rendered - a fully rendered with or config
-// block, with no "${...}" markers left in it - against schemaSrc, that
-// block's own published #Config schema. label names the block in an error
-// message (e.g. "a.with", "plugins.echo.config").
-//
-// See [ApplySchema] for the skipped cases and what the check catches.
-func ValidateAgainstSchema(label string, rendered, schemaSrc []byte) error {
-	_, err := ApplySchema(label, rendered, schemaSrc)
-	return err
-}
-
 // ApplySchema checks rendered - a fully rendered with or config block, with
 // no "${...}" markers left in it - against schemaSrc, that block's own
 // published #Config schema, and returns the block as JSON with every default

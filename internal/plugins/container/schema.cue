@@ -89,7 +89,7 @@
 	port!: int
 
 	// protocol is the transport protocol of the port.
-	protocol?: "tcp" | "udp" | *"tcp"
+	protocol: *"tcp" | "udp"
 
 	// host_port sets the port on the host. Unset, the OS picks a free port.
 	// Ignored when relay is true.
@@ -99,5 +99,5 @@
 	// published host port. Use it when host ports are limited. The address
 	// is in the "expose_<name>" and "forward_<name>" system values instead of a
 	// "host_<port>" output.
-	relay?: bool | *false
+	relay?: bool
 }

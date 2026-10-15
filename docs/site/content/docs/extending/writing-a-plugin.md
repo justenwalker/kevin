@@ -67,7 +67,7 @@ kevin starts the plugin once for each run and keeps it running. The DAG can run 
 
 `Schema` returns CUE that defines `#Config`, the `with` block of the step type. Return `nil` if the step type has no configuration. kevin checks each step's `with` block against it before anything runs.
 
-For a provider-wide `config` block, set `Plugin.ConfigSchema` and `Plugin.Configure`. kevin calls `Configure` once, before the first step of the provider.
+For a provider-wide `config` block, set `Plugin.ConfigSchema` and `Plugin.Configure`. kevin calls `Configure` once, before the first step of the provider. `ConfigSchema` defines `#Config` like `Schema` does, and the block reaches `Configure` with every default filled in, as a `with` block does. A field declared with `?` gets no default.
 
 `Plugin.Icon` is an optional PNG, 48x48 or smaller, that the console shows next to the provider's step types.
 

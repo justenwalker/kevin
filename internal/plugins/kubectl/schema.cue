@@ -24,9 +24,9 @@
 	// Exactly one of manifest, path, kustomize must be set.
 
 	// server_side applies with --server-side.
-	server_side?: bool | *false
+	server_side?: bool
 
 	// keep leaves the applied resources in place on teardown, instead of
 	// deleting them.
-	keep?: bool | *false
+	keep?: bool
 }

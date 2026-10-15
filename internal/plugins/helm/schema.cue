@@ -45,5 +45,5 @@
 
 	// keep leaves the release installed on teardown, instead of uninstalling
 	// it.
-	keep?: bool | *false
+	keep?: bool
 }

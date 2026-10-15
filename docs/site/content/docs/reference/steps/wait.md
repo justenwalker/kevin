@@ -73,7 +73,7 @@ Set exactly one of `tcp`, `http`, `kubectl`, `exec`, and `duration`.
 | `namespace` | `string` | - | The target namespace. |
 | `resource` | `string` | - | **Required.** The target, such as `"pod/mypod"` or `"deployment/api"`. |
 | `for` | `string` | - | The condition to wait for, passed to kubectl wait --for=, such as `"condition=Ready"`. |
-| `rollout` | `bool` | `false` | Runs kubectl rollout status against resource instead of kubectl wait. |
+| `rollout` | `bool` | - | Runs kubectl rollout status against resource instead of kubectl wait. |
 
 Set exactly one of `for` and `rollout`.
 

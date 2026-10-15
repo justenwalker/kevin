@@ -29,8 +29,8 @@ app: {
 | `manifest` | `string` | - | Inline YAML to apply. |
 | `path` | `string` | - | A manifest file or directory, applied with -f. Relative to the project directory unless absolute. |
 | `kustomize` | `string` | - | A kustomization directory, applied with kubectl -k. Relative to the project directory unless absolute. |
-| `server_side` | `bool` | `false` | Applies with --server-side. |
-| `keep` | `bool` | `false` | Leaves the applied resources in place on teardown, instead of deleting them. |
+| `server_side` | `bool` | - | Applies with --server-side. |
+| `keep` | `bool` | - | Leaves the applied resources in place on teardown, instead of deleting them. |
 
 Set exactly one of `manifest`, `path`, and `kustomize`.
 

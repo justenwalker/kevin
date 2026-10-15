@@ -52,7 +52,6 @@ func TestProtocolUnmarshalText(t *testing.T) {
 		text string
 		want Protocol
 	}{
-		{"", ProtocolTCP},
 		{"tcp", ProtocolTCP},
 		{"udp", ProtocolUDP},
 	}
@@ -64,9 +63,10 @@ func TestProtocolUnmarshalText(t *testing.T) {
 		})
 	}
 
-	t.Run("an unknown protocol is an error", func(t *testing.T) {
+	t.Run("an unknown or empty protocol is an error", func(t *testing.T) {
 		var p Protocol
 		require.ErrorIs(t, p.UnmarshalText([]byte("sctp")), ErrUnknownProtocol)
+		require.ErrorIs(t, p.UnmarshalText(nil), ErrUnknownProtocol)
 	})
 
 	t.Run("a with-block field decodes from JSON", func(t *testing.T) {

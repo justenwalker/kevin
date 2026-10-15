@@ -46,7 +46,7 @@ up: command: [
 |:------|:----:|:-------:|:------------|
 | `up` | `#Exec` | - | Runs once when the step starts. A nonzero exit fails the step. Its stdout, with surrounding whitespace removed, is the `"stdout"` output. |
 | `down` | `#Exec` | - | Runs on teardown. Unset, teardown runs nothing. |
-| `proxy` | `bool` | `false` | Sets the proxy environment variables and the kevin CA for up and down, so their requests go through the kevin proxy and show in the console. |
+| `proxy` | `bool` | - | Sets the proxy environment variables and the kevin CA for up and down, so their requests go through the kevin proxy and show in the console. |
 | `egress` | `[...string]` | - | Lists external hosts that the commands can reach when proxy.egress.deny is true. Has an effect only when proxy is true. |
 
 ## `#Exec`

@@ -83,11 +83,3 @@ func TestApplySchema(t *testing.T) {
 		require.Error(t, err)
 	})
 }
-
-func TestValidateAgainstSchema(t *testing.T) {
-	t.Run("reports the same error ApplySchema does", func(t *testing.T) {
-		err := ValidateAgainstSchema("a.with", []byte(`{}`), []byte(applySchemaSrc))
-
-		require.ErrorIs(t, err, ErrInvalid)
-	})
-}

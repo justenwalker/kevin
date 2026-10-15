@@ -69,7 +69,7 @@
 
 	// rollout runs kubectl rollout status against resource instead of
 	// kubectl wait.
-	rollout?: bool | *false
+	rollout?: bool
 }
 
 #Exec: {

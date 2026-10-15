@@ -33,7 +33,7 @@
 	// ports lists the ports that clients use to connect to host. Ports 80
 	// and 443 are always intercepted. Has an effect only when intercept is
 	// true.
-	ports?: [...int] | *[443]
+	ports?: [...int]
 
 	// mode selects how the proxy handles connections to this route. "mitm"
 	// terminates TLS with a certificate from the kevin CA and forwards each

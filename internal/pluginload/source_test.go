@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/pkgcache"
 	"github.com/justenwalker/kevin/internal/pkgtrust"
@@ -87,12 +88,12 @@ func (r *recordingRunner) Run(_ context.Context, cmd *exec.Cmd) error {
 
 func TestVerifySource(t *testing.T) {
 	t.Run("no signing block skips the check", func(t *testing.T) {
-		require.NoError(t, verifySource(t.Context(), fakeSource{err: pkgtrust.ErrSignatureMissing}, pkgcache.Entry{}, nil))
+		require.NoError(t, verifySource(t.Context(), fakeSource{err: pkgtrust.ErrSignatureMissing}, pkgcache.Entry{}, nil, command.Default))
 	})
 
 	t.Run("a signature lookup failure is returned", func(t *testing.T) {
 		signing := &config.SigningSpec{Scheme: config.SigningSchemeMinisign}
-		err := verifySource(t.Context(), fakeSource{err: pkgtrust.ErrSignatureMissing}, pkgcache.Entry{}, signing)
+		err := verifySource(t.Context(), fakeSource{err: pkgtrust.ErrSignatureMissing}, pkgcache.Entry{}, signing, command.Default)
 		require.ErrorIs(t, err, pkgtrust.ErrSignatureMissing)
 	})
 
@@ -100,27 +101,21 @@ func TestVerifySource(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		t.Setenv("KEVIN_USER_STATE_DIR", "")
 		signing := &config.SigningSpec{Scheme: config.SigningSchemeMinisign}
-		err := verifySource(t.Context(), fakeSource{sig: []byte("garbage")}, pkgcache.Entry{}, signing)
+		err := verifySource(t.Context(), fakeSource{sig: []byte("garbage")}, pkgcache.Entry{}, signing, command.Default)
 		require.ErrorIs(t, err, pkgtrust.ErrSignatureInvalid)
 	})
 
 	t.Run("sigstore runs cosign with the signing identity through the runner", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		t.Setenv("KEVIN_USER_STATE_DIR", "")
-		binDir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(binDir, "cosign"), []byte("#!/bin/sh\n"), 0o700))
-		t.Setenv("PATH", binDir)
 		require.NoError(t, pkgtrust.AddIdentity("ci@acme.example", "https://issuer.example"))
 
 		runner := &recordingRunner{}
-		prev := cosignRunner
-		cosignRunner = runner
-		t.Cleanup(func() { cosignRunner = prev })
 
 		signing := &config.SigningSpec{
 			Scheme: config.SigningSchemeSigstore, Identity: "ci@acme.example", Issuer: "https://issuer.example",
 		}
-		err := verifySource(t.Context(), fakeSource{sig: []byte("{}")}, pkgcache.Entry{Path: "/cache/pkg"}, signing)
+		err := verifySource(t.Context(), fakeSource{sig: []byte("{}")}, pkgcache.Entry{Path: "/cache/pkg"}, signing, runner)
 		require.NoError(t, err)
 		require.NotNil(t, runner.cmd)
 		assert.Contains(t, runner.cmd.Args, "ci@acme.example")

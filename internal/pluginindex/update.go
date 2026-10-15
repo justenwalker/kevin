@@ -46,7 +46,7 @@ func Update(ctx context.Context) ([]UpdateResult, error) {
 
 	results := make([]UpdateResult, 0, len(sources))
 	for _, src := range sources {
-		plugins, warnings, err := syncSource(ctx, src)
+		plugins, warnings, err := syncSource(ctx, src, command.Default)
 		results = append(results, UpdateResult{Source: src, Plugins: plugins, Warnings: warnings, Err: err})
 	}
 	return results, nil
@@ -56,11 +56,11 @@ func Update(ctx context.Context) ([]UpdateResult, error) {
 // and loads its plugins/ tree to count plugins and collect per-plugin
 // warnings. A single bad plugin.yaml, bad versions/*.yaml, or unreachable
 // VersionSource is a warning, not a failure.
-func syncSource(ctx context.Context, src Source) (int, []string, error) {
+func syncSource(ctx context.Context, src Source, cosignRunner command.Runner) (int, []string, error) {
 	if err := cloneAndSwap(ctx, src.URL, src.repoDir()); err != nil {
 		return 0, nil, err
 	}
-	plugins, warnings, err := loadRepoPlugins(ctx, src.repoDir(), true)
+	plugins, warnings, err := loadRepoPlugins(ctx, src.repoDir(), true, cosignRunner)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -132,7 +132,7 @@ func validateIndexMarker(repoDir string) error {
 // plugin's own VersionSource is cloned (true, from Update/syncSource) or
 // only read from whatever's already cached (false, from LoadAll, which
 // never clones or fetches anything - see its own doc comment).
-func loadRepoPlugins(ctx context.Context, repoDir string, sync bool) ([]Plugin, []string, error) {
+func loadRepoPlugins(ctx context.Context, repoDir string, sync bool, cosignRunner command.Runner) ([]Plugin, []string, error) {
 	if _, err := os.Stat(repoDir); os.IsNotExist(err) {
 		return nil, nil, nil
 	}
@@ -156,7 +156,7 @@ func loadRepoPlugins(ctx context.Context, repoDir string, sync bool) ([]Plugin, 
 			continue
 		}
 		dir := filepath.Join(pluginsDir, e.Name())
-		p, loadErr := loadPluginVersioned(ctx, dir, sync)
+		p, loadErr := loadPluginVersioned(ctx, dir, sync, cosignRunner)
 		if loadErr != nil {
 			warnings = append(warnings, loadErr.Error())
 			continue
@@ -172,7 +172,7 @@ func loadRepoPlugins(ctx context.Context, repoDir string, sync bool) ([]Plugin, 
 
 // loadPluginVersioned loads dir's plugin.yaml, then its versions - see
 // [resolveVersionsDir] for where those versions come from.
-func loadPluginVersioned(ctx context.Context, dir string, sync bool) (Plugin, error) {
+func loadPluginVersioned(ctx context.Context, dir string, sync bool, cosignRunner command.Runner) (Plugin, error) {
 	p, err := loadPluginMeta(dir)
 	if err != nil {
 		return Plugin{}, err
@@ -183,7 +183,7 @@ func loadPluginVersioned(ctx context.Context, dir string, sync bool) (Plugin, er
 		return Plugin{}, err
 	}
 
-	p.Versions, err = loadVersions(ctx, versionsDir, signers)
+	p.Versions, err = loadVersions(ctx, versionsDir, signers, cosignRunner)
 	if err != nil {
 		return Plugin{}, err
 	}

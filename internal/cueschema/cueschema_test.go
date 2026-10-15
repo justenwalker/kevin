@@ -133,6 +133,16 @@ func TestParseSource(t *testing.T) {
 	assert.True(t, fields["password"].Sensitive, "ParseSource must reduce a field's attributes the same way Parse does")
 }
 
+func TestParseSourceOptional(t *testing.T) {
+	schema, err := cueschema.ParseSource("schema.cue", []byte("#Config: {a?: int, b!: int, c: int}"))
+	require.NoError(t, err)
+
+	fields := fieldsByName(t, schema.Definitions["Config"].Fields)
+	assert.True(t, fields["a"].Optional)
+	assert.False(t, fields["b"].Optional)
+	assert.False(t, fields["c"].Optional)
+}
+
 func fieldsByName(t *testing.T, fs []cueschema.Field) map[string]cueschema.Field {
 	t.Helper()
 	m := make(map[string]cueschema.Field, len(fs))

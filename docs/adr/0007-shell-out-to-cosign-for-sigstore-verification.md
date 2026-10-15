@@ -38,12 +38,9 @@ clients that nothing else in kevin's dependency graph already needs, and
 Fulcio/Rekor is a purpose-built protocol, not a plain HTTP API a generic
 client already covers.
 
-**DO** (`internal/command/cosign/cosign.go:43`):
+**DO** (`internal/command/cosign/cosign.go:37`):
 ```go
 func (c *Client) VerifyBlob(ctx context.Context, pkgPath, bundlePath, identity, issuer string) error {
-	if _, err := LookPath(); err != nil {
-		return err
-	}
 	cmd := exec.CommandContext(ctx, Binary, verifyBlobArgs(pkgPath, bundlePath, identity, issuer)...)
 	...
 }

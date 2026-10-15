@@ -39,7 +39,7 @@ app: {
 | `post_renderer_args` | `[...string]` | - | Extra arguments for post_renderer. |
 | `wait` | `string` | `"5m"` | How long to wait for the release to become ready, such as `"5m"`. An empty string does not wait. |
 | `atomic` | `bool` | `true` | Rolls the release back automatically on a failed upgrade. |
-| `keep` | `bool` | `false` | Leaves the release installed on teardown, instead of uninstalling it. |
+| `keep` | `bool` | - | Leaves the release installed on teardown, instead of uninstalling it. |
 
 `post_renderer` is a program name found on `PATH`, or a path relative to the current directory. Helm 3 and Helm 4 accept different values. See the [Helm documentation](https://helm.sh/docs/topics/advanced/).
 

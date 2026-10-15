@@ -13,6 +13,7 @@ import (
 	"github.com/jedisct1/go-minisign"
 	"golang.org/x/mod/semver"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/config"
 )
 
@@ -114,7 +115,7 @@ func loadPlugin(dir string) (Plugin, error) {
 	if err != nil {
 		return Plugin{}, err
 	}
-	p.Versions, err = loadVersions(context.Background(), filepath.Join(dir, "versions"), nil)
+	p.Versions, err = loadVersions(context.Background(), filepath.Join(dir, "versions"), nil, command.Default)
 	if err != nil {
 		return Plugin{}, err
 	}
@@ -184,9 +185,9 @@ func loadPluginMeta(dir string) (Plugin, error) {
 // against signers, never the global trust store, since a federated
 // source is trusted only as far as this plugin's own declared signers
 // allow. signers nil (the default, same-repo case) requires no
-// signature at all. ctx is only used for the sigstore path's
-// "cosign verify-blob" call.
-func loadVersions(ctx context.Context, dir string, signers []Signer) ([]Version, error) {
+// signature at all. ctx and cosignRunner are only used for the sigstore
+// path's "cosign verify-blob" call.
+func loadVersions(ctx context.Context, dir string, signers []Signer, cosignRunner command.Runner) ([]Version, error) {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -206,7 +207,7 @@ func loadVersions(ctx context.Context, dir string, signers []Signer) ([]Version,
 			return nil, fmt.Errorf("pluginindex: read %q: %w", path, err)
 		}
 		if signers != nil {
-			if verifyErr := verifyVersionFile(ctx, path, signers); verifyErr != nil {
+			if verifyErr := verifyVersionFile(ctx, path, signers, cosignRunner); verifyErr != nil {
 				return nil, verifyErr
 			}
 		}

@@ -335,11 +335,11 @@ func (p Protocol) String() string {
 	return "tcp"
 }
 
-// UnmarshalText decodes "tcp", "udp", or "" (TCP), so a with-block field can
-// have the type Protocol.
+// UnmarshalText decodes "tcp" or "udp", so a with-block field can have the
+// type Protocol.
 func (p *Protocol) UnmarshalText(text []byte) error {
 	switch string(text) {
-	case "", "tcp":
+	case "tcp":
 		*p = ProtocolTCP
 	case "udp":
 		*p = ProtocolUDP

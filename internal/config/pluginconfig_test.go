@@ -41,6 +41,19 @@ func TestResolvePluginConfigs(t *testing.T) {
 		require.ErrorIs(t, err, config.ErrInvalid)
 	})
 
+	t.Run("fills in a default the plugin's schema declares", func(t *testing.T) {
+		cfg := &config.Config{
+			Plugins: map[string]config.PluginSpec{
+				"echo": {Config: json.RawMessage(`{"greeting":"hi"}`)},
+			},
+		}
+		schemas := map[string]config.PluginSchemas{
+			"echo": {Config: []byte(`#Config: {greeting: string, retries: int | *3}`)},
+		}
+		require.NoError(t, cfg.ResolvePluginConfigs(schemas))
+		assert.JSONEq(t, `{"greeting":"hi","retries":3}`, string(cfg.Plugins["echo"].Config))
+	})
+
 	t.Run("a config block with no marker is left unrendered and unvalidated again", func(t *testing.T) {
 		cfg := &config.Config{
 			Plugins: map[string]config.PluginSpec{

@@ -32,7 +32,7 @@ cluster: {
 | `coredns` | `bool` | `true` | Configures the cluster DNS so that pods can resolve names on the environment domain, such as `"web.kevin.home"`. |
 | `trust_ca` | `bool` | `true` | Installs the kevin root certificate in every node, so that image pulls through the kevin proxy succeed. |
 | `expose` | `[string]: #Expose` | - | Makes an address inside the cluster, such as a Service DNS name and port, reachable from the host through a relay pod. The key names the entry in the console. The step does not wait for the address to accept connections: use a builtin:wait step with the `"expose_<name>"` system value. |
-| `relay` | `bool` | `false` | Deploys the relay pod even when expose is empty, and sets the relay_addr output. Use it with builtin:route to give a Service in the cluster a name on the environment domain. |
+| `relay` | `bool` | - | Deploys the relay pod even when expose is empty, and sets the relay_addr output. Use it with builtin:route to give a Service in the cluster a name on the environment domain. |
 | `mounts` | `[...#Mount]` | - | Makes host paths visible in every node of the cluster. |
 | `kind` | `#Kind` | - | Holds the settings that only the `"kind"` driver has. |
 | `k3d` | `#K3d` | - | Holds the settings that only the `"k3d"` driver has. |

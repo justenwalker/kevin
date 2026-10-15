@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/internal/pluginpkg"
@@ -23,7 +24,8 @@ var executablePath = os.Executable
 
 // resolveSpec turns the plugins: entry for name into a launchable spec,
 // fetching, verifying and extracting its package first when it has one.
-func resolveSpec(ctx context.Context, name, dir string, specs map[string]config.PluginSpec) (pluginhost.Spec, error) {
+// cosignRunner runs the sigstore verification.
+func resolveSpec(ctx context.Context, name, dir string, specs map[string]config.PluginSpec, cosignRunner command.Runner) (pluginhost.Spec, error) {
 	if err := config.ResolvePlugin(name, specs); err != nil {
 		return pluginhost.Spec{}, fmt.Errorf("pluginload: %w", err)
 	}
@@ -46,7 +48,7 @@ func resolveSpec(ctx context.Context, name, dir string, specs map[string]config.
 	if err != nil {
 		return pluginhost.Spec{}, fmt.Errorf("pluginload: plugins.%s: %w", name, err)
 	}
-	if verifyErr := verifySource(ctx, src, pkg, spec.Signing); verifyErr != nil {
+	if verifyErr := verifySource(ctx, src, pkg, spec.Signing, cosignRunner); verifyErr != nil {
 		return pluginhost.Spec{}, fmt.Errorf("pluginload: plugins.%s: %w", name, friendlySignatureErr(verifyErr, name))
 	}
 	result, err := pluginpkg.Extract(pkg.Path, destDir, pkg.Digest)

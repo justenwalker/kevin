@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/justenwalker/kevin/internal/command"
 )
 
 // Catalog is every plugin found across every configured [Source]'s cloned
@@ -27,7 +29,7 @@ func LoadAll(ctx context.Context) (Catalog, error) {
 
 	var plugins []Plugin
 	for _, src := range sources {
-		found, _, err := loadRepoPlugins(ctx, src.repoDir(), false)
+		found, _, err := loadRepoPlugins(ctx, src.repoDir(), false, command.Default)
 		if err != nil {
 			return Catalog{}, err
 		}

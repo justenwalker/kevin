@@ -54,7 +54,7 @@ web: {
 | `port` | `int` | - | **Required.** The container port to publish. |
 | `protocol` | `"tcp"` \| `"udp"` | `"tcp"` | The transport protocol of the port. |
 | `host_port` | `int` | - | Sets the port on the host. Unset, the OS picks a free port. Ignored when relay is true. |
-| `relay` | `bool` | `false` | Reaches the port through the relay container instead of a published host port. Use it when host ports are limited. The address is in the `"expose_<name>"` and `"forward_<name>"` system values instead of a `"host_<port>"` output. |
+| `relay` | `bool` | - | Reaches the port through the relay container instead of a published host port. Use it when host ports are limited. The address is in the `"expose_<name>"` and `"forward_<name>"` system values instead of a `"host_<port>"` output. |
 
 ## Outputs
 

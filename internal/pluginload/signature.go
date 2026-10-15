@@ -16,13 +16,10 @@ import (
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
-// cosignRunner runs cosign. A test overrides this variable to fake it.
-var cosignRunner command.Runner = command.Default
-
 // verifySource checks pkg against the detached signature src ships with it,
 // by signing.Scheme and the local trust stores. It is a no-op when signing
 // is nil.
-func verifySource(ctx context.Context, src source, pkg pkgcache.Entry, signing *config.SigningSpec) error {
+func verifySource(ctx context.Context, src source, pkg pkgcache.Entry, signing *config.SigningSpec, cosignRunner command.Runner) error {
 	if signing == nil {
 		return nil
 	}
@@ -31,7 +28,7 @@ func verifySource(ctx context.Context, src source, pkg pkgcache.Entry, signing *
 		return err
 	}
 	if signing.Scheme == config.SigningSchemeSigstore {
-		return verifySigstoreBlobBytes(ctx, pkg.Path, sig, signing)
+		return verifySigstoreBlobBytes(ctx, pkg.Path, sig, signing, cosignRunner)
 	}
 	return verifyPackageSignature(pkg.Path, sig)
 }
@@ -59,7 +56,7 @@ func verifyPackageSignature(pkgPath string, sigData []byte) error {
 // sign-blob --bundle` output) for signing.Identity/signing.Issuer, gated by
 // the local identity trust store (~/.kevin/trusted-identities, see
 // pkgtrust.VerifyIdentity).
-func verifySigstoreBlob(ctx context.Context, pkgPath, bundlePath string, signing *config.SigningSpec) error {
+func verifySigstoreBlob(ctx context.Context, pkgPath, bundlePath string, signing *config.SigningSpec, cosignRunner command.Runner) error {
 	// kevin.cue's own identity/issuer isn't the trust boundary - see
 	// pkgtrust.VerifyIdentity for why - so that check runs first.
 	if err := pkgtrust.VerifyIdentity(signing.Identity, signing.Issuer); err != nil {
@@ -72,7 +69,7 @@ func verifySigstoreBlob(ctx context.Context, pkgPath, bundlePath string, signing
 // memory (an http: or oci: source) rather than already sitting on disk next
 // to a file: package - cosign verify-blob takes a bundle path, not stdin,
 // so this writes bundleData to a temp file first.
-func verifySigstoreBlobBytes(ctx context.Context, pkgPath string, bundleData []byte, signing *config.SigningSpec) error {
+func verifySigstoreBlobBytes(ctx context.Context, pkgPath string, bundleData []byte, signing *config.SigningSpec, cosignRunner command.Runner) error {
 	tmp, err := os.CreateTemp("", "kevin-sigstore-bundle-*.json")
 	if err != nil {
 		return fmt.Errorf("create temp bundle file: %w", err)
@@ -86,7 +83,7 @@ func verifySigstoreBlobBytes(ctx context.Context, pkgPath string, bundleData []b
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close temp bundle file: %w", err)
 	}
-	return verifySigstoreBlob(ctx, pkgPath, tmp.Name(), signing)
+	return verifySigstoreBlob(ctx, pkgPath, tmp.Name(), signing, cosignRunner)
 }
 
 // friendlySignatureErr attaches a human-facing message to err when it names
