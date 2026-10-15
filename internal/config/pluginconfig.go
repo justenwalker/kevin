@@ -18,12 +18,16 @@ import (
 // block, which may still carry a needs/setup marker only resolvable at that
 // step's own Up call (see [ValidateAgainstSchema]).
 func (cfg *Config) ResolvePluginConfigs(schemas map[string]PluginSchemas) error {
-	scopes := expr.Scopes{Vars: cfg.VariableValues, Project: state.For(cfg.Dir, cfg.Name).Vars()}
+	scopes := expr.Scopes{Env: expr.HostEnv(), Vars: cfg.VariableValues, Project: state.For(cfg.Dir, cfg.Name).Vars()}
 	for name, spec := range cfg.Plugins {
 		if len(spec.Config) == 0 {
 			continue
 		}
-		rendered, err := expr.Render(spec.Config, name, scopes)
+		tpl, err := expr.Parse(spec.Config)
+		if err != nil {
+			return fmt.Errorf("config: plugins.%s.config: %w", name, err)
+		}
+		rendered, err := tpl.Render(name, scopes)
 		if err != nil {
 			return fmt.Errorf("config: plugins.%s.config: %w", name, err)
 		}

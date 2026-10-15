@@ -25,7 +25,7 @@ func (r *run) scopesFor(name string, deps, setupDeps map[string]output.Map) expr
 	deps = localizeDeps(name, deps)
 	system = localizeDeps(name, system)
 
-	return expr.Scopes{Needs: deps, System: system, Setup: setupDeps, Project: r.project, Vars: r.cfg.VariableValues}
+	return expr.Scopes{Needs: deps, System: system, Setup: setupDeps, Env: expr.HostEnv(), Project: r.project, Vars: r.cfg.VariableValues}
 }
 
 // renderWith resolves name's `with` block against deps and the recorded
@@ -33,7 +33,11 @@ func (r *run) scopesFor(name string, deps, setupDeps map[string]output.Map) expr
 // "setup.<name>" needs entry, for either an Up or a Down request. The result
 // carries every default its step type's schema declares.
 func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[string]output.Map) (json.RawMessage, error) {
-	with, err := expr.Render(step.With, name, r.scopesFor(name, deps, setupDeps))
+	tpl, err := expr.Parse(step.With)
+	if err != nil {
+		return nil, fmt.Errorf("%s: with: %w", name, err)
+	}
+	with, err := tpl.Render(name, r.scopesFor(name, deps, setupDeps))
 	if err != nil {
 		return nil, fmt.Errorf("%s: with: %w", name, err)
 	}

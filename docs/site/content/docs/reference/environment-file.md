@@ -343,7 +343,7 @@ Change an `intercept` range only when it overlaps a network your workloads use.
 | `KEVIN_ENGINE` | Default for `--engine`: `docker` or `podman`. |
 | `KEVIN_VAR_FILE` | Default for `--var-file`. |
 | `KEVIN_VAR_<NAME>` | Supplies a declared variable's value, name upper-cased. See [Variables](#variables). |
-| `KEVIN_PROJECT_STATE_DIR` | Project state directory. Default: `.kevin/` in the project directory, or `.kevin/<name>/` for a named environment. |
+| `KEVIN_PROJECT_STATE_DIR` | Project state directory, for the workspace, logs, run files, and project CA. It replaces the `.kevin/<name>/` of every named environment. Default: `.kevin/` in the project directory, or `.kevin/<name>/` for a named environment. |
 | `KEVIN_USER_STATE_DIR` | User state directory, for the root CA, trust stores, and package cache. Default: `~/.kevin/`. |
 | `KEVIN_PLUGIN_CA_FILE` | PEM file of extra root certificates, trusted in addition to the system roots, for `oci:` and `http:` plugin fetches and `kevin plugin push`. Not used by `cosign`. |
 | `KEVIN_RELAY_IMAGE` | Relay image. Overrides `relay.image`. |

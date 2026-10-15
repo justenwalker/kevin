@@ -1,0 +1,3 @@
+kind: Fixed
+body: KEVIN_PROJECT_STATE_DIR now moves the environment's workspace, logs, run files, and extracted plugins, not just the CA files. The package cache, plugin index, and trust stores follow KEVIN_USER_STATE_DIR.
+time: 2026-10-11T10:00:00.000000-04:00

@@ -75,11 +75,11 @@ func inputRows(raw, rendered json.RawMessage, scopes expr.Scopes, schemaSensitiv
 
 	rows := make([]session.Detail, 0, len(names))
 	for _, field := range names {
-		markerSensitive, err := expr.FieldSensitive(rawFields[field], scopes, sensitiveVars)
+		fieldTpl, err := expr.Parse(rawFields[field])
 		if err != nil {
 			return nil, fmt.Errorf("with.%s: %w", field, err)
 		}
-		sensitive := schemaSensitive[field] || markerSensitive
+		sensitive := schemaSensitive[field] || fieldTpl.Sensitive(scopes, sensitiveVars)
 		rows = append(rows, session.Detail{
 			Label:     field,
 			Value:     scalarString(renderedFields[field]),

@@ -66,7 +66,7 @@ func (r *run) planCommand(ctx context.Context, name string) (CommandPlan, error)
 		return CommandPlan{}, fmt.Errorf("engine: no command named %q, available: %s", name, strings.Join(names, ", "))
 	}
 
-	scopes := expr.Scopes{Project: r.project, Vars: r.cfg.VariableValues}
+	scopes := expr.Scopes{Env: expr.HostEnv(), Project: r.project, Vars: r.cfg.VariableValues}
 	for _, need := range cmdDef.Needs {
 		scope := config.ScopeEnv
 		if need.Setup {
@@ -89,7 +89,11 @@ func (r *run) planCommand(ctx context.Context, name string) (CommandPlan, error)
 		scopes.Needs[need.Step] = exported.Outputs
 	}
 
-	rendered, err := expr.Render(cmdDef.Run, name, scopes)
+	tpl, err := expr.Parse(cmdDef.Run)
+	if err != nil {
+		return CommandPlan{}, fmt.Errorf("engine: command %q: %w", name, err)
+	}
+	rendered, err := tpl.Render(name, scopes)
 	if err != nil {
 		return CommandPlan{}, fmt.Errorf("engine: command %q: %w", name, err)
 	}

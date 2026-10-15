@@ -38,14 +38,18 @@ func ProjectStateDir(cwd, name string) string {
 const (
 	// LogsFile holds the durable, full record of every step's log lines for
 	// one session, in newline-delimited JSON.
-	LogsFile          = "logs.ndjson"
-	RootCertFile      = "root.crt"
-	CACertFile        = "ca.crt"
-	CAKeyFile         = "ca.key"
-	trustedKeysName   = "trusted-keys"
-	trustedIdentsName = "trusted-identities"
-	pkgCacheName      = "pkg-cache"
-	pluginIndexName   = "plugin-index"
+	LogsFile = "logs.ndjson"
+	// RootCertFile is the root CA certificate, in the user state directory.
+	RootCertFile = "root.crt"
+	// CACertFile is the project intermediate CA certificate.
+	CACertFile = "ca.crt"
+	// CAKeyFile is the project intermediate CA private key.
+	CAKeyFile = "ca.key"
+
+	trustedKeysName       = "trusted-keys"
+	trustedIdentitiesName = "trusted-identities"
+	pkgCacheName          = "pkg-cache"
+	pluginIndexName       = "plugin-index"
 )
 
 // Paths is every directory kevin reads or writes for one project
@@ -93,7 +97,7 @@ func (p Paths) CAKey() string { return filepath.Join(p.Project, CAKeyFile) }
 func (p Paths) TrustedKeys() string { return filepath.Join(p.User, trustedKeysName) }
 
 // TrustedIdentities holds the sigstore identities trusted to sign plugin packages.
-func (p Paths) TrustedIdentities() string { return filepath.Join(p.User, trustedIdentsName) }
+func (p Paths) TrustedIdentities() string { return filepath.Join(p.User, trustedIdentitiesName) }
 
 // PackageCache holds fetched plugin package blobs.
 func (p Paths) PackageCache() string { return filepath.Join(p.User, pkgCacheName) }

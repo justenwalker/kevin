@@ -636,7 +636,7 @@ env: {
 // both show up on the page. It also proves a's "secret" field - a plain
 // literal with no "${needs...}" marker to trace, but declared @sensitive()
 // in echo's schema.cue - is still redacted, closing the gap
-// expr.FieldSensitive alone can't: nothing to trace a literal back to.
+// expr.Template.Sensitive alone can't: nothing to trace a literal back to.
 func TestRunPopulatesStepInputsAndOutputs(t *testing.T) {
 	requireRelay(t)
 

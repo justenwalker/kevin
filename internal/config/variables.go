@@ -237,11 +237,11 @@ func (cfg *Config) SensitiveVariables() map[string]bool {
 // names the block in an error message ("with" for a step, "run" for a
 // command).
 func validateVarReferences(scopeName string, step, field string, declared map[string]Variable, raw json.RawMessage) error {
-	refs, err := expr.ReferencedVars(raw)
+	tpl, err := expr.Parse(raw)
 	if err != nil {
 		return fmt.Errorf("config: %s.%s.%s: %w", scopeName, step, field, err)
 	}
-	for _, name := range refs {
+	for _, name := range tpl.Refs().Vars {
 		if _, ok := declared[name]; !ok {
 			return fmt.Errorf("config: %s.%s.%s: references %q via vars.%s, but variables.%s is not declared: %w",
 				scopeName, step, field, name, name, name, ErrUndeclaredVariable)

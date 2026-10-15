@@ -107,7 +107,11 @@ func (r *run) doExportStep(ctx context.Context, scope config.Scope, name string)
 			return exportedStep{}, err
 		}
 	}
-	with, err := expr.Render(cfgStep.With, name, expr.Scopes{Setup: setupDeps, Project: r.project, Vars: r.cfg.VariableValues})
+	tpl, err := expr.Parse(cfgStep.With)
+	if err != nil {
+		return exportedStep{}, fmt.Errorf("%s step %q: %w", scope, name, err)
+	}
+	with, err := tpl.Render(name, expr.Scopes{Env: expr.HostEnv(), Setup: setupDeps, Project: r.project, Vars: r.cfg.VariableValues})
 	if err != nil {
 		return exportedStep{}, fmt.Errorf("%s step %q: %w", scope, name, err)
 	}

@@ -14,9 +14,10 @@ import (
 	"github.com/justenwalker/kevin/internal/pkgcache"
 )
 
-func TestDirIsUnderTheHomeDirectory(t *testing.T) {
+func TestDirIsUnderTheUserStateDirectory(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("KEVIN_USER_STATE_DIR", "")
 	assert.Equal(t, filepath.Join(home, ".kevin", "pkg-cache"), pkgcache.Dir())
 }
 

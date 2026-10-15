@@ -207,7 +207,7 @@ func (r *run) doExportCrossScopeGroup(ctx context.Context, name string, grp conf
 // evalGroupOutputs is the pure CEL step both upGroup and
 // doExportCrossScopeGroup reduce to: render outputs (a group's own
 // "${needs.<member>.out.<key>}" block) against memberOutputs, the same
-// expr.Render machinery a step's own with block uses - a group's members
+// expr.Template machinery a step's own with block uses - a group's members
 // are simply upstream from the group's own perspective.
 func evalGroupOutputs(name string, outputs map[string]string, memberOutputs map[string]output.Map) (output.Map, error) {
 	if len(outputs) == 0 {
@@ -218,7 +218,12 @@ func evalGroupOutputs(name string, outputs map[string]string, memberOutputs map[
 	if err != nil {
 		return nil, fmt.Errorf("%s: outputs: %w", name, err)
 	}
-	rendered, err := expr.Render(raw, name, expr.Scopes{Needs: memberOutputs})
+	tpl, err := expr.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%s: outputs: %w", name, err)
+	}
+	scopes := expr.Scopes{Env: expr.HostEnv(), Needs: memberOutputs}
+	rendered, err := tpl.Render(name, scopes)
 	if err != nil {
 		return nil, fmt.Errorf("%s: outputs: %w", name, err)
 	}
@@ -227,18 +232,17 @@ func evalGroupOutputs(name string, outputs map[string]string, memberOutputs map[
 		return nil, fmt.Errorf("%s: outputs: %w", name, err)
 	}
 
-	scopes := expr.Scopes{Needs: memberOutputs}
 	out := make(output.Map, len(result))
 	for k, v := range result {
 		field, err := json.Marshal(outputs[k])
 		if err != nil {
 			return nil, fmt.Errorf("%s: outputs: %s: %w", name, k, err)
 		}
-		sensitive, err := expr.FieldSensitive(field, scopes, nil)
+		fieldTpl, err := expr.Parse(field)
 		if err != nil {
 			return nil, fmt.Errorf("%s: outputs: %s: %w", name, k, err)
 		}
-		out[k] = output.Value{String: v, Sensitive: sensitive}
+		out[k] = output.Value{String: v, Sensitive: fieldTpl.Sensitive(scopes, nil)}
 	}
 	return out, nil
 }

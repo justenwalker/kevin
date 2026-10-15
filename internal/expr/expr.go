@@ -2,8 +2,6 @@
 package expr
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -45,8 +43,9 @@ func buildEnv() (*cel.Env, error) {
 	return env, nil
 }
 
-// Scopes bundles the caller-supplied values Render evaluates a with block's
-// "${...}" markers against. The zero value renders only `env` expressions.
+// Scopes bundles the caller-supplied values [Template.Render] evaluates a
+// with block's "${...}" markers against. The zero value has nothing for a
+// marker to read.
 type Scopes struct {
 	// Needs supplies `needs.<step>.out.<key>`: each upstream step's own Result.Outputs.
 	Needs map[string]output.Map
@@ -56,6 +55,10 @@ type Scopes struct {
 
 	// Setup supplies `setup.<name>.out.<key>`, for a cross-scope "setup.<name>" needs entry.
 	Setup map[string]output.Map
+
+	// Env supplies `env.<name>`: the environment variables a marker can
+	// read, usually [HostEnv].
+	Env map[string]string
 
 	// Project supplies `project.<key>`: project-level constants kevin computes once per session.
 	Project map[string]string
@@ -70,122 +73,10 @@ type Scopes struct {
 	Vars map[string]any
 }
 
-// Render walks a JSON value and replaces all the "${cel-expression}" markers found inside strings with the result it computes.
-// The value's strings are evaluated against five variables:
-//  1. `needs`: keyed by the upstream step's name, each with two sub-namespaces:
-//     `out` (the step's own outputs: `needs.<step>.out.<key>`) and `system`
-//     (kevin-computed values for that step: `needs.<step>.system.<key>`).
-//  2. `setup`: same shape as needs, but keyed by the name of a setup-scope
-//     step named via a "setup.<name>" needs entry, a variable separate
-//     from needs. Always empty when rendering a setup-scope step itself.
-//  3. `env`: the kevin process's own environment variables, e.g. `env.HOME`.
-//     A reference to an unset variable errors; use `has(env.FOO) ? env.FOO : "default"` for a fallback.
-//  4. `project`: project-level constants kevin computes once per session,
-//     such as `project.dir` or `project.root_cert`, keyed by name, same map
-//     shape as `env`.
-//  5. `vars`: an environment's declared variables: block, keyed by name,
-//     same map shape as `env`/`project`.
-func Render(raw json.RawMessage, step string, scopes Scopes) (json.RawMessage, error) {
-	// inexpensive early exit.
-	// If we have no '${' cel marker, then there is nothing to evaluate.
-	if !bytes.Contains(raw, []byte(marker)) {
-		return raw, nil
-	}
-
-	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return nil, fmt.Errorf("expr: decode: %w", err)
-	}
-
-	needs := activation(scopes.Needs, scopes.System)
-	setup := activation(scopes.Setup, nil)
-	env := hostEnv()
-	rendered, err := renderValue(v, step, needs, setup, env, scopes.Project, scopes.Vars)
-	if err != nil {
-		return nil, err
-	}
-
-	out, err := json.Marshal(rendered)
-	if err != nil {
-		return nil, fmt.Errorf("expr: encode: %w", err)
-	}
-	return out, nil
-}
-
 // parseOnlyEnv is a CEL environment with no declared variables, sufficient
-// to parse an expression's syntax tree without evaluating it - ReferencedSteps
+// to parse an expression's syntax tree without evaluating it - Template.Refs
 // only walks the tree structure, so it needs no type information.
 var parseOnlyEnv = sync.OnceValues(func() (*cel.Env, error) { return cel.NewEnv() })
-
-// ReferencedSteps reports every step name that raw's "${...}" markers
-// reference via "needs.<step>..." or "setup.<step>...", with no
-// evaluation - for a caller that wants to check those names against a
-// step's own needs list statically, before any of Render's variables
-// (upstream outputs, in particular) exist to evaluate against.
-func ReferencedSteps(raw json.RawMessage) ([]string, []string, error) {
-	if !bytes.Contains(raw, []byte(marker)) {
-		return nil, nil, nil
-	}
-
-	var v any
-	if unmarshalErr := json.Unmarshal(raw, &v); unmarshalErr != nil {
-		return nil, nil, fmt.Errorf("expr: decode: %w", unmarshalErr)
-	}
-
-	var exprs []string
-	if collectErr := collectExprs(v, &exprs); collectErr != nil {
-		return nil, nil, collectErr
-	}
-
-	env, err := parseOnlyEnv()
-	if err != nil {
-		return nil, nil, fmt.Errorf("expr: build the cel environment: %w", err)
-	}
-	var needsRefs, setupRefs []string
-	for _, exprStr := range exprs {
-		n, s, err := selectRoots(env, exprStr)
-		if err != nil {
-			return nil, nil, fmt.Errorf("expr: %q: %w", exprStr, err)
-		}
-		needsRefs = append(needsRefs, n...)
-		setupRefs = append(setupRefs, s...)
-	}
-	return needsRefs, setupRefs, nil
-}
-
-// ReferencedVars reports every variable name that raw's "${...}" markers
-// reference via "vars.<name>", with no evaluation - for a caller that wants
-// to check those names against a declared variables: block statically,
-// before Render's "vars" variable exists to evaluate against.
-func ReferencedVars(raw json.RawMessage) ([]string, error) {
-	if !bytes.Contains(raw, []byte(marker)) {
-		return nil, nil
-	}
-
-	var v any
-	if unmarshalErr := json.Unmarshal(raw, &v); unmarshalErr != nil {
-		return nil, fmt.Errorf("expr: decode: %w", unmarshalErr)
-	}
-
-	var exprs []string
-	if collectErr := collectExprs(v, &exprs); collectErr != nil {
-		return nil, collectErr
-	}
-
-	env, err := parseOnlyEnv()
-	if err != nil {
-		return nil, fmt.Errorf("expr: build the cel environment: %w", err)
-	}
-	var varRefs []string
-	for _, exprStr := range exprs {
-		refs, err := varsRoots(env, exprStr)
-		if err != nil {
-			return nil, fmt.Errorf("expr: %q: %w", exprStr, err)
-		}
-		varRefs = append(varRefs, refs...)
-	}
-	return varRefs, nil
-}
 
 // varsRoots reports the field name of every "vars.<field>" select chain in
 // exprStr - a chain rooted at an identifier named "vars" - the same
@@ -268,60 +159,6 @@ func selectRoots(env *cel.Env, exprStr string) ([]string, []string, error) {
 		}
 	}))
 	return needsRefs, setupRefs, nil
-}
-
-// FieldSensitive reports whether raw's "${...}" markers reference a
-// needs.<step>.out.<key>, needs.<step>.system.<key>, or
-// setup.<step>.out.<key> value that scopes marks Sensitive - for a caller
-// building a display row from one `with` field who wants to redact it the
-// same way an Outputs row already is, without inventing a second
-// sensitivity convention. raw with no marker, or none referencing a
-// sensitive value, reports false.
-// FieldSensitive additionally reports true when raw references, via
-// "vars.<name>", a name sensitiveVars marks true - the declared
-// counterpart to scopes' own Sensitive-tagged values, for a variable whose
-// sensitivity is a fact about its declared name rather than something
-// carried by a particular value.
-func FieldSensitive(raw json.RawMessage, scopes Scopes, sensitiveVars map[string]bool) (bool, error) {
-	if !bytes.Contains(raw, []byte(marker)) {
-		return false, nil
-	}
-
-	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return false, fmt.Errorf("expr: decode: %w", err)
-	}
-	var exprs []string
-	if err := collectExprs(v, &exprs); err != nil {
-		return false, err
-	}
-
-	env, err := parseOnlyEnv()
-	if err != nil {
-		return false, fmt.Errorf("expr: build the cel environment: %w", err)
-	}
-	for _, exprStr := range exprs {
-		refs, err := keyRefs(env, exprStr)
-		if err != nil {
-			return false, fmt.Errorf("expr: %q: %w", exprStr, err)
-		}
-		for _, ref := range refs {
-			if val, ok := ref.lookup(scopes); ok && val.Sensitive {
-				return true, nil
-			}
-		}
-
-		varRefs, err := varsRoots(env, exprStr)
-		if err != nil {
-			return false, fmt.Errorf("expr: %q: %w", exprStr, err)
-		}
-		for _, name := range varRefs {
-			if sensitiveVars[name] {
-				return true, nil
-			}
-		}
-	}
-	return false, nil
 }
 
 // keyRef names one needs/setup value a "${...}" expression's select chain
@@ -584,9 +421,9 @@ func stringValues(o output.Map) map[string]any {
 	return m
 }
 
-// hostEnv converts os.Environ() into the map[string]string shape CEL's
-// default type adapter accepts for the "env" variable.
-func hostEnv() map[string]string {
+// HostEnv converts os.Environ() into the map[string]string shape [Scopes.Env]
+// takes.
+func HostEnv() map[string]string {
 	environ := os.Environ()
 	env := make(map[string]string, len(environ))
 	for _, kv := range environ {
