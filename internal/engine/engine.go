@@ -237,7 +237,7 @@ func Run(ctx context.Context, opts Options) error {
 	r.store = store
 	r.steps = cfg.Steps(opts.Scope)
 	r.groups = cfg.Groups(opts.Scope)
-	r.plugins = plugins
+	r.plugins = stepPlugins(plugins)
 	r.caps = caps
 	r.timings = timings
 	r.stepLog = stepLog.Logger
@@ -368,7 +368,7 @@ const shutdownTimeout = 5 * time.Minute
 // shutdown removes the run's steps. keep leaves everything, including the
 // relay, in place; otherwise the relay only stops if the other scope
 // isn't still live and sharing it.
-func (r *run) shutdown(ctx context.Context, rl *relay.Relay, keep bool) error {
+func (r *run) shutdown(ctx context.Context, rl trafficRelay, keep bool) error {
 	// Removal needs a live context. Reaching this line usually means that the
 	// user pressed Ctrl-C, which already canceled ctx. The timeout keeps a
 	// hung container engine from holding the process forever.
@@ -767,7 +767,7 @@ func Teardown(ctx context.Context, opts Options) error {
 		scope:   config.ScopeSetup,
 		steps:   steps,
 		groups:  cfg.Groups(config.ScopeSetup),
-		plugins: plugins,
+		plugins: stepPlugins(plugins),
 		caps:    caps,
 		events:  opts.Events,
 		// Teardown serves no page - just a store for r's step-mutation calls
@@ -1000,16 +1000,16 @@ func mergeStepProperty(schema []byte, ref config.StepRef) ([]byte, error) {
 type run struct {
 	cfg        *config.Config
 	runtime    cri.Runtime
-	proxy      *proxy.Proxy
+	proxy      routeTable
 	store      *session.Store
 	scope      string
 	steps      map[string]config.Step
 	groups     map[string]config.Group
-	plugins    map[string]*pluginhost.Client
+	plugins    map[string]stepPlugin
 	caps       map[string]pluginhost.Info
 	env        *pb.Environment
 	project    map[string]string
-	relay      *relay.Relay
+	relay      trafficRelay
 	toolRoutes map[string]toolRoute
 	events     io.Writer
 	timings    *timingStore
@@ -1532,7 +1532,7 @@ func (r *run) failUp(ctx context.Context, name string, err error) {
 // callUp calls Up on client, bounded by timeout when it is positive, and
 // reports a failure. A step whose Up outlived its timeout is not settled, so
 // shutdown calls Down for it.
-func (r *run) callUp(ctx context.Context, name string, client *pluginhost.Client, req *pb.UpRequest, timeout time.Duration, start time.Time) (*pb.Result, error) {
+func (r *run) callUp(ctx context.Context, name string, client stepPlugin, req *pb.UpRequest, timeout time.Duration, start time.Time) (*pb.Result, error) {
 	upCtx := ctx
 	if timeout > 0 {
 		var cancel context.CancelFunc

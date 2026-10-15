@@ -48,3 +48,8 @@ packages:
   github.com/justenwalker/kevin/internal/plugins/kubernetes:
     interfaces:
       kindCLI:
+  github.com/justenwalker/kevin/internal/engine:
+    interfaces:
+      stepPlugin:
+      routeTable:
+      trafficRelay:

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/ca"
@@ -387,18 +388,26 @@ func TestInterruptedSteps(t *testing.T) {
 // call once it completes, unlike the sync.OnceValues this once used, which
 // would have cached the failure for the rest of the run.
 func TestExportCrossScopeStepRetriesAfterFailure(t *testing.T) {
-	dir := project(t, `
-setup: cluster: {uses: "echo:echo", with: export: greeting: "from-setup"}
-`)
-	loaded, err := LoadAndLaunch(t.Context(), dir, "", nil, config.VariableInputs{})
-	require.NoError(t, err)
-	defer CloseAll(loaded.Plugins)
-
-	r := &run{cfg: loaded.Config, plugins: loaded.Plugins, caps: loaded.Caps, env: &pb.Environment{}}
+	plugin := newMockstepPlugin(t)
+	plugin.EXPECT().Export(mock.Anything, mock.Anything).RunAndReturn(
+		func(ctx context.Context, _ *pb.ExportRequest) (*pb.ExportResponse, error) {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			return &pb.ExportResponse{Out: &pb.Outputs{Values: map[string]*pb.Value{
+				"greeting": {Kind: &pb.Value_StringValue{StringValue: "from-setup"}},
+			}}}, nil
+		})
+	r := &run{
+		cfg:     &config.Config{Setup: map[string]config.Step{"cluster": {Uses: "echo:echo"}}},
+		plugins: map[string]stepPlugin{"echo": plugin},
+		caps:    map[string]pluginhost.Info{"echo": {Steps: []pluginhost.StepInfo{{Name: "echo", Export: true}}}},
+		env:     &pb.Environment{},
+	}
 
 	canceledCtx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, err = r.exportCrossScopeStep(canceledCtx, "cluster")
+	_, err := r.exportCrossScopeStep(canceledCtx, "cluster")
 	require.Error(t, err, "a canceled context must fail the call")
 
 	exported, err := r.exportCrossScopeStep(t.Context(), "cluster")
@@ -1063,5 +1072,97 @@ func TestCallTool(t *testing.T) {
 		_, err := newRun().callTool(t.Context(), "w", "echo_echo_echo", nil)
 
 		require.ErrorContains(t, err, `step "w" is a builtin:wait step, not a echo:echo step`)
+	})
+}
+
+// newUpRun builds a run whose single step "a" uses the given plugin, relay
+// and route table, with no process, proxy or docker daemon behind them.
+func newUpRun(t *testing.T, plugin stepPlugin, routes routeTable, rl trafficRelay) *run {
+	t.Helper()
+	r := &run{
+		cfg:     &config.Config{},
+		steps:   map[string]config.Step{"a": {Uses: "echo:echo"}},
+		plugins: map[string]stepPlugin{"echo": plugin},
+		proxy:   routes,
+		relay:   rl,
+		env:     &pb.Environment{},
+		events:  io.Discard,
+		stepLog: slog.New(slog.DiscardHandler),
+		timings: &timingStore{},
+	}
+	r.store = session.NewStore()
+	require.NoError(t, r.registerScopeSteps(r.store))
+	return r
+}
+
+func TestUpStep(t *testing.T) {
+	t.Run("publishes a step's result to the proxy, relay and session", func(t *testing.T) {
+		plugin := newMockstepPlugin(t)
+		routes := newMockrouteTable(t)
+		rl := newMocktrafficRelay(t)
+		r := newUpRun(t, plugin, routes, rl)
+
+		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(&pb.Result{
+			Outputs: &pb.Outputs{Values: map[string]*pb.Value{
+				"url": {Kind: &pb.Value_StringValue{StringValue: "http://a"}},
+			}},
+			Routes: []*pb.Route{
+				{Host: "a.kevin.test", Upstream: "127.0.0.1:8080", Tls: true},
+				{Host: "fake.example.com", Upstream: "127.0.0.1:9090", Intercept: &pb.Intercept{Ports: []int32{443}}},
+			},
+			EgressAllow: []string{"registry.example.com"},
+			Faults:      []*pb.NetworkFault{{Id: "f1"}},
+		}, nil)
+		routes.EXPECT().AddRoutes([]proxy.Route{{Host: "a.kevin.test", Upstream: "127.0.0.1:8080", TLS: true, Mode: proxy.RouteModeMITM}}).Return()
+		routes.EXPECT().AddRoutes([]proxy.Route{{Host: "fake.example.com", Upstream: "127.0.0.1:9090", Mode: proxy.RouteModeMITM}}).Return()
+		routes.EXPECT().AllowEgress([]string{"registry.example.com"}).Return()
+		rl.EXPECT().EnsureListener(mock.Anything, "fake.example.com", []int{443}).Return(nil)
+		rl.EXPECT().ApplyFault(mock.Anything, mock.Anything).Return(nil)
+
+		out, err := r.upStep(t.Context(), "a", nil)
+
+		require.NoError(t, err)
+		assert.Equal(t, output.Map{"url": {String: "http://a"}}, out)
+		assert.Equal(t, []string{"f1"}, r.appliedFaults["a"])
+		assert.Equal(t, session.Ready, r.store.Snapshot().Steps[0].State)
+	})
+
+	t.Run("a relay failure fails the step", func(t *testing.T) {
+		plugin := newMockstepPlugin(t)
+		routes := newMockrouteTable(t)
+		rl := newMocktrafficRelay(t)
+		r := newUpRun(t, plugin, routes, rl)
+		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(&pb.Result{
+			Routes: []*pb.Route{{Host: "fake.example.com", Upstream: "127.0.0.1:9090", Intercept: &pb.Intercept{Ports: []int32{443}}}},
+		}, nil)
+		routes.EXPECT().AddRoutes(mock.Anything).Return()
+		rl.EXPECT().EnsureListener(mock.Anything, "fake.example.com", []int{443}).Return(assert.AnError)
+
+		_, err := r.upStep(t.Context(), "a", nil)
+
+		require.ErrorIs(t, err, assert.AnError)
+		assert.Equal(t, session.Failed, r.store.Snapshot().Steps[0].State)
+	})
+
+	t.Run("a failed Up publishes nothing", func(t *testing.T) {
+		plugin := newMockstepPlugin(t)
+		r := newUpRun(t, plugin, newMockrouteTable(t), newMocktrafficRelay(t))
+		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(nil, assert.AnError)
+
+		_, err := r.upStep(t.Context(), "a", nil)
+
+		require.ErrorIs(t, err, assert.AnError)
+		assert.Equal(t, session.Failed, r.store.Snapshot().Steps[0].State)
+	})
+
+	t.Run("a step that is already running reports ErrStepBusy", func(t *testing.T) {
+		r := newUpRun(t, newMockstepPlugin(t), newMockrouteTable(t), newMocktrafficRelay(t))
+		mu := r.stepLock("a")
+		mu.Lock()
+		defer mu.Unlock()
+
+		_, err := r.upStep(t.Context(), "a", nil)
+
+		require.ErrorIs(t, err, session.ErrStepBusy)
 	})
 }
