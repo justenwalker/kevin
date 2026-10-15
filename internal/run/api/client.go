@@ -1,4 +1,4 @@
-package runapi
+package api
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justenwalker/kevin/internal/runstate"
+	"github.com/justenwalker/kevin/internal/run/runstate"
 )
 
 // Error is a constant sentinel error.
@@ -19,11 +19,11 @@ type Error string
 func (e Error) Error() string { return string(e) }
 
 // ErrUnknownStep reports that the environment declares no such step.
-const ErrUnknownStep = Error("runapi: no such step")
+const ErrUnknownStep = Error("api: no such step")
 
 // ErrBusy reports that the step is already running, so the rerun did not
 // start.
-const ErrBusy = Error("runapi: step is busy")
+const ErrBusy = Error("api: step is busy")
 
 // Console routes, shared by the client and the console's handlers.
 const (
@@ -57,7 +57,7 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 
 	var out Status
 	if err := c.do(ctx, http.MethodGet, StatusPath, nil, &out); err != nil {
-		return Status{}, fmt.Errorf("runapi: status: %w", err)
+		return Status{}, fmt.Errorf("api: status: %w", err)
 	}
 	return out, nil
 }
@@ -69,7 +69,7 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 func (c *Client) Rerun(ctx context.Context, req RerunRequest) (RerunResult, error) {
 	var out RerunResult
 	if err := c.do(ctx, http.MethodPost, RerunPath, req, &out); err != nil {
-		return RerunResult{}, fmt.Errorf("runapi: rerun: %w", err)
+		return RerunResult{}, fmt.Errorf("api: rerun: %w", err)
 	}
 	return out, nil
 }

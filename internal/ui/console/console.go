@@ -26,8 +26,8 @@ import (
 	"github.com/a-h/templ"
 
 	"github.com/justenwalker/kevin/internal/logging"
-	"github.com/justenwalker/kevin/internal/runapi"
-	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/run/api"
+	"github.com/justenwalker/kevin/internal/run/session"
 	"github.com/justenwalker/kevin/internal/ui/browser"
 	"github.com/justenwalker/kevin/internal/ui/mcpserver"
 )
@@ -63,7 +63,7 @@ type Server struct {
 	project string // the project name
 	network string // the docker network the project runs on
 	store   *session.Store
-	rerunFn func(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error)
+	rerunFn func(ctx context.Context, req api.RerunRequest) (api.RerunResult, error)
 
 	clientsMu sync.Mutex // guards clients
 	clients   map[chan []byte]struct{}
@@ -79,7 +79,7 @@ type Config struct {
 	Store *session.Store
 	// Rerun is the func the page's rerun buttons and the rerun endpoint call.
 	// Without one, a rerun request reports an error and changes nothing.
-	Rerun func(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error)
+	Rerun func(ctx context.Context, req api.RerunRequest) (api.RerunResult, error)
 }
 
 // New builds a console for one project, streaming store's changes to every
@@ -132,8 +132,8 @@ func (s *Server) View(host string) View {
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /static/", http.FileServerFS(static))
 	mux.HandleFunc("GET /events", s.events)
-	mux.HandleFunc("GET "+runapi.StatusPath, s.status)
-	mux.HandleFunc("POST "+runapi.RerunPath, s.apiRerun)
+	mux.HandleFunc("GET "+api.StatusPath, s.status)
+	mux.HandleFunc("POST "+api.RerunPath, s.apiRerun)
 	mux.HandleFunc("POST /steps/{name}/rerun", s.rerun)
 	mux.HandleFunc("GET /{$}", s.page)
 }
@@ -167,7 +167,7 @@ func (s *Server) rerun(w http.ResponseWriter, r *http.Request) {
 
 	name := r.PathValue("name")
 	cascade, _ := strconv.ParseBool(r.FormValue("cascade"))
-	if _, err := s.rerunFn(r.Context(), runapi.RerunRequest{Step: name, Cascade: cascade}); err != nil {
+	if _, err := s.rerunFn(r.Context(), api.RerunRequest{Step: name, Cascade: cascade}); err != nil {
 		log.Ctx(r.Context()).Debug("rerun step", "step", name, "error", err)
 		// A step that ran and failed already reported it over the SSE
 		// stream (RerunStep's own doc comment); this handler has nothing

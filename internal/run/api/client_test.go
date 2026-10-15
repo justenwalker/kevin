@@ -1,4 +1,4 @@
-package runapi_test
+package api_test
 
 import (
 	"context"
@@ -10,17 +10,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/runapi"
-	"github.com/justenwalker/kevin/internal/runstate"
-	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/run/api"
+	"github.com/justenwalker/kevin/internal/run/runstate"
+	"github.com/justenwalker/kevin/internal/run/session"
 	"github.com/justenwalker/kevin/internal/ui/console"
 )
 
-func dialServer(t *testing.T, h http.Handler) *runapi.Client {
+func dialServer(t *testing.T, h http.Handler) *api.Client {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	return runapi.Dial(runstate.Addrs{ConsoleAddr: strings.TrimPrefix(srv.URL, "http://")})
+	return api.Dial(runstate.Addrs{ConsoleAddr: strings.TrimPrefix(srv.URL, "http://")})
 }
 
 // TestClient runs the client against the real console handlers over HTTP.
@@ -29,21 +29,21 @@ func TestClient(t *testing.T) {
 	store := session.NewStore()
 	store.AddStep(session.Step{Name: "web", Label: "Web", Kind: "resource", Provider: "builtin"})
 	store.SetStep("web", session.Ready, "")
-	rerun := func(req runapi.RerunRequest) (runapi.RerunResult, error) {
+	rerun := func(req api.RerunRequest) (api.RerunResult, error) {
 		switch req.Step {
 		case "busy":
-			return runapi.RerunResult{}, session.ErrStepBusy
+			return api.RerunResult{}, session.ErrStepBusy
 		case "nope":
-			return runapi.RerunResult{}, session.ErrUnknownStep
+			return api.RerunResult{}, session.ErrUnknownStep
 		case "broken":
-			return runapi.RerunResult{Step: req.Step, Failed: true, Changed: []runapi.StepSummary{{Name: "broken", State: "failed", Message: "boom"}}}, nil
+			return api.RerunResult{Step: req.Step, Failed: true, Changed: []api.StepSummary{{Name: "broken", State: "failed", Message: "boom"}}}, nil
 		default:
-			return runapi.RerunResult{Step: req.Step, Changed: []runapi.StepSummary{{Name: req.Step, State: "ready"}}}, nil
+			return api.RerunResult{Step: req.Step, Changed: []api.StepSummary{{Name: req.Step, State: "ready"}}}, nil
 		}
 	}
 	c := dialServer(t, console.New(console.Config{
 		Project: "demo", Network: "kevin-demo", Store: store,
-		Rerun: func(_ context.Context, req runapi.RerunRequest) (runapi.RerunResult, error) { return rerun(req) },
+		Rerun: func(_ context.Context, req api.RerunRequest) (api.RerunResult, error) { return rerun(req) },
 	}).Handler())
 
 	t.Run("Status reports the project and its steps", func(t *testing.T) {
@@ -57,7 +57,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("Rerun returns what changed", func(t *testing.T) {
-		got, err := c.Rerun(t.Context(), runapi.RerunRequest{Step: "web", Cascade: true})
+		got, err := c.Rerun(t.Context(), api.RerunRequest{Step: "web", Cascade: true})
 
 		require.NoError(t, err)
 		assert.False(t, got.Failed)
@@ -66,7 +66,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("Rerun reports a step that failed as a result", func(t *testing.T) {
-		got, err := c.Rerun(t.Context(), runapi.RerunRequest{Step: "broken"})
+		got, err := c.Rerun(t.Context(), api.RerunRequest{Step: "broken"})
 
 		require.NoError(t, err)
 		assert.True(t, got.Failed)
@@ -74,11 +74,11 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("Rerun maps 404 and 409 to sentinel errors", func(t *testing.T) {
-		_, err := c.Rerun(t.Context(), runapi.RerunRequest{Step: "nope"})
-		require.ErrorIs(t, err, runapi.ErrUnknownStep)
+		_, err := c.Rerun(t.Context(), api.RerunRequest{Step: "nope"})
+		require.ErrorIs(t, err, api.ErrUnknownStep)
 
-		_, err = c.Rerun(t.Context(), runapi.RerunRequest{Step: "busy"})
-		require.ErrorIs(t, err, runapi.ErrBusy)
+		_, err = c.Rerun(t.Context(), api.RerunRequest{Step: "busy"})
+		require.ErrorIs(t, err, api.ErrBusy)
 	})
 }
 
@@ -98,13 +98,13 @@ func TestClientErrors(t *testing.T) {
 			_, _ = w.Write([]byte("not json"))
 		}))
 
-		_, err := c.Rerun(t.Context(), runapi.RerunRequest{Step: "web"})
+		_, err := c.Rerun(t.Context(), api.RerunRequest{Step: "web"})
 
 		require.ErrorContains(t, err, "decode response")
 	})
 
 	t.Run("nothing listening", func(t *testing.T) {
-		c := runapi.Dial(runstate.Addrs{ConsoleAddr: "127.0.0.1:1"})
+		c := api.Dial(runstate.Addrs{ConsoleAddr: "127.0.0.1:1"})
 
 		_, err := c.Status(t.Context())
 

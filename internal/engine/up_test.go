@@ -14,7 +14,7 @@ import (
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/relay"
-	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/run/session"
 	"github.com/justenwalker/kevin/internal/step"
 )
 

@@ -13,8 +13,8 @@ import (
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/proxy"
-	"github.com/justenwalker/kevin/internal/runapi"
-	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/run/api"
+	"github.com/justenwalker/kevin/internal/run/session"
 	"github.com/justenwalker/kevin/internal/step"
 )
 
@@ -32,7 +32,7 @@ func TestRerun(t *testing.T) {
 			})
 		routes.EXPECT().SetStep("a", []proxy.Route{}, []string{"x.example.com"}).Return()
 
-		got, err := r.Rerun(t.Context(), runapi.RerunRequest{Step: "a"})
+		got, err := r.Rerun(t.Context(), api.RerunRequest{Step: "a"})
 
 		require.NoError(t, err)
 		assert.Equal(t, "a", got.Step)
@@ -52,7 +52,7 @@ func TestRerun(t *testing.T) {
 		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(step.Result{}, assert.AnError)
 		routes.EXPECT().ClearStep("a").Return()
 
-		got, err := r.Rerun(t.Context(), runapi.RerunRequest{Step: "a"})
+		got, err := r.Rerun(t.Context(), api.RerunRequest{Step: "a"})
 
 		require.NoError(t, err)
 		assert.True(t, got.Failed)
@@ -73,7 +73,7 @@ func TestRerun(t *testing.T) {
 				return step.Result{}, context.Canceled
 			})
 
-		_, err := r.Rerun(ctx, runapi.RerunRequest{Step: "a"})
+		_, err := r.Rerun(ctx, api.RerunRequest{Step: "a"})
 
 		require.ErrorIs(t, err, context.Canceled)
 	})
@@ -96,7 +96,7 @@ func TestRerun(t *testing.T) {
 		routes.EXPECT().SetStep("a", []proxy.Route{}, []string{"x.example.com"}).Return()
 		routes.EXPECT().ClearStep("b").Return()
 
-		got, err := r.Rerun(t.Context(), runapi.RerunRequest{Step: "a", Cascade: true})
+		got, err := r.Rerun(t.Context(), api.RerunRequest{Step: "a", Cascade: true})
 
 		require.NoError(t, err)
 		assert.False(t, got.Failed, "the targeted step succeeded")
@@ -111,7 +111,7 @@ func TestRerun(t *testing.T) {
 	t.Run("rejects an unknown step", func(t *testing.T) {
 		r := newUpRun(t, newMockstepPlugin(t), newMockrouteTable(t), newMocktrafficRelay(t))
 
-		_, err := r.Rerun(t.Context(), runapi.RerunRequest{Step: "nope"})
+		_, err := r.Rerun(t.Context(), api.RerunRequest{Step: "nope"})
 
 		require.ErrorIs(t, err, session.ErrUnknownStep)
 	})
@@ -122,7 +122,7 @@ func TestRerun(t *testing.T) {
 		require.True(t, ok)
 		defer unlock()
 
-		_, err := r.Rerun(t.Context(), runapi.RerunRequest{Step: "a"})
+		_, err := r.Rerun(t.Context(), api.RerunRequest{Step: "a"})
 
 		require.ErrorIs(t, err, session.ErrStepBusy)
 	})

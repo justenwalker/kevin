@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/watch"
+	"github.com/justenwalker/kevin/internal/run/watch"
 )
 
 const debounce = 50 * time.Millisecond

@@ -1,13 +1,13 @@
-// Package runapi is the contract between a running kevin and the clients
+// Package api is the contract between a running kevin and the clients
 // that act on it: the console's JSON endpoints, the MCP server and the
 // command line.
-package runapi
+package api
 
 import (
 	"time"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/run/session"
 )
 
 // StepSummary is one step's status.

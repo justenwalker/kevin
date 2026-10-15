@@ -1,6 +1,6 @@
 // Package steplog reads a step's durable log: the full-history NDJSON file
 // internal/engine writes alongside the console's own bounded in-memory
-// tail (internal/session.Store). A Cursor lets a caller ask for only what
+// tail (internal/run/session.Store). A Cursor lets a caller ask for only what
 // was logged since it last looked.
 package steplog
 

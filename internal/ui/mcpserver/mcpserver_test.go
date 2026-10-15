@@ -14,8 +14,8 @@ import (
 
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/internal/runapi"
-	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/run/api"
+	"github.com/justenwalker/kevin/internal/run/session"
 	"github.com/justenwalker/kevin/internal/ui/mcpserver"
 )
 
@@ -32,16 +32,16 @@ func (f fakeView) Snapshot() session.View { return *f.v }
 // fakeProxy is a stub of the proxy state the engine would otherwise
 // provide.
 type fakeProxy struct {
-	routes    []runapi.Route
+	routes    []api.Route
 	allow     []string
 	wildcards []string
 	deny      bool
 }
 
-func (f fakeProxy) Routes() []runapi.Route { return f.routes }
+func (f fakeProxy) Routes() []api.Route { return f.routes }
 
-func (f fakeProxy) EgressPolicy() runapi.EgressPolicy {
-	return runapi.EgressPolicy{Allow: f.allow, Wildcards: f.wildcards, Deny: f.deny}
+func (f fakeProxy) EgressPolicy() api.EgressPolicy {
+	return api.EgressPolicy{Allow: f.allow, Wildcards: f.wildcards, Deny: f.deny}
 }
 
 // defaultView is the fake session state most tests run against.
@@ -93,7 +93,7 @@ func appendLogLine(t *testing.T, path, step, text string) {
 // newTestServer builds a Server against fake session state and connects an
 // MCP client to it over Streamable HTTP.
 func newTestServer(t *testing.T,
-	rerun func(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error),
+	rerun func(ctx context.Context, req api.RerunRequest) (api.RerunResult, error),
 	export func(ctx context.Context, step string) (output.Map, error),
 	tools []mcpserver.ToolDef,
 	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (mcpserver.ToolResult, error),
@@ -105,7 +105,7 @@ func newTestServer(t *testing.T,
 // newTestServerWithView is newTestServer for a test that needs to mutate the
 // session view (e.g. from a rerun stub) after the Server is built.
 func newTestServerWithView(t *testing.T, view *session.View,
-	rerun func(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error),
+	rerun func(ctx context.Context, req api.RerunRequest) (api.RerunResult, error),
 	export func(ctx context.Context, step string) (output.Map, error),
 	tools []mcpserver.ToolDef,
 	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (mcpserver.ToolResult, error),
@@ -118,7 +118,7 @@ func newTestServerWithView(t *testing.T, view *session.View,
 // append to the durable log file (e.g. a since-cursor test) after the
 // Server is built.
 func newTestServerWithLogs(t *testing.T, view *session.View, logsPath string,
-	rerun func(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error),
+	rerun func(ctx context.Context, req api.RerunRequest) (api.RerunResult, error),
 	export func(ctx context.Context, step string) (output.Map, error),
 	tools []mcpserver.ToolDef,
 	dispatch func(ctx context.Context, step, tool string, args json.RawMessage) (mcpserver.ToolResult, error),
@@ -126,7 +126,7 @@ func newTestServerWithLogs(t *testing.T, view *session.View, logsPath string,
 	t.Helper()
 
 	px := fakeProxy{
-		routes:    []runapi.Route{{Host: "api.kevin.home", Upstream: "api:8080"}},
+		routes:    []api.Route{{Host: "api.kevin.home", Upstream: "api:8080"}},
 		allow:     []string{"api.github.com"},
 		wildcards: []string{".example.com"},
 		deny:      true,
@@ -257,16 +257,16 @@ func TestTools(t *testing.T) {
 	})
 
 	t.Run("rerun_step", func(t *testing.T) {
-		var got runapi.RerunRequest
-		rerun := func(_ context.Context, req runapi.RerunRequest) (runapi.RerunResult, error) {
+		var got api.RerunRequest
+		rerun := func(_ context.Context, req api.RerunRequest) (api.RerunResult, error) {
 			got = req
-			return runapi.RerunResult{Step: req.Step}, nil
+			return api.RerunResult{Step: req.Step}, nil
 		}
 		sess := newTestServer(t, rerun, noopExport, nil, nil)
 		res := callTool(t, sess, "rerun_step", mcpserver.RerunStepInput{Name: "api", Cascade: true})
 		require.False(t, res.IsError)
 
-		assert.Equal(t, runapi.RerunRequest{Step: "api", Cascade: true}, got)
+		assert.Equal(t, api.RerunRequest{Step: "api", Cascade: true}, got)
 		var out mcpserver.RerunStepOutput
 		decodeStructured(t, res, &out)
 		assert.Equal(t, "api", out.Name)
@@ -275,13 +275,13 @@ func TestTools(t *testing.T) {
 
 	t.Run("rerun_step reports changed step details and proxy denials", func(t *testing.T) {
 		view := defaultView()
-		rerun := func(_ context.Context, req runapi.RerunRequest) (runapi.RerunResult, error) {
+		rerun := func(_ context.Context, req api.RerunRequest) (api.RerunResult, error) {
 			view.Steps[0].State = session.Failed
-			return runapi.RerunResult{
+			return api.RerunResult{
 				Step:    req.Step,
 				Failed:  true,
-				Changed: []runapi.StepSummary{{Name: "api", State: "failed"}},
-				Denied: []runapi.DeniedRequest{
+				Changed: []api.StepSummary{{Name: "api", State: "failed"}},
+				Denied: []api.DeniedRequest{
 					{Method: "GET", Host: "blocked.example.com", Path: "/data"},
 					{Method: "GET", Host: "second.example.com", Path: "/two"},
 				},
@@ -408,18 +408,18 @@ func TestPluginTools(t *testing.T) {
 	})
 }
 
-func noopRerun(context.Context, runapi.RerunRequest) (runapi.RerunResult, error) {
-	return runapi.RerunResult{}, nil
+func noopRerun(context.Context, api.RerunRequest) (api.RerunResult, error) {
+	return api.RerunResult{}, nil
 }
 
 // fakeControl is a stub of the running environment's control surface.
 type fakeControl struct {
-	rerun    func(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error)
+	rerun    func(ctx context.Context, req api.RerunRequest) (api.RerunResult, error)
 	export   func(ctx context.Context, step string) (output.Map, error)
 	callTool func(ctx context.Context, step, tool string, args json.RawMessage) (mcpserver.ToolResult, error)
 }
 
-func (f fakeControl) Rerun(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error) {
+func (f fakeControl) Rerun(ctx context.Context, req api.RerunRequest) (api.RerunResult, error) {
 	return f.rerun(ctx, req)
 }
 

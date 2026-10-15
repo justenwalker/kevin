@@ -11,8 +11,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/internal/runapi"
-	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/run/api"
+	"github.com/justenwalker/kevin/internal/run/session"
 	"github.com/justenwalker/kevin/internal/version"
 )
 
@@ -29,8 +29,8 @@ type stepViewer interface {
 
 // egressViewer is the proxy state Server needs.
 type egressViewer interface {
-	Routes() []runapi.Route
-	EgressPolicy() runapi.EgressPolicy
+	Routes() []api.Route
+	EgressPolicy() api.EgressPolicy
 }
 
 // ToolDef describes one MCP tool a plugin contributes, already resolved
@@ -60,7 +60,7 @@ type Server struct {
 // controller is what Server asks of the running environment to act on it -
 // satisfied by the engine's run.
 type controller interface {
-	Rerun(ctx context.Context, req runapi.RerunRequest) (runapi.RerunResult, error)
+	Rerun(ctx context.Context, req api.RerunRequest) (api.RerunResult, error)
 	Export(ctx context.Context, step string) (output.Map, error)
 	CallTool(ctx context.Context, step, tool string, args json.RawMessage) (ToolResult, error)
 }

@@ -9,9 +9,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/runstate"
+	"github.com/justenwalker/kevin/internal/run/runstate"
+	"github.com/justenwalker/kevin/internal/run/steplog"
 	"github.com/justenwalker/kevin/internal/statedir"
-	"github.com/justenwalker/kevin/internal/steplog"
 )
 
 // logsPollInterval is how often --follow re-reads the log file for new

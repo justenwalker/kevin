@@ -9,21 +9,21 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/justenwalker/kevin/internal/runapi"
-	"github.com/justenwalker/kevin/internal/session"
-	"github.com/justenwalker/kevin/internal/steplog"
+	"github.com/justenwalker/kevin/internal/run/api"
+	"github.com/justenwalker/kevin/internal/run/session"
+	"github.com/justenwalker/kevin/internal/run/steplog"
 )
 
 // ListStepsOutput is the result of list_steps.
 type ListStepsOutput struct {
-	Steps []runapi.StepSummary `json:"steps" jsonschema:"every step in the environment, in the order kevin.cue's DAG brought them up"`
+	Steps []api.StepSummary `json:"steps" jsonschema:"every step in the environment, in the order kevin.cue's DAG brought them up"`
 }
 
 func (s *Server) listSteps(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, ListStepsOutput, error) {
 	steps := s.view.Snapshot().Steps
-	out := make([]runapi.StepSummary, len(steps))
+	out := make([]api.StepSummary, len(steps))
 	for i, st := range steps {
-		out[i] = runapi.StepSummaryOf(st)
+		out[i] = api.StepSummaryOf(st)
 	}
 	return nil, ListStepsOutput{Steps: out}, nil
 }
@@ -56,7 +56,7 @@ type LogLine struct {
 
 // GetStepOutput is the result of get_step.
 type GetStepOutput struct {
-	runapi.StepSummary
+	api.StepSummary
 
 	Details []DetailRow `json:"details,omitempty" jsonschema:"the step's card rows - an exposed address, a routed hostname, a generated credential path, etc."`
 	Inputs  []DetailRow `json:"inputs,omitempty"  jsonschema:"the step's resolved with: config, one row per top-level field, after \\${needs...}/\\${setup...} substitution - what was actually sent to the plugin's Up call"`
@@ -99,7 +99,7 @@ func (s *Server) getStep(_ context.Context, _ *mcp.CallToolRequest, in GetStepIn
 
 // stepOutput builds one step's full get_step/rerun_step report: its
 // summary, detail rows (sensitive values masked), and log lines recorded
-// after cursor since (see logsPath, internal/steplog).
+// after cursor since (see logsPath, internal/run/steplog).
 func stepOutput(st session.Step, logsPath string, since steplog.Cursor) (GetStepOutput, error) {
 	entries, cursor, err := steplog.ReadSince(logsPath, st.Name, since)
 	if err != nil {
@@ -110,7 +110,7 @@ func stepOutput(st session.Step, logsPath string, since steplog.Cursor) (GetStep
 		logs[i] = LogLine{Time: e.Time, Stream: e.Stream, Text: e.Text}
 	}
 	return GetStepOutput{
-		StepSummary: runapi.StepSummaryOf(st),
+		StepSummary: api.StepSummaryOf(st),
 		Details:     toDetailRows(st.Details),
 		Inputs:      toDetailRows(st.Inputs),
 		Outputs:     toDetailRows(st.Outputs),
@@ -128,13 +128,13 @@ type RerunStepInput struct {
 
 // RerunStepOutput is the result of rerun_step.
 type RerunStepOutput struct {
-	Name    string                 `json:"name"              jsonschema:"the step that was targeted"`
-	Steps   []GetStepOutput        `json:"steps,omitempty"   jsonschema:"full status, details, and logs for every step whose state actually changed - name itself, plus any dependents cascade brought along"`
-	Denials []runapi.DeniedRequest `json:"denials,omitempty" jsonschema:"proxy requests the environment blocked while this rerun was in flight - a likely cause when a step failed reaching a host it needed"`
+	Name    string              `json:"name"              jsonschema:"the step that was targeted"`
+	Steps   []GetStepOutput     `json:"steps,omitempty"   jsonschema:"full status, details, and logs for every step whose state actually changed - name itself, plus any dependents cascade brought along"`
+	Denials []api.DeniedRequest `json:"denials,omitempty" jsonschema:"proxy requests the environment blocked while this rerun was in flight - a likely cause when a step failed reaching a host it needed"`
 }
 
 func (s *Server) rerunStep(ctx context.Context, _ *mcp.CallToolRequest, in RerunStepInput) (*mcp.CallToolResult, RerunStepOutput, error) {
-	result, err := s.control.Rerun(ctx, runapi.RerunRequest{Step: in.Name, Cascade: in.Cascade})
+	result, err := s.control.Rerun(ctx, api.RerunRequest{Step: in.Name, Cascade: in.Cascade})
 	if err != nil {
 		return nil, RerunStepOutput{}, fmt.Errorf("mcpserver: rerun %s: %w", in.Name, err)
 	}

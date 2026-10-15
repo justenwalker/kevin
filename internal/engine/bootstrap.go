@@ -8,7 +8,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/container/engines"
 	"github.com/justenwalker/kevin/internal/plugins/load"
-	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/run/session"
 	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/internal/ui/termui"
 )

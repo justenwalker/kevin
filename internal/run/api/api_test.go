@@ -1,4 +1,4 @@
-package runapi
+package api
 
 import (
 	"testing"
@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/run/session"
 )
 
 func TestStepSummaryOf(t *testing.T) {

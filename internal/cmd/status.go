@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/justenwalker/kevin/internal/runapi"
-	"github.com/justenwalker/kevin/internal/runstate"
+	"github.com/justenwalker/kevin/internal/run/api"
+	"github.com/justenwalker/kevin/internal/run/runstate"
 )
 
 func statusCommand(opts *options) *cobra.Command {
@@ -45,7 +45,7 @@ func printStatus(ctx context.Context, w io.Writer, state runstate.State) error {
 	if err != nil {
 		return err
 	}
-	resp, err := runapi.Dial(addrs).Status(ctx)
+	resp, err := api.Dial(addrs).Status(ctx)
 	if err != nil {
 		return fmt.Errorf("cmd: status: %w", err)
 	}

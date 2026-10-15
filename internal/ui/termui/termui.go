@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/run/session"
 )
 
 // tick is how often Renderer redraws while it runs.

@@ -12,19 +12,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/runapi"
-	"github.com/justenwalker/kevin/internal/runstate"
+	"github.com/justenwalker/kevin/internal/run/api"
+	"github.com/justenwalker/kevin/internal/run/runstate"
 )
 
 func TestRerunStep(t *testing.T) {
 	// consoleStub answers POST /api/rerun with code and body, and checks the
 	// request it received against want.
-	consoleStub := func(t *testing.T, want runapi.RerunRequest, code int, body string) runstate.State {
+	consoleStub := func(t *testing.T, want api.RerunRequest, code int, body string) runstate.State {
 		t.Helper()
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, http.MethodPost, r.Method)
-			assert.Equal(t, runapi.RerunPath, r.URL.Path)
-			var got runapi.RerunRequest
+			assert.Equal(t, api.RerunPath, r.URL.Path)
+			var got api.RerunRequest
 			assert.NoError(t, json.NewDecoder(r.Body).Decode(&got))
 			assert.Equal(t, want, got)
 			w.WriteHeader(code)
@@ -37,7 +37,7 @@ func TestRerunStep(t *testing.T) {
 		require.NoError(t, state.WriteAddrs(runstate.Addrs{ConsoleAddr: strings.TrimPrefix(srv.URL, "http://")}))
 		return state
 	}
-	request := runapi.RerunRequest{Step: "web", Cascade: true}
+	request := api.RerunRequest{Step: "web", Cascade: true}
 
 	t.Run("prints each step that changed", func(t *testing.T) {
 		state := consoleStub(t, request, http.StatusOK,

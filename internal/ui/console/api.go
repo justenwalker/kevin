@@ -6,18 +6,18 @@ import (
 	"mime"
 	"net/http"
 
-	"github.com/justenwalker/kevin/internal/runapi"
-	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/run/api"
+	"github.com/justenwalker/kevin/internal/run/session"
 )
 
 // status writes the running environment's current step states as JSON.
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	v := s.store.Snapshot()
-	steps := make([]runapi.StepSummary, len(v.Steps))
+	steps := make([]api.StepSummary, len(v.Steps))
 	for i, st := range v.Steps {
-		steps[i] = runapi.StepSummaryOf(st)
+		steps[i] = api.StepSummaryOf(st)
 	}
-	writeJSON(w, r, runapi.Status{Project: s.project, Network: s.network, ProxyAddr: v.ProxyAddr, Steps: steps})
+	writeJSON(w, r, api.Status{Project: s.project, Network: s.network, ProxyAddr: v.ProxyAddr, Steps: steps})
 }
 
 // apiRerun runs a step again and writes what the rerun changed as JSON. A
@@ -34,7 +34,7 @@ func (s *Server) apiRerun(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "the request must be application/json", http.StatusUnsupportedMediaType)
 		return
 	}
-	var req runapi.RerunRequest
+	var req api.RerunRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "decode request: "+err.Error(), http.StatusBadRequest)
 		return

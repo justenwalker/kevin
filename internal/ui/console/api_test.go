@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/runapi"
-	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/run/api"
+	"github.com/justenwalker/kevin/internal/run/session"
 )
 
 func TestStatus(t *testing.T) {
@@ -30,7 +30,7 @@ func TestStatus(t *testing.T) {
 		require.Equal(t, 200, rec.Code)
 		assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
-		var out runapi.Status
+		var out api.Status
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Equal(t, "demo", out.Project)
 		assert.Equal(t, "kevin-demo", out.Network)
@@ -59,7 +59,7 @@ func TestAPIRerun(t *testing.T) {
 		s.Handler().ServeHTTP(rec, req)
 		return rec
 	}
-	withRerun := func(fn func(context.Context, runapi.RerunRequest) (runapi.RerunResult, error)) *Server {
+	withRerun := func(fn func(context.Context, api.RerunRequest) (api.RerunResult, error)) *Server {
 		return New(Config{Project: "demo", Store: session.NewStore(), Rerun: fn})
 	}
 
@@ -70,16 +70,16 @@ func TestAPIRerun(t *testing.T) {
 	})
 
 	t.Run("passes the request on and writes the result", func(t *testing.T) {
-		var got runapi.RerunRequest
-		s := withRerun(func(_ context.Context, req runapi.RerunRequest) (runapi.RerunResult, error) {
+		var got api.RerunRequest
+		s := withRerun(func(_ context.Context, req api.RerunRequest) (api.RerunResult, error) {
 			got = req
-			return runapi.RerunResult{Step: req.Step, Failed: true, Changed: []runapi.StepSummary{{Name: "web", State: "failed"}}}, nil
+			return api.RerunResult{Step: req.Step, Failed: true, Changed: []api.StepSummary{{Name: "web", State: "failed"}}}, nil
 		})
 
 		rec := post(s, `{"step":"web","cascade":true}`)
 
 		require.Equal(t, http.StatusOK, rec.Code)
-		assert.Equal(t, runapi.RerunRequest{Step: "web", Cascade: true}, got)
+		assert.Equal(t, api.RerunRequest{Step: "web", Cascade: true}, got)
 		assert.JSONEq(t, `{"step":"web","failed":true,"changed":[{"name":"web","state":"failed","idempotent":false}]}`, rec.Body.String())
 	})
 
@@ -94,8 +94,8 @@ func TestAPIRerun(t *testing.T) {
 			{name: "anything else", err: errors.New("boom"), want: http.StatusInternalServerError},
 		}
 		for _, tt := range tests {
-			s := withRerun(func(context.Context, runapi.RerunRequest) (runapi.RerunResult, error) {
-				return runapi.RerunResult{}, tt.err
+			s := withRerun(func(context.Context, api.RerunRequest) (api.RerunResult, error) {
+				return api.RerunResult{}, tt.err
 			})
 
 			assert.Equal(t, tt.want, post(s, `{"step":"web"}`).Code, tt.name)
@@ -103,9 +103,9 @@ func TestAPIRerun(t *testing.T) {
 	})
 
 	t.Run("rejects a request that is not application/json", func(t *testing.T) {
-		s := withRerun(func(context.Context, runapi.RerunRequest) (runapi.RerunResult, error) {
+		s := withRerun(func(context.Context, api.RerunRequest) (api.RerunResult, error) {
 			t.Error("rerun must not run")
-			return runapi.RerunResult{}, nil
+			return api.RerunResult{}, nil
 		})
 		req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/rerun", strings.NewReader(`{"step":"web"}`))
 		req.Header.Set("Content-Type", "text/plain")
@@ -117,9 +117,9 @@ func TestAPIRerun(t *testing.T) {
 	})
 
 	t.Run("rejects a body that is not JSON", func(t *testing.T) {
-		s := withRerun(func(context.Context, runapi.RerunRequest) (runapi.RerunResult, error) {
+		s := withRerun(func(context.Context, api.RerunRequest) (api.RerunResult, error) {
 			t.Error("rerun must not run")
-			return runapi.RerunResult{}, nil
+			return api.RerunResult{}, nil
 		})
 
 		assert.Equal(t, http.StatusBadRequest, post(s, `step=web`).Code)

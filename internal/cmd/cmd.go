@@ -22,7 +22,7 @@ import (
 	"github.com/justenwalker/kevin/internal/plugins/load"
 	"github.com/justenwalker/kevin/internal/plugins/pkg"
 	"github.com/justenwalker/kevin/internal/plugins/source/ocisrc"
-	"github.com/justenwalker/kevin/internal/runstate"
+	"github.com/justenwalker/kevin/internal/run/runstate"
 	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/internal/ui/mcpserver"

@@ -10,7 +10,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/plugins/launcher"
-	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/run/session"
 	"github.com/justenwalker/kevin/internal/step"
 )
 

@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/justenwalker/kevin/internal/runapi"
-	"github.com/justenwalker/kevin/internal/runstate"
+	"github.com/justenwalker/kevin/internal/run/api"
+	"github.com/justenwalker/kevin/internal/run/runstate"
 )
 
 // ErrRerunFailed reports that a rerun finished with the target step failed.
@@ -42,11 +42,11 @@ func rerunStep(ctx context.Context, w io.Writer, state runstate.State, step stri
 	if err != nil {
 		return err
 	}
-	result, err := runapi.Dial(addrs).Rerun(ctx, runapi.RerunRequest{Step: step, Cascade: cascade})
+	result, err := api.Dial(addrs).Rerun(ctx, api.RerunRequest{Step: step, Cascade: cascade})
 	switch {
-	case errors.Is(err, runapi.ErrUnknownStep):
+	case errors.Is(err, api.ErrUnknownStep):
 		return fmt.Errorf("cmd: rerun: no step named %q", step)
-	case errors.Is(err, runapi.ErrBusy):
+	case errors.Is(err, api.ErrBusy):
 		return fmt.Errorf("cmd: rerun: step %q is busy", step)
 	case err != nil:
 		return fmt.Errorf("cmd: rerun: %w", err)
@@ -56,7 +56,7 @@ func rerunStep(ctx context.Context, w io.Writer, state runstate.State, step stri
 
 // printRerun prints each step the rerun changed, and fails if the target
 // step ended failed.
-func printRerun(w io.Writer, result runapi.RerunResult) error {
+func printRerun(w io.Writer, result api.RerunResult) error {
 	for _, st := range result.Changed {
 		line := st.Name + " " + st.State
 		if st.Message != "" {

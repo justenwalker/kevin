@@ -17,8 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/runapi"
-	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/run/api"
+	"github.com/justenwalker/kevin/internal/run/session"
 )
 
 func TestSSEMessage(t *testing.T) {
@@ -701,7 +701,7 @@ func TestRerun(t *testing.T) {
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, target, nil))
 		return rec
 	}
-	withRerun := func(fn func(context.Context, runapi.RerunRequest) (runapi.RerunResult, error)) *Server {
+	withRerun := func(fn func(context.Context, api.RerunRequest) (api.RerunResult, error)) *Server {
 		return New(Config{Project: "demo", Store: session.NewStore(), Rerun: fn})
 	}
 
@@ -712,37 +712,37 @@ func TestRerun(t *testing.T) {
 	})
 
 	t.Run("passes the step and the cascade flag to the rerun func", func(t *testing.T) {
-		var got runapi.RerunRequest
-		s := withRerun(func(_ context.Context, req runapi.RerunRequest) (runapi.RerunResult, error) {
+		var got api.RerunRequest
+		s := withRerun(func(_ context.Context, req api.RerunRequest) (api.RerunResult, error) {
 			got = req
-			return runapi.RerunResult{}, nil
+			return api.RerunResult{}, nil
 		})
 
 		rec := post(s, "/steps/web/rerun?cascade=true")
 
 		assert.Equal(t, http.StatusAccepted, rec.Code)
-		assert.Equal(t, runapi.RerunRequest{Step: "web", Cascade: true}, got)
+		assert.Equal(t, api.RerunRequest{Step: "web", Cascade: true}, got)
 	})
 
 	t.Run("reports a step that is already running", func(t *testing.T) {
-		s := withRerun(func(context.Context, runapi.RerunRequest) (runapi.RerunResult, error) {
-			return runapi.RerunResult{}, session.ErrStepBusy
+		s := withRerun(func(context.Context, api.RerunRequest) (api.RerunResult, error) {
+			return api.RerunResult{}, session.ErrStepBusy
 		})
 
 		assert.Equal(t, http.StatusConflict, post(s, "/steps/web/rerun").Code)
 	})
 
 	t.Run("reports a step that does not exist", func(t *testing.T) {
-		s := withRerun(func(context.Context, runapi.RerunRequest) (runapi.RerunResult, error) {
-			return runapi.RerunResult{}, session.ErrUnknownStep
+		s := withRerun(func(context.Context, api.RerunRequest) (api.RerunResult, error) {
+			return api.RerunResult{}, session.ErrUnknownStep
 		})
 
 		assert.Equal(t, http.StatusNotFound, post(s, "/steps/nope/rerun").Code)
 	})
 
 	t.Run("accepts a rerun that failed, since the stream already reported it", func(t *testing.T) {
-		s := withRerun(func(context.Context, runapi.RerunRequest) (runapi.RerunResult, error) {
-			return runapi.RerunResult{}, errors.New("boom")
+		s := withRerun(func(context.Context, api.RerunRequest) (api.RerunResult, error) {
+			return api.RerunResult{}, errors.New("boom")
 		})
 
 		assert.Equal(t, http.StatusAccepted, post(s, "/steps/web/rerun").Code)

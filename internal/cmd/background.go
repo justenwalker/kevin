@@ -10,7 +10,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/runstate"
+	"github.com/justenwalker/kevin/internal/run/runstate"
 	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/internal/step"
 )

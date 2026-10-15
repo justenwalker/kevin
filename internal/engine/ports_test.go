@@ -8,7 +8,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/pki/ca"
 	"github.com/justenwalker/kevin/internal/proxy"
-	"github.com/justenwalker/kevin/internal/runapi"
+	"github.com/justenwalker/kevin/internal/run/api"
 	"github.com/justenwalker/kevin/internal/statedir"
 )
 
@@ -23,7 +23,7 @@ func TestEgressView(t *testing.T) {
 
 	view := egressView{proxy: p}
 
-	assert.Equal(t, []runapi.Route{{Host: "web.kevin.home", Upstream: "127.0.0.1:8080", Relay: "127.0.0.1:1080", TLS: true}}, view.Routes())
+	assert.Equal(t, []api.Route{{Host: "web.kevin.home", Upstream: "127.0.0.1:8080", Relay: "127.0.0.1:1080", TLS: true}}, view.Routes())
 	policy := view.EgressPolicy()
 	assert.Equal(t, []string{"api.github.com"}, policy.Allow)
 	assert.Empty(t, policy.Wildcards)

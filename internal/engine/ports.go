@@ -7,7 +7,7 @@ import (
 	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/relay"
-	"github.com/justenwalker/kevin/internal/runapi"
+	"github.com/justenwalker/kevin/internal/run/api"
 	"github.com/justenwalker/kevin/internal/step"
 )
 
@@ -83,15 +83,15 @@ func stepPlugins(clients map[string]*launcher.Client) map[string]stepPlugin {
 // reads.
 type egressView struct{ proxy *proxy.Proxy }
 
-func (v egressView) Routes() []runapi.Route {
+func (v egressView) Routes() []api.Route {
 	routes := v.proxy.Routes()
-	out := make([]runapi.Route, len(routes))
+	out := make([]api.Route, len(routes))
 	for i, r := range routes {
-		out[i] = runapi.Route{Host: r.Host, Upstream: r.Upstream, Relay: r.Relay, TLS: r.TLS}
+		out[i] = api.Route{Host: r.Host, Upstream: r.Upstream, Relay: r.Relay, TLS: r.TLS}
 	}
 	return out
 }
 
-func (v egressView) EgressPolicy() runapi.EgressPolicy {
-	return runapi.EgressPolicy(v.proxy.EgressPolicy())
+func (v egressView) EgressPolicy() api.EgressPolicy {
+	return api.EgressPolicy(v.proxy.EgressPolicy())
 }
