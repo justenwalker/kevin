@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/justenwalker/kevin/internal/ca"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 	trustinstall "github.com/justenwalker/kevin/internal/trust"
 )
 
@@ -78,7 +78,7 @@ func caUninstallCommand(opts *options) *cobra.Command {
 // shared by every project.
 func requestFor(system, firefox bool) trustinstall.Request {
 	return trustinstall.Request{
-		CertPath:   state.ForUser().RootCert(),
+		CertPath:   statedir.ForUser().RootCert(),
 		CommonName: ca.RootCommonName,
 		FileName:   "kevin-local-root",
 		System:     system,

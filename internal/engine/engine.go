@@ -32,7 +32,7 @@ import (
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/session"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/internal/step"
 )
 
@@ -339,7 +339,7 @@ func portOf(addr string) string {
 // prepare creates the workspace, the shared network, and the authority. It
 // returns the workspace path and the authority.
 func prepare(ctx context.Context, cfg *config.Config, rt networkPreparer) (string, *ca.CA, error) {
-	workspace := state.For(cfg.Dir, cfg.Name).Workspace()
+	workspace := statedir.For(cfg.Dir, cfg.Name).Workspace()
 	if err := os.MkdirAll(workspace, 0o700); err != nil {
 		return "", nil, fmt.Errorf("supervisor: create %s: %w", workspace, err)
 	}
@@ -450,9 +450,9 @@ func environment(cfg *config.Config, engine step.Engine, scope config.Scope, liv
 	network := networkName(cfg.Project)
 	env := step.Env{
 		Project:    cfg.Project,
-		Workspace:  state.For(cfg.Dir, cfg.Name).Workspace(),
+		Workspace:  statedir.For(cfg.Dir, cfg.Name).Workspace(),
 		Network:    network,
-		CAPath:     state.ForUser().RootCert(),
+		CAPath:     statedir.ForUser().RootCert(),
 		Domain:     cfg.Domain,
 		ProjectDir: cfg.Dir,
 		Scope:      scope,
@@ -486,7 +486,7 @@ func Teardown(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	stepLog, err := openNDJSONLog(workspace, state.LogsFile)
+	stepLog, err := openNDJSONLog(workspace, statedir.LogsFile)
 	if err != nil {
 		return err
 	}
@@ -683,7 +683,7 @@ type sessionLogs struct {
 
 // openSessionLogs opens the step and traffic logs under workspace.
 func openSessionLogs(workspace string) (sessionLogs, error) {
-	step, err := openNDJSONLog(workspace, state.LogsFile)
+	step, err := openNDJSONLog(workspace, statedir.LogsFile)
 	if err != nil {
 		return sessionLogs{}, err
 	}
@@ -742,7 +742,7 @@ func (r *run) newMux(cfg *config.Config, workspace string, p *proxy.Proxy, tools
 	mcpServer := mcpserver.New(mcpserver.Options{
 		Project:  cfg.Project,
 		Domain:   cfg.Domain,
-		LogsPath: filepath.Join(workspace, state.LogsFile),
+		LogsPath: filepath.Join(workspace, statedir.LogsFile),
 		View:     r.store,
 		Proxy:    egressView{proxy: p},
 		Control:  r,

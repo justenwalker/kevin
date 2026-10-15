@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/justenwalker/kevin/internal/expr"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 )
 
 // ResolvePluginConfigs renders every declared plugin's config block against
@@ -19,7 +19,7 @@ import (
 // block, which may still carry a needs/setup marker only resolvable at that
 // step's own Up call (see [ApplySchema]).
 func (cfg *Config) ResolvePluginConfigs(schemas map[string]PluginSchemas) error {
-	scopes := expr.Scopes{Env: expr.HostEnv(), Vars: cfg.VariableValues, Project: state.For(cfg.Dir, cfg.Name).Vars()}
+	scopes := expr.Scopes{Env: expr.HostEnv(), Vars: cfg.VariableValues, Project: statedir.For(cfg.Dir, cfg.Name).Vars()}
 	for name, spec := range cfg.Plugins {
 		if len(spec.Config) == 0 {
 			continue

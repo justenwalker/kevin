@@ -10,7 +10,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/runstate"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/internal/steplog"
 )
 
@@ -35,7 +35,7 @@ func logsCommand(opts *options) *cobra.Command {
 			if len(args) == 1 {
 				step = args[0]
 			}
-			logsPath := state.For(opts.dir, config.SlugName(opts.name)).Logs()
+			logsPath := statedir.For(opts.dir, config.SlugName(opts.name)).Logs()
 			return printLogs(cmd.Context(), cmd.OutOrStdout(), logsPath, runStateFor(opts.dir, opts.name), step, follow)
 		},
 	}

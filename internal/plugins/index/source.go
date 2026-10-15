@@ -11,11 +11,11 @@ import (
 
 	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 )
 
 // RootDir is the plugin-index directory under the user state directory - global, shared across every project.
-func RootDir() string { return state.ForUser().PluginIndex() }
+func RootDir() string { return statedir.ForUser().PluginIndex() }
 
 // sourcesDir holds one JSON file per configured [Source], named by the
 // sha256 of its URL so renaming an alias never touches the repo cache.

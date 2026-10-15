@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/ca"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 )
 
 func TestManager_LoadOrGenerateRoot(t *testing.T) {
@@ -60,7 +60,7 @@ func TestManager_LoadOrGenerateRoot(t *testing.T) {
 
 	t.Run("honors a custom lifetime", func(t *testing.T) {
 		dir := freshDir(t)
-		t.Setenv(state.UserStateDirEnv, dir)
+		t.Setenv(statedir.UserStateDirEnv, dir)
 
 		m := ca.NewManager("cwd", "", "demo", ca.Options{RootLifetime: time.Hour})
 		root, err := m.LoadOrGenerateRoot()
@@ -79,7 +79,7 @@ func TestManager_LoadOrGenerateRoot(t *testing.T) {
 				name: "a certificate without a key",
 				setup: func(t *testing.T, dir string) {
 					t.Helper()
-					require.NoError(t, os.WriteFile(filepath.Join(dir, state.RootCertFile), []byte("x"), 0o600))
+					require.NoError(t, os.WriteFile(filepath.Join(dir, statedir.RootCertFile), []byte("x"), 0o600))
 				},
 			},
 		}
@@ -87,7 +87,7 @@ func TestManager_LoadOrGenerateRoot(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				dir := t.TempDir()
-				t.Setenv(state.UserStateDirEnv, dir)
+				t.Setenv(statedir.UserStateDirEnv, dir)
 				tt.setup(t, dir)
 
 				// A directory without a root is not an error, because the
@@ -138,8 +138,8 @@ func TestManager_LoadOrGenerateRoot(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				dir := t.TempDir()
-				t.Setenv(state.UserStateDirEnv, dir)
-				require.NoError(t, os.WriteFile(filepath.Join(dir, state.RootCertFile), tt.certPEM, 0o600))
+				t.Setenv(statedir.UserStateDirEnv, dir)
+				require.NoError(t, os.WriteFile(filepath.Join(dir, statedir.RootCertFile), tt.certPEM, 0o600))
 				require.NoError(t, os.WriteFile(filepath.Join(dir, ca.RootKeyFile), tt.keyPEM, 0o600))
 
 				m := ca.NewManager("cwd", "", "demo", ca.Options{})
@@ -151,10 +151,10 @@ func TestManager_LoadOrGenerateRoot(t *testing.T) {
 
 	t.Run("reports a read error that is not a missing file", func(t *testing.T) {
 		dir := t.TempDir()
-		t.Setenv(state.UserStateDirEnv, dir)
+		t.Setenv(statedir.UserStateDirEnv, dir)
 		// A directory where a file is expected fails to read for a reason
 		// other than "not found", which readFile must not swallow.
-		require.NoError(t, os.Mkdir(filepath.Join(dir, state.RootCertFile), 0o755))
+		require.NoError(t, os.Mkdir(filepath.Join(dir, statedir.RootCertFile), 0o755))
 
 		m := ca.NewManager("cwd", "", "demo", ca.Options{})
 		_, err := m.LoadOrGenerateRoot()
@@ -169,7 +169,7 @@ func TestManager_LoadOrGenerateRoot(t *testing.T) {
 		parent := filepath.Join(t.TempDir(), "parent")
 		require.NoError(t, os.Mkdir(parent, 0o500))
 		t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
-		t.Setenv(state.UserStateDirEnv, filepath.Join(parent, "state"))
+		t.Setenv(statedir.UserStateDirEnv, filepath.Join(parent, "state"))
 
 		m := ca.NewManager("cwd", "", "demo", ca.Options{})
 		_, err := m.LoadOrGenerateRoot()
@@ -178,7 +178,7 @@ func TestManager_LoadOrGenerateRoot(t *testing.T) {
 
 	t.Run("reports an error when a file cannot be written", func(t *testing.T) {
 		dir := t.TempDir()
-		t.Setenv(state.UserStateDirEnv, dir)
+		t.Setenv(statedir.UserStateDirEnv, dir)
 		// The directory exists (so MkdirAll is a no-op) but is read-only,
 		// so the write of the generated files fails.
 		require.NoError(t, os.Chmod(dir, 0o500))
@@ -192,8 +192,8 @@ func TestManager_LoadOrGenerateRoot(t *testing.T) {
 
 func TestManager_LoadOrGenerateIntermediate(t *testing.T) {
 	t.Run("loads the root automatically if not already loaded", func(t *testing.T) {
-		t.Setenv(state.UserStateDirEnv, freshDir(t))
-		t.Setenv(state.ProjectStateDirEnv, freshDir(t))
+		t.Setenv(statedir.UserStateDirEnv, freshDir(t))
+		t.Setenv(statedir.ProjectStateDirEnv, freshDir(t))
 
 		m := ca.NewManager("cwd", "", "demo", ca.Options{})
 		project, err := m.LoadOrGenerateIntermediate()
@@ -217,8 +217,8 @@ func TestManager_LoadOrGenerateIntermediate(t *testing.T) {
 	})
 
 	t.Run("honors a custom lifetime", func(t *testing.T) {
-		t.Setenv(state.UserStateDirEnv, freshDir(t))
-		t.Setenv(state.ProjectStateDirEnv, freshDir(t))
+		t.Setenv(statedir.UserStateDirEnv, freshDir(t))
+		t.Setenv(statedir.ProjectStateDirEnv, freshDir(t))
 
 		m := ca.NewManager("cwd", "", "demo", ca.Options{IntermediateLifetime: time.Hour})
 		project, err := m.LoadOrGenerateIntermediate()
@@ -237,14 +237,14 @@ func TestManager_LoadOrGenerateIntermediate(t *testing.T) {
 		assert.Equal(t, 2, countPEM(t, project.PEM()), "the file must hold the chain")
 
 		// A plugin reads the root from the project directory.
-		rootOnDisk, err := os.ReadFile(filepath.Join(dir, state.RootCertFile))
+		rootOnDisk, err := os.ReadFile(filepath.Join(dir, statedir.RootCertFile))
 		require.NoError(t, err)
 		assert.Equal(t, root.PEM(), string(rootOnDisk))
 
 		assert.Equal(t, root.PEM(), project.RootPEM(),
 			"RootPEM is what a client trusts and what a container mounts")
 
-		info, err := os.Stat(filepath.Join(dir, state.CAKeyFile))
+		info, err := os.Stat(filepath.Join(dir, statedir.CAKeyFile))
 		require.NoError(t, err)
 		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 	})
@@ -277,14 +277,14 @@ func TestManager_LoadOrGenerateIntermediate(t *testing.T) {
 	t.Run("two projects share one root", func(t *testing.T) {
 		rootDir := freshDir(t)
 
-		t.Setenv(state.UserStateDirEnv, rootDir)
-		t.Setenv(state.ProjectStateDirEnv, freshDir(t))
+		t.Setenv(statedir.UserStateDirEnv, rootDir)
+		t.Setenv(statedir.ProjectStateDirEnv, freshDir(t))
 		m1 := ca.NewManager("cwd", "", "one", ca.Options{})
 		one, err := m1.LoadOrGenerateIntermediate()
 		require.NoError(t, err)
 
-		t.Setenv(state.UserStateDirEnv, rootDir)
-		t.Setenv(state.ProjectStateDirEnv, freshDir(t))
+		t.Setenv(statedir.UserStateDirEnv, rootDir)
+		t.Setenv(statedir.ProjectStateDirEnv, freshDir(t))
 		m2 := ca.NewManager("cwd", "", "two", ca.Options{})
 		two, err := m2.LoadOrGenerateIntermediate()
 		require.NoError(t, err)
@@ -296,16 +296,16 @@ func TestManager_LoadOrGenerateIntermediate(t *testing.T) {
 	t.Run("is replaced when the root changes", func(t *testing.T) {
 		projectDir := freshDir(t)
 
-		t.Setenv(state.UserStateDirEnv, freshDir(t))
-		t.Setenv(state.ProjectStateDirEnv, projectDir)
+		t.Setenv(statedir.UserStateDirEnv, freshDir(t))
+		t.Setenv(statedir.ProjectStateDirEnv, projectDir)
 		m1 := ca.NewManager("cwd", "", "demo", ca.Options{})
 		before, err := m1.LoadOrGenerateIntermediate()
 		require.NoError(t, err)
 
 		// A user who deletes the home directory gets a new root. An
 		// authority signed by the old root verifies against nothing.
-		t.Setenv(state.UserStateDirEnv, freshDir(t))
-		t.Setenv(state.ProjectStateDirEnv, projectDir)
+		t.Setenv(statedir.UserStateDirEnv, freshDir(t))
+		t.Setenv(statedir.ProjectStateDirEnv, projectDir)
 		m2 := ca.NewManager("cwd", "", "demo", ca.Options{})
 		second, err := m2.LoadOrGenerateRoot()
 		require.NoError(t, err)
@@ -330,12 +330,12 @@ func TestManager_LoadOrGenerateIntermediate(t *testing.T) {
 	})
 
 	t.Run("reports an error when the project directory cannot be created", func(t *testing.T) {
-		t.Setenv(state.UserStateDirEnv, freshDir(t))
+		t.Setenv(statedir.UserStateDirEnv, freshDir(t))
 
 		parent := filepath.Join(t.TempDir(), "parent")
 		require.NoError(t, os.Mkdir(parent, 0o500))
 		t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
-		t.Setenv(state.ProjectStateDirEnv, filepath.Join(parent, "project"))
+		t.Setenv(statedir.ProjectStateDirEnv, filepath.Join(parent, "project"))
 
 		m := ca.NewManager("cwd", "", "demo", ca.Options{})
 		_, err := m.LoadOrGenerateIntermediate()
@@ -348,17 +348,17 @@ func TestCA_TLSCertificate(t *testing.T) {
 		_, dirA := newRoot(t)
 		_, dirB := newRoot(t)
 
-		certA, err := os.ReadFile(filepath.Join(dirA, state.RootCertFile))
+		certA, err := os.ReadFile(filepath.Join(dirA, statedir.RootCertFile))
 		require.NoError(t, err)
 		keyB, err := os.ReadFile(filepath.Join(dirB, ca.RootKeyFile))
 		require.NoError(t, err)
 
 		frankenDir := filepath.Join(t.TempDir(), "franken")
 		require.NoError(t, os.MkdirAll(frankenDir, 0o700))
-		require.NoError(t, os.WriteFile(filepath.Join(frankenDir, state.RootCertFile), certA, 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(frankenDir, statedir.RootCertFile), certA, 0o600))
 		require.NoError(t, os.WriteFile(filepath.Join(frankenDir, ca.RootKeyFile), keyB, 0o600))
 
-		t.Setenv(state.UserStateDirEnv, frankenDir)
+		t.Setenv(statedir.UserStateDirEnv, frankenDir)
 		m := ca.NewManager("cwd", "", "demo", ca.Options{})
 		mismatched, err := m.LoadOrGenerateRoot()
 		require.NoError(t, err, "loading does not check that the certificate and key match")
@@ -442,8 +442,8 @@ func freshDir(t *testing.T) string {
 // project-state directory.
 func newManager(t *testing.T, project string) *ca.Manager {
 	t.Helper()
-	t.Setenv(state.UserStateDirEnv, freshDir(t))
-	t.Setenv(state.ProjectStateDirEnv, freshDir(t))
+	t.Setenv(statedir.UserStateDirEnv, freshDir(t))
+	t.Setenv(statedir.ProjectStateDirEnv, freshDir(t))
 	return ca.NewManager("cwd", "", project, ca.Options{})
 }
 
@@ -451,7 +451,7 @@ func newManager(t *testing.T, project string) *ca.Manager {
 func newRoot(t *testing.T) (*ca.CA, string) {
 	t.Helper()
 	dir := freshDir(t)
-	t.Setenv(state.UserStateDirEnv, dir)
+	t.Setenv(statedir.UserStateDirEnv, dir)
 	m := ca.NewManager("cwd", "", "demo", ca.Options{})
 	root, err := m.LoadOrGenerateRoot()
 	require.NoError(t, err)
@@ -463,8 +463,8 @@ func newRoot(t *testing.T) (*ca.CA, string) {
 func newManagerWithRoot(t *testing.T) (*ca.Manager, *ca.CA, string) {
 	t.Helper()
 	projectDir := freshDir(t)
-	t.Setenv(state.UserStateDirEnv, freshDir(t))
-	t.Setenv(state.ProjectStateDirEnv, projectDir)
+	t.Setenv(statedir.UserStateDirEnv, freshDir(t))
+	t.Setenv(statedir.ProjectStateDirEnv, projectDir)
 	m := ca.NewManager("cwd", "", "demo", ca.Options{})
 	root, err := m.LoadOrGenerateRoot()
 	require.NoError(t, err)
@@ -491,7 +491,7 @@ func countPEM(t *testing.T, s string) int {
 func validRootPair(t *testing.T) ([]byte, []byte) {
 	t.Helper()
 	_, rootDir := newRoot(t)
-	certPEM, err := os.ReadFile(filepath.Join(rootDir, state.RootCertFile))
+	certPEM, err := os.ReadFile(filepath.Join(rootDir, statedir.RootCertFile))
 	require.NoError(t, err)
 	keyPEM, err := os.ReadFile(filepath.Join(rootDir, ca.RootKeyFile))
 	require.NoError(t, err)

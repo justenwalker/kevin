@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/justenwalker/kevin/internal/ca"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/protos/pb"
 )
@@ -228,8 +228,8 @@ func TestControlServerPEM(t *testing.T) {
 // newTestAuthority builds a fresh project authority for a test.
 func newTestAuthority(t *testing.T) *ca.CA {
 	t.Helper()
-	t.Setenv(state.UserStateDirEnv, t.TempDir())
-	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+	t.Setenv(statedir.UserStateDirEnv, t.TempDir())
+	t.Setenv(statedir.ProjectStateDirEnv, t.TempDir())
 
 	m := ca.NewManager("cwd", "", "demo", ca.Options{})
 	authority, err := m.LoadOrGenerateIntermediate()

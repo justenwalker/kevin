@@ -22,7 +22,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 )
 
 // Manager loads or generates the root and per-project certificate
@@ -54,7 +54,7 @@ func NewManager(cwd, name, project string, opt Options) *Manager {
 	if opt.IntermediateLifetime == 0 {
 		opt.IntermediateLifetime = intermediateLifetime
 	}
-	paths := state.For(cwd, name)
+	paths := statedir.For(cwd, name)
 	return &Manager{
 		rootLifetime:         opt.RootLifetime,
 		intermediateLifetime: opt.IntermediateLifetime,
@@ -109,7 +109,7 @@ func (m *Manager) LoadOrGenerateRoot() (*CA, error) {
 }
 
 func (m *Manager) loadOrGenerateRoot(dir string) (*CA, error) {
-	root, err := loadPair(dir, state.RootCertFile, RootKeyFile)
+	root, err := loadPair(dir, statedir.RootCertFile, RootKeyFile)
 	switch {
 	case err == nil:
 		root.rootPEM = root.certPEM
@@ -135,7 +135,7 @@ func (m *Manager) LoadOrGenerateIntermediate() (*CA, error) {
 }
 
 func (m *Manager) loadOrGenerateIntermediate() (*CA, error) {
-	authority, err := loadPair(m.projectDir, state.CACertFile, state.CAKeyFile)
+	authority, err := loadPair(m.projectDir, statedir.CACertFile, statedir.CAKeyFile)
 	switch {
 	case err == nil:
 		authority.rootPEM = m.root.certPEM
@@ -163,8 +163,8 @@ func (m *Manager) generateRoot() (*CA, error) {
 	authority.rootPEM = authority.certPEM
 
 	if err = write(m.rootDir, map[string][]byte{
-		state.RootCertFile: authority.certPEM,
-		RootKeyFile:        authority.keyPEM,
+		statedir.RootCertFile: authority.certPEM,
+		RootKeyFile:           authority.keyPEM,
 	}); err != nil {
 		return nil, err
 	}
@@ -189,9 +189,9 @@ func (m *Manager) generateIntermediate() (*CA, error) {
 	authority.certPEM = chain
 
 	if err = write(m.projectDir, map[string][]byte{
-		state.CACertFile:   chain,
-		state.CAKeyFile:    authority.keyPEM,
-		state.RootCertFile: m.root.certPEM,
+		statedir.CACertFile:   chain,
+		statedir.CAKeyFile:    authority.keyPEM,
+		statedir.RootCertFile: m.root.certPEM,
 	}); err != nil {
 		return nil, err
 	}

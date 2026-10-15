@@ -24,7 +24,7 @@ import (
 	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/internal/step"
 )
 
@@ -86,11 +86,11 @@ env: a: {uses: "echo:echo", with: {message: "A", delay: "10ms"}}
 		assert.Contains(t, w.String(), "a                waiting", "a progress event must reach the output")
 
 		// The engine creates the workspace before it runs any step.
-		assert.DirExists(t, filepath.Join(dir, state.WorkspaceDir))
+		assert.DirExists(t, filepath.Join(dir, statedir.WorkspaceDir))
 
 		// The authority must exist before a step runs, because a step receives
 		// the certificate in its environment.
-		assert.FileExists(t, filepath.Join(dir, state.WorkspaceDir, state.CACertFile))
+		assert.FileExists(t, filepath.Join(dir, statedir.WorkspaceDir, statedir.CACertFile))
 	})
 
 	t.Run("uses the setup scope separately", func(t *testing.T) {
@@ -107,7 +107,7 @@ env:   api:   {uses: "echo:echo", with: message: "serving"}
 
 		// A step's own log lines no longer reach the terminal (w) - they go
 		// to the console and the durable log file.
-		logs, err := os.ReadFile(filepath.Join(dir, state.WorkspaceDir, state.LogsFile))
+		logs, err := os.ReadFile(filepath.Join(dir, statedir.WorkspaceDir, statedir.LogsFile))
 		require.NoError(t, err)
 		assert.Contains(t, string(logs), "installing", "the setup scope must run")
 		assert.NotContains(t, string(logs), "serving", "the env scope must not run")
@@ -177,7 +177,7 @@ env: a: {uses: "echo:echo", with: message: "A"}
 		// A step's own log lines no longer reach the terminal (w) - they go
 		// to the console and the durable log file. Read the file to confirm
 		// the config still reached the step before it ran.
-		logs, err := os.ReadFile(filepath.Join(dir, state.WorkspaceDir, state.LogsFile))
+		logs, err := os.ReadFile(filepath.Join(dir, statedir.WorkspaceDir, statedir.LogsFile))
 		require.NoError(t, err)
 		assert.Contains(t, string(logs), "provider greeting: hello",
 			"the engine must deliver the plugin config before the step runs")
@@ -220,7 +220,7 @@ env: {
 	out := w.String()
 	assert.Contains(t, out, "slow             removed", "the interrupted step must get a Down")
 	assert.Contains(t, out, "a                removed")
-	logs, readErr := os.ReadFile(filepath.Join(dir, state.WorkspaceDir, state.LogsFile))
+	logs, readErr := os.ReadFile(filepath.Join(dir, statedir.WorkspaceDir, statedir.LogsFile))
 	require.NoError(t, readErr)
 	assert.Contains(t, string(logs), "removing slow")
 }
@@ -267,7 +267,7 @@ env:   app:     {uses: "echo:echo", needs: ["setup.cluster"], with: message: "${
 		require.NoError(t, err)
 		assert.Contains(t, w.String(), fmt.Sprintf("%-16s %s", "app", "ready"))
 
-		logs, err := os.ReadFile(filepath.Join(dir, state.WorkspaceDir, state.LogsFile))
+		logs, err := os.ReadFile(filepath.Join(dir, statedir.WorkspaceDir, statedir.LogsFile))
 		require.NoError(t, err)
 		assert.Contains(t, string(logs), "root.crt",
 			"the setup step's own with block must be rendered before Export sees it, not sent as the literal ${project.root_cert} template")
@@ -287,7 +287,7 @@ env: {
 		require.NoError(t, err)
 		assert.Contains(t, w.String(), fmt.Sprintf("%-16s %s", "join", "ready"))
 
-		logs, err := os.ReadFile(filepath.Join(dir, state.WorkspaceDir, state.LogsFile))
+		logs, err := os.ReadFile(filepath.Join(dir, statedir.WorkspaceDir, statedir.LogsFile))
 		require.NoError(t, err)
 		out := string(logs)
 		// Up's two concurrent consumers share one call ("calls=1", seen
@@ -352,7 +352,7 @@ setup: {
 	require.NoError(t, Run(t.Context(), Options{Dir: dir, Scope: config.ScopeSetup, Keep: true, NoWait: true}))
 	require.NoError(t, Teardown(t.Context(), Options{Dir: dir}))
 
-	logs, err := os.ReadFile(filepath.Join(dir, state.WorkspaceDir, state.LogsFile))
+	logs, err := os.ReadFile(filepath.Join(dir, statedir.WorkspaceDir, statedir.LogsFile))
 	require.NoError(t, err)
 	assert.Contains(t, string(logs), "from-cluster",
 		"app's Down must render needs.cluster.out.greeting, not fail or see it empty")
@@ -396,7 +396,7 @@ env: {
 	assert.Contains(t, w.String(), "b                removed")
 
 	// A step's own log lines go to the durable log file, not the terminal.
-	logs, err := os.ReadFile(filepath.Join(dir, state.WorkspaceDir, state.LogsFile))
+	logs, err := os.ReadFile(filepath.Join(dir, statedir.WorkspaceDir, statedir.LogsFile))
 	require.NoError(t, err)
 	assert.Contains(t, string(logs), "bye hi",
 		"Down must receive the rendered value, not the raw needs.* template")
@@ -416,9 +416,9 @@ env: {
 	_, err := runUntil(t, dir, "a                ready")
 	require.NoError(t, err)
 
-	logs, err := os.ReadFile(filepath.Join(dir, state.WorkspaceDir, state.LogsFile))
+	logs, err := os.ReadFile(filepath.Join(dir, statedir.WorkspaceDir, statedir.LogsFile))
 	require.NoError(t, err)
-	assert.Contains(t, string(logs), "cert="+state.ForUser().RootCert(),
+	assert.Contains(t, string(logs), "cert="+statedir.ForUser().RootCert(),
 		"Up must receive the rendered value, not the raw project.* template")
 }
 
@@ -435,7 +435,7 @@ env: {
 	_, err := runUntil(t, dir, "a                ready")
 	require.NoError(t, err)
 
-	logs, err := os.ReadFile(filepath.Join(dir, state.WorkspaceDir, state.LogsFile))
+	logs, err := os.ReadFile(filepath.Join(dir, statedir.WorkspaceDir, statedir.LogsFile))
 	require.NoError(t, err)
 	assert.Regexp(t, `relay=\S+`, string(logs),
 		"project.relay must render to the relay container's own address, not go empty")

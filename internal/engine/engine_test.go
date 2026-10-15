@@ -31,7 +31,7 @@ import (
 	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/session"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/internal/step"
 )
 
@@ -391,11 +391,11 @@ env: a: uses: "nope:echo"
 	// sits where the workspace directory must go.
 	t.Run("reports a workspace creation failure", func(t *testing.T) {
 		dir := configDir(t, proxyBlock(t)+"env: {}\n")
-		require.NoError(t, os.WriteFile(filepath.Join(dir, state.WorkspaceDir), []byte("not a directory"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, statedir.WorkspaceDir), []byte("not a directory"), 0o600))
 
 		err := runEnv(t, dir)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), state.WorkspaceDir)
+		assert.Contains(t, err.Error(), statedir.WorkspaceDir)
 	})
 }
 

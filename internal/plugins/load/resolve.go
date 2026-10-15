@@ -10,7 +10,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/plugins/pkg"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 )
 
 // pluginPkgDir holds the extracted contents of every file: source plugin,
@@ -43,7 +43,7 @@ func resolveSpec(ctx context.Context, name, dir string, specs map[string]config.
 		return launcher.Spec{Cmd: spec.Cmd, Args: spec.Args, Env: spec.Env, Dir: dir}, nil
 	}
 
-	destDir := filepath.Join(state.For(dir, "").Workspace(), pluginPkgDir, name)
+	destDir := filepath.Join(statedir.For(dir, "").Workspace(), pluginPkgDir, name)
 	fetched, err := src.fetch(ctx)
 	if err != nil {
 		return launcher.Spec{}, fmt.Errorf("load: plugins.%s: %w", name, err)

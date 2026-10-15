@@ -12,11 +12,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 )
 
 // Dir is the pkg-cache directory under the user state directory - global, shared across every project.
-func Dir() string { return state.ForUser().PackageCache() }
+func Dir() string { return statedir.ForUser().PackageCache() }
 
 // Sha256Dir is the subdirectory every sha256-addressed cache entry lands
 // in - the parent directory of every Path result. A caller that stages a

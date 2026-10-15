@@ -1,4 +1,4 @@
-package state
+package statedir
 
 import (
 	"path/filepath"

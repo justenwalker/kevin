@@ -22,7 +22,7 @@ import (
 	"github.com/justenwalker/kevin/internal/container/podman"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -75,7 +75,7 @@ func (s *K3dSuite) env() plugin.Env {
 		Project:   k3dProject,
 		Workspace: s.workspace,
 		Network:   s.network,
-		CAPath:    state.ForUser().RootCert(),
+		CAPath:    statedir.ForUser().RootCert(),
 		Domain:    k3dDomain,
 		Relay:     s.relay.Addr(),
 	}
@@ -95,8 +95,8 @@ func (s *K3dSuite) SetupSuite() {
 		Labels: map[string]string{container.LabelProject: k3dProject},
 	}))
 
-	t.Setenv(state.UserStateDirEnv, t.TempDir())
-	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+	t.Setenv(statedir.UserStateDirEnv, t.TempDir())
+	t.Setenv(statedir.ProjectStateDirEnv, t.TempDir())
 
 	m := ca.NewManager("cwd", "", k3dProject, ca.Options{})
 	_, err := m.LoadOrGenerateRoot()

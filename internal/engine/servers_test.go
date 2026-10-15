@@ -15,7 +15,7 @@ import (
 	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/proxy"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 )
 
 func TestServingClose(t *testing.T) {
@@ -37,8 +37,8 @@ func TestServingClose(t *testing.T) {
 // TestStartProxyReleasesListeners proves that a failed startProxy leaves no
 // listener bound, using a loopback gateway so no docker daemon is needed.
 func TestStartProxyReleasesListeners(t *testing.T) {
-	t.Setenv(state.UserStateDirEnv, t.TempDir())
-	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+	t.Setenv(statedir.UserStateDirEnv, t.TempDir())
+	t.Setenv(statedir.ProjectStateDirEnv, t.TempDir())
 	authority, err := ca.NewManager("cwd", "", "proxy-release", ca.Options{}).LoadOrGenerateIntermediate()
 	require.NoError(t, err)
 
@@ -87,8 +87,8 @@ func TestStartProxyReleasesListeners(t *testing.T) {
 
 // TestStartProxyOnRecord proves the callback is live from the first request.
 func TestStartProxyOnRecord(t *testing.T) {
-	t.Setenv(state.UserStateDirEnv, t.TempDir())
-	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+	t.Setenv(statedir.UserStateDirEnv, t.TempDir())
+	t.Setenv(statedir.ProjectStateDirEnv, t.TempDir())
 	authority, err := ca.NewManager("cwd", "", "proxy-record", ca.Options{}).LoadOrGenerateIntermediate()
 	require.NoError(t, err)
 

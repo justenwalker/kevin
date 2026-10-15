@@ -25,7 +25,7 @@ import (
 	"github.com/justenwalker/kevin/internal/container/podman"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -81,7 +81,7 @@ func (s *MinikubeSuite) env() plugin.Env {
 		Project:   minikubeProject,
 		Workspace: s.workspace,
 		Network:   s.network,
-		CAPath:    state.ForUser().RootCert(),
+		CAPath:    statedir.ForUser().RootCert(),
 		Domain:    minikubeDomain,
 		Relay:     s.relay.Addr(),
 	}
@@ -101,8 +101,8 @@ func (s *MinikubeSuite) SetupSuite() {
 		Labels: map[string]string{container.LabelProject: minikubeProject},
 	}))
 
-	t.Setenv(state.UserStateDirEnv, t.TempDir())
-	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+	t.Setenv(statedir.UserStateDirEnv, t.TempDir())
+	t.Setenv(statedir.ProjectStateDirEnv, t.TempDir())
 
 	m := ca.NewManager("cwd", "", minikubeProject, ca.Options{})
 	_, err := m.LoadOrGenerateRoot()
@@ -399,8 +399,8 @@ func TestMinikubeOnPodman(t *testing.T) {
 	}
 	relaytest.UseDevImage(t)
 
-	t.Setenv(state.UserStateDirEnv, t.TempDir())
-	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+	t.Setenv(statedir.UserStateDirEnv, t.TempDir())
+	t.Setenv(statedir.ProjectStateDirEnv, t.TempDir())
 	m := ca.NewManager("cwd", "", "minikube-podman-it", ca.Options{})
 	_, err := m.LoadOrGenerateRoot()
 	require.NoError(t, err)
@@ -428,7 +428,7 @@ func TestMinikubeOnPodman(t *testing.T) {
 	t.Cleanup(func() { _ = r.Close() })
 
 	env := plugin.Env{
-		Project: "minikube-podman-it", Workspace: t.TempDir(), Engine: plugin.EnginePodman, CAPath: state.ForUser().RootCert(),
+		Project: "minikube-podman-it", Workspace: t.TempDir(), Engine: plugin.EnginePodman, CAPath: statedir.ForUser().RootCert(),
 		Network: network, Domain: minikubeDomain, Relay: r.Addr(),
 	}
 	with := withDefaults(t, fmt.Sprintf(`{"driver":"minikube","workers":{"worker":{}},`+

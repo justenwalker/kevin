@@ -9,12 +9,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 )
 
 // IdentityDir is the trusted-identities directory under the user state directory - global, shared across every
 // project, and separate from [Dir].
-func IdentityDir() string { return state.ForUser().TrustedIdentities() }
+func IdentityDir() string { return statedir.ForUser().TrustedIdentities() }
 
 // identityRecord is one trusted identity/issuer pair, as stored on disk.
 type identityRecord struct {

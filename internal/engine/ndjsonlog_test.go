@@ -12,21 +12,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 )
 
 func TestOpenNDJSONLog(t *testing.T) {
 	t.Run("writes one JSON line per entry", func(t *testing.T) {
 		workspace := t.TempDir()
 
-		logger, err := openNDJSONLog(workspace, state.LogsFile)
+		logger, err := openNDJSONLog(workspace, statedir.LogsFile)
 		require.NoError(t, err)
 
 		logger.Info("hello", "step", "web", "stream", "stdout")
 		logger.Info("world", "step", "api", "stream", "stderr")
 		require.NoError(t, logger.Close())
 
-		b, err := os.ReadFile(filepath.Join(workspace, state.LogsFile))
+		b, err := os.ReadFile(filepath.Join(workspace, statedir.LogsFile))
 		require.NoError(t, err)
 
 		var lines []map[string]any
@@ -47,10 +47,10 @@ func TestOpenNDJSONLog(t *testing.T) {
 
 	t.Run("truncates a previous session", func(t *testing.T) {
 		workspace := t.TempDir()
-		path := filepath.Join(workspace, state.LogsFile)
+		path := filepath.Join(workspace, statedir.LogsFile)
 		require.NoError(t, os.WriteFile(path, []byte("stale data from a previous run\n"), 0o600))
 
-		logger, err := openNDJSONLog(workspace, state.LogsFile)
+		logger, err := openNDJSONLog(workspace, statedir.LogsFile)
 		require.NoError(t, err)
 		logger.Info("fresh")
 		require.NoError(t, logger.Close())

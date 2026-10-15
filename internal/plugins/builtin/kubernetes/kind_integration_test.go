@@ -23,7 +23,7 @@ import (
 	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/plugin"
 )
 
@@ -71,8 +71,8 @@ func (s *KindSuite) SetupSuite() {
 		Labels: map[string]string{container.LabelProject: kindProject},
 	}))
 
-	t.Setenv(state.UserStateDirEnv, t.TempDir())
-	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+	t.Setenv(statedir.UserStateDirEnv, t.TempDir())
+	t.Setenv(statedir.ProjectStateDirEnv, t.TempDir())
 
 	m := ca.NewManager("cwd", "", kindProject, ca.Options{})
 	_, err := m.LoadOrGenerateRoot()
@@ -101,7 +101,7 @@ func (s *KindSuite) SetupSuite() {
 			Project:   kindProject,
 			Workspace: s.workspace,
 			Network:   s.network,
-			CAPath:    state.ForUser().RootCert(),
+			CAPath:    statedir.ForUser().RootCert(),
 			Domain:    kindDomain,
 			Relay:     s.relay.Addr(),
 		},
@@ -299,7 +299,7 @@ func (s *KindSuite) TestUpReusesAnExistingClusterWithMatchingConfig() {
 			Project:   kindProject,
 			Workspace: s.workspace,
 			Network:   s.network,
-			CAPath:    state.ForUser().RootCert(),
+			CAPath:    statedir.ForUser().RootCert(),
 			Domain:    kindDomain,
 			Relay:     s.relay.Addr(),
 		},

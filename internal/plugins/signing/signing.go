@@ -11,11 +11,11 @@ import (
 
 	"github.com/jedisct1/go-minisign"
 
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 )
 
 // Dir is the trusted-keys directory under the user state directory - global, shared across every project.
-func Dir() string { return state.ForUser().TrustedKeys() }
+func Dir() string { return statedir.ForUser().TrustedKeys() }
 
 // Keyring is the trusted public keys, indexed by minisign key id.
 type Keyring map[[8]byte]minisign.PublicKey

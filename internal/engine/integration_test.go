@@ -24,7 +24,7 @@ import (
 	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/container/docker"
 	"github.com/justenwalker/kevin/internal/relay"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/internal/step"
 )
 
@@ -32,8 +32,8 @@ import (
 // mints the control channel's certificates off it.
 func newTestAuthority(t *testing.T) *ca.CA {
 	t.Helper()
-	t.Setenv(state.UserStateDirEnv, t.TempDir())
-	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+	t.Setenv(statedir.UserStateDirEnv, t.TempDir())
+	t.Setenv(statedir.ProjectStateDirEnv, t.TempDir())
 
 	m := ca.NewManager("cwd", "", "demo", ca.Options{})
 	authority, err := m.LoadOrGenerateIntermediate()

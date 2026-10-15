@@ -24,7 +24,7 @@ import (
 	"github.com/justenwalker/kevin/internal/plugins/pkg"
 	"github.com/justenwalker/kevin/internal/plugins/source/ocisrc"
 	"github.com/justenwalker/kevin/internal/runstate"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/internal/version"
 	"github.com/justenwalker/kevin/plugin"
@@ -188,7 +188,7 @@ func printEnvironmentInfo(w io.Writer, env step.Env) {
 // fails, so a read-only or missing project directory just forgoes the file
 // and keeps logging to the terminal.
 func openLogFile(dir string) *os.File {
-	workspace := state.For(dir, "").Workspace()
+	workspace := statedir.For(dir, "").Workspace()
 	if err := os.MkdirAll(workspace, 0o750); err != nil {
 		return nil
 	}

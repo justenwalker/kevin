@@ -9,12 +9,12 @@ import (
 	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/runapi"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 )
 
 func TestEgressView(t *testing.T) {
-	t.Setenv(state.UserStateDirEnv, t.TempDir())
-	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+	t.Setenv(statedir.UserStateDirEnv, t.TempDir())
+	t.Setenv(statedir.ProjectStateDirEnv, t.TempDir())
 	authority, err := ca.NewManager("cwd", "", "egress-view", ca.Options{}).LoadOrGenerateIntermediate()
 	require.NoError(t, err)
 	p, err := proxy.New(authority, proxy.Options{Domain: "kevin.home", Allow: []string{"api.github.com"}, Deny: true})

@@ -18,7 +18,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/proxy"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 )
 
 func TestRoutes(t *testing.T) {
@@ -730,8 +730,8 @@ func getTestURLHost(t *testing.T, rawURL string) string {
 func newTestIntermediateCA(t *testing.T) *ca.CA {
 	t.Helper()
 
-	t.Setenv(state.UserStateDirEnv, t.TempDir())
-	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+	t.Setenv(statedir.UserStateDirEnv, t.TempDir())
+	t.Setenv(statedir.ProjectStateDirEnv, t.TempDir())
 
 	m := ca.NewManager("cwd", "", "proxy-test", ca.Options{})
 	_, err := m.LoadOrGenerateRoot()

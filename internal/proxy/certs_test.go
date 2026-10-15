@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/ca"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 )
 
 func TestCertSignerLeafFor(t *testing.T) {
@@ -84,8 +84,8 @@ func TestCertSignerLeafFor(t *testing.T) {
 // authority.
 func newTestCertSigner(t *testing.T) *certSigner {
 	t.Helper()
-	t.Setenv(state.UserStateDirEnv, t.TempDir())
-	t.Setenv(state.ProjectStateDirEnv, t.TempDir())
+	t.Setenv(statedir.UserStateDirEnv, t.TempDir())
+	t.Setenv(statedir.ProjectStateDirEnv, t.TempDir())
 
 	m := ca.NewManager("cwd", "", "demo", ca.Options{})
 	authority, err := m.LoadOrGenerateIntermediate()

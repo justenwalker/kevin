@@ -9,7 +9,7 @@ import (
 	"github.com/justenwalker/kevin/internal/container/engines"
 	"github.com/justenwalker/kevin/internal/plugins/load"
 	"github.com/justenwalker/kevin/internal/session"
-	"github.com/justenwalker/kevin/internal/state"
+	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/internal/termui"
 )
 
@@ -43,7 +43,7 @@ func bootstrap(ctx context.Context, opts Options) (*host, error) {
 	return &host{
 		Loaded:    loaded,
 		Runtime:   engines.For(opts.Engine),
-		Workspace: state.For(loaded.Config.Dir, loaded.Config.Name).Workspace(),
+		Workspace: statedir.For(loaded.Config.Dir, loaded.Config.Name).Workspace(),
 		Events:    eventsWriter(opts, live),
 		live:      live,
 	}, nil
@@ -69,7 +69,7 @@ func (r *run) fill(h *host) {
 	r.groups = h.Config.Groups(r.scope)
 	r.plugins = stepPlugins(h.Plugins)
 	r.caps = h.Caps
-	r.project = state.For(h.Config.Dir, h.Config.Name).Vars()
+	r.project = statedir.For(h.Config.Dir, h.Config.Name).Vars()
 }
 
 // stopRelayIfAlone closes rl unless the other scope is still live and
