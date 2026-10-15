@@ -14,14 +14,14 @@ import (
 )
 
 const (
-	referenceDefaultGlob   = "internal/plugins/*/schema.cue"
+	referenceDefaultGlob   = "internal/plugins/builtin/*/schema.cue"
 	referenceDefaultOutDir = "docs/site/content/docs/reference/steps"
 	referenceTemplateName  = "reference.md.tmpl"
 	outputDirPerm          = 0o755 // caller-controlled via --out, not attacker input
 )
 
 // referenceCommand builds the reference command: one or more schema.cue
-// globs (default internal/plugins/*/schema.cue) rendered into --out.
+// globs (default internal/plugins/builtin/*/schema.cue) rendered into --out.
 func referenceCommand() *cobra.Command {
 	var outputDir string
 

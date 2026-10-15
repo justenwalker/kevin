@@ -1,20 +1,20 @@
-// Package plugins holds the builtin kevin plugins.
+// Package builtin holds the builtin kevin plugins.
 //
 // A builtin plugin ships inside the kevin binary. A project reaches one
 // through the "builtin:" namespace of a plugin reference.
-package plugins
+package builtin
 
 import (
 	"slices"
 
-	"github.com/justenwalker/kevin/internal/plugins/container"
-	"github.com/justenwalker/kevin/internal/plugins/exec"
-	"github.com/justenwalker/kevin/internal/plugins/fault"
-	"github.com/justenwalker/kevin/internal/plugins/helm"
-	"github.com/justenwalker/kevin/internal/plugins/kubectl"
-	"github.com/justenwalker/kevin/internal/plugins/kubernetes"
-	"github.com/justenwalker/kevin/internal/plugins/route"
-	"github.com/justenwalker/kevin/internal/plugins/wait"
+	"github.com/justenwalker/kevin/internal/plugins/builtin/container"
+	"github.com/justenwalker/kevin/internal/plugins/builtin/exec"
+	"github.com/justenwalker/kevin/internal/plugins/builtin/fault"
+	"github.com/justenwalker/kevin/internal/plugins/builtin/helm"
+	"github.com/justenwalker/kevin/internal/plugins/builtin/kubectl"
+	"github.com/justenwalker/kevin/internal/plugins/builtin/kubernetes"
+	"github.com/justenwalker/kevin/internal/plugins/builtin/route"
+	"github.com/justenwalker/kevin/internal/plugins/builtin/wait"
 	"github.com/justenwalker/kevin/plugin"
 )
 

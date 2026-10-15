@@ -62,7 +62,7 @@ Pick a kind (Breaking, Added, Changed, or Fixed) and write one line for a reader
 
 This site is a [Hugo](https://gohugo.io) site in `docs/site/`, with the [hugo-book](https://github.com/alex-shpak/hugo-book) theme.
 
-The pages under Reference > Steps and Reference > Commands are generated. Edit `internal/plugins/<type>/reference.md.tmpl` and the field comments in `schema.cue`, or `internal/cmd/reference/<command>.md.tmpl`, then run `./build/gnob generate`.
+The pages under Reference > Steps and Reference > Commands are generated. Edit `internal/plugins/builtin/<type>/reference.md.tmpl` and the field comments in `schema.cue`, or `internal/cmd/reference/<command>.md.tmpl`, then run `./build/gnob generate`.
 
 ```sh
 ./build/gnob docs-serve     # live preview at http://localhost:1313/

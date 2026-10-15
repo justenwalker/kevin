@@ -128,7 +128,7 @@ leaves no tag or GitHub release behind.
 - A single package/test: `go test ./internal/dag/... -run TestName -v`.
 - Integration tests are gated behind the `integration` build tag (see files
   named `integration_test.go` or `*_integration_test.go` in
-  `internal/plugins/kubernetes`, `internal/plugins/container`, `internal/relay`,
+  `internal/plugins/builtin/kubernetes`, `internal/plugins/builtin/container`, `internal/relay`,
   `internal/engine`, `internal/container/docker`, `internal/container/podman`) and generally require Docker (the k3d and minikube
   driver suites also need a real `k3d` or `minikube` binary on `PATH`). Run with
   `go test -tags integration ./...`.
@@ -206,7 +206,7 @@ instead of mixing them. Paths are relative to `docs/site/content/docs/`:
 | `_index.md` pages | Section landing | One or two sentences on what the section holds, then links. |
 
 - **Generated pages.** `reference/steps/*.md` and `reference/commands/*.md`
-  are generated. Edit `internal/plugins/<type>/reference.md.tmpl`, the
+  are generated. Edit `internal/plugins/builtin/<type>/reference.md.tmpl`, the
   field comments in its `schema.cue`, or
   `internal/cmd/reference/<command>.md.tmpl`, then run
   `./build/gnob generate`. A `schema.cue` field comment is user-facing
@@ -337,7 +337,7 @@ Key model to hold in your head when changing any of this:
   `internal/container`, selected by `internal/container/engines`) and parses JSON output
   rather than importing
   `github.com/docker/docker`, to avoid that dependency tree. Kubernetes
-  support is a plugin (`internal/plugins/kubernetes`) whose `kind` driver
+  support is a plugin (`internal/plugins/builtin/kubernetes`) whose `kind` driver
   shells out to the host `kind` binary the same way `kubectl` and
   `helm` shell out to theirs, rather than importing `sigs.k8s.io/kind` as a
   library - that library reads proxy variables from its own process

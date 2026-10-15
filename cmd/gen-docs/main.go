@@ -2,7 +2,7 @@
 // plugin's schema.cue, "commands" for kevin's own cobra command tree.
 //
 // reference renders every schema.cue matched by its glob args (default
-// internal/plugins/*/schema.cue) with a sibling reference.md.tmpl: the
+// internal/plugins/builtin/*/schema.cue) with a sibling reference.md.tmpl: the
 // schema is reduced to a cueschema.Schema and the template executed
 // against it, using the built-in "table" template wherever a field table
 // belongs. --out sets the output directory (default

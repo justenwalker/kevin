@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/justenwalker/kevin/internal/corefile"
+	"github.com/justenwalker/kevin/internal/plugins/builtin/kubernetes/corefile"
 	"github.com/justenwalker/kevin/plugin"
 )
 

@@ -22,7 +22,7 @@ import (
 	"github.com/justenwalker/kevin/internal/ocipkg"
 	"github.com/justenwalker/kevin/internal/pluginload"
 	"github.com/justenwalker/kevin/internal/pluginpkg"
-	"github.com/justenwalker/kevin/internal/plugins"
+	"github.com/justenwalker/kevin/internal/plugins/builtin"
 	"github.com/justenwalker/kevin/internal/runstate"
 	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/internal/step"
@@ -413,10 +413,10 @@ func pluginRunCommand(opts *options) *cobra.Command {
 		Args:   cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			opts.ran = true
-			if args[0] != plugins.Name {
-				return fmt.Errorf("%w: %q, available: %s", ErrUnknownPlugin, args[0], plugins.Name)
+			if args[0] != builtin.Name {
+				return fmt.Errorf("%w: %q, available: %s", ErrUnknownPlugin, args[0], builtin.Name)
 			}
-			plugin.Serve(plugins.Provider())
+			plugin.Serve(builtin.Provider())
 			return nil
 		},
 	}
@@ -538,8 +538,8 @@ func pluginListCommand(opts *options) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
 			w := cmd.OutOrStdout()
-			for _, name := range plugins.Names() {
-				if _, err := fmt.Fprintln(w, plugins.Name+":"+name); err != nil {
+			for _, name := range builtin.Names() {
+				if _, err := fmt.Fprintln(w, builtin.Name+":"+name); err != nil {
 					return fmt.Errorf("cmd: list plugins: %w", err)
 				}
 			}

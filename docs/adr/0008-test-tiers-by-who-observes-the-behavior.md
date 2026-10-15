@@ -59,7 +59,7 @@ signal: a docker label assertion failing in e2e says nothing about the user
 flow, and a user flow only exercised in integration can pass while the CLI is
 broken.
 
-**DO** (`internal/plugins/kubernetes/kind_integration_test.go`, a seam check
+**DO** (`internal/plugins/builtin/kubernetes/kind_integration_test.go`, a seam check
 against a real cluster):
 ```go
 // TestKindNodeSettings proves node-level settings reach a real cluster: a

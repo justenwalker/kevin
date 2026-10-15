@@ -15,7 +15,7 @@ only.
 
 1. **Generated reference pages.** Two sets, both rendered by `cmd/gen-docs`:
    - `docs/site/content/docs/reference/steps/*.md`, from each plugin's
-     `internal/plugins/<type>/schema.cue` field comments and
+     `internal/plugins/builtin/<type>/schema.cue` field comments and
      `reference.md.tmpl` (`gen-docs reference`).
    - `docs/site/content/docs/reference/commands/*.md`, from the cobra
      command tree and `internal/cmd/reference/<command>.md.tmpl`
@@ -51,8 +51,8 @@ only.
 - **Output keys in examples.** Every `${needs.<step>.out.<key>}` and
   `${setup.<step>.out.<key>}` must name a key the step type actually
   returns: grep the plugin's `Up`/`Export` for the key string (for
-  example `internal/plugins/container/container.go`,
-  `internal/plugins/kubernetes/kubernetes.go`). Keys are case-sensitive.
+  example `internal/plugins/builtin/container/container.go`,
+  `internal/plugins/builtin/kubernetes/kubernetes.go`). Keys are case-sensitive.
 - **Paths and file names** in docs (`~/.kevin/root.crt`, `.kevin/ca.crt`,
   `.kevin/kubeconfig/...`, mount paths inside containers) against the
   constants that write them (`internal/ca/ca.go`, `internal/state`, the
@@ -76,7 +76,7 @@ only.
 - **`plugin.Env` and request fields** in `extending/writing-a-plugin.md`
   against `plugin/plugin.go`.
 - **Builtin step types** (`container`, `exec`, `fault`, `helm`, `kubernetes`,
-  `kubectl`, `route`, `wait`) against `internal/plugins/*` directories.
+  `kubectl`, `route`, `wait`) against `internal/plugins/builtin/*` directories.
 - **Plugin index format** in `reference/plugin-index.md` against
   `internal/pluginindex/schema.cue`.
 - **`docs/GO_CONVENTIONS.md`** against `.golangci.yaml`'s exclusion

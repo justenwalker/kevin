@@ -36,16 +36,16 @@ packages:
     interfaces:
       Runner:
       Starter:
-  github.com/justenwalker/kevin/internal/plugins/helm:
+  github.com/justenwalker/kevin/internal/plugins/builtin/helm:
     interfaces:
       cli:
-  github.com/justenwalker/kevin/internal/plugins/kubectl:
+  github.com/justenwalker/kevin/internal/plugins/builtin/kubectl:
     interfaces:
       cli:
-  github.com/justenwalker/kevin/internal/plugins/wait:
+  github.com/justenwalker/kevin/internal/plugins/builtin/wait:
     interfaces:
       kubectlCLI:
-  github.com/justenwalker/kevin/internal/plugins/kubernetes:
+  github.com/justenwalker/kevin/internal/plugins/builtin/kubernetes:
     interfaces:
       kindCLI:
       k3dCLI:

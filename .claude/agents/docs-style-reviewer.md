@@ -27,7 +27,7 @@ same as the Documentation section of AGENTS.md:
 | `../_index.md` (home) | Overview | Evaluator | What kevin is, a short feature list, links | Steps, internals |
 
 Generated pages under `reference/steps/` and `reference/commands/` come
-from `internal/plugins/<type>/reference.md.tmpl`, the field comments in
+from `internal/plugins/builtin/<type>/reference.md.tmpl`, the field comments in
 `schema.cue`, and `internal/cmd/reference/<command>.md.tmpl`. Report
 findings against those source files, not the generated output. A
 `schema.cue` field comment is reference text: its first word is the field

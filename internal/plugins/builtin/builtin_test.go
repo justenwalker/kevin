@@ -1,4 +1,4 @@
-package plugins_test
+package builtin_test
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/cueschema"
-	"github.com/justenwalker/kevin/internal/plugins"
+	"github.com/justenwalker/kevin/internal/plugins/builtin"
 )
 
 func TestLookup(t *testing.T) {
@@ -29,7 +29,7 @@ func TestLookup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			step, ok := plugins.Lookup(tt.find)
+			step, ok := builtin.Lookup(tt.find)
 			assert.Equal(t, tt.want, ok, "Lookup must report whether the name is a builtin step type")
 			if tt.want {
 				assert.NotNil(t, step, "a hit must return a usable step")
@@ -39,19 +39,19 @@ func TestLookup(t *testing.T) {
 }
 
 func TestNames(t *testing.T) {
-	assert.Equal(t, []string{"container", "exec", "fault", "helm", "kubectl", "kubernetes", "route", "wait"}, plugins.Names(),
+	assert.Equal(t, []string{"container", "exec", "fault", "helm", "kubectl", "kubernetes", "route", "wait"}, builtin.Names(),
 		"Names must list every builtin step type, sorted")
 }
 
 func TestProvider(t *testing.T) {
-	p := plugins.Provider()
+	p := builtin.Provider()
 
-	assert.Equal(t, plugins.Name, p.Name, "the provider must identify as builtin")
+	assert.Equal(t, builtin.Name, p.Name, "the provider must identify as builtin")
 	assert.NotEmpty(t, p.Version)
 	assert.Nil(t, p.Configure, "the builtin provider takes no configuration")
 
 	require.NotNil(t, p.Steps)
-	for _, name := range plugins.Names() {
+	for _, name := range builtin.Names() {
 		step, ok := p.Steps[name]
 		assert.True(t, ok, "the provider must offer %q", name)
 		assert.NotEmpty(t, step.Schema(), "%q must declare a schema", name)
@@ -62,8 +62,8 @@ func TestProvider(t *testing.T) {
 // declared with "?" and a default: such a default is never sent to the
 // plugin. Fields of nested inline structs are not checked.
 func TestSchemasHaveNoOptionalDefaults(t *testing.T) {
-	for _, name := range plugins.Names() {
-		step, ok := plugins.Lookup(name)
+	for _, name := range builtin.Names() {
+		step, ok := builtin.Lookup(name)
 		require.True(t, ok)
 
 		schema, err := cueschema.ParseSource(name, step.Schema())
