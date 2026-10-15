@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,6 +58,25 @@ func TestCertSignerLeafFor(t *testing.T) {
 		second, err := cs.leafFor("cached.kevin.test")
 		require.NoError(t, err)
 		assert.Same(t, first, second, "a cached leaf must not be re-signed")
+	})
+
+	t.Run("mints again once half the lifetime has passed", func(t *testing.T) {
+		cs := newTestCertSigner(t)
+		now := time.Now()
+		cs.now = func() time.Time { return now }
+
+		first, err := cs.leafFor("renew.kevin.test")
+		require.NoError(t, err)
+
+		now = now.Add(ca.LeafLifetime/2 - time.Minute)
+		same, err := cs.leafFor("renew.kevin.test")
+		require.NoError(t, err)
+		assert.Same(t, first, same)
+
+		now = now.Add(2 * time.Minute)
+		renewed, err := cs.leafFor("renew.kevin.test")
+		require.NoError(t, err)
+		assert.NotSame(t, first, renewed, "a leaf past half its lifetime must be re-signed")
 	})
 }
 

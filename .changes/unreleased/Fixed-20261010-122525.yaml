@@ -1,0 +1,3 @@
+kind: Fixed
+body: The proxy renews a host's certificate halfway through its 7-day lifetime, so a run longer than a week no longer serves expired certificates.
+time: 2026-10-10T12:25:25.787267-04:00
