@@ -4,9 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
-	"path/filepath"
 
-	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/engines"
@@ -48,7 +46,7 @@ func bootstrap(ctx context.Context, opts Options) (*host, error) {
 	return &host{
 		Loaded:    loaded,
 		Runtime:   rt,
-		Workspace: filepath.Join(loaded.Config.Dir, state.WorkspaceDir, loaded.Config.Name),
+		Workspace: state.For(loaded.Config.Dir, loaded.Config.Name).Workspace(),
 		Events:    eventsWriter(opts, live),
 		live:      live,
 	}, nil
@@ -74,7 +72,7 @@ func (r *run) fill(h *host) {
 	r.groups = h.Config.Groups(r.scope)
 	r.plugins = stepPlugins(h.Plugins)
 	r.caps = h.Caps
-	r.project = ca.ProjectVars(h.Config.Dir, h.Config.Name)
+	r.project = state.For(h.Config.Dir, h.Config.Name).Vars()
 }
 
 // stopRelayIfAlone closes rl unless the other scope is still live and

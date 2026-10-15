@@ -81,7 +81,7 @@ func (s *MinikubeSuite) env() plugin.Env {
 		Project:   minikubeProject,
 		Workspace: s.workspace,
 		Network:   s.network,
-		CAPath:    ca.RootCertPath(),
+		CAPath:    state.ForUser().RootCert(),
 		Domain:    minikubeDomain,
 		Relay:     s.relay.Addr(),
 	}
@@ -428,7 +428,7 @@ func TestMinikubeOnPodman(t *testing.T) {
 	t.Cleanup(func() { _ = r.Close() })
 
 	env := plugin.Env{
-		Project: "minikube-podman-it", Workspace: t.TempDir(), Engine: plugin.EnginePodman, CAPath: ca.RootCertPath(),
+		Project: "minikube-podman-it", Workspace: t.TempDir(), Engine: plugin.EnginePodman, CAPath: state.ForUser().RootCert(),
 		Network: network, Domain: minikubeDomain, Relay: r.Addr(),
 	}
 	with := withDefaults(t, fmt.Sprintf(`{"driver":"minikube","workers":{"worker":{}},`+

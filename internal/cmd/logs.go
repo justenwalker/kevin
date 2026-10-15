@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/engine"
 	"github.com/justenwalker/kevin/internal/runstate"
 	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/internal/steplog"
@@ -37,7 +35,7 @@ func logsCommand(opts *options) *cobra.Command {
 			if len(args) == 1 {
 				step = args[0]
 			}
-			logsPath := filepath.Join(opts.dir, state.WorkspaceDir, config.SlugName(opts.name), engine.LogsFile)
+			logsPath := state.For(opts.dir, config.SlugName(opts.name)).Logs()
 			return printLogs(cmd.Context(), cmd.OutOrStdout(), logsPath, runStateFor(opts.dir, opts.name), step, follow)
 		},
 	}

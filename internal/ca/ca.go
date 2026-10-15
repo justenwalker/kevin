@@ -54,58 +54,18 @@ func NewManager(cwd, name, project string, opt Options) *Manager {
 	if opt.IntermediateLifetime == 0 {
 		opt.IntermediateLifetime = intermediateLifetime
 	}
+	paths := state.For(cwd, name)
 	return &Manager{
 		rootLifetime:         opt.RootLifetime,
 		intermediateLifetime: opt.IntermediateLifetime,
-		rootDir:              state.UserStateDir(),
-		projectDir:           state.ProjectStateDir(cwd, name),
+		rootDir:              paths.User,
+		projectDir:           paths.Project,
 		projectName:          project,
 	}
 }
 
-// File names inside an authority directory.
-const (
-	// CertFile holds the Certificate Authority Certificate of a project.
-	CertFile = "ca.crt"
-
-	// KeyFile holds the Certificate Authority private key of a project.
-	KeyFile = "ca.key"
-
-	// RootCertFile holds the Root Certificate.
-	RootCertFile = "root.crt"
-
-	// RootKeyFile holds the Root private key.
-	RootKeyFile = "root.key"
-)
-
-// RootCertPath returns the host path of the Root Certificate file.
-func RootCertPath() string {
-	return filepath.Join(state.UserStateDir(), RootCertFile)
-}
-
-// ProjectCertPath returns the host path of the project's intermediate CA
-// certificate file.
-func ProjectCertPath(cwd, name string) string {
-	return filepath.Join(state.ProjectStateDir(cwd, name), CertFile)
-}
-
-// ProjectKeyPath returns the host path of the project's intermediate CA
-// private key file.
-func ProjectKeyPath(cwd, name string) string {
-	return filepath.Join(state.ProjectStateDir(cwd, name), KeyFile)
-}
-
-// ProjectVars returns the project.* CEL map entries computed once per
-// session: dir, the project directory, and the CA paths backed by kevin's
-// own CA - root_cert, ca_cert, ca_key.
-func ProjectVars(cwd, name string) map[string]string {
-	return map[string]string{
-		"dir":       cwd,
-		"root_cert": RootCertPath(),
-		"ca_cert":   ProjectCertPath(cwd, name),
-		"ca_key":    ProjectKeyPath(cwd, name),
-	}
-}
+// RootKeyFile holds the Root private key.
+const RootKeyFile = "root.key"
 
 // RootCommonName is the common name of the Root Certificate Authority.
 const RootCommonName = "Kevin Local Root CA"
@@ -140,7 +100,7 @@ type CA struct {
 
 // LoadOrGenerateRoot loads or generates the Root CA.
 func (m *Manager) LoadOrGenerateRoot() (*CA, error) {
-	ca, err := m.loadOrGenerateRoot(state.UserStateDir())
+	ca, err := m.loadOrGenerateRoot(m.rootDir)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +109,7 @@ func (m *Manager) LoadOrGenerateRoot() (*CA, error) {
 }
 
 func (m *Manager) loadOrGenerateRoot(dir string) (*CA, error) {
-	root, err := loadPair(dir, RootCertFile, RootKeyFile)
+	root, err := loadPair(dir, state.RootCertFile, RootKeyFile)
 	switch {
 	case err == nil:
 		root.rootPEM = root.certPEM
@@ -175,7 +135,7 @@ func (m *Manager) LoadOrGenerateIntermediate() (*CA, error) {
 }
 
 func (m *Manager) loadOrGenerateIntermediate() (*CA, error) {
-	authority, err := loadPair(m.projectDir, CertFile, KeyFile)
+	authority, err := loadPair(m.projectDir, state.CACertFile, state.CAKeyFile)
 	switch {
 	case err == nil:
 		authority.rootPEM = m.root.certPEM
@@ -203,8 +163,8 @@ func (m *Manager) generateRoot() (*CA, error) {
 	authority.rootPEM = authority.certPEM
 
 	if err = write(m.rootDir, map[string][]byte{
-		RootCertFile: authority.certPEM,
-		RootKeyFile:  authority.keyPEM,
+		state.RootCertFile: authority.certPEM,
+		RootKeyFile:        authority.keyPEM,
 	}); err != nil {
 		return nil, err
 	}
@@ -229,9 +189,9 @@ func (m *Manager) generateIntermediate() (*CA, error) {
 	authority.certPEM = chain
 
 	if err = write(m.projectDir, map[string][]byte{
-		CertFile:     chain,
-		KeyFile:      authority.keyPEM,
-		RootCertFile: m.root.certPEM,
+		state.CACertFile:   chain,
+		state.CAKeyFile:    authority.keyPEM,
+		state.RootCertFile: m.root.certPEM,
 	}); err != nil {
 		return nil, err
 	}

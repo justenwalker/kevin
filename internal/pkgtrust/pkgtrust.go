@@ -10,16 +10,12 @@ import (
 	"path/filepath"
 
 	"github.com/jedisct1/go-minisign"
+
+	"github.com/justenwalker/kevin/internal/state"
 )
 
-// Dir is ~/.kevin/trusted-keys - global, shared across every project.
-func Dir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".kevin", "trusted-keys")
-	}
-	return filepath.Join(home, ".kevin", "trusted-keys")
-}
+// Dir is the trusted-keys directory under the user state directory - global, shared across every project.
+func Dir() string { return state.ForUser().TrustedKeys() }
 
 // Keyring is the trusted public keys, indexed by minisign key id.
 type Keyring map[[8]byte]minisign.PublicKey

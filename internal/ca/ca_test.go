@@ -79,7 +79,7 @@ func TestManager_LoadOrGenerateRoot(t *testing.T) {
 				name: "a certificate without a key",
 				setup: func(t *testing.T, dir string) {
 					t.Helper()
-					require.NoError(t, os.WriteFile(filepath.Join(dir, ca.RootCertFile), []byte("x"), 0o600))
+					require.NoError(t, os.WriteFile(filepath.Join(dir, state.RootCertFile), []byte("x"), 0o600))
 				},
 			},
 		}
@@ -139,7 +139,7 @@ func TestManager_LoadOrGenerateRoot(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				dir := t.TempDir()
 				t.Setenv(state.UserStateDirEnv, dir)
-				require.NoError(t, os.WriteFile(filepath.Join(dir, ca.RootCertFile), tt.certPEM, 0o600))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, state.RootCertFile), tt.certPEM, 0o600))
 				require.NoError(t, os.WriteFile(filepath.Join(dir, ca.RootKeyFile), tt.keyPEM, 0o600))
 
 				m := ca.NewManager("cwd", "", "demo", ca.Options{})
@@ -154,7 +154,7 @@ func TestManager_LoadOrGenerateRoot(t *testing.T) {
 		t.Setenv(state.UserStateDirEnv, dir)
 		// A directory where a file is expected fails to read for a reason
 		// other than "not found", which readFile must not swallow.
-		require.NoError(t, os.Mkdir(filepath.Join(dir, ca.RootCertFile), 0o755))
+		require.NoError(t, os.Mkdir(filepath.Join(dir, state.RootCertFile), 0o755))
 
 		m := ca.NewManager("cwd", "", "demo", ca.Options{})
 		_, err := m.LoadOrGenerateRoot()
@@ -237,14 +237,14 @@ func TestManager_LoadOrGenerateIntermediate(t *testing.T) {
 		assert.Equal(t, 2, countPEM(t, project.PEM()), "the file must hold the chain")
 
 		// A plugin reads the root from the project directory.
-		rootOnDisk, err := os.ReadFile(filepath.Join(dir, ca.RootCertFile))
+		rootOnDisk, err := os.ReadFile(filepath.Join(dir, state.RootCertFile))
 		require.NoError(t, err)
 		assert.Equal(t, root.PEM(), string(rootOnDisk))
 
 		assert.Equal(t, root.PEM(), project.RootPEM(),
 			"RootPEM is what a client trusts and what a container mounts")
 
-		info, err := os.Stat(filepath.Join(dir, ca.KeyFile))
+		info, err := os.Stat(filepath.Join(dir, state.CAKeyFile))
 		require.NoError(t, err)
 		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 	})
@@ -348,14 +348,14 @@ func TestCA_TLSCertificate(t *testing.T) {
 		_, dirA := newRoot(t)
 		_, dirB := newRoot(t)
 
-		certA, err := os.ReadFile(filepath.Join(dirA, ca.RootCertFile))
+		certA, err := os.ReadFile(filepath.Join(dirA, state.RootCertFile))
 		require.NoError(t, err)
 		keyB, err := os.ReadFile(filepath.Join(dirB, ca.RootKeyFile))
 		require.NoError(t, err)
 
 		frankenDir := filepath.Join(t.TempDir(), "franken")
 		require.NoError(t, os.MkdirAll(frankenDir, 0o700))
-		require.NoError(t, os.WriteFile(filepath.Join(frankenDir, ca.RootCertFile), certA, 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(frankenDir, state.RootCertFile), certA, 0o600))
 		require.NoError(t, os.WriteFile(filepath.Join(frankenDir, ca.RootKeyFile), keyB, 0o600))
 
 		t.Setenv(state.UserStateDirEnv, frankenDir)
@@ -429,26 +429,6 @@ func TestCA_NewLeaf(t *testing.T) {
 	})
 }
 
-func TestProjectCertPath(t *testing.T) {
-	got := ca.ProjectCertPath("/work/project", "demo")
-	assert.Equal(t, filepath.Join(state.ProjectStateDir("/work/project", "demo"), ca.CertFile), got)
-}
-
-func TestProjectKeyPath(t *testing.T) {
-	got := ca.ProjectKeyPath("/work/project", "demo")
-	assert.Equal(t, filepath.Join(state.ProjectStateDir("/work/project", "demo"), ca.KeyFile), got)
-}
-
-func TestProjectVars(t *testing.T) {
-	got := ca.ProjectVars("/work/project", "demo")
-	assert.Equal(t, map[string]string{
-		"dir":       "/work/project",
-		"root_cert": ca.RootCertPath(),
-		"ca_cert":   ca.ProjectCertPath("/work/project", "demo"),
-		"ca_key":    ca.ProjectKeyPath("/work/project", "demo"),
-	}, got)
-}
-
 // freshDir returns a path to a directory that does not exist yet, inside a
 // fresh temporary directory. LoadOrGenerateRoot and LoadOrGenerateIntermediate
 // only set 0700 permissions when they create a directory themselves, so
@@ -511,7 +491,7 @@ func countPEM(t *testing.T, s string) int {
 func validRootPair(t *testing.T) ([]byte, []byte) {
 	t.Helper()
 	_, rootDir := newRoot(t)
-	certPEM, err := os.ReadFile(filepath.Join(rootDir, ca.RootCertFile))
+	certPEM, err := os.ReadFile(filepath.Join(rootDir, state.RootCertFile))
 	require.NoError(t, err)
 	keyPEM, err := os.ReadFile(filepath.Join(rootDir, ca.RootKeyFile))
 	require.NoError(t, err)

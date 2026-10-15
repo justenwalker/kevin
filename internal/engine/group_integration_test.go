@@ -32,7 +32,7 @@ env: app: {uses: "echo:echo", needs: ["setup.cluster"], with: message: "${setup.
 		require.NoError(t, err)
 		assert.Contains(t, w.String(), fmt.Sprintf("%-16s %s", "app", "ready"))
 
-		logs, err := os.ReadFile(filepath.Join(dir, state.WorkspaceDir, LogsFile))
+		logs, err := os.ReadFile(filepath.Join(dir, state.WorkspaceDir, state.LogsFile))
 		require.NoError(t, err)
 		assert.Contains(t, string(logs), "from-cluster",
 			"a setup-scope group's computed outputs must reach an env step across scopes")

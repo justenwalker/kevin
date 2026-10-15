@@ -5,18 +5,13 @@
 package pkgcache
 
 import (
-	"os"
 	"path/filepath"
+
+	"github.com/justenwalker/kevin/internal/state"
 )
 
-// Dir is ~/.kevin/pkg-cache - global, shared across every project.
-func Dir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".kevin", "pkg-cache")
-	}
-	return filepath.Join(home, ".kevin", "pkg-cache")
-}
+// Dir is the pkg-cache directory under the user state directory - global, shared across every project.
+func Dir() string { return state.ForUser().PackageCache() }
 
 // Sha256Dir is the subdirectory every sha256-addressed cache entry lands
 // in - the parent directory of every Path result. A caller that stages a

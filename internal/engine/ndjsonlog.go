@@ -8,11 +8,6 @@ import (
 	"path/filepath"
 )
 
-// LogsFile holds the durable, full record of every step's log lines for one
-// session, in newline-delimited JSON. The in-memory console keeps only a
-// small live tail; this file is the full history.
-const LogsFile = "logs.ndjson"
-
 // trafficFileName holds the durable, full record of every proxy request for one
 // session, in newline-delimited JSON. The console's Proxy tab keeps only a
 // bounded live tail; this file is the full history.

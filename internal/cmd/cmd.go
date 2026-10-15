@@ -184,11 +184,11 @@ func printEnvironmentInfo(w io.Writer, env step.Env) {
 }
 
 // openLogFile opens the project's debug log file for appending, creating
-// state.WorkspaceDir under dir if needed. It returns nil if either step
+// the project's state directory if needed. It returns nil if either step
 // fails, so a read-only or missing project directory just forgoes the file
 // and keeps logging to the terminal.
 func openLogFile(dir string) *os.File {
-	workspace := filepath.Join(dir, state.WorkspaceDir)
+	workspace := state.For(dir, "").Workspace()
 	if err := os.MkdirAll(workspace, 0o750); err != nil {
 		return nil
 	}

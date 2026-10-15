@@ -155,7 +155,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	timings := loadTimings(ctx, filepath.Join(workspace, timingsFileName))
 
-	stepLog, err := openNDJSONLog(workspace, LogsFile)
+	stepLog, err := openNDJSONLog(workspace, state.LogsFile)
 	if err != nil {
 		return err
 	}
@@ -221,7 +221,7 @@ func Run(ctx context.Context, opts Options) error {
 	mcpServer := mcpserver.New(mcpserver.Options{
 		Project:  cfg.Project,
 		Domain:   cfg.Domain,
-		LogsPath: filepath.Join(workspace, LogsFile),
+		LogsPath: filepath.Join(workspace, state.LogsFile),
 		View:     store,
 		Proxy:    server.proxy,
 		Control:  r,
@@ -255,7 +255,7 @@ func Run(ctx context.Context, opts Options) error {
 		Project:             cfg.Project,
 		Workspace:           workspace,
 		Network:             network,
-		CAPath:              ca.RootCertPath(),
+		CAPath:              state.ForUser().RootCert(),
 		HTTPProxyAddr:       server.addr,
 		ConsoleAddr:         web.addr,
 		ProxyEnv:            proxyEnv(server.addr, network, stepNames(cfg)),
@@ -420,7 +420,7 @@ func portOf(addr string) string {
 // prepare creates the workspace, the shared network, and the authority. It
 // returns the workspace path and the authority.
 func prepare(ctx context.Context, cfg *config.Config, rt cri.Runtime) (string, *ca.CA, error) {
-	workspace := filepath.Join(cfg.Dir, state.WorkspaceDir, cfg.Name)
+	workspace := state.For(cfg.Dir, cfg.Name).Workspace()
 	if err := os.MkdirAll(workspace, 0o700); err != nil {
 		return "", nil, fmt.Errorf("supervisor: create %s: %w", workspace, err)
 	}
@@ -521,9 +521,9 @@ const progressCap = 0.95
 func setupEnvironment(cfg *config.Config, engineName string) step.Env {
 	return step.Env{
 		Project:    cfg.Project,
-		Workspace:  filepath.Join(cfg.Dir, state.WorkspaceDir, cfg.Name),
+		Workspace:  state.For(cfg.Dir, cfg.Name).Workspace(),
 		Network:    NetworkName(cfg.Project),
-		CAPath:     ca.RootCertPath(),
+		CAPath:     state.ForUser().RootCert(),
 		Domain:     cfg.Domain,
 		ProjectDir: cfg.Dir,
 		Scope:      config.ScopeSetup,
@@ -548,7 +548,7 @@ func Teardown(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	stepLog, err := openNDJSONLog(workspace, LogsFile)
+	stepLog, err := openNDJSONLog(workspace, state.LogsFile)
 	if err != nil {
 		return err
 	}

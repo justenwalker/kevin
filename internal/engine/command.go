@@ -8,11 +8,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/justenwalker/kevin/internal/ca"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pluginload"
+	"github.com/justenwalker/kevin/internal/state"
 )
 
 // CommandPlan is a command from the commands block, resolved and ready to
@@ -50,7 +50,7 @@ func PlanCommand(ctx context.Context, opts Options, name string) (CommandPlan, e
 		plugins: stepPlugins(loaded.Plugins),
 		caps:    loaded.Caps,
 		env:     env,
-		project: ca.ProjectVars(cfg.Dir, cfg.Name),
+		project: state.For(cfg.Dir, cfg.Name).Vars(),
 	}
 	return r.planCommand(ctx, name)
 }

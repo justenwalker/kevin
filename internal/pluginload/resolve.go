@@ -38,7 +38,7 @@ func resolveSpec(ctx context.Context, name, dir string, specs map[string]config.
 	}
 
 	spec := specs[name]
-	destDir := filepath.Join(dir, state.WorkspaceDir, pluginPkgDir, name)
+	destDir := filepath.Join(state.For(dir, "").Workspace(), pluginPkgDir, name)
 	switch {
 	case spec.File != "":
 		return resolveFileSpec(ctx, name, dir, destDir, spec)

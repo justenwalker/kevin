@@ -8,17 +8,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/justenwalker/kevin/internal/state"
 )
 
-// IdentityDir is ~/.kevin/trusted-identities - global, shared across every
+// IdentityDir is the trusted-identities directory under the user state directory - global, shared across every
 // project, and separate from [Dir].
-func IdentityDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".kevin", "trusted-identities")
-	}
-	return filepath.Join(home, ".kevin", "trusted-identities")
-}
+func IdentityDir() string { return state.ForUser().TrustedIdentities() }
 
 // identityRecord is one trusted identity/issuer pair, as stored on disk.
 type identityRecord struct {

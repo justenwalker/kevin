@@ -75,7 +75,7 @@ func (s *K3dSuite) env() plugin.Env {
 		Project:   k3dProject,
 		Workspace: s.workspace,
 		Network:   s.network,
-		CAPath:    ca.RootCertPath(),
+		CAPath:    state.ForUser().RootCert(),
 		Domain:    k3dDomain,
 		Relay:     s.relay.Addr(),
 	}
