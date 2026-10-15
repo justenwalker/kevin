@@ -184,8 +184,8 @@ func mergeEnv(a, b map[string]string) map[string]string {
 
 // resolvePath resolves a with-block path against the project directory. An
 // absolute path, an empty path, or a missing project directory pass through
-// unchanged. Mirrors the identical helper in internal/plugins/kubectl and
-// internal/plugins/helm.
+// unchanged. Mirrors the identical helper in internal/plugins/builtin/kubectl and
+// internal/plugins/builtin/helm.
 func resolvePath(path, projectDir string) string {
 	if path == "" || projectDir == "" || filepath.IsAbs(path) {
 		return path

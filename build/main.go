@@ -173,7 +173,7 @@ var PackagePlugin = GnobMakeTarget{
 	},
 }
 
-// echoPluginIndexVersionPattern matches a bare pluginindex semver
+// echoPluginIndexVersionPattern matches a bare plugin index semver
 // (X.Y.Z[-pre], no v prefix - see internal/plugins/index's version format),
 // not releaseVersionPattern's vX.Y.Z, which is kevin's own release tag
 // format.

@@ -304,7 +304,7 @@ func (f *File) validateCommand(name string, cmd Command, env, setup map[string]S
 // block skips the check.
 //
 // A config block has no needs/setup scope at all - no step has run Up yet
-// when Configure sends it (see [internal/load.Loaded.Configure]) - so a
+// when Configure sends it (see [internal/plugins/load.Loaded.Configure]) - so a
 // "${needs...}"/"${setup...}" reference inside one is always an error, not
 // a deferred one the way a step's with block gets: this checks that with an
 // empty needs list, the same way [validateNeedsReferences] checks a step's

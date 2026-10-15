@@ -236,7 +236,7 @@ func (s *e2eSuite) echoPluginBin() string {
 }
 
 // requireDocker skips the test when no docker daemon answers. It shells
-// directly to docker rather than importing internal/docker, since this
+// directly to docker rather than importing internal/container/docker, since this
 // package stays black-box.
 func (s *e2eSuite) requireDocker() {
 	s.T().Helper()

@@ -333,7 +333,7 @@ Key model to hold in your head when changing any of this:
   auto-detection picks it - which engine to drive is a host choice, never a
   `kevin.cue` one - `internal/container/docker` and `internal/container/podman` are each a
   `clirt.Dialect` over the shared client in `internal/container/clirt`, podman
-  adding `DockerHost`, both behind the `cri.Runtime` contract in
+  adding `DockerHost`, both behind the `container.Runtime` contract in
   `internal/container`, selected by `internal/container/engines`) and parses JSON output
   rather than importing
   `github.com/docker/docker`, to avoid that dependency tree. Kubernetes

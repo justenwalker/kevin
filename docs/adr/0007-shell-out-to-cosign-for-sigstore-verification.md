@@ -20,7 +20,7 @@ the same way `internal/container/clirt`, `internal/command/kubectl`, and `intern
 already do for their own external tools (see ADR-0005). Signing itself stays
 a manual step the user runs with the `cosign` CLI directly - `kevin plugin
 push` only detects and uploads whatever signature file is already there
-(see [`internal/plugins/source/ocisrc`](../../internal/plugins/source/ocisrc/ocipkg.go)'s
+(see [`internal/plugins/source/ocisrc`](../../internal/plugins/source/ocisrc/ocisrc.go)'s
 `PushPackage`) - extending the same principle that keeps
 minisign key material out of kevin's own binary to cover OIDC tokens and
 Fulcio-issued certificates too.

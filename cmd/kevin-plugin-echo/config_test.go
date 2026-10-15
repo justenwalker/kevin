@@ -18,7 +18,7 @@ func TestDemoIconIsAValidSmallPNG(t *testing.T) {
 	_, err := png.Decode(bytes.NewReader(got))
 	require.NoError(t, err, "the console must be able to decode this as a real PNG")
 
-	// Mirrors internal/console's own maxIconBytes cap, so this demo never
+	// Mirrors internal/ui/console's own maxIconBytes cap, so this demo never
 	// accidentally exercises the "too large, dropped" path.
 	const maxIconBytes = 64 * 1024
 	assert.Less(t, len(got), maxIconBytes)

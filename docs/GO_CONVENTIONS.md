@@ -94,7 +94,7 @@ An interface couples every caller to wherever it's declared. Declare it next to 
 
 **DO:**
 ```go
-// package cri, the consumer: it drives a container engine generically and
+// package container, the consumer: it drives a container engine generically and
 // doesn't care which one.
 type Runtime interface {
 	Run(ctx context.Context, spec RunSpec) (string, error)
@@ -105,7 +105,7 @@ type Runtime interface {
 // package docker, the producer. It implements Runtime's methods without
 // ever declaring the interface; the assertion below is only a compile-time
 // check, not a dependency Runtime's definition needs.
-var _ cri.Runtime = Client{}
+var _ container.Runtime = Client{}
 
 func (c Client) Remove(ctx context.Context, name string) error { ... }
 ```
@@ -457,7 +457,7 @@ A pointer to an interface (`*Runtime`) is almost always a mistake: the interface
 
 **DO:**
 ```go
-func waitRunning(ctx context.Context, runtime cri.Runtime, name string, deadline time.Time, out plugin.Emitter) (cri.Container, error) { ... }
+func waitRunning(ctx context.Context, runtime container.Runtime, name string, deadline time.Time, out plugin.Emitter) (container.Container, error) { ... }
 ```
 
 **DO NOT:**
@@ -465,7 +465,7 @@ func waitRunning(ctx context.Context, runtime cri.Runtime, name string, deadline
 // A pointer to an interface. runtime is now a pointer to a pointer (-ish)
 // to the concrete Docker client; callers that want to swap the
 // implementation can already do that by assigning a new Runtime value.
-func waitRunning(ctx context.Context, runtime *cri.Runtime, name string, deadline time.Time, out plugin.Emitter) (cri.Container, error) { ... }
+func waitRunning(ctx context.Context, runtime *container.Runtime, name string, deadline time.Time, out plugin.Emitter) (container.Container, error) { ... }
 ```
 
 ## GO-014: A mutex is a named, unexported field, not embedded

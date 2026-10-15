@@ -12,7 +12,7 @@ import (
 	"github.com/justenwalker/kevin/internal/step"
 )
 
-var log = logging.New("load")
+var log = logging.New("pluginload")
 
 // Fetch reads the environment file and downloads and extracts every
 // plugin package that a step of either scope references: everything

@@ -37,7 +37,7 @@ env: cluster: {
 // K3dSuite covers a user selecting the k3d driver:
 // the cluster comes up and kubectl reaches it through the kubeconfig kevin
 // writes. What the driver builds is checked by the integration suite in
-// internal/plugins/kubernetes.
+// internal/plugins/builtin/kubernetes.
 //
 // Tier: e2e.
 type K3dSuite struct {

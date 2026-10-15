@@ -22,7 +22,7 @@ import (
 	"github.com/justenwalker/kevin/protos/pb"
 )
 
-var log = logging.New("launcher")
+var log = logging.New("pluginhost")
 
 // Spec describes how to start a plugin.
 type Spec struct {

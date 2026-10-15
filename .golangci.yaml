@@ -105,7 +105,7 @@ linters:
           - musttag
       # container.Runtime composes the role interfaces into the full container-engine
       # contract every engine (docker, podman, ...) implements.
-      - path: 'internal/container/[^/]+\.go'
+      - path: '^internal/container/[^/]+\.go$'
         linters:
           - interfacebloat
       # engines.New's entire purpose is picking between two concrete engine
