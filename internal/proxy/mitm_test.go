@@ -30,7 +30,7 @@ func TestConnect(t *testing.T) {
 		p, client := startTestProxyWithClient(t)
 		target := createTestUpstream(t, "secure workload")
 
-		p.AddRoutes(proxy.Route{Host: "secure.kevin.test", Upstream: getTestURLHost(t, target.URL)})
+		addRoutes(p, proxy.Route{Host: "secure.kevin.test", Upstream: getTestURLHost(t, target.URL)})
 
 		// The client trusts the kevin CA and nothing else. A plain https
 		// request to a name that resolves nowhere therefore proves three
@@ -77,7 +77,7 @@ func TestConnect(t *testing.T) {
 		}
 
 		target := createTestUpstream(t, "via h2")
-		p.AddRoutes(proxy.Route{Host: "h2.kevin.test", Upstream: getTestURLHost(t, target.URL)})
+		addRoutes(p, proxy.Route{Host: "h2.kevin.test", Upstream: getTestURLHost(t, target.URL)})
 
 		resp, body := getTestURL(t, client, "https://h2.kevin.test/")
 
@@ -137,7 +137,7 @@ func TestConnect(t *testing.T) {
 		// handleConnect must ensure that we forward these bytes from there.
 		p, client := startTestProxyWithClient(t)
 		target := createTestUpstream(t, "coalesced")
-		p.AddRoutes(proxy.Route{Host: "coalesced.kevin.test", Upstream: getTestURLHost(t, target.URL)})
+		addRoutes(p, proxy.Route{Host: "coalesced.kevin.test", Upstream: getTestURLHost(t, target.URL)})
 		assert.Eventually(t, func() bool { return p.Addr() != "" }, time.Second, time.Millisecond)
 
 		transport, ok := client.Transport.(*http.Transport)

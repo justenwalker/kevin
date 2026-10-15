@@ -84,7 +84,7 @@ func TestDNSRelayAnswers(t *testing.T) {
 func TestDNSRelayIntercept(t *testing.T) {
 	t.Run("an exact intercepted host", func(t *testing.T) {
 		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53", testFakeIPPool(t))
-		relay.AddIntercept("s3.us-east-1.amazonaws.com")
+		relay.SetIntercepts([]string{"s3.us-east-1.amazonaws.com"})
 
 		assert.True(t, relay.matchesIntercept("s3.us-east-1.amazonaws.com."))
 		assert.False(t, relay.matchesIntercept("other.example.com."))
@@ -92,24 +92,34 @@ func TestDNSRelayIntercept(t *testing.T) {
 
 	t.Run("a wildcard intercepted host", func(t *testing.T) {
 		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53", testFakeIPPool(t))
-		relay.AddIntercept("*.s3.us-east-1.amazonaws.com")
+		relay.SetIntercepts([]string{"*.s3.us-east-1.amazonaws.com"})
 
 		assert.True(t, relay.matchesIntercept("bucket.s3.us-east-1.amazonaws.com."))
 		assert.False(t, relay.matchesIntercept("s3.us-east-1.amazonaws.com."),
 			"a wildcard must not match the bare domain")
 	})
 
-	t.Run("adding the same host twice is a no-op", func(t *testing.T) {
+	t.Run("listing the same host twice is a no-op", func(t *testing.T) {
 		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53", testFakeIPPool(t))
-		relay.AddIntercept("s3.us-east-1.amazonaws.com")
-		relay.AddIntercept("s3.us-east-1.amazonaws.com")
+		relay.SetIntercepts([]string{"s3.us-east-1.amazonaws.com", "s3.us-east-1.amazonaws.com"})
 
 		assert.Len(t, relay.intercepts, 1)
 	})
 
+	t.Run("a second call replaces the hosts of the first", func(t *testing.T) {
+		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53", testFakeIPPool(t))
+		relay.SetIntercepts([]string{"old.example.com", "*.old.example.com"})
+
+		relay.SetIntercepts([]string{"new.example.com"})
+
+		assert.False(t, relay.matchesIntercept("old.example.com."))
+		assert.False(t, relay.matchesIntercept("a.old.example.com."))
+		assert.True(t, relay.matchesIntercept("new.example.com."))
+	})
+
 	t.Run("an intercepted host resolves to an allocated fake address, not self", func(t *testing.T) {
 		relay := newDNSRelay("kevin.home", selfAddrs{V4: "10.0.0.5"}, "127.0.0.11:53", testFakeIPPool(t))
-		relay.AddIntercept("s3.us-east-1.amazonaws.com")
+		relay.SetIntercepts([]string{"s3.us-east-1.amazonaws.com"})
 
 		req := new(dns.Msg)
 		req.SetQuestion("s3.us-east-1.amazonaws.com.", dns.TypeA)

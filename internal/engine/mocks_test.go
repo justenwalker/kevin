@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/justenwalker/kevin/internal/proxy"
+	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/step"
 	mock "github.com/stretchr/testify/mock"
 )
@@ -333,98 +334,94 @@ func (_m *mockrouteTable) EXPECT() *mockrouteTable_Expecter {
 	return &mockrouteTable_Expecter{mock: &_m.Mock}
 }
 
-// AddRoutes provides a mock function for the type mockrouteTable
-func (_mock *mockrouteTable) AddRoutes(routes ...proxy.Route) {
-	if len(routes) > 0 {
-		_mock.Called(routes)
-	} else {
-		_mock.Called()
-	}
-
+// ClearStep provides a mock function for the type mockrouteTable
+func (_mock *mockrouteTable) ClearStep(step1 string) {
+	_mock.Called(step1)
 	return
 }
 
-// mockrouteTable_AddRoutes_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddRoutes'
-type mockrouteTable_AddRoutes_Call struct {
+// mockrouteTable_ClearStep_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ClearStep'
+type mockrouteTable_ClearStep_Call struct {
 	*mock.Call
 }
 
-// AddRoutes is a helper method to define mock.On call
-//   - routes ...proxy.Route
-func (_e *mockrouteTable_Expecter) AddRoutes(routes ...any) *mockrouteTable_AddRoutes_Call {
-	return &mockrouteTable_AddRoutes_Call{Call: _e.mock.On("AddRoutes",
-		append([]any{}, routes...)...)}
+// ClearStep is a helper method to define mock.On call
+//   - step1 string
+func (_e *mockrouteTable_Expecter) ClearStep(step1 any) *mockrouteTable_ClearStep_Call {
+	return &mockrouteTable_ClearStep_Call{Call: _e.mock.On("ClearStep", step1)}
 }
 
-func (_c *mockrouteTable_AddRoutes_Call) Run(run func(routes ...proxy.Route)) *mockrouteTable_AddRoutes_Call {
+func (_c *mockrouteTable_ClearStep_Call) Run(run func(step1 string)) *mockrouteTable_ClearStep_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 []proxy.Route
-		var variadicArgs []proxy.Route
-		if len(args) > 0 {
-			variadicArgs = args[0].([]proxy.Route)
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
 		}
-		arg0 = variadicArgs
 		run(
-			arg0...,
+			arg0,
 		)
 	})
 	return _c
 }
 
-func (_c *mockrouteTable_AddRoutes_Call) Return() *mockrouteTable_AddRoutes_Call {
+func (_c *mockrouteTable_ClearStep_Call) Return() *mockrouteTable_ClearStep_Call {
 	_c.Call.Return()
 	return _c
 }
 
-func (_c *mockrouteTable_AddRoutes_Call) RunAndReturn(run func(routes ...proxy.Route)) *mockrouteTable_AddRoutes_Call {
+func (_c *mockrouteTable_ClearStep_Call) RunAndReturn(run func(step1 string)) *mockrouteTable_ClearStep_Call {
 	_c.Run(run)
 	return _c
 }
 
-// AllowEgress provides a mock function for the type mockrouteTable
-func (_mock *mockrouteTable) AllowEgress(hosts ...string) {
-	if len(hosts) > 0 {
-		_mock.Called(hosts)
-	} else {
-		_mock.Called()
-	}
-
+// SetStep provides a mock function for the type mockrouteTable
+func (_mock *mockrouteTable) SetStep(step1 string, routes []proxy.Route, egress []string) {
+	_mock.Called(step1, routes, egress)
 	return
 }
 
-// mockrouteTable_AllowEgress_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AllowEgress'
-type mockrouteTable_AllowEgress_Call struct {
+// mockrouteTable_SetStep_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetStep'
+type mockrouteTable_SetStep_Call struct {
 	*mock.Call
 }
 
-// AllowEgress is a helper method to define mock.On call
-//   - hosts ...string
-func (_e *mockrouteTable_Expecter) AllowEgress(hosts ...any) *mockrouteTable_AllowEgress_Call {
-	return &mockrouteTable_AllowEgress_Call{Call: _e.mock.On("AllowEgress",
-		append([]any{}, hosts...)...)}
+// SetStep is a helper method to define mock.On call
+//   - step1 string
+//   - routes []proxy.Route
+//   - egress []string
+func (_e *mockrouteTable_Expecter) SetStep(step1 any, routes any, egress any) *mockrouteTable_SetStep_Call {
+	return &mockrouteTable_SetStep_Call{Call: _e.mock.On("SetStep", step1, routes, egress)}
 }
 
-func (_c *mockrouteTable_AllowEgress_Call) Run(run func(hosts ...string)) *mockrouteTable_AllowEgress_Call {
+func (_c *mockrouteTable_SetStep_Call) Run(run func(step1 string, routes []proxy.Route, egress []string)) *mockrouteTable_SetStep_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 []string
-		var variadicArgs []string
-		if len(args) > 0 {
-			variadicArgs = args[0].([]string)
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
 		}
-		arg0 = variadicArgs
+		var arg1 []proxy.Route
+		if args[1] != nil {
+			arg1 = args[1].([]proxy.Route)
+		}
+		var arg2 []string
+		if args[2] != nil {
+			arg2 = args[2].([]string)
+		}
 		run(
-			arg0...,
+			arg0,
+			arg1,
+			arg2,
 		)
 	})
 	return _c
 }
 
-func (_c *mockrouteTable_AllowEgress_Call) Return() *mockrouteTable_AllowEgress_Call {
+func (_c *mockrouteTable_SetStep_Call) Return() *mockrouteTable_SetStep_Call {
 	_c.Call.Return()
 	return _c
 }
 
-func (_c *mockrouteTable_AllowEgress_Call) RunAndReturn(run func(hosts ...string)) *mockrouteTable_AllowEgress_Call {
+func (_c *mockrouteTable_SetStep_Call) RunAndReturn(run func(step1 string, routes []proxy.Route, egress []string)) *mockrouteTable_SetStep_Call {
 	_c.Run(run)
 	return _c
 }
@@ -614,69 +611,6 @@ func (_c *mocktrafficRelay_Close_Call) RunAndReturn(run func() error) *mocktraff
 	return _c
 }
 
-// EnsureListener provides a mock function for the type mocktrafficRelay
-func (_mock *mocktrafficRelay) EnsureListener(ctx context.Context, host string, ports []int) error {
-	ret := _mock.Called(ctx, host, ports)
-
-	if len(ret) == 0 {
-		panic("no return value specified for EnsureListener")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []int) error); ok {
-		r0 = returnFunc(ctx, host, ports)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// mocktrafficRelay_EnsureListener_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'EnsureListener'
-type mocktrafficRelay_EnsureListener_Call struct {
-	*mock.Call
-}
-
-// EnsureListener is a helper method to define mock.On call
-//   - ctx context.Context
-//   - host string
-//   - ports []int
-func (_e *mocktrafficRelay_Expecter) EnsureListener(ctx any, host any, ports any) *mocktrafficRelay_EnsureListener_Call {
-	return &mocktrafficRelay_EnsureListener_Call{Call: _e.mock.On("EnsureListener", ctx, host, ports)}
-}
-
-func (_c *mocktrafficRelay_EnsureListener_Call) Run(run func(ctx context.Context, host string, ports []int)) *mocktrafficRelay_EnsureListener_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 []int
-		if args[2] != nil {
-			arg2 = args[2].([]int)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *mocktrafficRelay_EnsureListener_Call) Return(err error) *mocktrafficRelay_EnsureListener_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *mocktrafficRelay_EnsureListener_Call) RunAndReturn(run func(ctx context.Context, host string, ports []int) error) *mocktrafficRelay_EnsureListener_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // RegisterCapture provides a mock function for the type mocktrafficRelay
 func (_mock *mocktrafficRelay) RegisterCapture(ctx context.Context, id string, netnsPath string, excludeCIDRs []string) error {
 	ret := _mock.Called(ctx, id, netnsPath, excludeCIDRs)
@@ -742,6 +676,69 @@ func (_c *mocktrafficRelay_RegisterCapture_Call) Return(err error) *mocktrafficR
 }
 
 func (_c *mocktrafficRelay_RegisterCapture_Call) RunAndReturn(run func(ctx context.Context, id string, netnsPath string, excludeCIDRs []string) error) *mocktrafficRelay_RegisterCapture_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetIntercepts provides a mock function for the type mocktrafficRelay
+func (_mock *mocktrafficRelay) SetIntercepts(ctx context.Context, owner string, intercepts []relay.Intercept) error {
+	ret := _mock.Called(ctx, owner, intercepts)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetIntercepts")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []relay.Intercept) error); ok {
+		r0 = returnFunc(ctx, owner, intercepts)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// mocktrafficRelay_SetIntercepts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetIntercepts'
+type mocktrafficRelay_SetIntercepts_Call struct {
+	*mock.Call
+}
+
+// SetIntercepts is a helper method to define mock.On call
+//   - ctx context.Context
+//   - owner string
+//   - intercepts []relay.Intercept
+func (_e *mocktrafficRelay_Expecter) SetIntercepts(ctx any, owner any, intercepts any) *mocktrafficRelay_SetIntercepts_Call {
+	return &mocktrafficRelay_SetIntercepts_Call{Call: _e.mock.On("SetIntercepts", ctx, owner, intercepts)}
+}
+
+func (_c *mocktrafficRelay_SetIntercepts_Call) Run(run func(ctx context.Context, owner string, intercepts []relay.Intercept)) *mocktrafficRelay_SetIntercepts_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 []relay.Intercept
+		if args[2] != nil {
+			arg2 = args[2].([]relay.Intercept)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *mocktrafficRelay_SetIntercepts_Call) Return(err error) *mocktrafficRelay_SetIntercepts_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *mocktrafficRelay_SetIntercepts_Call) RunAndReturn(run func(ctx context.Context, owner string, intercepts []relay.Intercept) error) *mocktrafficRelay_SetIntercepts_Call {
 	_c.Call.Return(run)
 	return _c
 }

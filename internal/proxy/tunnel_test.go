@@ -90,7 +90,7 @@ func TestTunnelRoute(t *testing.T) {
 		const host = "certmanager.kevin.test"
 		target := selfSignedTLSUpstream(t, host, "from the workload's own cert")
 
-		p.AddRoutes(proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), TLS: true, Mode: proxy.RouteModePassthrough})
+		addRoutes(p, proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), TLS: true, Mode: proxy.RouteModePassthrough})
 
 		ownPool := x509.NewCertPool()
 		ownPool.AddCert(target.Certificate())
@@ -113,7 +113,7 @@ func TestTunnelRoute(t *testing.T) {
 
 		const host = "still-mitmed.kevin.test"
 		target := createTestTLSUpstream(t, authority, host, "still mitm'd")
-		p.AddRoutes(proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), TLS: true})
+		addRoutes(p, proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), TLS: true})
 
 		resp, body := getTestURL(t, client, "https://"+host+"/")
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -129,7 +129,7 @@ func TestTunnelRoute(t *testing.T) {
 
 		const host = "misconfigured-passthrough.kevin.test"
 		target := createTestUpstream(t, "still mitm'd")
-		p.AddRoutes(proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), Mode: proxy.RouteModePassthrough})
+		addRoutes(p, proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), Mode: proxy.RouteModePassthrough})
 
 		resp, body := getTestURL(t, client, "https://"+host+"/")
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -147,7 +147,7 @@ func TestTunnelRoute(t *testing.T) {
 		target := selfSignedTLSUpstream(t, host, "relayed and skipped")
 		relay := startSOCKS5(t)
 
-		p.AddRoutes(proxy.Route{
+		addRoutes(p, proxy.Route{
 			Host:     host,
 			Upstream: getTestURLHost(t, target.URL), Relay: relay,
 			TLS:  true,
@@ -168,7 +168,7 @@ func TestTunnelRoute(t *testing.T) {
 		assert.Eventually(t, func() bool { return p.Addr() != "" }, time.Second, time.Millisecond)
 
 		const host = "unreachable-skip.kevin.test"
-		p.AddRoutes(proxy.Route{Host: host, Upstream: "127.0.0.1:1", TLS: true, Mode: proxy.RouteModePassthrough})
+		addRoutes(p, proxy.Route{Host: host, Upstream: "127.0.0.1:1", TLS: true, Mode: proxy.RouteModePassthrough})
 
 		var d net.Dialer
 		conn, err := d.DialContext(t.Context(), "tcp", p.Addr())
@@ -211,7 +211,7 @@ func TestTunnelRoute(t *testing.T) {
 
 		const host = "recorded-skip.kevin.test"
 		target := selfSignedTLSUpstream(t, host, "recorded")
-		p.AddRoutes(proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), TLS: true, Mode: proxy.RouteModePassthrough})
+		addRoutes(p, proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), TLS: true, Mode: proxy.RouteModePassthrough})
 
 		ownPool := x509.NewCertPool()
 		ownPool.AddCert(target.Certificate())

@@ -184,7 +184,7 @@ const socks5Port = "1080/tcp"
 // controlPort is the fixed container port the relay's control gRPC server
 // listens on, published to the host loopback on an OS-assigned port - the
 // same reason socks5Port is published rather than reached over the docker
-// network: the engine calling EnsureListener or RegisterCapture is a native
+// network: the engine calling SetIntercepts or RegisterCapture is a native
 // host process, with the same VM-boundary limits that keep it from dialing
 // a container's docker-network address directly.
 const controlPort = "8053/tcp"
@@ -416,19 +416,33 @@ func (r *Relay) Close() error {
 	return r.runtime.Remove(context.Background(), r.name)
 }
 
-// EnsureListener registers a route's Intercept entry with the relay: host
-// resolves to the relay's own address - the only way a workload with no
-// network namespace the relay can capture (a kind pod) reaches the
-// interception - and the relay opens a listener for each of ports beyond
-// its always-on 80 and 443.
-func (r *Relay) EnsureListener(ctx context.Context, host string, ports []int) error {
-	ports32 := make([]int32, len(ports))
-	for i, p := range ports {
-		ports32[i] = int32(p) //nolint:gosec // a port number always fits in int32
+// Intercept is a route's Intercept entry: a real-world hostname the relay
+// fakes out, and the ports beyond the always-on 80 and 443 it listens on.
+type Intercept struct {
+	// Host is the hostname, exactly or with a leading "*." wildcard.
+	Host string
+
+	// Ports lists the ports beyond 80 and 443.
+	Ports []int
+}
+
+// SetIntercepts replaces the intercepts that owner registered with the relay:
+// each host resolves to a synthetic address the relay answers on - the only
+// way a workload with no network namespace the relay can capture (a kind pod)
+// reaches the interception - and the relay opens a listener for each port
+// beyond its always-on 80 and 443. A host or port that no owner names any
+// more is released. Empty intercepts removes everything owner registered.
+func (r *Relay) SetIntercepts(ctx context.Context, owner string, intercepts []Intercept) error {
+	routes := make([]*pb.InterceptRoute, len(intercepts))
+	for i, ic := range intercepts {
+		ports := make([]int32, len(ic.Ports))
+		for j, p := range ic.Ports {
+			ports[j] = int32(p) //nolint:gosec // a port number always fits in int32
+		}
+		routes[i] = &pb.InterceptRoute{Host: ic.Host, Ports: ports}
 	}
-	req := &pb.EnsureListenerRequest{Host: host, Ports: ports32}
-	if _, err := r.client.EnsureListener(ctx, req); err != nil {
-		return fmt.Errorf("relay: ensure listener: %w", err)
+	if _, err := r.client.SetIntercepts(ctx, &pb.SetInterceptsRequest{Owner: owner, Intercepts: routes}); err != nil {
+		return fmt.Errorf("relay: set intercepts for %q: %w", owner, err)
 	}
 	return nil
 }

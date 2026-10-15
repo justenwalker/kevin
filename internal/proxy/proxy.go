@@ -3,7 +3,7 @@
 //
 //	p, err := proxy.New(authority, proxy.Options{Domain: "kevin.home", Allow: allow, Deny: true})
 //	go p.Serve(ctx, listener)
-//	p.AddRoutes(proxy.Route{Host: "api.kevin.test", Upstream: "api:8080"})
+//	p.SetStep("api", []proxy.Route{{Host: "api.kevin.test", Upstream: "api:8080"}}, nil)
 //
 // A client points HTTP_PROXY and HTTPS_PROXY at the listener. The proxy then
 //
@@ -28,6 +28,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -140,6 +141,12 @@ func tunnels(target Route) bool {
 	}
 }
 
+// stepRules are the routes and egress hosts one step owns.
+type stepRules struct {
+	routes []Route
+	egress []string
+}
+
 // Proxy is the kevin proxy. A Proxy is safe for concurrent use.
 type Proxy struct {
 	certs *certSigner
@@ -166,11 +173,23 @@ type Proxy struct {
 	// changes after.
 	passthrough bool
 
-	mu             sync.RWMutex
+	mu sync.RWMutex
+
+	// baseAllow is Options.Allow, which no step owns.
+	baseAllow []string
+
+	// steps holds what each step added, and order lists the steps from the
+	// oldest SetStep to the newest, so the newest wins a route for the same
+	// host.
+	steps map[string]stepRules
+	order []string
+
+	// routes, routeWildcards, allow and wildcards are the effective tables,
+	// rebuilt from baseAllow and steps by rebuild.
 	routes         map[string]Route
 	routeWildcards map[string]Route
 	allow          map[string]struct{}
-	wildcards      []string
+	wildcards      map[string]struct{}
 
 	// onRecord receives one call for each request. It runs on the goroutine
 	// of the request, thus it must not block.
@@ -187,7 +206,8 @@ type Options struct {
 	Domain string
 
 	// Allow lists the hosts that every step may reach, in addition to the
-	// hosts that [Proxy.AllowEgress] adds later.
+	// hosts that [Proxy.SetStep] adds for a step. [Proxy.ClearStep] never
+	// removes them.
 	Allow []string
 
 	// Deny blocks a host that no route and no allow entry covers.
@@ -219,18 +239,17 @@ func New(authority *ca.CA, opt Options) (*Proxy, error) {
 	rootPool.AppendCertsFromPEM([]byte(authority.RootPEM()))
 
 	p := &Proxy{
-		certs:          certs,
-		rootPool:       rootPool,
-		domain:         opt.Domain,
-		deny:           opt.Deny,
-		passthrough:    opt.Passthrough,
-		onRecord:       opt.OnRecord,
-		routes:         map[string]Route{},
-		routeWildcards: map[string]Route{},
-		allow:          map[string]struct{}{},
-		h2srv:          &http2.Server{IdleTimeout: idleTimeout},
+		certs:       certs,
+		rootPool:    rootPool,
+		domain:      opt.Domain,
+		deny:        opt.Deny,
+		passthrough: opt.Passthrough,
+		onRecord:    opt.OnRecord,
+		baseAllow:   slices.Clone(opt.Allow),
+		steps:       map[string]stepRules{},
+		h2srv:       &http2.Server{IdleTimeout: idleTimeout},
 	}
-	p.AllowEgress(opt.Allow...)
+	p.rebuild()
 
 	// A no-op Rewrite: forward already rewrites r.URL (scheme, host) to the
 	// real target before handing the request to rp, so there is nothing left
@@ -261,38 +280,77 @@ func New(authority *ca.CA, opt Options) (*Proxy, error) {
 	return p, nil
 }
 
-// AddRoutes puts every route into the table. A route replaces an earlier route
-// for the same host. A Host with a leading "*." wildcard, such as
-// "*.s3.amazonaws.com", matches any subdomain the same way a wildcard entry
-// in [Proxy.AllowEgress] does - it does not match the bare domain.
-func (p *Proxy) AddRoutes(routes ...Route) {
+// SetStep replaces the routes and egress hosts that step owns. A route's Host
+// with a leading "*." wildcard, such as "*.s3.amazonaws.com", matches any
+// subdomain the same way a wildcard entry in egress does, and does not match
+// the bare domain. An egress host is an exact name or a leading-dot wildcard,
+// such as "*.github.com". A wildcard matches a subdomain, such as
+// "api.github.com", and does not match the bare name "github.com". List the
+// bare name too when both need to reach the internet. Matching ignores case
+// and ignores any port.
+//
+// When two steps route the same host, the step that called SetStep last wins.
+// SetStep with no routes and no egress hosts is the same as [Proxy.ClearStep].
+func (p *Proxy) SetStep(step string, routes []Route, egress []string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for _, r := range routes {
-		host := strings.ToLower(r.Host)
-		if suffix, ok := strings.CutPrefix(host, "*."); ok {
-			p.routeWildcards["."+suffix] = r
-			continue
+	p.dropOrder(step)
+	if len(routes) == 0 && len(egress) == 0 {
+		delete(p.steps, step)
+	} else {
+		p.steps[step] = stepRules{routes: append([]Route(nil), routes...), egress: append([]string(nil), egress...)}
+		p.order = append(p.order, step)
+	}
+	p.rebuild()
+}
+
+// ClearStep removes every route and egress host that step owns. It leaves the
+// hosts in [Options.Allow] alone.
+func (p *Proxy) ClearStep(step string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.dropOrder(step)
+	delete(p.steps, step)
+	p.rebuild()
+}
+
+// dropOrder removes step from p.order. The caller holds p.mu.
+func (p *Proxy) dropOrder(step string) {
+	p.order = slices.DeleteFunc(p.order, func(s string) bool { return s == step })
+}
+
+// rebuild computes the effective tables from baseAllow and the steps, oldest
+// SetStep first. The caller holds p.mu, except in New.
+func (p *Proxy) rebuild() {
+	p.routes = map[string]Route{}
+	p.routeWildcards = map[string]Route{}
+	p.allow = map[string]struct{}{}
+	p.wildcards = map[string]struct{}{}
+
+	p.allowHosts(p.baseAllow)
+	for _, name := range p.order {
+		rules := p.steps[name]
+		p.allowHosts(rules.egress)
+		for _, r := range rules.routes {
+			host := strings.ToLower(r.Host)
+			if suffix, ok := strings.CutPrefix(host, "*."); ok {
+				p.routeWildcards["."+suffix] = r
+				continue
+			}
+			p.routes[host] = r
 		}
-		p.routes[host] = r
 	}
 }
 
-// AllowEgress adds hosts to the allow list. A host is an exact name or a
-// leading-dot wildcard, such as "*.github.com". A wildcard matches a
-// subdomain, such as "api.github.com". A wildcard does not match the bare
-// name "github.com". List the bare name too when both need to reach the
-// internet. Matching ignores case and ignores any port.
-func (p *Proxy) AllowEgress(hosts ...string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+// allowHosts adds hosts to the effective allow tables.
+func (p *Proxy) allowHosts(hosts []string) {
 	for _, h := range hosts {
 		h = strings.ToLower(strings.TrimSpace(h))
 		if h == "" {
 			continue
 		}
 		if suffix, ok := strings.CutPrefix(h, "*."); ok {
-			p.wildcards = append(p.wildcards, "."+suffix)
+			p.wildcards["."+suffix] = struct{}{}
 			continue
 		}
 		p.allow[h] = struct{}{}
@@ -311,7 +369,7 @@ func (p *Proxy) EgressAllowed(host string) bool {
 	if _, ok := p.allow[host]; ok {
 		return true
 	}
-	for _, suffix := range p.wildcards {
+	for suffix := range p.wildcards {
 		if strings.HasSuffix(host, suffix) {
 			return true
 		}
@@ -343,7 +401,10 @@ func (p *Proxy) EgressPolicy() EgressPolicy {
 		allow = append(allow, h)
 	}
 	sort.Strings(allow)
-	wildcards := append([]string(nil), p.wildcards...)
+	wildcards := make([]string, 0, len(p.wildcards))
+	for w := range p.wildcards {
+		wildcards = append(wildcards, w)
+	}
 	sort.Strings(wildcards)
 	return EgressPolicy{Allow: allow, Wildcards: wildcards, Deny: p.deny}
 }

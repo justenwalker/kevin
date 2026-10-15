@@ -12,6 +12,8 @@ kevin changes no file on your machine: no entry in `/etc/hosts`, no file in `/et
 
 The environment has a base domain, `kevin.home` by default. A [`builtin:route`]({{< relref "/docs/reference/steps/route" >}}) step adds names under it. When a step's `Up` returns routes, kevin adds them to the proxy's routing table.
 
+A step owns its proxy routes and its `egress_allow` hosts only while it is up. A rerun replaces them with what the new `Up` returns, and a host the step stops returning stops routing. A step that fails to come up, or is removed, leaves none. When two steps route the same host, the one whose `Up` finished last wins, and a rerun counts.
+
 A bare step name is never a route. A name with no dot could hide a real host.
 
 The auto-config file matches the base domain by suffix, so a route added later needs no reload. It sends all other traffic directly. It names the proxy by the host that the browser used to fetch it, so it works from a loopback address and from a LAN address.
@@ -36,7 +38,7 @@ A route with `mode: "raw"` does the same for a protocol that is neither TLS nor 
 
 `proxy.egress.deny` has no default: the environment file must set it. A field with a default cannot take a value from a `@tag` without an extra `if` block, so leaving out the default lets `deny: bool @tag(...)` work directly. See [Per-machine and per-run settings]({{< relref "/docs/guides/local-and-per-run-settings" >}}).
 
-An allow entry is an exact host, such as `api.github.com`, or a wildcard, such as `*.github.com`. A wildcard matches subdomains, not the bare domain. Matching ignores case and port. `proxy.egress.allow` applies to every step. A step can add hosts for itself through the `egress_allow` field of its `Up` result. A routed name is part of the environment, so egress control never blocks it.
+An allow entry is an exact host, such as `api.github.com`, or a wildcard, such as `*.github.com`. A wildcard matches subdomains, not the bare domain. Matching ignores case and port. `proxy.egress.allow` applies to every step. A step can add hosts for itself through the `egress_allow` field of its `Up` result; they last as long as its routes. A routed name is part of the environment, so egress control never blocks it.
 
 By default, the proxy terminates TLS for every host with no route, allowed or not. It then answers a blocked request with a `403 Forbidden` page, not a closed connection. The page names the host and shows the CUE that allows it. The response has `Cache-Control: no-store`, `Pragma: no-cache`, and `Expires: 0`, so a browser does not show a cached denial after you change the allow list.
 

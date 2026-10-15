@@ -24,19 +24,19 @@ import (
 type fakeControlServer struct {
 	pb.UnimplementedRelayControlServer
 
-	lastEnsureListener  *pb.EnsureListenerRequest
+	lastSetIntercepts   *pb.SetInterceptsRequest
 	lastRegisterCapture *pb.RegisterCaptureRequest
 	lastApplyFault      *pb.ApplyFaultRequest
 	lastClearFault      *pb.ClearFaultRequest
 	err                 error
 }
 
-func (s *fakeControlServer) EnsureListener(_ context.Context, req *pb.EnsureListenerRequest) (*pb.EnsureListenerResponse, error) {
-	s.lastEnsureListener = req
+func (s *fakeControlServer) SetIntercepts(_ context.Context, req *pb.SetInterceptsRequest) (*pb.SetInterceptsResponse, error) {
+	s.lastSetIntercepts = req
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &pb.EnsureListenerResponse{}, nil
+	return &pb.SetInterceptsResponse{}, nil
 }
 
 func (s *fakeControlServer) RegisterCapture(_ context.Context, req *pb.RegisterCaptureRequest) (*pb.RegisterCaptureResponse, error) {
@@ -85,16 +85,28 @@ func newTestRelay(t *testing.T, fake *fakeControlServer) *Relay {
 	return &Relay{controlAddr: ln.Addr().String(), conn: conn, client: pb.NewRelayControlClient(conn)}
 }
 
-func TestRelayEnsureListener(t *testing.T) {
-	t.Run("sends the host and the requested ports", func(t *testing.T) {
+func TestRelaySetIntercepts(t *testing.T) {
+	t.Run("sends the owner, the hosts and the requested ports", func(t *testing.T) {
 		fake := &fakeControlServer{}
 		r := newTestRelay(t, fake)
 
-		err := r.EnsureListener(t.Context(), "s3.us-east-1.amazonaws.com", []int{443, 8443})
+		err := r.SetIntercepts(t.Context(), "web", []Intercept{{Host: "s3.us-east-1.amazonaws.com", Ports: []int{443, 8443}}})
 		require.NoError(t, err)
-		require.NotNil(t, fake.lastEnsureListener)
-		assert.Equal(t, "s3.us-east-1.amazonaws.com", fake.lastEnsureListener.GetHost())
-		assert.Equal(t, []int32{443, 8443}, fake.lastEnsureListener.GetPorts())
+		require.NotNil(t, fake.lastSetIntercepts)
+		assert.Equal(t, "web", fake.lastSetIntercepts.GetOwner())
+		require.Len(t, fake.lastSetIntercepts.GetIntercepts(), 1)
+		assert.Equal(t, "s3.us-east-1.amazonaws.com", fake.lastSetIntercepts.GetIntercepts()[0].GetHost())
+		assert.Equal(t, []int32{443, 8443}, fake.lastSetIntercepts.GetIntercepts()[0].GetPorts())
+	})
+
+	t.Run("no intercepts sends an empty list for the owner", func(t *testing.T) {
+		fake := &fakeControlServer{}
+		r := newTestRelay(t, fake)
+
+		require.NoError(t, r.SetIntercepts(t.Context(), "web", nil))
+
+		assert.Equal(t, "web", fake.lastSetIntercepts.GetOwner())
+		assert.Empty(t, fake.lastSetIntercepts.GetIntercepts())
 	})
 
 	t.Run("wraps a server error", func(t *testing.T) {
@@ -102,7 +114,7 @@ func TestRelayEnsureListener(t *testing.T) {
 		fake := &fakeControlServer{err: wantErr}
 		r := newTestRelay(t, fake)
 
-		err := r.EnsureListener(t.Context(), "", []int{443})
+		err := r.SetIntercepts(t.Context(), "web", []Intercept{{Ports: []int{443}}})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "boom")
 	})

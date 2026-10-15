@@ -113,11 +113,9 @@ func (*RegisterCaptureResponse) Descriptor() ([]byte, []int) {
 	return file_pb_relay_proto_rawDescGZIP(), []int{1}
 }
 
-type EnsureListenerRequest struct {
+type InterceptRoute struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Host is the real-world hostname an intercept route names. Empty for a
-	// step whose egress the relay already captures directly, which needs no
-	// DNS answer of its own.
+	// Host is the real-world hostname an intercept route names.
 	Host string `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
 	// Ports lists the ports a route's Intercept entry names, beyond the
 	// relay's always-open 80 and 443.
@@ -126,20 +124,20 @@ type EnsureListenerRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *EnsureListenerRequest) Reset() {
-	*x = EnsureListenerRequest{}
+func (x *InterceptRoute) Reset() {
+	*x = InterceptRoute{}
 	mi := &file_pb_relay_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *EnsureListenerRequest) String() string {
+func (x *InterceptRoute) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*EnsureListenerRequest) ProtoMessage() {}
+func (*InterceptRoute) ProtoMessage() {}
 
-func (x *EnsureListenerRequest) ProtoReflect() protoreflect.Message {
+func (x *InterceptRoute) ProtoReflect() protoreflect.Message {
 	mi := &file_pb_relay_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -151,45 +149,50 @@ func (x *EnsureListenerRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use EnsureListenerRequest.ProtoReflect.Descriptor instead.
-func (*EnsureListenerRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use InterceptRoute.ProtoReflect.Descriptor instead.
+func (*InterceptRoute) Descriptor() ([]byte, []int) {
 	return file_pb_relay_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *EnsureListenerRequest) GetHost() string {
+func (x *InterceptRoute) GetHost() string {
 	if x != nil {
 		return x.Host
 	}
 	return ""
 }
 
-func (x *EnsureListenerRequest) GetPorts() []int32 {
+func (x *InterceptRoute) GetPorts() []int32 {
 	if x != nil {
 		return x.Ports
 	}
 	return nil
 }
 
-type EnsureListenerResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+type SetInterceptsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Owner names the step that registers these intercepts. A later call with
+	// the same owner replaces them.
+	Owner string `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
+	// Intercepts is everything owner intercepts now.
+	Intercepts    []*InterceptRoute `protobuf:"bytes,2,rep,name=intercepts,proto3" json:"intercepts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *EnsureListenerResponse) Reset() {
-	*x = EnsureListenerResponse{}
+func (x *SetInterceptsRequest) Reset() {
+	*x = SetInterceptsRequest{}
 	mi := &file_pb_relay_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *EnsureListenerResponse) String() string {
+func (x *SetInterceptsRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*EnsureListenerResponse) ProtoMessage() {}
+func (*SetInterceptsRequest) ProtoMessage() {}
 
-func (x *EnsureListenerResponse) ProtoReflect() protoreflect.Message {
+func (x *SetInterceptsRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_pb_relay_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -201,9 +204,59 @@ func (x *EnsureListenerResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use EnsureListenerResponse.ProtoReflect.Descriptor instead.
-func (*EnsureListenerResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use SetInterceptsRequest.ProtoReflect.Descriptor instead.
+func (*SetInterceptsRequest) Descriptor() ([]byte, []int) {
 	return file_pb_relay_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *SetInterceptsRequest) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
+func (x *SetInterceptsRequest) GetIntercepts() []*InterceptRoute {
+	if x != nil {
+		return x.Intercepts
+	}
+	return nil
+}
+
+type SetInterceptsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetInterceptsResponse) Reset() {
+	*x = SetInterceptsResponse{}
+	mi := &file_pb_relay_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetInterceptsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetInterceptsResponse) ProtoMessage() {}
+
+func (x *SetInterceptsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_relay_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetInterceptsResponse.ProtoReflect.Descriptor instead.
+func (*SetInterceptsResponse) Descriptor() ([]byte, []int) {
+	return file_pb_relay_proto_rawDescGZIP(), []int{4}
 }
 
 type ApplyFaultRequest struct {
@@ -217,7 +270,7 @@ type ApplyFaultRequest struct {
 
 func (x *ApplyFaultRequest) Reset() {
 	*x = ApplyFaultRequest{}
-	mi := &file_pb_relay_proto_msgTypes[4]
+	mi := &file_pb_relay_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -229,7 +282,7 @@ func (x *ApplyFaultRequest) String() string {
 func (*ApplyFaultRequest) ProtoMessage() {}
 
 func (x *ApplyFaultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_relay_proto_msgTypes[4]
+	mi := &file_pb_relay_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -242,7 +295,7 @@ func (x *ApplyFaultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyFaultRequest.ProtoReflect.Descriptor instead.
 func (*ApplyFaultRequest) Descriptor() ([]byte, []int) {
-	return file_pb_relay_proto_rawDescGZIP(), []int{4}
+	return file_pb_relay_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ApplyFaultRequest) GetFault() *NetworkFault {
@@ -260,7 +313,7 @@ type ApplyFaultResponse struct {
 
 func (x *ApplyFaultResponse) Reset() {
 	*x = ApplyFaultResponse{}
-	mi := &file_pb_relay_proto_msgTypes[5]
+	mi := &file_pb_relay_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -272,7 +325,7 @@ func (x *ApplyFaultResponse) String() string {
 func (*ApplyFaultResponse) ProtoMessage() {}
 
 func (x *ApplyFaultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_relay_proto_msgTypes[5]
+	mi := &file_pb_relay_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -285,7 +338,7 @@ func (x *ApplyFaultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyFaultResponse.ProtoReflect.Descriptor instead.
 func (*ApplyFaultResponse) Descriptor() ([]byte, []int) {
-	return file_pb_relay_proto_rawDescGZIP(), []int{5}
+	return file_pb_relay_proto_rawDescGZIP(), []int{6}
 }
 
 type ClearFaultRequest struct {
@@ -299,7 +352,7 @@ type ClearFaultRequest struct {
 
 func (x *ClearFaultRequest) Reset() {
 	*x = ClearFaultRequest{}
-	mi := &file_pb_relay_proto_msgTypes[6]
+	mi := &file_pb_relay_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -311,7 +364,7 @@ func (x *ClearFaultRequest) String() string {
 func (*ClearFaultRequest) ProtoMessage() {}
 
 func (x *ClearFaultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_relay_proto_msgTypes[6]
+	mi := &file_pb_relay_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -324,7 +377,7 @@ func (x *ClearFaultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClearFaultRequest.ProtoReflect.Descriptor instead.
 func (*ClearFaultRequest) Descriptor() ([]byte, []int) {
-	return file_pb_relay_proto_rawDescGZIP(), []int{6}
+	return file_pb_relay_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ClearFaultRequest) GetId() string {
@@ -342,7 +395,7 @@ type ClearFaultResponse struct {
 
 func (x *ClearFaultResponse) Reset() {
 	*x = ClearFaultResponse{}
-	mi := &file_pb_relay_proto_msgTypes[7]
+	mi := &file_pb_relay_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -354,7 +407,7 @@ func (x *ClearFaultResponse) String() string {
 func (*ClearFaultResponse) ProtoMessage() {}
 
 func (x *ClearFaultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_relay_proto_msgTypes[7]
+	mi := &file_pb_relay_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -367,7 +420,7 @@ func (x *ClearFaultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClearFaultResponse.ProtoReflect.Descriptor instead.
 func (*ClearFaultResponse) Descriptor() ([]byte, []int) {
-	return file_pb_relay_proto_rawDescGZIP(), []int{7}
+	return file_pb_relay_proto_rawDescGZIP(), []int{8}
 }
 
 var File_pb_relay_proto protoreflect.FileDescriptor
@@ -378,20 +431,25 @@ const file_pb_relay_proto_rawDesc = "" +
 	"\x16RegisterCaptureRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12,\n" +
 	"\x05netns\x18\x02 \x01(\v2\x16.kevin.plugin.v1.NetnsR\x05netns\"\x19\n" +
-	"\x17RegisterCaptureResponse\"A\n" +
-	"\x15EnsureListenerRequest\x12\x12\n" +
+	"\x17RegisterCaptureResponse\":\n" +
+	"\x0eInterceptRoute\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x14\n" +
-	"\x05ports\x18\x02 \x03(\x05R\x05ports\"\x18\n" +
-	"\x16EnsureListenerResponse\"H\n" +
+	"\x05ports\x18\x02 \x03(\x05R\x05ports\"l\n" +
+	"\x14SetInterceptsRequest\x12\x14\n" +
+	"\x05owner\x18\x01 \x01(\tR\x05owner\x12>\n" +
+	"\n" +
+	"intercepts\x18\x02 \x03(\v2\x1e.kevin.relay.v1.InterceptRouteR\n" +
+	"intercepts\"\x17\n" +
+	"\x15SetInterceptsResponse\"H\n" +
 	"\x11ApplyFaultRequest\x123\n" +
 	"\x05fault\x18\x01 \x01(\v2\x1d.kevin.plugin.v1.NetworkFaultR\x05fault\"\x14\n" +
 	"\x12ApplyFaultResponse\"#\n" +
 	"\x11ClearFaultRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x14\n" +
-	"\x12ClearFaultResponse2\xfd\x02\n" +
+	"\x12ClearFaultResponse2\xfa\x02\n" +
 	"\fRelayControl\x12b\n" +
-	"\x0fRegisterCapture\x12&.kevin.relay.v1.RegisterCaptureRequest\x1a'.kevin.relay.v1.RegisterCaptureResponse\x12_\n" +
-	"\x0eEnsureListener\x12%.kevin.relay.v1.EnsureListenerRequest\x1a&.kevin.relay.v1.EnsureListenerResponse\x12S\n" +
+	"\x0fRegisterCapture\x12&.kevin.relay.v1.RegisterCaptureRequest\x1a'.kevin.relay.v1.RegisterCaptureResponse\x12\\\n" +
+	"\rSetIntercepts\x12$.kevin.relay.v1.SetInterceptsRequest\x1a%.kevin.relay.v1.SetInterceptsResponse\x12S\n" +
 	"\n" +
 	"ApplyFault\x12!.kevin.relay.v1.ApplyFaultRequest\x1a\".kevin.relay.v1.ApplyFaultResponse\x12S\n" +
 	"\n" +
@@ -409,35 +467,37 @@ func file_pb_relay_proto_rawDescGZIP() []byte {
 	return file_pb_relay_proto_rawDescData
 }
 
-var file_pb_relay_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_pb_relay_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_pb_relay_proto_goTypes = []any{
 	(*RegisterCaptureRequest)(nil),  // 0: kevin.relay.v1.RegisterCaptureRequest
 	(*RegisterCaptureResponse)(nil), // 1: kevin.relay.v1.RegisterCaptureResponse
-	(*EnsureListenerRequest)(nil),   // 2: kevin.relay.v1.EnsureListenerRequest
-	(*EnsureListenerResponse)(nil),  // 3: kevin.relay.v1.EnsureListenerResponse
-	(*ApplyFaultRequest)(nil),       // 4: kevin.relay.v1.ApplyFaultRequest
-	(*ApplyFaultResponse)(nil),      // 5: kevin.relay.v1.ApplyFaultResponse
-	(*ClearFaultRequest)(nil),       // 6: kevin.relay.v1.ClearFaultRequest
-	(*ClearFaultResponse)(nil),      // 7: kevin.relay.v1.ClearFaultResponse
-	(*Netns)(nil),                   // 8: kevin.plugin.v1.Netns
-	(*NetworkFault)(nil),            // 9: kevin.plugin.v1.NetworkFault
+	(*InterceptRoute)(nil),          // 2: kevin.relay.v1.InterceptRoute
+	(*SetInterceptsRequest)(nil),    // 3: kevin.relay.v1.SetInterceptsRequest
+	(*SetInterceptsResponse)(nil),   // 4: kevin.relay.v1.SetInterceptsResponse
+	(*ApplyFaultRequest)(nil),       // 5: kevin.relay.v1.ApplyFaultRequest
+	(*ApplyFaultResponse)(nil),      // 6: kevin.relay.v1.ApplyFaultResponse
+	(*ClearFaultRequest)(nil),       // 7: kevin.relay.v1.ClearFaultRequest
+	(*ClearFaultResponse)(nil),      // 8: kevin.relay.v1.ClearFaultResponse
+	(*Netns)(nil),                   // 9: kevin.plugin.v1.Netns
+	(*NetworkFault)(nil),            // 10: kevin.plugin.v1.NetworkFault
 }
 var file_pb_relay_proto_depIdxs = []int32{
-	8, // 0: kevin.relay.v1.RegisterCaptureRequest.netns:type_name -> kevin.plugin.v1.Netns
-	9, // 1: kevin.relay.v1.ApplyFaultRequest.fault:type_name -> kevin.plugin.v1.NetworkFault
-	0, // 2: kevin.relay.v1.RelayControl.RegisterCapture:input_type -> kevin.relay.v1.RegisterCaptureRequest
-	2, // 3: kevin.relay.v1.RelayControl.EnsureListener:input_type -> kevin.relay.v1.EnsureListenerRequest
-	4, // 4: kevin.relay.v1.RelayControl.ApplyFault:input_type -> kevin.relay.v1.ApplyFaultRequest
-	6, // 5: kevin.relay.v1.RelayControl.ClearFault:input_type -> kevin.relay.v1.ClearFaultRequest
-	1, // 6: kevin.relay.v1.RelayControl.RegisterCapture:output_type -> kevin.relay.v1.RegisterCaptureResponse
-	3, // 7: kevin.relay.v1.RelayControl.EnsureListener:output_type -> kevin.relay.v1.EnsureListenerResponse
-	5, // 8: kevin.relay.v1.RelayControl.ApplyFault:output_type -> kevin.relay.v1.ApplyFaultResponse
-	7, // 9: kevin.relay.v1.RelayControl.ClearFault:output_type -> kevin.relay.v1.ClearFaultResponse
-	6, // [6:10] is the sub-list for method output_type
-	2, // [2:6] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	9,  // 0: kevin.relay.v1.RegisterCaptureRequest.netns:type_name -> kevin.plugin.v1.Netns
+	2,  // 1: kevin.relay.v1.SetInterceptsRequest.intercepts:type_name -> kevin.relay.v1.InterceptRoute
+	10, // 2: kevin.relay.v1.ApplyFaultRequest.fault:type_name -> kevin.plugin.v1.NetworkFault
+	0,  // 3: kevin.relay.v1.RelayControl.RegisterCapture:input_type -> kevin.relay.v1.RegisterCaptureRequest
+	3,  // 4: kevin.relay.v1.RelayControl.SetIntercepts:input_type -> kevin.relay.v1.SetInterceptsRequest
+	5,  // 5: kevin.relay.v1.RelayControl.ApplyFault:input_type -> kevin.relay.v1.ApplyFaultRequest
+	7,  // 6: kevin.relay.v1.RelayControl.ClearFault:input_type -> kevin.relay.v1.ClearFaultRequest
+	1,  // 7: kevin.relay.v1.RelayControl.RegisterCapture:output_type -> kevin.relay.v1.RegisterCaptureResponse
+	4,  // 8: kevin.relay.v1.RelayControl.SetIntercepts:output_type -> kevin.relay.v1.SetInterceptsResponse
+	6,  // 9: kevin.relay.v1.RelayControl.ApplyFault:output_type -> kevin.relay.v1.ApplyFaultResponse
+	8,  // 10: kevin.relay.v1.RelayControl.ClearFault:output_type -> kevin.relay.v1.ClearFaultResponse
+	7,  // [7:11] is the sub-list for method output_type
+	3,  // [3:7] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_pb_relay_proto_init() }
@@ -452,7 +512,7 @@ func file_pb_relay_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pb_relay_proto_rawDesc), len(file_pb_relay_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

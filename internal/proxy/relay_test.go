@@ -38,7 +38,7 @@ func TestRoutesThroughASOCKS5RelayToTheRealUpstream(t *testing.T) {
 	target := createTestUpstream(t, "from the cluster")
 	relay := startSOCKS5(t)
 
-	p.AddRoutes(proxy.Route{
+	addRoutes(p, proxy.Route{
 		Host:     "app.kevin.test",
 		Upstream: getTestURLHost(t, target.URL), Relay: relay,
 	})
@@ -57,7 +57,7 @@ func TestTwoRoutesThroughTheSameRelayReachTheirOwnUpstream(t *testing.T) {
 	first := createTestUpstream(t, "from first")
 	second := createTestUpstream(t, "from second")
 
-	p.AddRoutes(
+	addRoutes(p,
 		proxy.Route{Host: "first.kevin.test", Upstream: getTestURLHost(t, first.URL), Relay: relay},
 		proxy.Route{Host: "second.kevin.test", Upstream: getTestURLHost(t, second.URL), Relay: relay},
 	)
@@ -79,7 +79,7 @@ func TestRouteThroughAnUnreachableRelayFailsCleanly(t *testing.T) {
 
 	// Nothing listens here: the relay dial itself must fail, not hang or
 	// panic, and the client must see a normal gateway error.
-	p.AddRoutes(proxy.Route{
+	addRoutes(p, proxy.Route{
 		Host:     "broken.kevin.test",
 		Upstream: "unreachable:80", Relay: "127.0.0.1:1",
 	})

@@ -83,7 +83,7 @@ func TestDialTLSContext(t *testing.T) {
 		const host = "tls-upstream.kevin.test"
 		target := createTestTLSUpstream(t, authority, host, "from the tls workload")
 
-		p.AddRoutes(proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), TLS: true})
+		addRoutes(p, proxy.Route{Host: host, Upstream: getTestURLHost(t, target.URL), TLS: true})
 
 		resp, body := getTestURL(t, client, "http://"+host+"/")
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -98,7 +98,7 @@ func TestDialTLSContext(t *testing.T) {
 		target := createTestTLSUpstream(t, authority, host, "from the relayed tls workload")
 		relay := startSOCKS5(t)
 
-		p.AddRoutes(proxy.Route{
+		addRoutes(p, proxy.Route{
 			Host:     host,
 			Upstream: getTestURLHost(t, target.URL), Relay: relay,
 			TLS: true,

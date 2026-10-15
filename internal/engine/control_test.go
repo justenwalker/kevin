@@ -12,6 +12,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pluginhost"
+	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/runapi"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/step"
@@ -29,7 +30,7 @@ func TestRerun(t *testing.T) {
 				r.store.Record(session.Request{Time: time.Now().Add(time.Minute), Host: "allowed.example.com"})
 				return step.Result{EgressAllow: []string{"x.example.com"}}, nil
 			})
-		routes.EXPECT().AllowEgress([]string{"x.example.com"}).Return()
+		routes.EXPECT().SetStep("a", []proxy.Route{}, []string{"x.example.com"}).Return()
 
 		got, err := r.Rerun(t.Context(), runapi.RerunRequest{Step: "a"})
 
@@ -46,8 +47,10 @@ func TestRerun(t *testing.T) {
 
 	t.Run("a step that ran and failed is a result, not an error", func(t *testing.T) {
 		plugin := newMockstepPlugin(t)
-		r := newUpRun(t, plugin, newMockrouteTable(t), newMocktrafficRelay(t))
+		routes := newMockrouteTable(t)
+		r := newUpRun(t, plugin, routes, newMocktrafficRelay(t))
 		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(step.Result{}, assert.AnError)
+		routes.EXPECT().ClearStep("a").Return()
 
 		got, err := r.Rerun(t.Context(), runapi.RerunRequest{Step: "a"})
 
@@ -60,7 +63,9 @@ func TestRerun(t *testing.T) {
 
 	t.Run("a canceled context is an error, not a result", func(t *testing.T) {
 		plugin := newMockstepPlugin(t)
-		r := newUpRun(t, plugin, newMockrouteTable(t), newMocktrafficRelay(t))
+		routes := newMockrouteTable(t)
+		r := newUpRun(t, plugin, routes, newMocktrafficRelay(t))
+		routes.EXPECT().ClearStep("a").Return()
 		ctx, cancel := context.WithCancel(t.Context())
 		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 			func(context.Context, step.UpRequest, step.Events) (step.Result, error) {
@@ -88,7 +93,8 @@ func TestRerun(t *testing.T) {
 				}
 				return step.Result{EgressAllow: []string{"x.example.com"}}, nil
 			})
-		routes.EXPECT().AllowEgress([]string{"x.example.com"}).Return()
+		routes.EXPECT().SetStep("a", []proxy.Route{}, []string{"x.example.com"}).Return()
+		routes.EXPECT().ClearStep("b").Return()
 
 		got, err := r.Rerun(t.Context(), runapi.RerunRequest{Step: "a", Cascade: true})
 

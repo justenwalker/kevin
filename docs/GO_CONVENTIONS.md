@@ -436,8 +436,8 @@ A receiver is named with the type's first letter (or first letters, for a multi-
 
 **DO:**
 ```go
-func (p *Proxy) AddRoutes(routes ...Route) { ... }
-func (p *Proxy) AllowEgress(hosts ...string) { ... }
+func (p *Proxy) SetStep(step string, routes []Route, egress []string) { ... }
+func (p *Proxy) ClearStep(step string) { ... }
 
 func (g *Graph) Steps() []string { ... }
 func (g *Graph) TopoSort() []string { ... }
@@ -447,8 +447,8 @@ func (g *Graph) TopoSort() []string { ... }
 ```go
 // Same type, two different receiver names across its methods, and self
 // instead of a short abbreviation.
-func (self *Proxy) AddRoutes(routes ...Route) { ... }
-func (proxy *Proxy) AllowEgress(hosts ...string) { ... }
+func (self *Proxy) SetStep(step string, routes []Route, egress []string) { ... }
+func (proxy *Proxy) ClearStep(step string) { ... }
 ```
 
 ## GO-013: An interface is passed by value, never by pointer
@@ -544,7 +544,7 @@ type Client struct { ... }
 ```go
 // Proxy is the kevin proxy.
 //
-// A reader has no way to tell from this comment whether calling AddRoutes
+// A reader has no way to tell from this comment whether calling SetStep
 // from one goroutine while Serve runs in another is safe, short of reading
 // every method body for a mutex.
 type Proxy struct { ... }

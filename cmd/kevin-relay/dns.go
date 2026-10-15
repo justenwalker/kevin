@@ -36,7 +36,7 @@ type dnsRelay struct {
 
 // newDNSRelay builds a relay for domain. self is the address (or addresses,
 // for a dual-stack relay) that an A or AAAA query under domain resolves to.
-// A query for a host added with [dnsRelay.AddIntercept] resolves to a
+// A query for a host set with [dnsRelay.SetIntercepts] resolves to a
 // synthetic address fakeIPs allocates instead - see [fakeIPPool]. upstream
 // is the resolver for every other query.
 func newDNSRelay(domain string, self selfAddrs, upstream string, fakeIPs *fakeIPPool) *dnsRelay {
@@ -51,25 +51,32 @@ func newDNSRelay(domain string, self selfAddrs, upstream string, fakeIPs *fakeIP
 	}
 }
 
-// AddIntercept registers host as a target for a synthetic, allocated
+// SetIntercepts replaces the hosts that resolve to a synthetic, allocated
 // address, alongside the configured domain - the only way a workload with
 // no network namespace the relay can capture (a kind pod) reaches an
 // intercept route's interception. A "*." prefix matches any subdomain, the
 // same wildcard convention kevin's own host proxy uses for its route
-// table. Adding the same host twice is a no-op.
-func (r *dnsRelay) AddIntercept(host string) {
-	host = normalizeDomain(host)
+// table. A host dropped from hosts stops resolving to a synthetic address.
+func (r *dnsRelay) SetIntercepts(hosts []string) {
+	intercepts := make(map[string]struct{}, len(hosts))
+	wildcards := make(map[string]struct{})
+	for _, host := range hosts {
+		host = normalizeDomain(host)
+		if suffix, ok := strings.CutPrefix(host, "*."); ok {
+			wildcards["."+suffix] = struct{}{}
+			continue
+		}
+		intercepts[host] = struct{}{}
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if suffix, ok := strings.CutPrefix(host, "*."); ok {
-		r.wildcards["."+suffix] = struct{}{}
-		return
-	}
-	r.intercepts[host] = struct{}{}
+	r.intercepts = intercepts
+	r.wildcards = wildcards
 }
 
-// matchesIntercept reports whether name matches a host [dnsRelay.AddIntercept]
-// registered, exactly or through a wildcard.
+// matchesIntercept reports whether name matches a host
+// [dnsRelay.SetIntercepts] registered, exactly or through a wildcard.
 func (r *dnsRelay) matchesIntercept(name string) bool {
 	name = normalizeDomain(name)
 	r.mu.Lock()

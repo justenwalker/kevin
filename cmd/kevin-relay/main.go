@@ -212,16 +212,21 @@ type relayProcess struct {
 	udpPorts   []int
 
 	// runCtx and runGrp let a control RPC handler (RegisterCapture,
-	// EnsureListener), dispatched on its own goroutine by controlSrv, join
+	// SetIntercepts), dispatched on its own goroutine by controlSrv, join
 	// the same lifecycle and goroutine group run started. Set once by run,
 	// before controlSrv starts accepting.
 	runCtx context.Context //nolint:containedctx // set once by run, read-only afterward; see the field doc
 	runGrp *errgroup.Group
 
+	// interceptMu serializes SetIntercepts calls end to end. It is taken
+	// before mu, never while holding it.
+	interceptMu sync.Mutex
+
 	mu         sync.Mutex
-	extraLns   map[int]net.Listener     // opened on demand, for a port beyond :80/:443
-	netnsPaths map[string]captureTarget // registration id -> network namespace target
-	faults     map[string]faultTarget   // registration id -> applied fault
+	extraLns   map[int]extraListener           // opened on demand, for a port beyond :80/:443
+	intercepts map[string][]*pb.InterceptRoute // owner -> the intercepts it registered
+	netnsPaths map[string]captureTarget        // registration id -> network namespace target
+	faults     map[string]faultTarget          // registration id -> applied fault
 }
 
 // newRelayProcess resolves self when cfg.self is empty, and applies the

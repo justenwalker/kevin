@@ -20,14 +20,14 @@ type stepPlugin interface {
 
 // routeTable is the part of the proxy that a step's result changes.
 type routeTable interface {
-	AddRoutes(routes ...proxy.Route)
-	AllowEgress(hosts ...string)
+	SetStep(step string, routes []proxy.Route, egress []string)
+	ClearStep(step string)
 }
 
 // trafficRelay is the part of the relay that a step's result changes, and
 // that shutdown stops.
 type trafficRelay interface {
-	EnsureListener(ctx context.Context, host string, ports []int) error
+	SetIntercepts(ctx context.Context, owner string, intercepts []relay.Intercept) error
 	RegisterCapture(ctx context.Context, id, netnsPath string, excludeCIDRs []string) error
 	ApplyFault(ctx context.Context, f step.Fault) error
 	ClearFault(ctx context.Context, id string) error

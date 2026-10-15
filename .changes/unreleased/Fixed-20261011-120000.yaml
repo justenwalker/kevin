@@ -1,0 +1,3 @@
+kind: Fixed
+body: A rerun replaces the proxy routes and egress hosts of its step, and a step that fails to come up or is removed leaves none behind.
+time: 2026-10-11T12:00:00.000000-04:00

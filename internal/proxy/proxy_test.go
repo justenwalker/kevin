@@ -25,7 +25,7 @@ func TestRoutes(t *testing.T) {
 		p, client := startTestProxyWithClient(t)
 		target := createTestUpstream(t, "from the workload")
 
-		p.AddRoutes(proxy.Route{Host: "api.kevin.test", Upstream: getTestURLHost(t, target.URL)})
+		addRoutes(p, proxy.Route{Host: "api.kevin.test", Upstream: getTestURLHost(t, target.URL)})
 
 		resp, body := getTestURL(t, client, "http://api.kevin.test/some/path")
 
@@ -39,19 +39,19 @@ func TestRoutes(t *testing.T) {
 		p, client := startTestProxyWithClient(t)
 		target := createTestUpstream(t, "matched")
 
-		p.AddRoutes(proxy.Route{Host: "API.Kevin.Test", Upstream: getTestURLHost(t, target.URL)})
+		addRoutes(p, proxy.Route{Host: "API.Kevin.Test", Upstream: getTestURLHost(t, target.URL)})
 
 		_, body := getTestURL(t, client, "http://api.kevin.test/")
 		assert.Equal(t, "matched", body)
 	})
 
-	t.Run("AddRoutes replaces an earlier route for the same host", func(t *testing.T) {
+	t.Run("a later route replaces an earlier route for the same host", func(t *testing.T) {
 		p, client := startTestProxyWithClient(t)
 		first := createTestUpstream(t, "first")
 		second := createTestUpstream(t, "second")
 
-		p.AddRoutes(proxy.Route{Host: "api.kevin.test", Upstream: getTestURLHost(t, first.URL)})
-		p.AddRoutes(proxy.Route{Host: "api.kevin.test", Upstream: getTestURLHost(t, second.URL)})
+		addRoutes(p, proxy.Route{Host: "api.kevin.test", Upstream: getTestURLHost(t, first.URL)})
+		addRoutes(p, proxy.Route{Host: "api.kevin.test", Upstream: getTestURLHost(t, second.URL)})
 
 		_, body := getTestURL(t, client, "http://api.kevin.test/")
 		assert.Equal(t, "second", body)
@@ -63,7 +63,7 @@ func TestRoutes(t *testing.T) {
 
 		// Port 1 on loopback is never listening, so the dial fails
 		// immediately instead of timing out.
-		p.AddRoutes(proxy.Route{Host: "dead.kevin.test", Upstream: "127.0.0.1:1"})
+		addRoutes(p, proxy.Route{Host: "dead.kevin.test", Upstream: "127.0.0.1:1"})
 
 		resp, _ := getTestURL(t, client, "http://dead.kevin.test/")
 
@@ -74,7 +74,7 @@ func TestRoutes(t *testing.T) {
 		p, client := startTestProxyWithClient(t)
 		target := createTestUpstream(t, "matched a wildcard route")
 
-		p.AddRoutes(proxy.Route{Host: "*.s3.kevin.test", Upstream: getTestURLHost(t, target.URL)})
+		addRoutes(p, proxy.Route{Host: "*.s3.kevin.test", Upstream: getTestURLHost(t, target.URL)})
 
 		_, body := getTestURL(t, client, "http://bucket.s3.kevin.test/")
 		assert.Equal(t, "matched a wildcard route", body)
@@ -83,7 +83,7 @@ func TestRoutes(t *testing.T) {
 	t.Run("a wildcard route does not match the bare domain", func(t *testing.T) {
 		p, client := startTestProxyWithClient(t)
 
-		p.AddRoutes(proxy.Route{Host: "*.s3.kevin.test", Upstream: "127.0.0.1:1"})
+		addRoutes(p, proxy.Route{Host: "*.s3.kevin.test", Upstream: "127.0.0.1:1"})
 
 		resp, _ := getTestURL(t, client, "http://s3.kevin.test/")
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode,
@@ -95,8 +95,8 @@ func TestRoutes(t *testing.T) {
 		exact := createTestUpstream(t, "exact")
 		wildcard := createTestUpstream(t, "wildcard")
 
-		p.AddRoutes(proxy.Route{Host: "*.kevin.test", Upstream: getTestURLHost(t, wildcard.URL)})
-		p.AddRoutes(proxy.Route{Host: "api.kevin.test", Upstream: getTestURLHost(t, exact.URL)})
+		addRoutes(p, proxy.Route{Host: "*.kevin.test", Upstream: getTestURLHost(t, wildcard.URL)})
+		addRoutes(p, proxy.Route{Host: "api.kevin.test", Upstream: getTestURLHost(t, exact.URL)})
 
 		_, body := getTestURL(t, client, "http://api.kevin.test/")
 		assert.Equal(t, "exact", body)
@@ -107,20 +107,20 @@ func TestRoutes(t *testing.T) {
 		general := createTestUpstream(t, "general")
 		specific := createTestUpstream(t, "specific")
 
-		p.AddRoutes(proxy.Route{Host: "*.kevin.test", Upstream: getTestURLHost(t, general.URL)})
-		p.AddRoutes(proxy.Route{Host: "*.s3.kevin.test", Upstream: getTestURLHost(t, specific.URL)})
+		addRoutes(p, proxy.Route{Host: "*.kevin.test", Upstream: getTestURLHost(t, general.URL)})
+		addRoutes(p, proxy.Route{Host: "*.s3.kevin.test", Upstream: getTestURLHost(t, specific.URL)})
 
 		_, body := getTestURL(t, client, "http://bucket.s3.kevin.test/")
 		assert.Equal(t, "specific", body)
 	})
 
-	t.Run("AddRoutes replaces an earlier route for the same wildcard host", func(t *testing.T) {
+	t.Run("a later route replaces an earlier route for the same wildcard host", func(t *testing.T) {
 		p, client := startTestProxyWithClient(t)
 		first := createTestUpstream(t, "first")
 		second := createTestUpstream(t, "second")
 
-		p.AddRoutes(proxy.Route{Host: "*.kevin.test", Upstream: getTestURLHost(t, first.URL)})
-		p.AddRoutes(proxy.Route{Host: "*.kevin.test", Upstream: getTestURLHost(t, second.URL)})
+		addRoutes(p, proxy.Route{Host: "*.kevin.test", Upstream: getTestURLHost(t, first.URL)})
+		addRoutes(p, proxy.Route{Host: "*.kevin.test", Upstream: getTestURLHost(t, second.URL)})
 
 		_, body := getTestURL(t, client, "http://sub.kevin.test/")
 		assert.Equal(t, "second", body)
@@ -141,7 +141,7 @@ func TestEgress(t *testing.T) {
 		p, client := startTestProxyWithClient(t)
 		target := createTestUpstream(t, "a workload")
 
-		p.AddRoutes(proxy.Route{Host: "svc.kevin.test", Upstream: getTestURLHost(t, target.URL)})
+		addRoutes(p, proxy.Route{Host: "svc.kevin.test", Upstream: getTestURLHost(t, target.URL)})
 
 		resp, body := getTestURL(t, client, "http://svc.kevin.test/")
 
@@ -165,7 +165,7 @@ func TestEgress(t *testing.T) {
 		p, client := startTestProxyWithClientAndEgressFiltering(t, nil, false)
 		target := createTestUpstream(t, "the real internet")
 
-		p.AddRoutes(proxy.Route{Host: "api.kevin.test", Upstream: "127.0.0.1:1"})
+		addRoutes(p, proxy.Route{Host: "api.kevin.test", Upstream: "127.0.0.1:1"})
 
 		// The httptest server stands in for a host that the proxy does not
 		// route and does not allow. Deny is off, so the request still
@@ -273,9 +273,97 @@ func TestEgressPolicy(t *testing.T) {
 	}, got)
 }
 
+func TestSetStep(t *testing.T) {
+	t.Run("a second call replaces the routes of the first", func(t *testing.T) {
+		p, _ := startTestProxyWithClient(t)
+
+		p.SetStep("web", []proxy.Route{{Host: "old.kevin.test", Upstream: "a:1"}}, nil)
+		p.SetStep("web", []proxy.Route{{Host: "new.kevin.test", Upstream: "a:2"}}, nil)
+
+		_, oldOK := p.Lookup("old.kevin.test")
+		_, newOK := p.Lookup("new.kevin.test")
+		assert.False(t, oldOK, "the host the step stopped routing must go away")
+		assert.True(t, newOK)
+	})
+
+	t.Run("the step that called last wins a shared host", func(t *testing.T) {
+		p, _ := startTestProxyWithClient(t)
+
+		p.SetStep("a", []proxy.Route{{Host: "x.kevin.test", Upstream: "a:1"}}, nil)
+		p.SetStep("b", []proxy.Route{{Host: "x.kevin.test", Upstream: "b:1"}}, nil)
+		p.SetStep("a", []proxy.Route{{Host: "x.kevin.test", Upstream: "a:2"}}, nil)
+
+		route, ok := p.Lookup("x.kevin.test")
+		require.True(t, ok)
+		assert.Equal(t, "a:2", route.Upstream)
+
+		p.ClearStep("a")
+		route, ok = p.Lookup("x.kevin.test")
+		require.True(t, ok)
+		assert.Equal(t, "b:1", route.Upstream, "clearing the winner reveals the earlier step's route")
+	})
+
+	t.Run("a wildcard egress host is listed once however often a step is set", func(t *testing.T) {
+		p, _ := startTestProxyWithClientAndEgressFiltering(t, nil, true)
+
+		p.SetStep("web", nil, []string{"*.x.test"})
+		p.SetStep("web", nil, []string{"*.x.test"})
+		p.SetStep("db", nil, []string{"*.x.test"})
+
+		assert.Equal(t, []string{".x.test"}, p.EgressPolicy().Wildcards)
+	})
+
+	t.Run("no routes and no egress clears the step", func(t *testing.T) {
+		p, _ := startTestProxyWithClient(t)
+		p.SetStep("web", []proxy.Route{{Host: "x.kevin.test", Upstream: "a:1"}}, []string{"y.test"})
+
+		p.SetStep("web", nil, nil)
+
+		_, ok := p.Lookup("x.kevin.test")
+		assert.False(t, ok)
+		assert.False(t, p.EgressAllowed("y.test"))
+	})
+}
+
+func TestClearStep(t *testing.T) {
+	t.Run("removes the routes and egress hosts of a step only", func(t *testing.T) {
+		p, _ := startTestProxyWithClientAndEgressFiltering(t, []string{"base.test"}, true)
+		p.SetStep("web", []proxy.Route{{Host: "web.kevin.test", Upstream: "a:1"}}, []string{"web.test", "*.web.test"})
+		p.SetStep("db", []proxy.Route{{Host: "db.kevin.test", Upstream: "a:2"}}, []string{"db.test"})
+
+		p.ClearStep("web")
+
+		_, webOK := p.Lookup("web.kevin.test")
+		_, dbOK := p.Lookup("db.kevin.test")
+		assert.False(t, webOK)
+		assert.True(t, dbOK)
+		assert.False(t, p.EgressAllowed("web.test"))
+		assert.False(t, p.EgressAllowed("a.web.test"))
+		assert.True(t, p.EgressAllowed("db.test"))
+	})
+
+	t.Run("keeps the hosts from Options.Allow", func(t *testing.T) {
+		p, _ := startTestProxyWithClientAndEgressFiltering(t, []string{"base.test", "*.base.test"}, true)
+		p.SetStep("web", nil, []string{"base.test"})
+
+		p.ClearStep("web")
+
+		assert.True(t, p.EgressAllowed("base.test"))
+		assert.True(t, p.EgressAllowed("a.base.test"))
+	})
+
+	t.Run("an unknown step is a no-op", func(t *testing.T) {
+		p, _ := startTestProxyWithClient(t)
+
+		p.ClearStep("nope")
+
+		assert.Empty(t, p.Routes())
+	})
+}
+
 func TestLookup(t *testing.T) {
 	p, _ := startTestProxyWithClient(t)
-	p.AddRoutes(proxy.Route{Host: "api.kevin.test", Upstream: "api:8080"})
+	addRoutes(p, proxy.Route{Host: "api.kevin.test", Upstream: "api:8080"})
 
 	tests := []struct {
 		name string
@@ -302,7 +390,7 @@ func TestLookup(t *testing.T) {
 func TestPAC(t *testing.T) {
 	t.Run("sends the domain and every route through the proxy", func(t *testing.T) {
 		p, _ := startTestProxyWithClient(t)
-		p.AddRoutes(
+		addRoutes(p,
 			proxy.Route{Host: "web.kevin.home", Upstream: "127.0.0.1:1"},
 			proxy.Route{Host: "www.example.test", Upstream: "127.0.0.1:2"},
 		)
@@ -324,7 +412,7 @@ func TestPAC(t *testing.T) {
 
 	t.Run("sends a wildcard route through dnsDomainIs, not an exact match", func(t *testing.T) {
 		p, _ := startTestProxyWithClient(t)
-		p.AddRoutes(proxy.Route{Host: "*.s3.example.test", Upstream: "127.0.0.1:1"})
+		addRoutes(p, proxy.Route{Host: "*.s3.example.test", Upstream: "127.0.0.1:1"})
 
 		body := pac(t, p)
 
@@ -396,7 +484,7 @@ func TestServe(t *testing.T) {
 		require.NoError(t, err)
 
 		target := createTestUpstream(t, "direct")
-		p.AddRoutes(proxy.Route{Host: "api.kevin.test", Upstream: getTestURLHost(t, target.URL)})
+		addRoutes(p, proxy.Route{Host: "api.kevin.test", Upstream: getTestURLHost(t, target.URL)})
 
 		// A proxied request carries an absolute URI.
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://api.kevin.test/", nil)
@@ -431,7 +519,7 @@ func TestServe(t *testing.T) {
 		assert.Equal(t, first.Addr().String(), p.Addr(), "Addr must report the first listener")
 
 		target := createTestUpstream(t, "second listener works")
-		p.AddRoutes(proxy.Route{Host: "second.kevin.home", Upstream: getTestURLHost(t, target.URL)})
+		addRoutes(p, proxy.Route{Host: "second.kevin.home", Upstream: getTestURLHost(t, target.URL)})
 
 		secondURL, err := url.Parse("http://" + second.Addr().String())
 		require.NoError(t, err)
@@ -489,7 +577,7 @@ func TestOnRecord(t *testing.T) {
 	}
 
 	target := createTestUpstream(t, "recorded")
-	p.AddRoutes(proxy.Route{Host: "recorded.kevin.test", Upstream: getTestURLHost(t, target.URL)})
+	addRoutes(p, proxy.Route{Host: "recorded.kevin.test", Upstream: getTestURLHost(t, target.URL)})
 
 	getTestURL(t, client, "http://recorded.kevin.test/some/path")
 	getTestURL(t, client, "http://denied.kevin.test/")
@@ -598,6 +686,14 @@ func getTestURL(t *testing.T, client *http.Client, rawURL string) (*http.Respons
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	return resp, string(body)
+}
+
+// addRoutes gives each route its own step, named for its host, so a later
+// route for the same host replaces an earlier one.
+func addRoutes(p *proxy.Proxy, routes ...proxy.Route) {
+	for _, r := range routes {
+		p.SetStep(r.Host, []proxy.Route{r}, nil)
+	}
 }
 
 func getTestURLHost(t *testing.T, rawURL string) string {

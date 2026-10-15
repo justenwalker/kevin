@@ -43,7 +43,7 @@ kevin sends the traffic of every `builtin:container` step to the proxy, with no 
 
 After a container starts, kevin calls the relay's `RegisterCapture` RPC with the path of the container's network namespace. The relay enters that namespace and adds an nftables table with an `output` NAT chain. Each rule redirects one port to the relay, for each address family the relay has an address in. The destination address no longer matters: a container that resolved the real IP of a third-party API reaches the relay the same way as one that resolved a route name.
 
-The relay captures ports 80 and 443. An `intercept: true` route that lists other `ports` calls the relay's `EnsureListener` RPC. The relay opens a listener for each port and updates the capture rules of every registered container, so a route added after a container started still applies to it.
+The relay captures ports 80 and 443. An `intercept: true` route that lists other `ports` calls the relay's `SetIntercepts` RPC, which replaces everything that step registered. The relay opens a listener for each port and updates the capture rules of every registered container, so a route added after a container started still applies to it. When a rerun drops a host or port, or the step fails or is removed, the relay stops answering DNS for the host and closes a port that no other step names. A client that already resolved the host keeps the synthetic address it was given.
 
 The relay reads the TLS server name or the HTTP `Host` header of a captured connection to find where it goes, then forwards it to the proxy.
 

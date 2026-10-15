@@ -7,3 +7,4 @@
 /docs/site/resources/
 /docs/site/public/
 /docs/site/.hugo_build.lock
+/cmd/kevin-relay/kevin-relay

@@ -23,7 +23,7 @@ import (
 func TestWebsocket(t *testing.T) {
 	t.Run("frames sent after the handshake completes", func(t *testing.T) {
 		p, _ := startTestProxyWithClient(t)
-		p.AddRoutes(proxy.Route{Host: "ws.kevin.test", Upstream: wsEchoUpstream(t)})
+		addRoutes(p, proxy.Route{Host: "ws.kevin.test", Upstream: wsEchoUpstream(t)})
 		assert.Eventually(t, func() bool { return p.Addr() != "" }, time.Second, time.Millisecond)
 
 		// net/http.Client has no first-class WebSocket support, and testing
@@ -63,7 +63,7 @@ func TestWebsocket(t *testing.T) {
 		// returns rather than leaving them on the wire. serveUpgrade must
 		// forward bytes from there, not just from the raw hijacked net.Conn.
 		p, _ := startTestProxyWithClient(t)
-		p.AddRoutes(proxy.Route{Host: "wsbuf.kevin.test", Upstream: wsEchoUpstream(t)})
+		addRoutes(p, proxy.Route{Host: "wsbuf.kevin.test", Upstream: wsEchoUpstream(t)})
 		assert.Eventually(t, func() bool { return p.Addr() != "" }, time.Second, time.Millisecond)
 
 		var d net.Dialer
@@ -94,7 +94,7 @@ func TestWebsocket(t *testing.T) {
 	t.Run("a response writer that does not support hijacking gets 500", func(t *testing.T) {
 		p, err := proxy.New(newTestIntermediateCA(t), proxy.Options{Domain: "kevin.home", Deny: true})
 		require.NoError(t, err)
-		p.AddRoutes(proxy.Route{Host: "ws.kevin.test", Upstream: "127.0.0.1:1"})
+		addRoutes(p, proxy.Route{Host: "ws.kevin.test", Upstream: "127.0.0.1:1"})
 
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://ws.kevin.test/chat", nil)
 		req.Header.Set("Upgrade", "websocket")
@@ -108,7 +108,7 @@ func TestWebsocket(t *testing.T) {
 
 	t.Run("the upstream cannot be dialed", func(t *testing.T) {
 		p, _ := startTestProxyWithClient(t)
-		p.AddRoutes(proxy.Route{Host: "deadws.kevin.test", Upstream: "127.0.0.1:1"})
+		addRoutes(p, proxy.Route{Host: "deadws.kevin.test", Upstream: "127.0.0.1:1"})
 		assert.Eventually(t, func() bool { return p.Addr() != "" }, time.Second, time.Millisecond)
 
 		var d net.Dialer
@@ -131,7 +131,7 @@ func TestWebsocket(t *testing.T) {
 
 	t.Run("the upstream's response cannot be parsed", func(t *testing.T) {
 		p, _ := startTestProxyWithClient(t)
-		p.AddRoutes(proxy.Route{Host: "broken.kevin.test", Upstream: brokenWSUpstream(t)})
+		addRoutes(p, proxy.Route{Host: "broken.kevin.test", Upstream: brokenWSUpstream(t)})
 		assert.Eventually(t, func() bool { return p.Addr() != "" }, time.Second, time.Millisecond)
 
 		var d net.Dialer

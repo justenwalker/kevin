@@ -20,7 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	RelayControl_RegisterCapture_FullMethodName = "/kevin.relay.v1.RelayControl/RegisterCapture"
-	RelayControl_EnsureListener_FullMethodName  = "/kevin.relay.v1.RelayControl/EnsureListener"
+	RelayControl_SetIntercepts_FullMethodName   = "/kevin.relay.v1.RelayControl/SetIntercepts"
 	RelayControl_ApplyFault_FullMethodName      = "/kevin.relay.v1.RelayControl/ApplyFault"
 	RelayControl_ClearFault_FullMethodName      = "/kevin.relay.v1.RelayControl/ClearFault"
 )
@@ -44,15 +44,18 @@ type RelayControlClient interface {
 	// captured at what transits it instead, skipping any destination in
 	// exclude_cidrs so pod-to-pod and pod-to-service traffic isn't touched.
 	RegisterCapture(ctx context.Context, in *RegisterCaptureRequest, opts ...grpc.CallOption) (*RegisterCaptureResponse, error)
-	// EnsureListener registers an intercept route: it answers the relay's own
-	// DNS for host - exactly, or by "*." wildcard, the same rule builtin:route
-	// itself applies - since a workload with no network namespace the relay
-	// can capture (a kind pod) has no other way to reach the interception; it
-	// also opens a listener for each of ports beyond the relay's always-on 80
-	// and 443, and re-applies capture on every container RegisterCapture has
-	// already registered - so a route declared after some containers already
-	// exist still reaches them.
-	EnsureListener(ctx context.Context, in *EnsureListenerRequest, opts ...grpc.CallOption) (*EnsureListenerResponse, error)
+	// SetIntercepts replaces the intercept routes that owner registered. For
+	// each intercept it answers the relay's own DNS for host - exactly, or by
+	// "*." wildcard, the same rule builtin:route itself applies - since a
+	// workload with no network namespace the relay can capture (a kind pod)
+	// has no other way to reach the interception; it also opens a listener for
+	// each of ports beyond the relay's always-on 80 and 443, and re-applies
+	// capture on every container RegisterCapture has already registered - so a
+	// route declared after some containers already exist still reaches them.
+	// A host or port that no owner's latest call names any more stops being
+	// answered or listened on. An empty intercepts list removes everything
+	// owner registered, and is not an error for an owner with nothing.
+	SetIntercepts(ctx context.Context, in *SetInterceptsRequest, opts ...grpc.CallOption) (*SetInterceptsResponse, error)
 	// ApplyFault installs a netem qdisc on interface, inside the network
 	// namespace at netns_path, that delays, drops, corrupts, duplicates,
 	// and/or reorders packets on it, all at once, in a single qdisc. Re-applying
@@ -88,10 +91,10 @@ func (c *relayControlClient) RegisterCapture(ctx context.Context, in *RegisterCa
 	return out, nil
 }
 
-func (c *relayControlClient) EnsureListener(ctx context.Context, in *EnsureListenerRequest, opts ...grpc.CallOption) (*EnsureListenerResponse, error) {
+func (c *relayControlClient) SetIntercepts(ctx context.Context, in *SetInterceptsRequest, opts ...grpc.CallOption) (*SetInterceptsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(EnsureListenerResponse)
-	err := c.cc.Invoke(ctx, RelayControl_EnsureListener_FullMethodName, in, out, cOpts...)
+	out := new(SetInterceptsResponse)
+	err := c.cc.Invoke(ctx, RelayControl_SetIntercepts_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -137,15 +140,18 @@ type RelayControlServer interface {
 	// captured at what transits it instead, skipping any destination in
 	// exclude_cidrs so pod-to-pod and pod-to-service traffic isn't touched.
 	RegisterCapture(context.Context, *RegisterCaptureRequest) (*RegisterCaptureResponse, error)
-	// EnsureListener registers an intercept route: it answers the relay's own
-	// DNS for host - exactly, or by "*." wildcard, the same rule builtin:route
-	// itself applies - since a workload with no network namespace the relay
-	// can capture (a kind pod) has no other way to reach the interception; it
-	// also opens a listener for each of ports beyond the relay's always-on 80
-	// and 443, and re-applies capture on every container RegisterCapture has
-	// already registered - so a route declared after some containers already
-	// exist still reaches them.
-	EnsureListener(context.Context, *EnsureListenerRequest) (*EnsureListenerResponse, error)
+	// SetIntercepts replaces the intercept routes that owner registered. For
+	// each intercept it answers the relay's own DNS for host - exactly, or by
+	// "*." wildcard, the same rule builtin:route itself applies - since a
+	// workload with no network namespace the relay can capture (a kind pod)
+	// has no other way to reach the interception; it also opens a listener for
+	// each of ports beyond the relay's always-on 80 and 443, and re-applies
+	// capture on every container RegisterCapture has already registered - so a
+	// route declared after some containers already exist still reaches them.
+	// A host or port that no owner's latest call names any more stops being
+	// answered or listened on. An empty intercepts list removes everything
+	// owner registered, and is not an error for an owner with nothing.
+	SetIntercepts(context.Context, *SetInterceptsRequest) (*SetInterceptsResponse, error)
 	// ApplyFault installs a netem qdisc on interface, inside the network
 	// namespace at netns_path, that delays, drops, corrupts, duplicates,
 	// and/or reorders packets on it, all at once, in a single qdisc. Re-applying
@@ -173,8 +179,8 @@ type UnimplementedRelayControlServer struct{}
 func (UnimplementedRelayControlServer) RegisterCapture(context.Context, *RegisterCaptureRequest) (*RegisterCaptureResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RegisterCapture not implemented")
 }
-func (UnimplementedRelayControlServer) EnsureListener(context.Context, *EnsureListenerRequest) (*EnsureListenerResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method EnsureListener not implemented")
+func (UnimplementedRelayControlServer) SetIntercepts(context.Context, *SetInterceptsRequest) (*SetInterceptsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetIntercepts not implemented")
 }
 func (UnimplementedRelayControlServer) ApplyFault(context.Context, *ApplyFaultRequest) (*ApplyFaultResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ApplyFault not implemented")
@@ -220,20 +226,20 @@ func _RelayControl_RegisterCapture_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
-func _RelayControl_EnsureListener_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(EnsureListenerRequest)
+func _RelayControl_SetIntercepts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetInterceptsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(RelayControlServer).EnsureListener(ctx, in)
+		return srv.(RelayControlServer).SetIntercepts(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: RelayControl_EnsureListener_FullMethodName,
+		FullMethod: RelayControl_SetIntercepts_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RelayControlServer).EnsureListener(ctx, req.(*EnsureListenerRequest))
+		return srv.(RelayControlServer).SetIntercepts(ctx, req.(*SetInterceptsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -286,8 +292,8 @@ var RelayControl_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _RelayControl_RegisterCapture_Handler,
 		},
 		{
-			MethodName: "EnsureListener",
-			Handler:    _RelayControl_EnsureListener_Handler,
+			MethodName: "SetIntercepts",
+			Handler:    _RelayControl_SetIntercepts_Handler,
 		},
 		{
 			MethodName: "ApplyFault",

@@ -1,0 +1,3 @@
+kind: Fixed
+body: A rerun, a failure or a removal releases the relay DNS names and extra listeners of an intercept route that the step no longer names.
+time: 2026-10-11T13:00:00.000000-04:00

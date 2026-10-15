@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net"
+	"slices"
 
 	"github.com/justenwalker/kevin/protos/pb"
 )
@@ -40,24 +41,62 @@ func (p *relayProcess) RegisterCapture(ctx context.Context, req *pb.RegisterCapt
 	return &pb.RegisterCaptureResponse{}, nil
 }
 
-// EnsureListener implements [pb.RelayControlServer]. It registers an
-// intercept route: when req.Host is set, the relay's own DNS answers a query
-// for it - the only way a workload with no network namespace the relay can
-// capture (a kind pod) reaches the interception. It opens a listener for
-// each of req.Ports beyond the relay's always-on 80 and 443, then
-// re-applies capture to every already-registered container - so a route
-// declared after some containers already exist still reaches them.
-func (p *relayProcess) EnsureListener(ctx context.Context, req *pb.EnsureListenerRequest) (*pb.EnsureListenerResponse, error) {
-	if host := req.GetHost(); host != "" {
-		p.intercept.AddIntercept(host)
+// SetIntercepts implements [pb.RelayControlServer]. It replaces what
+// req.Owner registered, then recomputes the whole relay's intercept state
+// from every owner: the relay's own DNS answers a query for each named host -
+// the only way a workload with no network namespace the relay can capture (a
+// kind pod) reaches the interception - and a listener is open for each named
+// port beyond the always-on 80 and 443, with none left for a port no owner
+// names any more. It then re-applies capture to every already-registered
+// container, so a route declared after some containers already exist still
+// reaches them and a dropped port stops being redirected.
+//
+// An owner is recorded before its listeners open, so a failed call leaves
+// its intercepts in place for the caller to clear with an empty list. Capture
+// is re-applied even then, so no container keeps a redirect to a port that
+// just closed.
+func (p *relayProcess) SetIntercepts(ctx context.Context, req *pb.SetInterceptsRequest) (*pb.SetInterceptsResponse, error) {
+	// Steps come up in parallel, so two calls can overlap: one call applies
+	// the totals it computed, start to finish, before the next computes its own.
+	p.interceptMu.Lock()
+	defer p.interceptMu.Unlock()
+	defer p.reapplyCapture(ctx)
+
+	p.mu.Lock()
+	if len(req.GetIntercepts()) == 0 {
+		delete(p.intercepts, req.GetOwner())
+	} else {
+		if p.intercepts == nil {
+			p.intercepts = make(map[string][]*pb.InterceptRoute)
+		}
+		p.intercepts[req.GetOwner()] = req.GetIntercepts()
 	}
-	for _, port := range req.GetPorts() {
-		if err := p.ensureListener(int(port)); err != nil {
-			return nil, fmt.Errorf("relay: open listener for port %d: %w", port, err)
+	hosts, ports := p.interceptTotalsLocked()
+	p.mu.Unlock()
+
+	p.intercept.SetIntercepts(hosts)
+	if err := p.syncListeners(ctx, ports); err != nil {
+		return nil, err
+	}
+	return &pb.SetInterceptsResponse{}, nil
+}
+
+// interceptTotalsLocked returns every host and port some owner intercepts.
+// The caller holds p.mu.
+func (p *relayProcess) interceptTotalsLocked() ([]string, map[int]struct{}) {
+	var hosts []string
+	ports := make(map[int]struct{})
+	for _, routes := range p.intercepts {
+		for _, route := range routes {
+			if route.GetHost() != "" {
+				hosts = append(hosts, route.GetHost())
+			}
+			for _, port := range route.GetPorts() {
+				ports[int(port)] = struct{}{}
+			}
 		}
 	}
-	p.reapplyCapture(ctx)
-	return &pb.EnsureListenerResponse{}, nil
+	return hosts, ports
 }
 
 // capturePorts returns every TCP port currently captured: the relay's
@@ -94,31 +133,50 @@ func (p *relayProcess) reapplyCapture(ctx context.Context) {
 	}
 }
 
-// ensureListener opens a listener on port and serves it on the run
-// goroutine group, unless port is already served - by the fixed :80/:443
-// listeners, or by an earlier ensureListener call for the same port. It
-// must not be called before run has set runCtx/runGrp.
-func (p *relayProcess) ensureListener(port int) error {
-	if port == 80 || port == 443 {
-		return nil
-	}
+// extraListener is a listener opened for an intercept port beyond the
+// always-on 80 and 443.
+type extraListener struct {
+	ln     net.Listener
+	cancel context.CancelFunc
+}
 
+// syncListeners opens a listener for each of ports not already served and
+// closes the listener of each extra port not in ports. Closing a listener
+// also cancels the connections already open on it. Port 80 and 443 are
+// served by the fixed listeners and are skipped. It must not be called
+// before run has set runCtx/runGrp. A listener lives as long as runCtx, not
+// the ctx of the call that opened it.
+func (p *relayProcess) syncListeners(ctx context.Context, ports map[int]struct{}) error { //nolint:contextcheck // a listener lives as long as runCtx, not the RPC that opened it
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.extraLns == nil {
-		p.extraLns = make(map[int]net.Listener)
-	}
-	if _, ok := p.extraLns[port]; ok {
-		return nil
+		p.extraLns = make(map[int]extraListener)
 	}
 
-	var lc net.ListenConfig
-	ln, err := lc.Listen(p.runCtx, "tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return fmt.Errorf("relay: listen intercept port %d: %w", port, err)
+	for port, extra := range p.extraLns {
+		if _, ok := ports[port]; !ok {
+			extra.cancel()
+			_ = extra.ln.Close() // so a call that reopens the port at once finds it free
+			delete(p.extraLns, port)
+		}
 	}
-	p.extraLns[port] = ln
-	p.runGrp.Go(func() error { return serveIntercept(p.runCtx, ln, p.proxyAddr, port, p.intercept.fakeIPs) })
+
+	for _, port := range slices.Sorted(maps.Keys(ports)) {
+		if port == 80 || port == 443 {
+			continue
+		}
+		if _, ok := p.extraLns[port]; ok {
+			continue
+		}
+		var lc net.ListenConfig
+		ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			return fmt.Errorf("relay: open listener for port %d: %w", port, err)
+		}
+		lnCtx, cancel := context.WithCancel(p.runCtx)
+		p.extraLns[port] = extraListener{ln: ln, cancel: cancel}
+		p.runGrp.Go(func() error { return serveIntercept(lnCtx, ln, p.proxyAddr, port, p.intercept.fakeIPs) })
+	}
 	return nil
 }
 

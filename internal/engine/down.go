@@ -77,6 +77,7 @@ func (r *run) downStep(ctx context.Context, name string, deps []string, complete
 	client := r.plugins[ref.Plugin]
 
 	if !stepImplementsDown(r.caps[ref.Plugin], ref.Step) {
+		r.clearRoutes(ctx, name)
 		r.store.SetStep(name, session.Removed, "")
 		return nil, nil //nolint:nilnil // a nil output.Map is a valid empty result, not the caller ever mistaking it for "not found"
 	}
@@ -115,6 +116,7 @@ func (r *run) downStep(ctx context.Context, name string, deps []string, complete
 		r.store.SetStep(name, session.Failed, downMsg)
 		return nil, downErr
 	}
+	r.clearRoutes(ctx, name)
 	r.emit(name, "removed")
 	r.store.SetStep(name, session.Removed, "")
 	r.timings.RecordDown(ctx, name, ref.String(), time.Since(start))

@@ -10,6 +10,7 @@ import (
 	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/proxy"
+	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/internal/uerr"
@@ -100,9 +101,10 @@ func (r *run) callUp(ctx context.Context, plan upPlan, start time.Time) (step.Re
 // exactly like the first attempt. On success it also records its own
 // output into r.state directly, rather than leaving that to the
 // walk's aggregate return value.
-func (r *run) upStep(ctx context.Context, name string, deps map[string]output.Map) (output.Map, error) {
+func (r *run) upStep(ctx context.Context, name string, deps map[string]output.Map) (_ output.Map, err error) {
 	if grp, ok := r.groups[name]; ok {
-		out, err := r.upGroup(ctx, name, grp, deps)
+		var out output.Map
+		out, err = r.upGroup(ctx, name, grp, deps)
 		if err == nil {
 			// Record as soon as this step succeeds: up's Walk and
 			// RerunStep's WalkFrom run every step in one goroutine group
@@ -122,6 +124,14 @@ func (r *run) upStep(ctx context.Context, name string, deps map[string]output.Ma
 		return nil, fmt.Errorf("%s: %w", name, session.ErrStepBusy)
 	}
 	defer unlock()
+
+	// A step that fails to come up owns no routes: a rerun's old ones stay
+	// only until it fails.
+	defer func() {
+		if err != nil {
+			r.clearRoutes(ctx, name)
+		}
+	}()
 
 	plan, err := r.planUp(ctx, name, deps)
 	if err != nil {
@@ -163,7 +173,6 @@ func (r *run) publish(ctx context.Context, plan upPlan, result step.Result, star
 	if len(systemThis) > 0 {
 		r.state.SetSystem(name, systemThis)
 	}
-	r.proxy.AllowEgress(result.EgressAllow...)
 
 	for _, d := range result.Details {
 		r.emit(name, "detail: "+d.Label)
@@ -186,7 +195,7 @@ func (r *run) publish(ctx context.Context, plan upPlan, result step.Result, star
 // treated identically here. A step with none (exec, a resourceless step)
 // has nothing to register.
 func (r *run) wireRelay(ctx context.Context, name string, result step.Result) error {
-	if err := r.addRoutes(ctx, name, result.Routes); err != nil {
+	if err := r.addRoutes(ctx, name, result); err != nil {
 		return err
 	}
 	containers := result.Containers
@@ -246,24 +255,63 @@ func proxyRoute(rt step.Route) proxy.Route {
 	return route
 }
 
-// addRoutes registers each of routes with the host proxy, and, for one
-// marked Intercept, registers it with the relay too - its own DNS answers
-// for the host, and it opens a listener for the route's declared ports.
-func (r *run) addRoutes(ctx context.Context, name string, routes []step.Route) error {
-	for _, route := range routes {
-		r.proxy.AddRoutes(proxyRoute(route))
+// addRoutes replaces name's routes and egress hosts in the host proxy with
+// result's, and, for a route marked Intercept, registers it with the relay
+// too - its own DNS answers for the host, and it opens a listener for the
+// route's declared ports.
+func (r *run) addRoutes(ctx context.Context, name string, result step.Result) error {
+	routes := make([]proxy.Route, 0, len(result.Routes))
+	var intercepts []relay.Intercept
+	for _, route := range result.Routes {
+		routes = append(routes, proxyRoute(route))
+		if route.Intercept != nil {
+			intercepts = append(intercepts, relay.Intercept{Host: route.Host, Ports: route.Intercept.Ports})
+		}
+	}
+	r.proxy.SetStep(name, routes, result.EgressAllow)
+	for _, route := range result.Routes {
 		r.emit(name, "serving https://"+route.Host)
+	}
 
-		if route.Intercept == nil {
-			continue
-		}
-		if err := r.relay.EnsureListener(ctx, route.Host, route.Intercept.Ports); err != nil {
-			r.reportUpFailure(ctx, name, err)
-			return err
-		}
+	if len(intercepts) == 0 && !r.state.Intercepting(name) {
+		return nil
+	}
+	// A failed call may still have registered some, so the flag stays set
+	// for clearRoutes to retry the release.
+	if len(intercepts) > 0 {
+		r.state.SetIntercepting(name, true)
+	}
+	if err := r.relay.SetIntercepts(ctx, name, intercepts); err != nil {
+		r.reportUpFailure(ctx, name, err)
+		return err
+	}
+	if len(intercepts) == 0 {
+		r.state.SetIntercepting(name, false)
 	}
 	return nil
 }
+
+// clearRoutes removes the routes and egress hosts name owns, and releases
+// its intercepts in the relay. Teardown runs no proxy and no relay, so either
+// can be nil.
+func (r *run) clearRoutes(ctx context.Context, name string) {
+	if r.proxy != nil {
+		r.proxy.ClearStep(name)
+	}
+	if r.relay == nil || !r.state.Intercepting(name) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), relayReleaseTimeout)
+	defer cancel()
+	if err := r.relay.SetIntercepts(ctx, name, nil); err != nil {
+		r.emit(name, "warning: release intercepts: "+err.Error())
+		return
+	}
+	r.state.SetIntercepting(name, false)
+}
+
+// relayReleaseTimeout bounds the relay call that releases a step's intercepts.
+const relayReleaseTimeout = 10 * time.Second
 
 func (r *run) up(ctx context.Context) error {
 	results, err := dag.Walk(ctx, r.graph(), r.upStep, r.cfg.Engine.MaxParallel)

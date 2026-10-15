@@ -33,6 +33,11 @@ type runState struct {
 	// Result.
 	faults map[string][]string
 
+	// intercepting holds the steps whose latest Up registered an intercept
+	// with the relay, so a rerun that drops it, or a step that goes away,
+	// knows to release it.
+	intercepting map[string]bool
+
 	forwards map[string][]forward
 
 	// locks holds one mutex per step. upStep holds a step's lock for its
@@ -181,6 +186,29 @@ func (s *runState) TakeFaults(name string) []string {
 	ids := s.faults[name]
 	delete(s.faults, name)
 	return ids
+}
+
+// SetIntercepting records whether name has intercepts registered with the
+// relay.
+func (s *runState) SetIntercepting(name string, on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !on {
+		delete(s.intercepting, name)
+		return
+	}
+	if s.intercepting == nil {
+		s.intercepting = make(map[string]bool)
+	}
+	s.intercepting[name] = true
+}
+
+// Intercepting reports whether name has intercepts registered with the
+// relay.
+func (s *runState) Intercepting(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.intercepting[name]
 }
 
 // AddForward records f under step.

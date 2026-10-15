@@ -15,9 +15,9 @@ import (
 )
 
 func TestDownStep(t *testing.T) {
-	newDownRun := func(t *testing.T, plugin stepPlugin, down bool) *run {
+	newDownRun := func(t *testing.T, plugin stepPlugin, routes routeTable, down bool) *run {
 		t.Helper()
-		r := newUpRun(t, plugin, newMockrouteTable(t), newMocktrafficRelay(t))
+		r := newUpRun(t, plugin, routes, newMocktrafficRelay(t))
 		r.caps = map[string]pluginhost.Info{"echo": {Steps: []pluginhost.StepInfo{{Name: "echo", Down: down}}}}
 		return r
 	}
@@ -25,7 +25,9 @@ func TestDownStep(t *testing.T) {
 
 	t.Run("sends the step's outputs to Down and marks it removed", func(t *testing.T) {
 		plugin := newMockstepPlugin(t)
-		r := newDownRun(t, plugin, true)
+		routes := newMockrouteTable(t)
+		r := newDownRun(t, plugin, routes, true)
+		routes.EXPECT().ClearStep("a").Return()
 		outputs := output.Map{"id": output.Value{String: "abc"}}
 		plugin.EXPECT().Down(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 			func(_ context.Context, req step.DownRequest, _ step.Events) error {
@@ -41,9 +43,9 @@ func TestDownStep(t *testing.T) {
 		assert.Equal(t, session.Removed, stateOf(r))
 	})
 
-	t.Run("a Down error fails the step and is returned", func(t *testing.T) {
+	t.Run("a Down error fails the step, keeps its routes and is returned", func(t *testing.T) {
 		plugin := newMockstepPlugin(t)
-		r := newDownRun(t, plugin, true)
+		r := newDownRun(t, plugin, newMockrouteTable(t), true)
 		plugin.EXPECT().Down(mock.Anything, mock.Anything, mock.Anything).Return(assert.AnError)
 
 		_, err := r.downStep(t.Context(), "a", nil, nil)
@@ -53,7 +55,9 @@ func TestDownStep(t *testing.T) {
 	})
 
 	t.Run("a step type without Down is removed without calling the plugin", func(t *testing.T) {
-		r := newDownRun(t, newMockstepPlugin(t), false)
+		routes := newMockrouteTable(t)
+		r := newDownRun(t, newMockstepPlugin(t), routes, false)
+		routes.EXPECT().ClearStep("a").Return()
 
 		_, err := r.downStep(t.Context(), "a", nil, nil)
 

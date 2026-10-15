@@ -13,6 +13,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/proxy"
+	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/step"
 )
@@ -81,7 +82,7 @@ func TestPublish(t *testing.T) {
 		// The mocks fail the test on any unexpected call.
 		routes := newMockrouteTable(t)
 		r := newUpRun(t, newMockstepPlugin(t), routes, newMocktrafficRelay(t))
-		routes.EXPECT().AllowEgress().Return()
+		routes.EXPECT().SetStep("a", []proxy.Route{}, []string(nil)).Return()
 		plan := upPlan{name: "a", ref: config.StepRef{Plugin: "echo", Step: "echo"}}
 		result := step.Result{Outputs: output.Map{"url": {String: "http://a"}}}
 
@@ -96,7 +97,7 @@ func TestPublish(t *testing.T) {
 	t.Run("egress hosts and details reach the proxy and session", func(t *testing.T) {
 		routes := newMockrouteTable(t)
 		r := newUpRun(t, newMockstepPlugin(t), routes, newMocktrafficRelay(t))
-		routes.EXPECT().AllowEgress([]string{"registry.example.com"}).Return()
+		routes.EXPECT().SetStep("a", []proxy.Route{}, []string{"registry.example.com"}).Return()
 		plan := upPlan{name: "a", ref: config.StepRef{Plugin: "echo", Step: "echo"}}
 		result := step.Result{
 			EgressAllow: []string{"registry.example.com"},
@@ -116,8 +117,8 @@ func TestPublish(t *testing.T) {
 		routes := newMockrouteTable(t)
 		rl := newMocktrafficRelay(t)
 		r := newUpRun(t, newMockstepPlugin(t), routes, rl)
-		routes.EXPECT().AddRoutes(mock.Anything).Return()
-		rl.EXPECT().EnsureListener(mock.Anything, "fake.example.com", []int{443}).Return(assert.AnError)
+		routes.EXPECT().SetStep("a", mock.Anything, mock.Anything).Return()
+		rl.EXPECT().SetIntercepts(mock.Anything, "a", []relay.Intercept{{Host: "fake.example.com", Ports: []int{443}}}).Return(assert.AnError)
 		plan := upPlan{name: "a", ref: config.StepRef{Plugin: "echo", Step: "echo"}}
 		result := step.Result{
 			Routes: []step.Route{{Host: "fake.example.com", Upstream: step.Upstream{Addr: "127.0.0.1:9090"}, Intercept: &step.Intercept{Ports: []int{443}}}},
@@ -163,6 +164,99 @@ func TestProxyRoute(t *testing.T) {
 	})
 }
 
+func TestAddRoutes(t *testing.T) {
+	intercepted := step.Result{Routes: []step.Route{{Host: "fake.example.com", Upstream: step.Upstream{Addr: "127.0.0.1:9090"}, Intercept: &step.Intercept{Ports: []int{8443}}}}}
+
+	t.Run("a result with no intercept never calls the relay", func(t *testing.T) {
+		routes := newMockrouteTable(t)
+		r := newUpRun(t, newMockstepPlugin(t), routes, newMocktrafficRelay(t))
+		routes.EXPECT().SetStep("a", mock.Anything, mock.Anything).Return()
+
+		require.NoError(t, r.addRoutes(t.Context(), "a", step.Result{}))
+	})
+
+	t.Run("a rerun that drops its intercept releases it", func(t *testing.T) {
+		routes := newMockrouteTable(t)
+		rl := newMocktrafficRelay(t)
+		r := newUpRun(t, newMockstepPlugin(t), routes, rl)
+		routes.EXPECT().SetStep("a", mock.Anything, mock.Anything).Return()
+		rl.EXPECT().SetIntercepts(mock.Anything, "a", []relay.Intercept{{Host: "fake.example.com", Ports: []int{8443}}}).Return(nil).Once()
+		rl.EXPECT().SetIntercepts(mock.Anything, "a", []relay.Intercept(nil)).Return(nil).Once()
+
+		require.NoError(t, r.addRoutes(t.Context(), "a", intercepted))
+		require.NoError(t, r.addRoutes(t.Context(), "a", step.Result{}))
+		assert.False(t, r.state.Intercepting("a"))
+		require.NoError(t, r.addRoutes(t.Context(), "a", step.Result{}), "a step with nothing left to release asks nothing more of the relay")
+	})
+}
+
+func TestAddRoutesReleaseFailure(t *testing.T) {
+	routes := newMockrouteTable(t)
+	rl := newMocktrafficRelay(t)
+	r := newUpRun(t, newMockstepPlugin(t), routes, rl)
+	r.state.SetIntercepting("a", true)
+	routes.EXPECT().SetStep("a", mock.Anything, mock.Anything).Return()
+	rl.EXPECT().SetIntercepts(mock.Anything, "a", []relay.Intercept(nil)).Return(assert.AnError)
+
+	err := r.addRoutes(t.Context(), "a", step.Result{})
+
+	require.ErrorIs(t, err, assert.AnError)
+	assert.True(t, r.state.Intercepting("a"), "the release did not happen, so clearRoutes must try again")
+}
+
+func TestClearRoutes(t *testing.T) {
+	t.Run("releases the intercepts of a step that had some", func(t *testing.T) {
+		routes := newMockrouteTable(t)
+		rl := newMocktrafficRelay(t)
+		r := newUpRun(t, newMockstepPlugin(t), routes, rl)
+		r.state.SetIntercepting("a", true)
+		routes.EXPECT().ClearStep("a").Return()
+		rl.EXPECT().SetIntercepts(mock.Anything, "a", []relay.Intercept(nil)).Return(nil)
+
+		r.clearRoutes(t.Context(), "a")
+
+		assert.False(t, r.state.Intercepting("a"))
+	})
+
+	t.Run("a failed release keeps the step marked for a retry", func(t *testing.T) {
+		routes := newMockrouteTable(t)
+		rl := newMocktrafficRelay(t)
+		r := newUpRun(t, newMockstepPlugin(t), routes, rl)
+		r.state.SetIntercepting("a", true)
+		routes.EXPECT().ClearStep("a").Return()
+		rl.EXPECT().SetIntercepts(mock.Anything, "a", []relay.Intercept(nil)).Return(assert.AnError)
+
+		r.clearRoutes(t.Context(), "a")
+
+		assert.True(t, r.state.Intercepting("a"))
+	})
+
+	t.Run("a failed release is a warning", func(t *testing.T) {
+		routes := newMockrouteTable(t)
+		rl := newMocktrafficRelay(t)
+		r := newUpRun(t, newMockstepPlugin(t), routes, rl)
+		r.state.SetIntercepting("a", true)
+		routes.EXPECT().ClearStep("a").Return()
+		rl.EXPECT().SetIntercepts(mock.Anything, "a", []relay.Intercept(nil)).Return(assert.AnError)
+
+		assert.NotPanics(t, func() { r.clearRoutes(t.Context(), "a") })
+	})
+
+	t.Run("a step with no intercepts never calls the relay", func(t *testing.T) {
+		routes := newMockrouteTable(t)
+		r := newUpRun(t, newMockstepPlugin(t), routes, newMocktrafficRelay(t))
+		routes.EXPECT().ClearStep("a").Return()
+
+		r.clearRoutes(t.Context(), "a")
+	})
+
+	t.Run("Teardown has neither proxy nor relay", func(t *testing.T) {
+		r := &run{}
+
+		assert.NotPanics(t, func() { r.clearRoutes(t.Context(), "a") })
+	})
+}
+
 func TestUpStep(t *testing.T) {
 	t.Run("publishes a step's result to the proxy, relay and session", func(t *testing.T) {
 		plugin := newMockstepPlugin(t)
@@ -179,10 +273,11 @@ func TestUpStep(t *testing.T) {
 			EgressAllow: []string{"registry.example.com"},
 			Faults:      []step.Fault{{ID: "f1"}},
 		}, nil)
-		routes.EXPECT().AddRoutes([]proxy.Route{{Host: "a.kevin.test", Upstream: "127.0.0.1:8080", TLS: true, Mode: proxy.RouteModeMITM}}).Return()
-		routes.EXPECT().AddRoutes([]proxy.Route{{Host: "fake.example.com", Upstream: "127.0.0.1:9090", Mode: proxy.RouteModeMITM}}).Return()
-		routes.EXPECT().AllowEgress([]string{"registry.example.com"}).Return()
-		rl.EXPECT().EnsureListener(mock.Anything, "fake.example.com", []int{443}).Return(nil)
+		routes.EXPECT().SetStep("a", []proxy.Route{
+			{Host: "a.kevin.test", Upstream: "127.0.0.1:8080", TLS: true, Mode: proxy.RouteModeMITM},
+			{Host: "fake.example.com", Upstream: "127.0.0.1:9090", Mode: proxy.RouteModeMITM},
+		}, []string{"registry.example.com"}).Return()
+		rl.EXPECT().SetIntercepts(mock.Anything, "a", []relay.Intercept{{Host: "fake.example.com", Ports: []int{443}}}).Return(nil)
 		rl.EXPECT().ApplyFault(mock.Anything, mock.Anything).Return(nil)
 
 		out, err := r.upStep(t.Context(), "a", nil)
@@ -201,8 +296,10 @@ func TestUpStep(t *testing.T) {
 		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(step.Result{
 			Routes: []step.Route{{Host: "fake.example.com", Upstream: step.Upstream{Addr: "127.0.0.1:9090"}, Intercept: &step.Intercept{Ports: []int{443}}}},
 		}, nil)
-		routes.EXPECT().AddRoutes(mock.Anything).Return()
-		rl.EXPECT().EnsureListener(mock.Anything, "fake.example.com", []int{443}).Return(assert.AnError)
+		routes.EXPECT().SetStep("a", mock.Anything, mock.Anything).Return()
+		routes.EXPECT().ClearStep("a").Return()
+		rl.EXPECT().SetIntercepts(mock.Anything, "a", []relay.Intercept{{Host: "fake.example.com", Ports: []int{443}}}).Return(assert.AnError)
+		rl.EXPECT().SetIntercepts(mock.Anything, "a", []relay.Intercept(nil)).Return(nil)
 
 		_, err := r.upStep(t.Context(), "a", nil)
 
@@ -210,10 +307,25 @@ func TestUpStep(t *testing.T) {
 		assert.Equal(t, session.Failed, r.store.Snapshot().Steps[0].State)
 	})
 
+	t.Run("a with block that does not render clears the step's routes", func(t *testing.T) {
+		routes := newMockrouteTable(t)
+		r := newUpRun(t, newMockstepPlugin(t), routes, newMocktrafficRelay(t))
+		step := r.steps["a"]
+		step.With = json.RawMessage(`{"image":"${needs.missing.out.x}"}`)
+		r.steps["a"] = step
+		routes.EXPECT().ClearStep("a").Return()
+
+		_, err := r.upStep(t.Context(), "a", nil)
+
+		require.Error(t, err)
+	})
+
 	t.Run("a failed Up publishes nothing", func(t *testing.T) {
 		plugin := newMockstepPlugin(t)
-		r := newUpRun(t, plugin, newMockrouteTable(t), newMocktrafficRelay(t))
+		routes := newMockrouteTable(t)
+		r := newUpRun(t, plugin, routes, newMocktrafficRelay(t))
 		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).Return(step.Result{}, assert.AnError)
+		routes.EXPECT().ClearStep("a").Return()
 
 		_, err := r.upStep(t.Context(), "a", nil)
 
