@@ -20,12 +20,12 @@ import (
 
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/container"
-	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/internal/step"
+	"github.com/justenwalker/kevin/internal/ui/mcpserver"
 )
 
 // requireRelay skips a test when Docker does not answer, then builds the

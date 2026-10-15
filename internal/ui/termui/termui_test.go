@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/session"
-	"github.com/justenwalker/kevin/internal/termui"
+	"github.com/justenwalker/kevin/internal/ui/termui"
 )
 
 func TestRender(t *testing.T) {

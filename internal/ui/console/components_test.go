@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/browser"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/ui/browser"
 )
 
 func renderString(t *testing.T, c templ.Component) string {

@@ -18,14 +18,11 @@ import (
 	"github.com/mattn/go-isatty"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/justenwalker/kevin/internal/browser"
 	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/console"
 	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/dag"
 	"github.com/justenwalker/kevin/internal/logging"
-	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/pki/ca"
 	"github.com/justenwalker/kevin/internal/plugins/launcher"
@@ -34,6 +31,9 @@ import (
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/internal/step"
+	"github.com/justenwalker/kevin/internal/ui/browser"
+	"github.com/justenwalker/kevin/internal/ui/console"
+	"github.com/justenwalker/kevin/internal/ui/mcpserver"
 )
 
 var log = logging.New("engine")

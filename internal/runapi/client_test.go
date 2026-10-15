@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/console"
 	"github.com/justenwalker/kevin/internal/runapi"
 	"github.com/justenwalker/kevin/internal/runstate"
 	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/ui/console"
 )
 
 func dialServer(t *testing.T, h http.Handler) *runapi.Client {

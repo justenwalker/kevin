@@ -11,9 +11,9 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/justenwalker/kevin/internal/httpserver"
 	"github.com/justenwalker/kevin/internal/pki/ca"
 	"github.com/justenwalker/kevin/internal/proxy"
+	"github.com/justenwalker/kevin/internal/ui/httpserver"
 )
 
 // serving is a background Serve call and the means to stop it.

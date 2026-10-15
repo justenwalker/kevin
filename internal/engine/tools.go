@@ -6,9 +6,9 @@ import (
 	"fmt"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/step"
+	"github.com/justenwalker/kevin/internal/ui/mcpserver"
 )
 
 // run holds the state of one scope.

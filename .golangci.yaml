@@ -121,7 +121,7 @@ linters:
       # templ writes a version comment above the package clause of every file
       # it generates, which godoclint counts as a second package doc for the
       # whole package - including console.go, which is not itself generated.
-      - path: 'internal/console/'
+      - path: 'internal/ui/console/'
         linters:
           - godoclint
       # console.go's render() deliberately renders with context.Background():
@@ -130,7 +130,7 @@ linters:
       # (AddStep, SetStep, ...) and closeRelay->Relay.Close() (also a
       # deliberate context.Background(), so cleanup outlives an already
       # canceled ctx) both chain into it.
-      - path: 'internal/console/console\.go'
+      - path: 'internal/ui/console/console\.go'
         linters:
           - contextcheck
       - path: 'internal/engine/engine\.go'

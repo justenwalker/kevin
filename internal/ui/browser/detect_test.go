@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/justenwalker/kevin/internal/browser"
+	"github.com/justenwalker/kevin/internal/ui/browser"
 )
 
 func TestDetect(t *testing.T) {

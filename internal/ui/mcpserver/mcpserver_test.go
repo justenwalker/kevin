@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/runapi"
 	"github.com/justenwalker/kevin/internal/session"
+	"github.com/justenwalker/kevin/internal/ui/mcpserver"
 )
 
 // fakeView is a stub of the state a [*console.Server] would otherwise

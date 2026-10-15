@@ -18,7 +18,6 @@ import (
 	"github.com/justenwalker/kevin/internal/container/engines"
 	"github.com/justenwalker/kevin/internal/engine"
 	"github.com/justenwalker/kevin/internal/logging"
-	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/plugins/builtin"
 	"github.com/justenwalker/kevin/internal/plugins/load"
 	"github.com/justenwalker/kevin/internal/plugins/pkg"
@@ -26,6 +25,7 @@ import (
 	"github.com/justenwalker/kevin/internal/runstate"
 	"github.com/justenwalker/kevin/internal/statedir"
 	"github.com/justenwalker/kevin/internal/step"
+	"github.com/justenwalker/kevin/internal/ui/mcpserver"
 	"github.com/justenwalker/kevin/internal/version"
 	"github.com/justenwalker/kevin/plugin"
 )
