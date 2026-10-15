@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -369,7 +368,7 @@ func fetch(ctx context.Context, reg ociregistry.Interface, r ociref.Reference) (
 	if _, statErr := os.Stat(cachePath); statErr == nil {
 		return pkgcache.Entry{Path: cachePath, Digest: layer.Digest.String()}, nil
 	}
-	if err := cacheBlob(ctx, reg, r.Repository, layer, cachePath); err != nil {
+	if err := cacheBlob(ctx, reg, r.Repository, layer); err != nil {
 		return pkgcache.Entry{}, err
 	}
 	return pkgcache.Entry{Path: cachePath, Digest: layer.Digest.String()}, nil
@@ -473,41 +472,21 @@ func packageLayer(m ocispec.Manifest) (ocispec.Descriptor, error) {
 	return m.Layers[0], nil
 }
 
-// cacheBlob streams layer's content to cachePath, atomically, only after its
+// cacheBlob streams layer's content into the package cache, only after its
 // bytes hash to layer.Digest - a corrupt or tampered download never reaches
 // the cache under the digest's name.
-func cacheBlob(ctx context.Context, reg ociregistry.Interface, repo string, layer ocispec.Descriptor, cachePath string) error {
+func cacheBlob(ctx context.Context, reg ociregistry.Interface, repo string, layer ocispec.Descriptor) error {
 	br, err := reg.GetBlob(ctx, repo, layer.Digest)
 	if err != nil {
 		return fmt.Errorf("ocipkg: fetch blob %s: %w: %w", layer.Digest, ErrFetch, err)
 	}
 	defer br.Close() //nolint:errcheck // read-only, extraction already reported its own errors
 
-	dir := filepath.Dir(cachePath)
-	if mkdirErr := os.MkdirAll(dir, 0o700); mkdirErr != nil {
-		return fmt.Errorf("ocipkg: create %q: %w", dir, mkdirErr)
-	}
-	tmp, err := os.CreateTemp(dir, "*.tmp") // same filesystem as cachePath, for an atomic rename
-	if err != nil {
-		return fmt.Errorf("ocipkg: create temp file: %w", err)
-	}
-	defer os.Remove(tmp.Name()) //nolint:errcheck // no-op once renamed away
-
-	h := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(tmp, h), br); err != nil {
-		tmp.Close() //nolint:errcheck,gosec // best effort; the copy error below is what's reported
+	if _, err := pkgcache.Store(br, layer.Digest.Encoded()); err != nil {
+		if errors.Is(err, pkgcache.ErrDigestMismatch) {
+			return fmt.Errorf("ocipkg: %s: %w: %w", layer.Digest, ErrBlobMismatch, err)
+		}
 		return fmt.Errorf("ocipkg: download %s: %w", layer.Digest, err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("ocipkg: close temp file: %w", err)
-	}
-
-	got := digest.NewDigestFromBytes(digest.SHA256, h.Sum(nil))
-	if got.String() != layer.Digest.String() {
-		return fmt.Errorf("ocipkg: %s: got %s: %w", layer.Digest, got, ErrBlobMismatch)
-	}
-	if err := os.Rename(tmp.Name(), cachePath); err != nil {
-		return fmt.Errorf("ocipkg: %w", err)
 	}
 	return nil
 }

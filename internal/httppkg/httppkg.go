@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -136,9 +137,12 @@ func download(ctx context.Context, rawURL, wantHex string, prior validators) (pk
 		return pkgcache.Entry{}, fmt.Errorf("httppkg: %q: got status %d: %w", rawURL, resp.StatusCode, ErrFetch)
 	}
 
-	cachePath, gotHex, err := cacheBody(rawURL, resp.Body, wantHex)
+	entry, err := pkgcache.Store(resp.Body, wantHex)
 	if err != nil {
-		return pkgcache.Entry{}, err
+		if errors.Is(err, pkgcache.ErrDigestMismatch) {
+			return pkgcache.Entry{}, fmt.Errorf("httppkg: %q: %w: %w", rawURL, ErrChecksumMismatch, err)
+		}
+		return pkgcache.Entry{}, fmt.Errorf("httppkg: download %q: %w", rawURL, err)
 	}
 
 	if wantHex == "" {
@@ -146,48 +150,12 @@ func download(ctx context.Context, rawURL, wantHex string, prior validators) (pk
 		// no-op, and a write failure here only costs the next Fetch its fast
 		// path, not this one's already-downloaded result.
 		saveValidators(rawURL, validators{
-			Digest:       gotHex,
+			Digest:       strings.TrimPrefix(entry.Digest, "sha256:"),
 			ETag:         resp.Header.Get("ETag"),
 			LastModified: resp.Header.Get("Last-Modified"),
 		})
 	}
-	return pkgcache.Entry{Path: cachePath, Digest: "sha256:" + gotHex}, nil
-}
-
-// cacheBody streams body into the pkgcache directory, atomically, and
-// returns its final cache path and hex digest. It rejects a body that
-// doesn't hash to wantHex, when set, before the file ever lands in the
-// cache.
-func cacheBody(rawURL string, body io.Reader, wantHex string) (string, string, error) {
-	dir := pkgcache.Sha256Dir()
-	if mkdirErr := os.MkdirAll(dir, 0o700); mkdirErr != nil {
-		return "", "", fmt.Errorf("httppkg: create %q: %w", dir, mkdirErr)
-	}
-	tmp, err := os.CreateTemp(dir, "*.tmp") // same filesystem as the cache, for an atomic rename
-	if err != nil {
-		return "", "", fmt.Errorf("httppkg: create temp file: %w", err)
-	}
-	defer os.Remove(tmp.Name()) //nolint:errcheck // no-op once renamed away
-
-	h := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(tmp, h), body); err != nil {
-		tmp.Close() //nolint:errcheck,gosec // best effort; the copy error below is what's reported
-		return "", "", fmt.Errorf("httppkg: download %q: %w", rawURL, err)
-	}
-	if err := tmp.Close(); err != nil {
-		return "", "", fmt.Errorf("httppkg: close temp file: %w", err)
-	}
-
-	gotHex := hex.EncodeToString(h.Sum(nil))
-	if wantHex != "" && gotHex != wantHex {
-		return "", "", fmt.Errorf("httppkg: %q: got sha256:%s: %w", rawURL, gotHex, ErrChecksumMismatch)
-	}
-
-	cachePath := pkgcache.Path(gotHex)
-	if err := os.Rename(tmp.Name(), cachePath); err != nil {
-		return "", "", fmt.Errorf("httppkg: %w", err)
-	}
-	return cachePath, gotHex, nil
+	return entry, nil
 }
 
 // validators are the conditional-GET fields a server returned for a prior

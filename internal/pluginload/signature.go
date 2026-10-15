@@ -11,84 +11,29 @@ import (
 	"github.com/justenwalker/kevin/internal/command"
 	"github.com/justenwalker/kevin/internal/command/cosign"
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/httppkg"
-	"github.com/justenwalker/kevin/internal/ocipkg"
+	"github.com/justenwalker/kevin/internal/pkgcache"
 	"github.com/justenwalker/kevin/internal/pkgtrust"
 	"github.com/justenwalker/kevin/internal/uerr"
 )
 
-// verifyFileSignature checks pkgPath's sibling signature file against the
-// local trust store, dispatched by signing.Scheme. It is a no-op when
-// signing is nil. The minisign scheme reads pkgPath+".minisig" - minisign's
-// own default suffix for `minisign -S`/`-Sm`. The sigstore scheme reads
-// pkgPath+".sigstore.json" - `cosign sign-blob --bundle`'s own default
-// naming.
-func verifyFileSignature(ctx context.Context, pkgPath string, signing *config.SigningSpec) error {
-	if signing == nil {
-		return nil
-	}
-	if signing.Scheme == config.SigningSchemeSigstore {
-		bundlePath := pkgPath + ".sigstore.json"
-		if _, err := os.Stat(bundlePath); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("%q: %w", bundlePath, pkgtrust.ErrSignatureMissing)
-			}
-			return fmt.Errorf("stat %q: %w", bundlePath, err)
-		}
-		return verifySigstoreBlob(ctx, pkgPath, bundlePath, signing)
-	}
-	sigPath := pkgPath + ".minisig"
-	data, err := os.ReadFile(sigPath) //nolint:gosec // pkgPath is a configured plugin package path, the whole point
-	if errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%q: %w", sigPath, pkgtrust.ErrSignatureMissing)
-	}
-	if err != nil {
-		return fmt.Errorf("read %q: %w", sigPath, err)
-	}
-	return verifyPackageSignature(pkgPath, data)
-}
+// cosignRunner runs cosign. A test overrides this variable to fake it.
+var cosignRunner command.Runner = command.Default
 
-// verifyHTTPSignature fetches rawURL's detached signature and checks it
-// against the local trust store, dispatched by signing.Scheme. It is a
-// no-op when signing is nil.
-func verifyHTTPSignature(ctx context.Context, rawURL, pkgPath string, signing *config.SigningSpec) error {
+// verifySource checks pkg against the detached signature src ships with it,
+// by signing.Scheme and the local trust stores. It is a no-op when signing
+// is nil.
+func verifySource(ctx context.Context, src source, pkg pkgcache.Entry, signing *config.SigningSpec) error {
 	if signing == nil {
 		return nil
 	}
-	if signing.Scheme == config.SigningSchemeSigstore {
-		data, err := httppkg.FetchSignature(ctx, rawURL, ".sigstore.json")
-		if err != nil {
-			return err
-		}
-		return verifySigstoreBlobBytes(ctx, pkgPath, data, signing)
-	}
-	data, err := httppkg.FetchSignature(ctx, rawURL, ".minisig")
+	sig, err := src.signature(ctx, pkg, signing.Scheme)
 	if err != nil {
 		return err
 	}
-	return verifyPackageSignature(pkgPath, data)
-}
-
-// verifyOCISignature fetches ref's detached signature - published at the
-// cosign-style fallback tag pkgDigest names - and checks it against the
-// local trust store, dispatched by signing.Scheme. It is a no-op when
-// signing is nil.
-func verifyOCISignature(ctx context.Context, ref, pkgDigest, pkgPath string, signing *config.SigningSpec) error {
-	if signing == nil {
-		return nil
-	}
 	if signing.Scheme == config.SigningSchemeSigstore {
-		data, err := ocipkg.FetchSignature(ctx, ref, pkgDigest, ocipkg.SigstoreSignatureMediaType)
-		if err != nil {
-			return err
-		}
-		return verifySigstoreBlobBytes(ctx, pkgPath, data, signing)
+		return verifySigstoreBlobBytes(ctx, pkg.Path, sig, signing)
 	}
-	data, err := ocipkg.FetchSignature(ctx, ref, pkgDigest, ocipkg.SignatureMediaType)
-	if err != nil {
-		return err
-	}
-	return verifyPackageSignature(pkgPath, data)
+	return verifyPackageSignature(pkg.Path, sig)
 }
 
 // verifyPackageSignature parses sigData as a minisign signature and checks
@@ -120,7 +65,7 @@ func verifySigstoreBlob(ctx context.Context, pkgPath, bundlePath string, signing
 	if err := pkgtrust.VerifyIdentity(signing.Identity, signing.Issuer); err != nil {
 		return err
 	}
-	return cosign.New(command.Default).VerifyBlob(ctx, pkgPath, bundlePath, signing.Identity, signing.Issuer)
+	return cosign.New(cosignRunner).VerifyBlob(ctx, pkgPath, bundlePath, signing.Identity, signing.Issuer)
 }
 
 // verifySigstoreBlobBytes is [verifySigstoreBlob] for a bundle fetched into
