@@ -8,7 +8,7 @@ import (
 	"github.com/justenwalker/kevin/internal/cueschema"
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/internal/pluginhost"
+	"github.com/justenwalker/kevin/internal/plugins/launcher"
 )
 
 // scopesFor builds the expr.Scopes name's `with` block renders against:
@@ -64,7 +64,7 @@ func (r *run) applySchema(name string, step config.Step, with json.RawMessage) (
 
 // stepSchema returns info's step type name's raw schema.cue bytes, or nil
 // if name names no step this plugin offers.
-func stepSchema(info pluginhost.Info, name string) []byte {
+func stepSchema(info launcher.Info, name string) []byte {
 	st, _ := info.Step(name)
 	return st.Schema
 }

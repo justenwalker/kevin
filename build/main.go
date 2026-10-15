@@ -174,7 +174,7 @@ var PackagePlugin = GnobMakeTarget{
 }
 
 // echoPluginIndexVersionPattern matches a bare pluginindex semver
-// (X.Y.Z[-pre], no v prefix - see internal/pluginindex's version format),
+// (X.Y.Z[-pre], no v prefix - see internal/plugins/index's version format),
 // not releaseVersionPattern's vX.Y.Z, which is kevin's own release tag
 // format.
 var echoPluginIndexVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-.+)?$`)

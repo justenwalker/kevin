@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/justenwalker/kevin/internal/pluginwire"
+	"github.com/justenwalker/kevin/internal/plugins/wire"
 	"github.com/justenwalker/kevin/internal/uerr"
 	"github.com/justenwalker/kevin/protos/pb"
 )
@@ -27,9 +27,9 @@ import (
 func Serve(p Plugin) {
 	go exitWhenOrphaned(os.Getppid(), time.Second, func() { os.Exit(1) })
 	goplugin.Serve(&goplugin.ServeConfig{
-		HandshakeConfig: pluginwire.Handshake,
+		HandshakeConfig: wire.Handshake,
 		VersionedPlugins: map[int]goplugin.PluginSet{
-			pluginwire.ProtocolVersion: {pluginwire.Name: &pluginwire.GRPCPlugin{Register: p.register}},
+			wire.ProtocolVersion: {wire.Name: &wire.GRPCPlugin{Register: p.register}},
 		},
 		GRPCServer: goplugin.DefaultGRPCServer,
 	})
@@ -203,7 +203,7 @@ func (s *server) Up(req *pb.UpRequest, stream grpc.ServerStreamingServer[pb.Even
 		exposedPorts = append(exposedPorts, &pb.ExposedPort{
 			Name: ep.Name, Protocol: protocolToProto(ep.Protocol), Upstream: upstreamToProto(ep.Upstream),
 			HostPort:      int32(ep.HostPort), //nolint:gosec // HostPort is a TCP port, always within int32 range
-			RelayUdpAddrs: pluginwire.PortsToProto(ep.RelayUDPAddrs),
+			RelayUdpAddrs: wire.PortsToProto(ep.RelayUDPAddrs),
 		})
 	}
 
@@ -336,7 +336,7 @@ func envFromProto(e *pb.Environment) Env {
 		Domain:              e.GetDomain(),
 		Relay:               e.GetRelay(),
 		RelaySOCKS5Addr:     e.GetRelaySocks5Addr(),
-		RelaySOCKS5UDPAddrs: pluginwire.PortsFromProto(e.GetRelaySocks5UdpAddrs()),
+		RelaySOCKS5UDPAddrs: wire.PortsFromProto(e.GetRelaySocks5UdpAddrs()),
 		ProjectDir:          e.GetProjectDir(),
 		Scope:               scopeFromProto(e.GetScope()),
 	}

@@ -1,0 +1,530 @@
+package ocisrc
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"encoding/pem"
+	"errors"
+	"io"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"cuelabs.dev/go/oci/ociregistry"
+	"cuelabs.dev/go/oci/ociregistry/ocimem"
+	"cuelabs.dev/go/oci/ociregistry/ociref"
+	"cuelabs.dev/go/oci/ociregistry/ociserver"
+	digest "github.com/opencontainers/go-digest"
+	specs "github.com/opencontainers/image-spec/specs-go"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/justenwalker/kevin/internal/plugins/source/cache"
+)
+
+var versioned = specs.Versioned{SchemaVersion: 2}
+
+const testRepo = "acme/plugin"
+
+// emptyConfig is the descriptor OCI's "artifact manifest" convention uses
+// when a manifest carries no real config - every manifest in this file uses
+// it, since a kevin plugin package has nothing to put there.
+func emptyConfig(t *testing.T, reg *ocimem.Registry) ocispec.Descriptor {
+	t.Helper()
+	data := []byte("{}")
+	desc, err := reg.PushBlob(t.Context(), testRepo,
+		ociregistry.Descriptor{MediaType: "application/vnd.oci.empty.v1+json", Digest: digest.FromBytes(data), Size: int64(len(data))},
+		bytes.NewReader(data))
+	require.NoError(t, err)
+	return desc
+}
+
+// pushLayer pushes content as a kevin-plugin-package-media-typed blob and
+// returns its descriptor.
+func pushLayer(t *testing.T, reg *ocimem.Registry, content []byte) ocispec.Descriptor {
+	t.Helper()
+	d := digest.FromBytes(content)
+	desc, err := reg.PushBlob(t.Context(), testRepo,
+		ociregistry.Descriptor{MediaType: MediaType, Digest: d, Size: int64(len(content))},
+		bytes.NewReader(content))
+	require.NoError(t, err)
+	return desc
+}
+
+// pushManifest pushes a single-platform manifest around layer, tagged with
+// tag (empty for an untagged, digest-only push), and returns its descriptor.
+func pushManifest(t *testing.T, reg *ocimem.Registry, tag string, layer ocispec.Descriptor) ocispec.Descriptor {
+	t.Helper()
+	cfg := emptyConfig(t, reg)
+	m := ocispec.Manifest{
+		Versioned: versioned,
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    cfg,
+		Layers:    []ocispec.Descriptor{layer},
+	}
+	data, err := json.Marshal(m)
+	require.NoError(t, err)
+	desc, err := reg.PushManifest(t.Context(), testRepo, tag, data, ocispec.MediaTypeImageManifest)
+	require.NoError(t, err)
+	return desc
+}
+
+// pushIndex pushes a multi-arch index tagged with tag, over the given
+// platform manifests, and returns the index descriptor.
+func pushIndex(t *testing.T, reg *ocimem.Registry, tag string, entries ...ocispec.Descriptor) ocispec.Descriptor {
+	t.Helper()
+	idx := ocispec.Index{
+		Versioned: versioned,
+		MediaType: ocispec.MediaTypeImageIndex,
+		Manifests: entries,
+	}
+	data, err := json.Marshal(idx)
+	require.NoError(t, err)
+	desc, err := reg.PushManifest(t.Context(), testRepo, tag, data, ocispec.MediaTypeImageIndex)
+	require.NoError(t, err)
+	return desc
+}
+
+func TestFetch(t *testing.T) {
+	t.Run("resolves a single manifest by tag", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		reg := ocimem.New()
+		layer := pushLayer(t, reg, []byte("plugin package bytes"))
+		pushManifest(t, reg, "v1", layer)
+
+		entry, err := fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		pkgPath, digestStr := entry.Path, entry.Digest
+		require.NoError(t, err)
+		assert.Equal(t, layer.Digest.String(), digestStr)
+		data, err := os.ReadFile(pkgPath)
+		require.NoError(t, err)
+		assert.Equal(t, "plugin package bytes", string(data))
+	})
+
+	t.Run("resolves a single manifest by digest", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		reg := ocimem.New()
+		layer := pushLayer(t, reg, []byte("plugin package bytes"))
+		manifest := pushManifest(t, reg, "", layer)
+
+		entry, err := fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Digest: manifest.Digest})
+		pkgPath, digestStr := entry.Path, entry.Digest
+		require.NoError(t, err)
+		assert.Equal(t, layer.Digest.String(), digestStr)
+		assert.FileExists(t, pkgPath)
+	})
+
+	t.Run("resolves the entry for this platform from an index", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		reg := ocimem.New()
+
+		wantLayer := pushLayer(t, reg, []byte("the right platform"))
+		wantManifest := pushManifest(t, reg, "", wantLayer)
+		wantManifest.Platform = &ocispec.Platform{OS: runtime.GOOS, Architecture: runtime.GOARCH}
+
+		otherLayer := pushLayer(t, reg, []byte("some other platform"))
+		otherManifest := pushManifest(t, reg, "", otherLayer)
+		otherManifest.Platform = &ocispec.Platform{OS: "plan9", Architecture: "386"}
+
+		pushIndex(t, reg, "v1", wantManifest, otherManifest)
+
+		entry, err := fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		pkgPath, digestStr := entry.Path, entry.Digest
+		require.NoError(t, err)
+		assert.Equal(t, wantLayer.Digest.String(), digestStr)
+		data, err := os.ReadFile(pkgPath)
+		require.NoError(t, err)
+		assert.Equal(t, "the right platform", string(data))
+	})
+
+	t.Run("reports an index with no matching platform", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		reg := ocimem.New()
+
+		layer := pushLayer(t, reg, []byte("wrong platform"))
+		manifest := pushManifest(t, reg, "", layer)
+		manifest.Platform = &ocispec.Platform{OS: "plan9", Architecture: "386"}
+		pushIndex(t, reg, "v1", manifest)
+
+		_, err := fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		require.ErrorIs(t, err, ErrNoMatchingPlatform)
+		assert.Contains(t, err.Error(), "plan9/386", "the error must name the platforms the index does carry")
+	})
+
+	t.Run("rejects a manifest with the wrong layer media type", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		reg := ocimem.New()
+		desc, err := reg.PushBlob(t.Context(), testRepo,
+			ociregistry.Descriptor{MediaType: "application/octet-stream", Digest: digest.FromBytes([]byte("x")), Size: 1},
+			bytes.NewReader([]byte("x")))
+		require.NoError(t, err)
+		pushManifest(t, reg, "v1", desc)
+
+		_, err = fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		require.ErrorIs(t, err, ErrMediaType)
+	})
+
+	t.Run("rejects a manifest with no layers", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		reg := ocimem.New()
+		cfg := emptyConfig(t, reg)
+		m := ocispec.Manifest{Versioned: versioned, MediaType: ocispec.MediaTypeImageManifest, Config: cfg}
+		data, err := json.Marshal(m)
+		require.NoError(t, err)
+		_, err = reg.PushManifest(t.Context(), testRepo, "v1", data, ocispec.MediaTypeImageManifest)
+		require.NoError(t, err)
+
+		_, err = fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		require.ErrorIs(t, err, ErrMediaType)
+	})
+
+	t.Run("caches the blob and skips a repeat download", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		reg := ocimem.New()
+		layer := pushLayer(t, reg, []byte("cache me"))
+		pushManifest(t, reg, "v1", layer)
+
+		ref := ociref.Reference{Repository: testRepo, Tag: "v1"}
+		firstEntry, err := fetch(t.Context(), reg, ref)
+		first := firstEntry.Path
+		require.NoError(t, err)
+
+		// Blank out the manifest so a second real fetch attempt would fail -
+		// proves the second call never touches the registry again.
+		blank := ocimem.New()
+		_, err = fetch(t.Context(), blank, ref)
+		require.Error(t, err, "sanity check: an empty registry really can't resolve this ref")
+
+		againEntry, err := fetch(t.Context(), reg, ref)
+		again := againEntry.Path
+		require.NoError(t, err)
+		assert.Equal(t, first, again, "a cache hit must return the same cached path")
+	})
+
+	t.Run("rejects a blob that does not match its declared digest", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		reg := ocimem.New()
+		layer := pushLayer(t, reg, []byte("plugin package bytes"))
+		pushManifest(t, reg, "v1", layer)
+
+		_, err := fetch(t.Context(), tamperedRegistry{reg}, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		require.ErrorIs(t, err, ErrBlobMismatch)
+
+		assert.NoFileExists(t, cache.Path(layer.Digest.Encoded()), "a mismatched download must not reach the cache")
+	})
+
+	t.Run("rejects a bad reference", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		_, err := Fetch(t.Context(), "not a valid ref!!")
+		require.ErrorIs(t, err, ErrBadReference)
+	})
+
+	t.Run("rejects a reference with neither tag nor digest", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		_, err := Fetch(t.Context(), "registry.example.com/acme/plugin")
+		require.ErrorIs(t, err, ErrBadReference)
+	})
+}
+
+func TestPush(t *testing.T) {
+	t.Run("pushes a layer, config and manifest that Fetch can then resolve", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		reg := ocimem.New()
+
+		dir := t.TempDir()
+		content := []byte("plugin package bytes")
+		tarPath := filepath.Join(dir, "pkg.tar.gz")
+		require.NoError(t, os.WriteFile(tarPath, content, 0o600))
+
+		manifestDigest, err := push(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"}, tarPath)
+		require.NoError(t, err)
+		assert.NotEmpty(t, manifestDigest)
+
+		entry, err := fetch(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"})
+		pkgPath, fetchedDigest := entry.Path, entry.Digest
+		require.NoError(t, err)
+		assert.Equal(t, digest.FromBytes(content).String(), fetchedDigest, "Fetch must resolve the same layer bytes Push uploaded")
+		data, err := os.ReadFile(pkgPath)
+		require.NoError(t, err)
+		assert.Equal(t, "plugin package bytes", string(data))
+	})
+
+	t.Run("rejects a reference with no tag", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		dir := t.TempDir()
+		tarPath := filepath.Join(dir, "pkg.tar.gz")
+		require.NoError(t, os.WriteFile(tarPath, []byte("x"), 0o600))
+
+		_, err := PushPackage(t.Context(), "registry.example.com/acme/plugin", tarPath)
+		require.ErrorIs(t, err, ErrBadReference)
+	})
+
+	t.Run("rejects a bad reference", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		_, err := PushPackage(t.Context(), "not a valid ref!!", "irrelevant")
+		require.ErrorIs(t, err, ErrBadReference)
+	})
+
+	t.Run("reports a registry that refuses the layer push", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		dir := t.TempDir()
+		tarPath := filepath.Join(dir, "pkg.tar.gz")
+		require.NoError(t, os.WriteFile(tarPath, []byte("x"), 0o600))
+
+		_, err := push(t.Context(), refusingBlobRegistry{ocimem.New()}, ociref.Reference{Repository: testRepo, Tag: "v1"}, tarPath)
+		require.ErrorIs(t, err, ErrPush)
+	})
+
+	t.Run("reports a registry that refuses the manifest push", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		dir := t.TempDir()
+		tarPath := filepath.Join(dir, "pkg.tar.gz")
+		require.NoError(t, os.WriteFile(tarPath, []byte("x"), 0o600))
+
+		_, err := push(t.Context(), refusingManifestRegistry{ocimem.New()}, ociref.Reference{Repository: testRepo, Tag: "v1"}, tarPath)
+		require.ErrorIs(t, err, ErrPush)
+	})
+}
+
+func TestFetchSignature(t *testing.T) {
+	t.Run("fetches the signature published at the fallback tag", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		reg := ocimem.New()
+		pkgLayer := pushLayer(t, reg, []byte("plugin package bytes"))
+
+		sigContent := []byte("untrusted comment: test\nsignature bytes\n")
+		sigDesc, err := reg.PushBlob(t.Context(), testRepo,
+			ociregistry.Descriptor{MediaType: SignatureMediaType, Digest: digest.FromBytes(sigContent), Size: int64(len(sigContent))},
+			bytes.NewReader(sigContent))
+		require.NoError(t, err)
+		m := ocispec.Manifest{Versioned: versioned, MediaType: ocispec.MediaTypeImageManifest, ArtifactType: SignatureMediaType, Config: emptyConfig(t, reg), Layers: []ocispec.Descriptor{sigDesc}}
+		data, err := json.Marshal(m)
+		require.NoError(t, err)
+		_, err = reg.PushManifest(t.Context(), testRepo, signatureTag(pkgLayer.Digest), data, ocispec.MediaTypeImageManifest)
+		require.NoError(t, err)
+
+		got, err := fetchSignature(t.Context(), reg, ociref.Reference{Repository: testRepo}, pkgLayer.Digest, SignatureMediaType)
+		require.NoError(t, err)
+		assert.Equal(t, sigContent, got)
+	})
+
+	t.Run("reports a missing fallback tag", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		reg := ocimem.New()
+		_, err := fetchSignature(t.Context(), reg, ociref.Reference{Repository: testRepo}, digest.FromBytes([]byte("no such package")), SignatureMediaType)
+		require.ErrorIs(t, err, ErrFetch)
+	})
+
+	t.Run("rejects a manifest with the wrong layer media type", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		reg := ocimem.New()
+		pkgLayer := pushLayer(t, reg, []byte("plugin package bytes"))
+		pushManifest(t, reg, signatureTag(pkgLayer.Digest), pkgLayer) // package-typed layer, not a signature
+
+		_, err := fetchSignature(t.Context(), reg, ociref.Reference{Repository: testRepo}, pkgLayer.Digest, SignatureMediaType)
+		require.ErrorIs(t, err, ErrMediaType)
+	})
+
+	t.Run("rejects a bad reference", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		_, err := FetchSignature(t.Context(), "not a valid ref!!", "sha256:deadbeef", SignatureMediaType)
+		require.ErrorIs(t, err, ErrBadReference)
+	})
+
+	t.Run("rejects a bad digest", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		_, err := FetchSignature(t.Context(), "registry.example.com/acme/plugin:v1", "not a digest", SignatureMediaType)
+		require.ErrorIs(t, err, ErrBadReference)
+	})
+}
+
+func TestPushSignature(t *testing.T) {
+	t.Run("pushes a signature that FetchSignature can then resolve, tagged by digest", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		reg := ocimem.New()
+		pkgLayer := pushLayer(t, reg, []byte("plugin package bytes"))
+		pushManifest(t, reg, "v1", pkgLayer)
+
+		dir := t.TempDir()
+		sigContent := []byte("untrusted comment: test\nsignature bytes\n")
+		sigPath := filepath.Join(dir, "pkg.tar.gz.minisig")
+		require.NoError(t, os.WriteFile(sigPath, sigContent, 0o600))
+
+		_, err := pushSignature(t.Context(), reg, ociref.Reference{Repository: testRepo, Tag: "v1"}, sigPath, SignatureMediaType)
+		require.NoError(t, err)
+
+		got, err := fetchSignature(t.Context(), reg, ociref.Reference{Repository: testRepo}, pkgLayer.Digest, SignatureMediaType)
+		require.NoError(t, err)
+		assert.Equal(t, sigContent, got)
+	})
+
+	t.Run("reports a package tag the registry cannot resolve", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		dir := t.TempDir()
+		sigPath := filepath.Join(dir, "pkg.tar.gz.minisig")
+		require.NoError(t, os.WriteFile(sigPath, []byte("x"), 0o600))
+
+		_, err := pushSignature(t.Context(), ocimem.New(), ociref.Reference{Repository: testRepo, Tag: "v1"}, sigPath, SignatureMediaType)
+		require.ErrorIs(t, err, ErrPush)
+	})
+}
+
+// refusingBlobRegistry wraps a real registry but fails every blob push -
+// this fails push at both the layer and the empty-config step.
+type refusingBlobRegistry struct {
+	ociregistry.Interface
+}
+
+func (refusingBlobRegistry) PushBlob(context.Context, string, ociregistry.Descriptor, io.Reader) (ociregistry.Descriptor, error) {
+	return ociregistry.Descriptor{}, errors.New("push refused")
+}
+
+// refusingManifestRegistry wraps a real registry but fails every manifest
+// push, so blob pushes still land normally.
+type refusingManifestRegistry struct {
+	ociregistry.Interface
+}
+
+func (refusingManifestRegistry) PushManifest(context.Context, string, string, []byte, string) (ociregistry.Descriptor, error) {
+	return ociregistry.Descriptor{}, errors.New("push refused")
+}
+
+// tamperedBlobReader wraps a BlobReader and swaps its content, while
+// keeping the descriptor it reports intact.
+type tamperedBlobReader struct {
+	ociregistry.BlobReader
+
+	content io.Reader
+}
+
+func (r tamperedBlobReader) Read(p []byte) (int, error) { return r.content.Read(p) }
+
+// tamperedRegistry wraps a real registry but returns corrupted bytes from
+// GetBlob - everything else is unchanged.
+type tamperedRegistry struct {
+	ociregistry.Interface
+}
+
+func (r tamperedRegistry) GetBlob(ctx context.Context, repo string, dig digest.Digest) (ociregistry.BlobReader, error) { //nolint:ireturn // implementing ociregistry.Interface's fixed method signature
+	br, err := r.Interface.GetBlob(ctx, repo, dig)
+	if err != nil {
+		return nil, err
+	}
+	return tamperedBlobReader{BlobReader: br, content: bytes.NewReader([]byte("corrupted"))}, nil
+}
+
+func TestPublicAPIAgainstALocalRegistry(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	srv := httptest.NewTLSServer(ociserver.New(ocimem.New(), nil))
+	t.Cleanup(srv.Close)
+	caPath := filepath.Join(t.TempDir(), "ca.pem")
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+	require.NoError(t, os.WriteFile(caPath, caPEM, 0o600))
+	t.Setenv("KEVIN_PLUGIN_CA_FILE", caPath)
+	host := strings.TrimPrefix(srv.URL, "https://")
+	ref := host + "/" + testRepo + ":v1"
+
+	dir := t.TempDir()
+	content := []byte("plugin package bytes")
+	tarPath := filepath.Join(dir, "pkg.tar.gz")
+	require.NoError(t, os.WriteFile(tarPath, content, 0o600))
+	sigContent := []byte("untrusted comment: test\nsignature bytes\n")
+	sigPath := filepath.Join(dir, "pkg.tar.gz.minisig")
+	require.NoError(t, os.WriteFile(sigPath, sigContent, 0o600))
+
+	pushed, err := PushPackage(t.Context(), ref, tarPath)
+	require.NoError(t, err)
+	require.Len(t, pushed.Signatures, 1, "the .minisig next to the package is published too")
+
+	pkgEntry, err := Fetch(t.Context(), ref)
+	pkgPath, pkgDigest := pkgEntry.Path, pkgEntry.Digest
+	require.NoError(t, err)
+	assert.Equal(t, digest.FromBytes(content).String(), pkgDigest)
+	got, err := os.ReadFile(pkgPath)
+	require.NoError(t, err)
+	assert.Equal(t, content, got)
+
+	sig, err := FetchSignature(t.Context(), ref, pkgDigest, SignatureMediaType)
+	require.NoError(t, err)
+	assert.Equal(t, sigContent, sig)
+}
+
+func TestPushPackage(t *testing.T) {
+	ref := ociref.Reference{Repository: testRepo, Tag: "v1"}
+	writeTar := func(t *testing.T) string {
+		t.Helper()
+		tarPath := filepath.Join(t.TempDir(), "pkg.tar.gz")
+		require.NoError(t, os.WriteFile(tarPath, []byte("plugin package bytes"), 0o600))
+		return tarPath
+	}
+
+	t.Run("pushes the package alone when no signature file exists", func(t *testing.T) {
+		got, err := pushPackage(t.Context(), ocimem.New(), ref, writeTar(t))
+
+		require.NoError(t, err)
+		assert.NotEmpty(t, got.Digest)
+		assert.Empty(t, got.Signatures)
+	})
+
+	t.Run("publishes each sibling signature after the package", func(t *testing.T) {
+		tarPath := writeTar(t)
+		require.NoError(t, os.WriteFile(tarPath+".minisig", []byte("sig"), 0o600))
+		require.NoError(t, os.WriteFile(tarPath+".sigstore.json", []byte("{}"), 0o600))
+
+		got, err := pushPackage(t.Context(), ocimem.New(), ref, tarPath)
+
+		require.NoError(t, err)
+		assert.Len(t, got.Signatures, 2)
+	})
+
+	t.Run("reports the package it pushed when a signature fails", func(t *testing.T) {
+		tarPath := writeTar(t)
+		// A directory where the signature file should be fails the read after
+		// the package push has succeeded.
+		require.NoError(t, os.Mkdir(tarPath+".minisig", 0o750))
+
+		got, err := pushPackage(t.Context(), ocimem.New(), ref, tarPath)
+
+		require.Error(t, err)
+		assert.NotEmpty(t, got.Digest)
+	})
+}
+
+func TestFoundSignatureSiblings(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []string
+		want  []string
+	}{
+		{name: "none", want: []string{}},
+		{name: "minisign alone", files: []string{".minisig"}, want: []string{SignatureMediaType}},
+		{name: "sigstore alone", files: []string{".sigstore.json"}, want: []string{SigstoreSignatureMediaType}},
+		{
+			name:  "both, in scheme order",
+			files: []string{".sigstore.json", ".minisig"},
+			want:  []string{SignatureMediaType, SigstoreSignatureMediaType},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tarPath := filepath.Join(t.TempDir(), "pkg.tar.gz")
+			for _, suffix := range tt.files {
+				require.NoError(t, os.WriteFile(tarPath+suffix, []byte("x"), 0o600))
+			}
+
+			found, err := foundSignatureSiblings(tarPath)
+
+			require.NoError(t, err)
+			got := make([]string, 0, len(found))
+			for _, sib := range found {
+				got = append(got, sib.mediaType)
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

@@ -1,26 +1,26 @@
 package engine
 
 import (
-	"github.com/justenwalker/kevin/internal/pluginhost"
+	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/step"
 )
 
 // stepKind returns the Kind that info's step type name reports, or
 // step.KindUnspecified when info offers no such step.
-func stepKind(info pluginhost.Info, name string) step.Kind {
+func stepKind(info launcher.Info, name string) step.Kind {
 	st, _ := info.Step(name)
 	return st.Kind
 }
 
 // stepIdempotent reports whether info's step type name is safe to call Up on
 // again.
-func stepIdempotent(info pluginhost.Info, name string) bool {
+func stepIdempotent(info launcher.Info, name string) bool {
 	st, _ := info.Step(name)
 	return st.Idempotent
 }
 
 // stepImplementsDown reports whether info's step type name implements Down.
-func stepImplementsDown(info pluginhost.Info, name string) bool {
+func stepImplementsDown(info launcher.Info, name string) bool {
 	st, _ := info.Step(name)
 	return st.Down
 }

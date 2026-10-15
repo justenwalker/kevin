@@ -216,7 +216,7 @@ kevin plugin index update
 
 - [ ] Reports a warning for `demo` (signature no longer verifies against
       the tampered content) and `index show demo` fails with
-      `pluginindex: no such plugin` - the tampered version is excluded
+      `index: no such plugin` - the tampered version is excluded
       entirely, not trusted with a note. Revert the file
       (`git -C /tmp/kevin-fed/releases checkout -- plugins/demo/versions/1.0.0.yaml`)
       and confirm `update` recovers it.

@@ -27,7 +27,7 @@ import (
 )
 
 // CoreSchema is kevin's environment-file schema (schema.cue), exported so
-// [internal/pluginindex] can compile it alongside its own definitions.
+// [internal/plugins/index] can compile it alongside its own definitions.
 //
 //go:embed schema.cue
 var CoreSchema []byte

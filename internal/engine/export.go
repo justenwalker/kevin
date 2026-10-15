@@ -8,7 +8,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/internal/pluginhost"
+	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/step"
 )
 
@@ -42,7 +42,7 @@ func (r *run) Export(ctx context.Context, name string) (output.Map, error) {
 }
 
 // stepExports reports whether info's step type name implements Export.
-func stepExports(info pluginhost.Info, name string) bool {
+func stepExports(info launcher.Info, name string) bool {
 	st, _ := info.Step(name)
 	return st.Export
 }

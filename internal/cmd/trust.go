@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/justenwalker/kevin/internal/pkgtrust"
+	"github.com/justenwalker/kevin/internal/plugins/signing"
 )
 
 // pluginTrustCommand groups the subcommands that manage the local trust
@@ -34,7 +34,7 @@ func pluginTrustAddCommand(opts *options) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.ran = true
-			id, err := pkgtrust.Add(args[0])
+			id, err := signing.Add(args[0])
 			if err != nil {
 				return err
 			}
@@ -56,11 +56,11 @@ func pluginTrustListCommand(opts *options) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			keys, err := pkgtrust.List()
+			keys, err := signing.List()
 			if err != nil {
 				return err
 			}
-			ids, err := pkgtrust.ListIdentities()
+			ids, err := signing.ListIdentities()
 			if err != nil {
 				return err
 			}
@@ -87,7 +87,7 @@ func pluginTrustRemoveCommand(opts *options) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			opts.ran = true
-			return pkgtrust.Remove(args[0])
+			return signing.Remove(args[0])
 		},
 	}
 }
@@ -105,7 +105,7 @@ func pluginTrustAddIdentityCommand(opts *options) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			opts.ran = true
-			return pkgtrust.AddIdentity(identity, issuer)
+			return signing.AddIdentity(identity, issuer)
 		},
 	}
 	c.Flags().StringVar(&identity, "identity", "", "the trusted certificate identity (e.g. an email, or a GitHub Actions workflow-ref URI)")
@@ -122,7 +122,7 @@ func pluginTrustRemoveIdentityCommand(opts *options) *cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
 			opts.ran = true
-			return pkgtrust.RemoveIdentity(args[0], args[1])
+			return signing.RemoveIdentity(args[0], args[1])
 		},
 	}
 }

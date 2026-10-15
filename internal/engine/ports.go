@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/justenwalker/kevin/internal/container"
-	"github.com/justenwalker/kevin/internal/pluginhost"
+	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/runapi"
@@ -65,13 +65,13 @@ type hostRuntime interface {
 
 var (
 	_ hostRuntime  = container.Runtime(nil)
-	_ stepPlugin   = (*pluginhost.Client)(nil)
+	_ stepPlugin   = (*launcher.Client)(nil)
 	_ routeTable   = (*proxy.Proxy)(nil)
 	_ trafficRelay = (*relay.Relay)(nil)
 )
 
 // stepPlugins lifts launched plugin clients to the interface the run uses.
-func stepPlugins(clients map[string]*pluginhost.Client) map[string]stepPlugin {
+func stepPlugins(clients map[string]*launcher.Client) map[string]stepPlugin {
 	out := make(map[string]stepPlugin, len(clients))
 	for name, c := range clients {
 		out[name] = c

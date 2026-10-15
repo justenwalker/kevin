@@ -16,7 +16,7 @@ import (
 )
 
 // InsertPlugin merges snippet - CUE source shaped like
-// "plugins: <name>: {...}" (e.g. from pluginindex.Snippet) - into dir's
+// "plugins: <name>: {...}" (e.g. from index.Snippet) - into dir's
 // environment file (see [Load]) and writes it back, preserving the rest
 // of the file including comments.
 //

@@ -11,7 +11,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/internal/pluginhost"
+	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/runapi"
 	"github.com/justenwalker/kevin/internal/session"
@@ -85,7 +85,7 @@ func TestRerun(t *testing.T) {
 		r.steps["b"] = config.Step{Uses: config.StepRef{Plugin: "echo", Step: "echo"}, Needs: []config.Need{{Step: "a"}}}
 		require.NoError(t, r.registerScopeSteps(r.store))
 		r.state.Complete(map[string]output.Map{"a": nil, "b": nil})
-		r.caps = map[string]pluginhost.Info{"echo": {Steps: []pluginhost.StepInfo{{Name: "echo", Idempotent: true}}}}
+		r.caps = map[string]launcher.Info{"echo": {Steps: []launcher.StepInfo{{Name: "echo", Idempotent: true}}}}
 		plugin.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 			func(_ context.Context, req step.UpRequest, _ step.Events) (step.Result, error) {
 				if req.Step == "b" {

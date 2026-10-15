@@ -7,7 +7,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/mcpserver"
-	"github.com/justenwalker/kevin/internal/pluginhost"
+	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/step"
 )
 
@@ -24,7 +24,7 @@ type toolRoute struct {
 // referenced in steps that declares tools, namespaced
 // "<plugin>_<type>_<tool>". Returns the tool list alongside the route
 // each namespaced name resolves to.
-func collectTools(ctx context.Context, steps map[string]config.Step, caps map[string]pluginhost.Info) ([]mcpserver.ToolDef, map[string]toolRoute) {
+func collectTools(ctx context.Context, steps map[string]config.Step, caps map[string]launcher.Info) ([]mcpserver.ToolDef, map[string]toolRoute) {
 	routes := make(map[string]toolRoute)
 	var defs []mcpserver.ToolDef
 	for _, cfgStep := range steps {

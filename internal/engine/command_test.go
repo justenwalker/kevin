@@ -10,7 +10,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/internal/pluginhost"
+	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/step"
 )
 
@@ -34,7 +34,7 @@ func commandRun(t *testing.T, src string, plugin stepPlugin) *run {
 		steps:   cfg.Steps(config.ScopeEnv),
 		groups:  cfg.Groups(config.ScopeEnv),
 		plugins: map[string]stepPlugin{"echo": plugin},
-		caps: map[string]pluginhost.Info{"echo": {Steps: []pluginhost.StepInfo{
+		caps: map[string]launcher.Info{"echo": {Steps: []launcher.StepInfo{
 			{Name: "echo", Export: true}, {Name: "noexport"},
 		}}},
 		env:     step.Env{},

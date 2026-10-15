@@ -1,5 +1,5 @@
 // Package step defines the domain types the engine exchanges with a plugin.
-// internal/pluginhost converts them to and from the wire messages, so no
+// internal/launcher converts them to and from the wire messages, so no
 // other package needs the wire types for step traffic.
 package step
 

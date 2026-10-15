@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/cmd"
-	"github.com/justenwalker/kevin/internal/pkgtrust"
+	"github.com/justenwalker/kevin/internal/plugins/signing"
 )
 
 func TestPluginTrust(t *testing.T) {
@@ -55,13 +55,13 @@ func TestPluginTrust(t *testing.T) {
 		require.NoError(t, os.WriteFile(badPath, []byte("not a minisign key"), 0o600))
 
 		err := cmd.Run(t.Context(), []string{"plugin", "trust", "add", badPath})
-		require.ErrorIs(t, err, pkgtrust.ErrBadKey)
+		require.ErrorIs(t, err, signing.ErrBadKey)
 	})
 
 	t.Run("remove reports an unknown key", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		err := cmd.Run(t.Context(), []string{"plugin", "trust", "remove", "deadbeefdeadbeef"})
-		require.ErrorIs(t, err, pkgtrust.ErrUnknownKeyID)
+		require.ErrorIs(t, err, signing.ErrUnknownKeyID)
 	})
 
 	t.Run("add-identity/list/remove-identity round-trips an identity", func(t *testing.T) {
@@ -98,6 +98,6 @@ func TestPluginTrust(t *testing.T) {
 	t.Run("remove-identity reports an untrusted identity", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		err := cmd.Run(t.Context(), []string{"plugin", "trust", "remove-identity", "nobody@acme.example", "https://accounts.google.com"})
-		require.ErrorIs(t, err, pkgtrust.ErrIdentityUntrusted)
+		require.ErrorIs(t, err, signing.ErrIdentityUntrusted)
 	})
 }

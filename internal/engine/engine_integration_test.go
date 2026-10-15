@@ -21,7 +21,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/mcpserver"
-	"github.com/justenwalker/kevin/internal/pluginhost"
+	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/state"
@@ -886,7 +886,7 @@ env: a: {uses: "echo:echo", with: nonsense: true}
 		dir := configDir(t, proxyBlock(t)+"plugins: notecho: cmd: "+strconv.Quote(bin)+"\nenv: a: uses: \"notecho:echo\"\n")
 
 		err = runEnv(t, dir)
-		require.ErrorIs(t, err, pluginhost.ErrNameMismatch)
+		require.ErrorIs(t, err, launcher.ErrNameMismatch)
 		assert.Contains(t, err.Error(), "notecho")
 	})
 }

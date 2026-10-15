@@ -19,10 +19,10 @@ import (
 	"github.com/justenwalker/kevin/internal/engine"
 	"github.com/justenwalker/kevin/internal/logging"
 	"github.com/justenwalker/kevin/internal/mcpserver"
-	"github.com/justenwalker/kevin/internal/ocipkg"
-	"github.com/justenwalker/kevin/internal/pluginload"
-	"github.com/justenwalker/kevin/internal/pluginpkg"
 	"github.com/justenwalker/kevin/internal/plugins/builtin"
+	"github.com/justenwalker/kevin/internal/plugins/load"
+	"github.com/justenwalker/kevin/internal/plugins/pkg"
+	"github.com/justenwalker/kevin/internal/plugins/source/ocisrc"
 	"github.com/justenwalker/kevin/internal/runstate"
 	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/internal/step"
@@ -347,7 +347,7 @@ func initCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			names, err := pluginload.Fetch(cmd.Context(), pluginload.Options{Dir: opts.dir, Name: opts.name, Tags: opts.tags})
+			names, err := load.Fetch(cmd.Context(), load.Options{Dir: opts.dir, Name: opts.name, Tags: opts.tags})
 			if err != nil {
 				return err
 			}
@@ -372,7 +372,7 @@ func validateCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			loaded, err := pluginload.Load(cmd.Context(), pluginload.Options{
+			loaded, err := load.Load(cmd.Context(), load.Options{
 				Dir: opts.dir, Name: opts.name, Tags: opts.tags,
 				Vars: config.VariableInputs{File: opts.varFile, Set: opts.vars},
 			})
@@ -428,7 +428,7 @@ func pluginRunCommand(opts *options) *cobra.Command {
 func pluginPackCommand(opts *options) *cobra.Command {
 	var (
 		out         string
-		overlay     pluginpkg.Manifest
+		overlay     pkg.Manifest
 		manifestArg []string
 	)
 
@@ -444,7 +444,7 @@ func pluginPackCommand(opts *options) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.ran = true
 			overlay.Args = manifestArg
-			manifest, err := pluginpkg.Pack(args[0], out, overlay)
+			manifest, err := pkg.Pack(args[0], out, overlay)
 			if err != nil {
 				return err
 			}
@@ -482,7 +482,7 @@ func pluginPushCommand(opts *options) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.ran = true
 			ref, tarPath := args[1], args[0]
-			result, err := ocipkg.PushPackage(cmd.Context(), ref, tarPath)
+			result, err := ocisrc.PushPackage(cmd.Context(), ref, tarPath)
 			w := cmd.OutOrStdout()
 			if result.Digest != "" {
 				if _, werr := fmt.Fprintf(w, "%s@%s\n", ref, result.Digest); werr != nil {
@@ -506,7 +506,7 @@ func pluginPushCommand(opts *options) *cobra.Command {
 }
 
 // signHints are the commands that make the sibling signature file
-// [ocipkg.PushPackage] publishes, one per signature scheme.
+// [ocisrc.PushPackage] publishes, one per signature scheme.
 var signHints = []string{
 	"minisign -Sm %s",
 	"cosign sign-blob --bundle %[1]s.sigstore.json %[1]s",

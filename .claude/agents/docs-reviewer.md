@@ -78,7 +78,7 @@ only.
 - **Builtin step types** (`container`, `exec`, `fault`, `helm`, `kubernetes`,
   `kubectl`, `route`, `wait`) against `internal/plugins/builtin/*` directories.
 - **Plugin index format** in `reference/plugin-index.md` against
-  `internal/pluginindex/schema.cue`.
+  `internal/plugins/index/schema.cue`.
 - **`docs/GO_CONVENTIONS.md`** against `.golangci.yaml`'s exclusion
   comments. A GO-### rule whose linter backing changed needs rewording.
 - **gnob targets** named in AGENTS.md, README, or `contributing.md`

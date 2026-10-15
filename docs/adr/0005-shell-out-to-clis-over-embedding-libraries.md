@@ -18,7 +18,7 @@ their CLIs and parsing the output (JSON where the CLI supports it), not by
 importing their Go client libraries. `internal/container/docker` and
 `internal/container/podman` both shell out to their binary through the shared client in
 `internal/container/clirt` - the same rule, a second engine. The one deliberate exception is OCI registry access
-(`internal/ocipkg`), which imports `cuelabs.dev/go/oci/ociregistry` rather
+(`internal/plugins/source/ocisrc`), which imports `cuelabs.dev/go/oci/ociregistry` rather
 than shelling out to `docker pull` - see Consequences for why that one
 doesn't violate the rule.
 
@@ -68,7 +68,7 @@ environment from kevin's own process rather than a scoped child process.
 
 Every Docker/Kubernetes-facing package parses CLI text or JSON output
 instead of getting typed structs from a client library, and has to track
-CLI output-format stability itself. `internal/ocipkg`'s exception holds
+CLI output-format stability itself. `internal/plugins/source/ocisrc`'s exception holds
 because it costs no new dependency tree - `cuelabs.dev/go/oci/ociregistry`
 is already resolved transitively via `cuelang.org/go`'s own OCI-registry
 support - and a registry pull is a plain HTTP API, not a container-runtime

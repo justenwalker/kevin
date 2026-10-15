@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/pluginhost"
+	"github.com/justenwalker/kevin/internal/plugins/launcher"
 )
 
 // TestApplySchema proves applySchema catches a rendered with block that
@@ -17,8 +17,8 @@ import (
 // variable's, or a needs/setup-sourced one) is only known once it's
 // rendered - and fills in the schema's defaults for a plugin.
 func TestApplySchema(t *testing.T) {
-	caps := map[string]pluginhost.Info{
-		"myplugin": {Steps: []pluginhost.StepInfo{
+	caps := map[string]launcher.Info{
+		"myplugin": {Steps: []launcher.StepInfo{
 			{Name: "mystep", Schema: []byte(`#Config: {port: int, wait: string | *"5m"}`)},
 		}},
 	}
@@ -46,7 +46,7 @@ func TestApplySchema(t *testing.T) {
 	})
 
 	t.Run("an empty with block still gets the defaults", func(t *testing.T) {
-		r := &run{caps: map[string]pluginhost.Info{"myplugin": {Steps: []pluginhost.StepInfo{
+		r := &run{caps: map[string]launcher.Info{"myplugin": {Steps: []launcher.StepInfo{
 			{Name: "mystep", Schema: []byte(`#Config: {wait: string | *"5m"}`)},
 		}}}}
 		got, err := r.applySchema("app", config.Step{Uses: step.Uses}, nil)
@@ -55,7 +55,7 @@ func TestApplySchema(t *testing.T) {
 	})
 
 	t.Run("an unknown plugin passes the block through", func(t *testing.T) {
-		r := &run{caps: map[string]pluginhost.Info{}}
+		r := &run{caps: map[string]launcher.Info{}}
 		got, err := r.applySchema("app", step, json.RawMessage(`{"port":"not-an-int"}`))
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"port":"not-an-int"}`, string(got))

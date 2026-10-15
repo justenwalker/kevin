@@ -238,7 +238,7 @@ Test assertions use testify's `require`/`assert`, not raw `t.Fatalf`. `require` 
 **DO:**
 ```go
 func TestInfoChecksTheName(t *testing.T) {
-	client, err := pluginhost.Launch(t.Context(), "echo", pluginhost.Spec{Cmd: bin, Dir: t.TempDir()})
+	client, err := launcher.Launch(t.Context(), "echo", launcher.Spec{Cmd: bin, Dir: t.TempDir()})
 	require.NoError(t, err)
 	t.Cleanup(client.Close)
 
@@ -252,7 +252,7 @@ func TestInfoChecksTheName(t *testing.T) {
 **DO NOT:**
 ```go
 func TestInfoChecksTheName(t *testing.T) {
-	client, err := pluginhost.Launch(t.Context(), "echo", pluginhost.Spec{Cmd: bin, Dir: t.TempDir()})
+	client, err := launcher.Launch(t.Context(), "echo", launcher.Spec{Cmd: bin, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

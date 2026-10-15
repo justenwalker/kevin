@@ -7,7 +7,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/container/engines"
-	"github.com/justenwalker/kevin/internal/pluginload"
+	"github.com/justenwalker/kevin/internal/plugins/load"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/state"
 	"github.com/justenwalker/kevin/internal/termui"
@@ -16,7 +16,7 @@ import (
 // host is what Run and Teardown both need before they can touch a step: the
 // loaded environment with its plugins running, and the container runtime.
 type host struct {
-	pluginload.Loaded
+	load.Loaded
 
 	Runtime   hostRuntime
 	Workspace string
@@ -32,7 +32,7 @@ type host struct {
 // bootstrap started is already stopped.
 func bootstrap(ctx context.Context, opts Options) (*host, error) {
 	live := wantsLiveUI(ctx, opts)
-	loaded, err := pluginload.Load(ctx, pluginload.Options{
+	loaded, err := load.Load(ctx, load.Options{
 		Dir: opts.Dir, Name: opts.Name, Tags: opts.Tags,
 		Vars: config.VariableInputs{File: opts.VarFile, Set: opts.Vars},
 	})

@@ -15,7 +15,7 @@ graph TD
     ENG[engine]
     CFG["Config"]
     DAG["DAG engine"]
-    HOST[pluginhost]
+    HOST[launcher]
     CON[console]
     CA["CA"]
     MCPN[MCP server]

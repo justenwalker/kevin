@@ -28,7 +28,7 @@ import (
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/container"
 	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/internal/pluginhost"
+	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/relay/relaytest"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/state"
@@ -317,7 +317,7 @@ func TestExportCrossScopeStepRetriesAfterFailure(t *testing.T) {
 	r := &run{
 		cfg:     &config.Config{Setup: map[string]config.Step{"cluster": {Uses: config.StepRef{Plugin: "echo", Step: "echo"}}}},
 		plugins: map[string]stepPlugin{"echo": plugin},
-		caps:    map[string]pluginhost.Info{"echo": {Steps: []pluginhost.StepInfo{{Name: "echo", Export: true}}}},
+		caps:    map[string]launcher.Info{"echo": {Steps: []launcher.StepInfo{{Name: "echo", Export: true}}}},
 		env:     step.Env{},
 	}
 

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/internal/pluginhost"
+	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/step"
 )
@@ -18,7 +18,7 @@ func TestDownStep(t *testing.T) {
 	newDownRun := func(t *testing.T, plugin stepPlugin, routes routeTable, down bool) *run {
 		t.Helper()
 		r := newUpRun(t, plugin, routes, newMocktrafficRelay(t))
-		r.caps = map[string]pluginhost.Info{"echo": {Steps: []pluginhost.StepInfo{{Name: "echo", Down: down}}}}
+		r.caps = map[string]launcher.Info{"echo": {Steps: []launcher.StepInfo{{Name: "echo", Down: down}}}}
 		return r
 	}
 	stateOf := func(r *run) session.State { return r.store.Snapshot().Steps[0].State }

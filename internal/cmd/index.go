@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/justenwalker/kevin/internal/pluginindex"
+	"github.com/justenwalker/kevin/internal/plugins/index"
 )
 
 // pluginIndexCommand groups the subcommands that manage the local cache of
@@ -34,7 +34,7 @@ func pluginIndexAddCommand(opts *options) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.ran = true
-			res, err := pluginindex.AddSource(cmd.Context(), args[0], alias)
+			res, err := index.AddSource(cmd.Context(), args[0], alias)
 			if err != nil {
 				return err
 			}
@@ -52,7 +52,7 @@ func pluginIndexListCommand(opts *options) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			sources, err := pluginindex.ListSources()
+			sources, err := index.ListSources()
 			if err != nil {
 				return err
 			}
@@ -74,7 +74,7 @@ func pluginIndexRemoveCommand(opts *options) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			opts.ran = true
-			return pluginindex.RemoveSource(args[0])
+			return index.RemoveSource(args[0])
 		},
 	}
 }
@@ -86,7 +86,7 @@ func pluginIndexUpdateCommand(opts *options) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			results, err := pluginindex.Update(cmd.Context())
+			results, err := index.Update(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -120,7 +120,7 @@ func pluginIndexShowCommand(opts *options) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.ran = true
-			catalog, err := pluginindex.LoadAll(cmd.Context())
+			catalog, err := index.LoadAll(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -141,11 +141,11 @@ func pluginIndexShowCommand(opts *options) *cobra.Command {
 // resolvePluginVersion finds the exact version string in p.Versions, or
 // p.Latest() when version is empty. It matches version exactly, with no
 // fuzzy matching.
-func resolvePluginVersion(p pluginindex.Plugin, version string) (pluginindex.Version, error) {
+func resolvePluginVersion(p index.Plugin, version string) (index.Version, error) {
 	if version == "" {
 		v, ok := p.Latest()
 		if !ok {
-			return pluginindex.Version{}, fmt.Errorf("cmd: %s: %w", p.Name, pluginindex.ErrVersionNotFound)
+			return index.Version{}, fmt.Errorf("cmd: %s: %w", p.Name, index.ErrVersionNotFound)
 		}
 		return v, nil
 	}
@@ -154,16 +154,16 @@ func resolvePluginVersion(p pluginindex.Plugin, version string) (pluginindex.Ver
 			return v, nil
 		}
 	}
-	return pluginindex.Version{}, fmt.Errorf("cmd: %s@%s: %w", p.Name, version, pluginindex.ErrVersionNotFound)
+	return index.Version{}, fmt.Errorf("cmd: %s@%s: %w", p.Name, version, index.ErrVersionNotFound)
 }
 
 // printVersionSnippet prints exactly one version's pasteable snippet.
-func printVersionSnippet(cmd *cobra.Command, p pluginindex.Plugin, version string) error {
+func printVersionSnippet(cmd *cobra.Command, p index.Plugin, version string) error {
 	v, err := resolvePluginVersion(p, version)
 	if err != nil {
 		return err
 	}
-	snippet, err := pluginindex.Snippet(v, p.Name)
+	snippet, err := index.Snippet(v, p.Name)
 	if err != nil {
 		return err
 	}
@@ -175,7 +175,7 @@ func printVersionSnippet(cmd *cobra.Command, p pluginindex.Plugin, version strin
 
 // printPluginShow prints p's metadata, every known version (newest first),
 // and the latest version's pasteable snippet.
-func printPluginShow(cmd *cobra.Command, p pluginindex.Plugin) error {
+func printPluginShow(cmd *cobra.Command, p index.Plugin) error {
 	w := cmd.OutOrStdout()
 	if _, err := fmt.Fprintf(w, "name\t%s\n", p.Name); err != nil {
 		return fmt.Errorf("cmd: index show: %w", err)
@@ -220,7 +220,7 @@ func printPluginShow(cmd *cobra.Command, p pluginindex.Plugin) error {
 // printSourceResult prints one source's alias, URL, and plugin count,
 // followed by any warnings - the shared output shape "index add" and
 // "index update" both print for a successfully synced source.
-func printSourceResult(cmd *cobra.Command, src pluginindex.Source, plugins int, warnings []string) error {
+func printSourceResult(cmd *cobra.Command, src index.Source, plugins int, warnings []string) error {
 	w := cmd.OutOrStdout()
 	if _, err := fmt.Fprintf(w, "ok\t%s\t%s\t%d plugins\n", src.Alias, src.URL, plugins); err != nil {
 		return fmt.Errorf("cmd: index: %w", err)
@@ -246,7 +246,7 @@ func pluginIndexInstallCommand(opts *options) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.ran = true
-			catalog, err := pluginindex.LoadAll(cmd.Context())
+			catalog, err := index.LoadAll(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -259,7 +259,7 @@ func pluginIndexInstallCommand(opts *options) *cobra.Command {
 				return err
 			}
 
-			result, installErr := pluginindex.Install(pluginindex.InstallRequest{
+			result, installErr := index.Install(index.InstallRequest{
 				Plugin: p, Version: v, Dir: opts.dir, Name: opts.name, NoTrust: noTrust,
 			})
 			w := cmd.OutOrStdout()
@@ -297,7 +297,7 @@ func pluginSearchCommand(opts *options) *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.ran = true
-			catalog, err := pluginindex.LoadAll(cmd.Context())
+			catalog, err := index.LoadAll(cmd.Context())
 			if err != nil {
 				return err
 			}

@@ -17,7 +17,7 @@ import (
 	"github.com/justenwalker/kevin/internal/cmd"
 	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/gittest"
-	"github.com/justenwalker/kevin/internal/pluginindex"
+	"github.com/justenwalker/kevin/internal/plugins/index"
 )
 
 func TestMain(m *testing.M) {
@@ -102,7 +102,7 @@ func TestPluginIndex(t *testing.T) {
 	t.Run("remove reports an unknown source", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		err := cmd.Run(t.Context(), []string{"plugin", "index", "remove", "nope"})
-		require.ErrorIs(t, err, pluginindex.ErrUnknownSource)
+		require.ErrorIs(t, err, index.ErrUnknownSource)
 	})
 
 	t.Run("update isolates one broken source from another that succeeds", func(t *testing.T) {
@@ -157,13 +157,13 @@ func TestPluginIndex(t *testing.T) {
 		require.NoError(t, cmd.Run(t.Context(), []string{"plugin", "index", "add", url, "--as", "demo-repo"}))
 
 		err := cmd.Run(t.Context(), []string{"plugin", "index", "show", "demo", "--version", "9.9.9"})
-		require.ErrorIs(t, err, pluginindex.ErrVersionNotFound)
+		require.ErrorIs(t, err, index.ErrVersionNotFound)
 	})
 
 	t.Run("show reports an unknown plugin", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		err := cmd.Run(t.Context(), []string{"plugin", "index", "show", "nope"})
-		require.ErrorIs(t, err, pluginindex.ErrPluginNotFound)
+		require.ErrorIs(t, err, index.ErrPluginNotFound)
 	})
 }
 

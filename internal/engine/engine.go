@@ -28,7 +28,7 @@ import (
 	"github.com/justenwalker/kevin/internal/logging"
 	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/internal/pluginhost"
+	"github.com/justenwalker/kevin/internal/plugins/launcher"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/relay"
 	"github.com/justenwalker/kevin/internal/session"
@@ -564,7 +564,7 @@ type run struct {
 	steps      map[string]config.Step
 	groups     map[string]config.Group
 	plugins    map[string]stepPlugin
-	caps       map[string]pluginhost.Info
+	caps       map[string]launcher.Info
 	env        step.Env
 	project    map[string]string
 	relay      trafficRelay

@@ -20,7 +20,7 @@ the same way `internal/container/clirt`, `internal/command/kubectl`, and `intern
 already do for their own external tools (see ADR-0005). Signing itself stays
 a manual step the user runs with the `cosign` CLI directly - `kevin plugin
 push` only detects and uploads whatever signature file is already there
-(see [`internal/ocipkg`](../../internal/ocipkg/ocipkg.go)'s
+(see [`internal/plugins/source/ocisrc`](../../internal/plugins/source/ocisrc/ocipkg.go)'s
 `PushPackage`) - extending the same principle that keeps
 minisign key material out of kevin's own binary to cover OIDC tokens and
 Fulcio-issued certificates too.
@@ -29,7 +29,7 @@ Fulcio-issued certificates too.
 
 ADR-0005 already rejects embedding Docker's and `kind`'s Go libraries for
 pulling in a dependency tree kevin has no other reason to carry, with one
-narrow exception: `internal/ocipkg`'s import of `cuelabs.dev/go/oci/ociregistry`,
+narrow exception: `internal/plugins/source/ocisrc`'s import of `cuelabs.dev/go/oci/ociregistry`,
 justified because that module costs no *new* dependency tree - it's already
 resolved transitively via `cuelang.org/go`'s own OCI-registry support - and
 a registry pull is a plain HTTP API. `sigstore-go`/`cosign` as a library

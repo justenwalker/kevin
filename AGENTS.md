@@ -356,7 +356,7 @@ Key model to hold in your head when changing any of this:
   through a `command.Runner`. A caller declares the interface of the `Client`
   methods it uses, and its tests mock that with mockery (`.mockery.yml`;
   `go tool -modfile=tools.mod mockery`).
-  OCI registry access (`internal/ocipkg`) is the exception that proves the
+  OCI registry access (`internal/plugins/source/ocisrc`) is the exception that proves the
   rule: it imports `cuelabs.dev/go/oci/ociregistry` rather than shelling out
   to `docker pull`, but that costs no new dependency tree - the module is
   already resolved transitively via `cuelang.org/go`'s own OCI-registry
@@ -368,17 +368,17 @@ Key model to hold in your head when changing any of this:
 No package clause. `project`, `env` (map of steps), optional `plugins` (map
 keyed by plugin name, entries have `cmd`, `file`, `oci`, or `http` - the
 sources kevin implements; `file` names a tar package
-(`internal/pluginpkg`), `oci` names the same package fetched from an OCI
-registry (`internal/ocipkg`), `http` names the same package fetched over a
-plain URL (`internal/httppkg`) - `oci` and `http` share one
-content-addressed cache (`internal/pkgcache`) - all extracted into the
+(`internal/plugins/pkg`), `oci` names the same package fetched from an OCI
+registry (`internal/plugins/source/ocisrc`), `http` names the same package fetched over a
+plain URL (`internal/plugins/source/httpsrc`) - `oci` and `http` share one
+content-addressed cache (`internal/plugins/source/cache`) - all extracted into the
 project workspace and launched exactly like `cmd`. A `file`/`oci`/`http`
 entry can also set `signing` (never `cmd`, which is a local binary kevin
 already trusts by construction), under one of two schemes.
 `signing: {scheme: "minisign"}` requires a detached minisign signature
 alongside the package - a sibling `.minisig` file for `file`/`http`, or an
 OCI artifact at a cosign-style fallback tag for `oci` - verified against
-the local trust store (`~/.kevin/trusted-keys`, `internal/pkgtrust`),
+the local trust store (`~/.kevin/trusted-keys`, `internal/plugins/signing`),
 managed with `kevin plugin trust add`/`list`/`remove`.
 `signing: {scheme: "sigstore", identity:, issuer:}` requires a sigstore
 (cosign) keyless bundle the same way (a sibling `.sigstore.json`, or the
@@ -390,7 +390,7 @@ add-identity`/`remove-identity`) since an inline `identity`/`issuer` in
 package from a directory and `kevin plugin push` publishes one (plus its
 `.minisig`/`.sigstore.json` sibling, if present) to an OCI registry. Every
 plugin fetch and signature verification - both schemes - runs in
-`pluginload.Load` before `startProxy` (`internal/engine`'s `Run`),
+`load.Load` before `startProxy` (`internal/engine`'s `Run`),
 so it's unproxied host traffic, out of scope for `proxy: egress: deny`. An
 optional `config` block is delivered once via `Configure`). See
 [docs/site/content/docs/reference/environment-file.md](docs/site/content/docs/reference/environment-file.md)
