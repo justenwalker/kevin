@@ -3,7 +3,7 @@ package config
 import (
 	"fmt"
 
-	"github.com/justenwalker/kevin/internal/expr"
+	"github.com/justenwalker/kevin/internal/config/expr"
 	"github.com/justenwalker/kevin/internal/statedir"
 )
 

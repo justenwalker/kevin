@@ -9,7 +9,7 @@ of data alongside `error`: what a step published when it came up (outputs,
 routes, exposed ports, egress allowlist), what a step exports for a
 cross-scope consumer, what an MCP tool call returned. Each of these could
 be a growing list of positional return values, or a single named struct.
-`Render`'s helper in `internal/expr` hit this directly: its positional
+`Render`'s helper in `internal/config/expr` hit this directly: its positional
 argument list grew to four (`deps, system, setupDeps`, then `project`)
 before being replaced with a named `expr.Scopes` struct.
 
@@ -67,7 +67,7 @@ results, and a fifth field means editing every call site's positional
 list, not just the struct literal that builds it.
 
 A second example, at a function-argument level rather than a return value:
-`internal/expr`'s `Render` had a positional argument list that grew to four
+`internal/config/expr`'s `Render` had a positional argument list that grew to four
 (`deps`, `system`, `setupDeps`, then `project`, in commit 049afe1) before
 being replaced with `expr.Scopes`, a named struct, so the caller-supplied
 values are named rather than positional on the way in too - the same

@@ -36,7 +36,7 @@ A typed field lets the compiler catch a caller passing the wrong thing,
 where an untyped map or a positional argument list only surfaces the
 mistake by way of a wrong value silently flowing through.
 
-**DO** (`internal/expr/expr.go`, `feat(config): validate needs.<step>/
+**DO** (`internal/config/expr/expr.go`, `feat(config): validate needs.<step>/
 setup.<name> references statically`, c96b20c):
 ```go
 // ReferencedSteps reports every step name that raw's "${...}" markers

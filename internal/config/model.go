@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/justenwalker/kevin/internal/expr"
+	"github.com/justenwalker/kevin/internal/config/expr"
 )
 
 // Builtin is the plugin name that resolves to kevin's builtin step types.

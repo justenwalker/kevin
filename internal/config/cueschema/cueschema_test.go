@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/cueschema"
+	"github.com/justenwalker/kevin/internal/config/cueschema"
 )
 
 const testSchema = `#Config: {

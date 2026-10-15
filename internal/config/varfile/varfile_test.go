@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/justenwalker/kevin/internal/varfile"
+	"github.com/justenwalker/kevin/internal/config/varfile"
 )
 
 func TestParse(t *testing.T) {

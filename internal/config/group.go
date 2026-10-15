@@ -11,7 +11,7 @@ import (
 	"cuelang.org/go/cue"
 	cueerrors "cuelang.org/go/cue/errors"
 
-	"github.com/justenwalker/kevin/internal/expr"
+	"github.com/justenwalker/kevin/internal/config/expr"
 )
 
 // GroupMemberSep joins a group's own name to a member's bare name for the

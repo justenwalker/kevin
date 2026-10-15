@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/justenwalker/kevin/internal/cueschema"
+	"github.com/justenwalker/kevin/internal/config/cueschema"
 )
 
 const (

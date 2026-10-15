@@ -7,7 +7,7 @@ import (
 
 	"cuelang.org/go/cue"
 
-	"github.com/justenwalker/kevin/internal/expr"
+	"github.com/justenwalker/kevin/internal/config/expr"
 )
 
 // unifyDeferred unifies schema with with, deferring a concreteness check on

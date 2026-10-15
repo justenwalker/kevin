@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/justenwalker/kevin/internal/config"
-	"github.com/justenwalker/kevin/internal/cueschema"
-	"github.com/justenwalker/kevin/internal/expr"
+	"github.com/justenwalker/kevin/internal/config/cueschema"
+	"github.com/justenwalker/kevin/internal/config/expr"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/plugins/launcher"
 )

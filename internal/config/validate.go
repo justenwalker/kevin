@@ -14,7 +14,7 @@ import (
 	"cuelang.org/go/cue"
 	cueerrors "cuelang.org/go/cue/errors"
 
-	"github.com/justenwalker/kevin/internal/expr"
+	"github.com/justenwalker/kevin/internal/config/expr"
 )
 
 // Validate checks the config file for validity against the given set of plugin schemas.
@@ -216,7 +216,7 @@ func parseTemplate(scopeName, step, field string, raw json.RawMessage) (*expr.Te
 
 // validateNeedsReferences checks that every "needs.<step>..." and
 // "setup.<step>..." reference inside raw's "${...}" markers names a step
-// that needs actually declares - the same rule internal/expr's renderer
+// that needs actually declares - the same rule internal/config/expr's renderer
 // enforces at Up time ("no such key"), caught here statically instead: both
 // facts (which steps a block references, and which steps a needs list
 // declares) already sit in the parsed file, no plugin process or Docker
