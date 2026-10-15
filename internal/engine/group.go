@@ -92,7 +92,7 @@ func (r *run) registerScopeSteps(store *session.Store) error {
 	// read roughly as installation order, a dependency after what it needs.
 	for _, name := range r.graph().TopoSort() {
 		if grp, ok := r.groups[name]; ok {
-			store.AddStep(session.Step{Name: name, Label: grp.Label, Kind: "group", Needs: config.NeedStrings(grp.Needs), IsGroup: true})
+			store.AddStep(session.Step{Name: name, Label: grp.Label, Kind: "group", Needs: grp.Needs, IsGroup: true})
 			// A group is a pure recompute, always safe to sweep into a
 			// cascading rerun.
 			store.SetStepIdempotent(name, true)
@@ -124,7 +124,7 @@ func (r *run) registerScopeSteps(store *session.Store) error {
 		}
 		store.AddStep(session.Step{
 			Name: name, Label: label, Kind: kindLabel, Provider: ref.Plugin,
-			Icon: r.caps[ref.Plugin].Icon, Needs: config.NeedStrings(needs),
+			Icon: r.caps[ref.Plugin].Icon, Needs: needs,
 			Compact: isCompactStep(kindLabel, ref.Plugin, ref.Step), Group: group,
 		})
 		store.SetStepIdempotent(name, stepIdempotent(r.caps[ref.Plugin], ref.Step))
@@ -142,7 +142,7 @@ func (r *run) upGroup(ctx context.Context, name string, grp config.Group, deps m
 	for _, member := range grp.Members {
 		memberOutputs[member] = deps[config.MemberName(name, member)]
 	}
-	outputs, err := evalGroupOutputs(name, grp.Outputs, memberOutputs)
+	outputs, err := evalGroupOutputs(name, grp, memberOutputs)
 	if err != nil {
 		r.reportUpFailure(ctx, name, err)
 		return nil, err
@@ -167,7 +167,7 @@ func (r *run) doExportCrossScopeGroup(ctx context.Context, name string, grp conf
 		}
 		memberOutputs[member] = exported.Outputs
 	}
-	outputs, err := evalGroupOutputs(name, grp.Outputs, memberOutputs)
+	outputs, err := evalGroupOutputs(name, grp, memberOutputs)
 	if err != nil {
 		return exportedStep{}, err
 	}
@@ -181,16 +181,12 @@ func (r *run) doExportCrossScopeGroup(ctx context.Context, name string, grp conf
 // "${needs.<member>.out.<key>}" block) against memberOutputs, the same
 // expr.Template machinery a step's own with block uses - a group's members
 // are simply upstream from the group's own perspective.
-func evalGroupOutputs(name string, outputs map[string]string, memberOutputs map[string]output.Map) (output.Map, error) {
-	if len(outputs) == 0 {
+func evalGroupOutputs(name string, grp config.Group, memberOutputs map[string]output.Map) (output.Map, error) {
+	if len(grp.Outputs) == 0 {
 		return output.Map{}, nil
 	}
 
-	raw, err := json.Marshal(outputs)
-	if err != nil {
-		return nil, fmt.Errorf("%s: outputs: %w", name, err)
-	}
-	tpl, err := expr.Parse(raw)
+	tpl, err := grp.OutputsTemplate()
 	if err != nil {
 		return nil, fmt.Errorf("%s: outputs: %w", name, err)
 	}
@@ -206,15 +202,7 @@ func evalGroupOutputs(name string, outputs map[string]string, memberOutputs map[
 
 	out := make(output.Map, len(result))
 	for k, v := range result {
-		field, err := json.Marshal(outputs[k])
-		if err != nil {
-			return nil, fmt.Errorf("%s: outputs: %s: %w", name, k, err)
-		}
-		fieldTpl, err := expr.Parse(field)
-		if err != nil {
-			return nil, fmt.Errorf("%s: outputs: %s: %w", name, k, err)
-		}
-		out[k] = output.Value{String: v, Sensitive: fieldTpl.Sensitive(scopes, nil)}
+		out[k] = output.Value{String: v, Sensitive: tpl.FieldSensitive(k, scopes, nil)}
 	}
 	return out, nil
 }

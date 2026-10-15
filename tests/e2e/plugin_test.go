@@ -142,8 +142,8 @@ func (s *PluginSuite) TestOCISourceTrustsThePluginCAFile() {
 	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
 	s.Require().NoError(os.WriteFile(caPath, caPEM, 0o600))
 
-	home := s.T().TempDir()
-	baseEnv := []string{"KEVIN_PLUGIN_CA_FILE=", "HOME=" + home, "KEVIN_USER_STATE_DIR=" + filepath.Join(home, ".kevin")}
+	stateDir := s.T().TempDir()
+	baseEnv := []string{"KEVIN_PLUGIN_CA_FILE=", "KEVIN_USER_STATE_DIR=" + stateDir}
 	trustedEnv := append(slices.Clone(baseEnv), "KEVIN_PLUGIN_CA_FILE="+caPath)
 
 	host := strings.TrimPrefix(srv.URL, "https://")
@@ -202,8 +202,8 @@ func (s *PluginSuite) TestPushPublishesTheSignatureSibling() {
 	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
 	s.Require().NoError(os.WriteFile(caPath, caPEM, 0o600))
 
-	home := s.T().TempDir()
-	env := []string{"KEVIN_PLUGIN_CA_FILE=" + caPath, "HOME=" + home, "KEVIN_USER_STATE_DIR=" + filepath.Join(home, ".kevin")}
+	stateDir := s.T().TempDir()
+	env := []string{"KEVIN_PLUGIN_CA_FILE=" + caPath, "KEVIN_USER_STATE_DIR=" + stateDir}
 
 	pkg := filepath.Join(s.T().TempDir(), "echo.tar.gz")
 	data, err := os.ReadFile(s.tarball)
@@ -223,8 +223,8 @@ func (s *PluginSuite) TestPushPublishesTheSignatureSibling() {
 // key, a tampered package and a missing .minisig.
 func (s *PluginSuite) TestMinisignSigningFailsClosed() {
 	require := s.Require()
-	home := s.T().TempDir()
-	env := []string{"HOME=" + home, "KEVIN_USER_STATE_DIR=" + filepath.Join(home, ".kevin")}
+	stateDir := s.T().TempDir()
+	env := []string{"KEVIN_USER_STATE_DIR=" + stateDir}
 
 	pkgDir := s.T().TempDir()
 	pkg := filepath.Join(pkgDir, "echo.tar.gz")

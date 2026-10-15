@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -154,9 +153,9 @@ func (s *ProxySuite) TestPACFileRoutesChrome() {
 	_, port, err := net.SplitHostPort(strings.TrimPrefix(direct.URL, "http://"))
 	s.Require().NoError(err)
 
-	home := s.T().TempDir()
+	stateDir := s.T().TempDir()
 	dir := s.project("kevin-e2e-proxy-pac", webCUE)
-	p := s.startKevinWithEnv(dir, []string{"HOME=" + home, "KEVIN_USER_STATE_DIR=" + filepath.Join(home, ".kevin")},
+	p := s.startKevinWithEnv(dir, []string{"KEVIN_USER_STATE_DIR=" + stateDir},
 		"-C", dir, "run")
 	s.waitFor(p, stepLine("web_route", "ready"), defaultTimeout)
 	var proxyAddr string
@@ -243,7 +242,7 @@ func (s *ProxySuite) testEgressPolicy(egressCUE, project string) {
 	s.writeCUE(dir, proxyBlock(s.T())+src)
 	s.cleanupProject(project)
 
-	p := s.startKevin(dir, "-C", dir, "run")
+	p := s.startKevinWithEnv(dir, []string{"KEVIN_USER_STATE_DIR=" + s.T().TempDir()}, "-C", dir, "run")
 	// no step reaches ready in this project - it's proxy-only - so wait for
 	// the address lines instead.
 	s.waitFor(p, "proxy    http://", defaultTimeout)
@@ -256,11 +255,12 @@ func (s *ProxySuite) testEgressPolicy(egressCUE, project string) {
 	}
 	s.Require().NotEmpty(proxyAddr)
 
-	proxyURL, err := url.Parse("http://" + proxyAddr)
+	pemData, err := os.ReadFile(filepath.Join(dir, ".kevin", "root.crt"))
 	s.Require().NoError(err)
-	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
+	rootCAs := x509.NewCertPool()
+	s.Require().True(rootCAs.AppendCertsFromPEM(pemData), "root.crt must parse as PEM")
 
-	resp := httpGet(s.T(), client, "https://example.com/")
+	resp := httpGet(s.T(), proxyHTTPClient(proxyAddr, rootCAs), "https://example.com/")
 	defer resp.Body.Close() //nolint:errcheck // read-only response body
 	s.NotEqual(http.StatusForbidden, resp.StatusCode, "the egress policy must let this host through")
 

@@ -1698,3 +1698,39 @@ setup: {
 		})
 	}
 }
+
+func TestWithTemplate(t *testing.T) {
+	f := load(t, `
+plugins: echo: cmd: "echo"
+env: web: {uses: "echo:echo", with: image: "${vars.tag}"}
+variables: tag: default: "x"
+`)
+	require.NoError(t, f.Validate(offers("echo", "echo")))
+
+	first, err := f.Config()
+	require.NoError(t, err)
+	second, err := f.Config()
+	require.NoError(t, err)
+
+	a, err := first.Env["web"].WithTemplate()
+	require.NoError(t, err)
+	b, err := second.Env["web"].WithTemplate()
+	require.NoError(t, err)
+	assert.Same(t, a, b, "every decode of a File shares one parsed template")
+	assert.Equal(t, []string{"tag"}, a.Refs().Vars)
+
+	first.Env["extra"] = config.Step{}
+	assert.NotContains(t, second.Env, "extra", "a Config owns its step map")
+}
+
+func TestPluginsOwnsItsMap(t *testing.T) {
+	f := load(t, `plugins: echo: cmd: "echo"`)
+
+	first, err := f.Plugins()
+	require.NoError(t, err)
+	delete(first, "echo")
+
+	second, err := f.Plugins()
+	require.NoError(t, err)
+	assert.Contains(t, second, "echo")
+}

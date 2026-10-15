@@ -47,7 +47,7 @@ func (r *run) planUp(ctx context.Context, name string, deps map[string]output.Ma
 	schemaSensitive, schemaErr := sensitiveWithFields(stepSchema(r.caps[ref.Plugin], ref.Step))
 	if schemaErr != nil {
 		r.emit(name, "warning: inputs: "+uerr.Display(schemaErr))
-	} else if rows, rowsErr := inputRows(cfgStep.With, with, r.scopesFor(name, deps, setupDeps), schemaSensitive, r.cfg.SensitiveVariables()); rowsErr != nil {
+	} else if rows, rowsErr := inputRows(cfgStep, with, r.scopesFor(name, deps, setupDeps), schemaSensitive, r.cfg.SensitiveVariables()); rowsErr != nil {
 		r.emit(name, "warning: inputs: "+uerr.Display(rowsErr))
 	} else {
 		r.store.SetStepInputs(name, rows)

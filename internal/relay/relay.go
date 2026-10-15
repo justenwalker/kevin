@@ -30,6 +30,7 @@ import (
 	"google.golang.org/grpc/credentials"
 
 	"github.com/justenwalker/kevin/internal/ca"
+	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/step"
 	"github.com/justenwalker/kevin/internal/version"
@@ -141,9 +142,9 @@ type Options struct {
 	// Image is the relay image to run. Call [Ref] to resolve it.
 	Image string
 
-	// Scope is which DAG started this relay ("setup" or "env"), recorded
-	// as the "kevin.scope" label. A reused container keeps its original.
-	Scope string
+	// Scope is which DAG started this relay, recorded as the "kevin.scope"
+	// label. A reused container keeps its original.
+	Scope config.Scope
 
 	// Authority signs the relay's control-channel server certificate, and
 	// the client certificate Start uses to call it - both leaves off the
@@ -255,7 +256,7 @@ func create(ctx context.Context, client cri.Containers, name string, opts Option
 		Labels: map[string]string{
 			cri.LabelProject: opts.Project,
 			cri.LabelRole:    Role,
-			cri.LabelScope:   cri.ScopeLabel(opts.Project, opts.Scope),
+			cri.LabelScope:   cri.ScopeLabel(opts.Project, opts.Scope.String()),
 			domainLabel:      opts.Domain,
 			proxyAddrLabel:   opts.ProxyAddr,
 		},

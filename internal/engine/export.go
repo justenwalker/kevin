@@ -104,7 +104,7 @@ func (r *run) doExportStep(ctx context.Context, scope config.Scope, name string)
 		}
 		setupDeps = cross.Outputs
 	}
-	tpl, err := expr.Parse(cfgStep.With)
+	tpl, err := cfgStep.WithTemplate()
 	if err != nil {
 		return exportedStep{}, fmt.Errorf("%s step %q: %w", scope, name, err)
 	}

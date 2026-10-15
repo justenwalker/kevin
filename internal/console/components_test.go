@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/justenwalker/kevin/internal/browser"
+	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/session"
 )
 
@@ -80,7 +81,7 @@ func TestStepItemKinds(t *testing.T) {
 		},
 		{
 			name: "a step that reads setup outputs names them",
-			step: session.Step{Name: "web", Label: "web", Needs: []string{"db", "setup.cluster"}},
+			step: session.Step{Name: "web", Label: "web", Needs: []config.Need{{Step: "db"}, {Setup: true, Step: "cluster"}}},
 			want: []string{"reads setup: cluster", `data-needs="db"`},
 		},
 		{
@@ -116,7 +117,7 @@ func TestStepItemKinds(t *testing.T) {
 
 func TestGroupItem(t *testing.T) {
 	t.Run("renders the header, the badge and every member", func(t *testing.T) {
-		group := session.Step{Name: "infra", Label: "infra", IsGroup: true, State: session.Failed, Message: "member failed", Needs: []string{"setup.cluster"}}
+		group := session.Step{Name: "infra", Label: "infra", IsGroup: true, State: session.Failed, Message: "member failed", Needs: []config.Need{{Setup: true, Step: "cluster"}}}
 		members := []session.Step{{Name: "db", Label: "db"}, {Name: "cache", Label: "cache", Compact: true}}
 
 		body := renderString(t, GroupItem(group, members))

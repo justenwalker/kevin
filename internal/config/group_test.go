@@ -86,6 +86,13 @@ env: db: {
 		groups := cfg.Groups(config.ScopeEnv)
 		require.Contains(t, groups, "db")
 		assert.Equal(t, map[string]string{"addr": "${needs.primary.out.address}"}, groups["db"].Outputs)
+
+		tpl, err := groups["db"].OutputsTemplate()
+		require.NoError(t, err)
+		assert.Equal(t, []string{"primary"}, tpl.Refs().Needs)
+		again, err := groups["db"].OutputsTemplate()
+		require.NoError(t, err)
+		assert.Same(t, tpl, again, "the group parses its outputs once")
 	})
 
 	t.Run("outputs referencing an undeclared member fails statically", func(t *testing.T) {

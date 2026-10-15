@@ -643,18 +643,51 @@ func TestEmitterIgnoresASendFailure(t *testing.T) {
 }
 
 func TestEmitterConcurrentUse(t *testing.T) {
-	// Run with -race: unguarded Sends would race on fakeStream.events.
-	stream := &fakeStream{}
-	e := &emitter{stream: stream}
-	var wg sync.WaitGroup
-	for range 8 {
-		wg.Go(func() {
-			e.Log("stdout", "line")
-			e.Progress("step", 1, 2)
-		})
-	}
-	wg.Wait()
-	assert.Len(t, stream.events, 16)
+	t.Run("serializes concurrent log and progress events", func(t *testing.T) {
+		// Run with -race: unguarded Sends would race on fakeStream.events.
+		stream := &fakeStream{}
+		e := &emitter{stream: stream}
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Go(func() {
+				e.Log("stdout", "line")
+				e.Progress("step", 1, 2)
+			})
+		}
+		wg.Wait()
+		assert.Len(t, stream.events, 16)
+	})
+
+	t.Run("sends the result under the emitter lock while a step still logs", func(t *testing.T) {
+		stop := make(chan struct{})
+		var logging sync.WaitGroup
+		impl := NewMockStep(t)
+		impl.EXPECT().Up(mock.Anything, mock.Anything, mock.Anything).
+			Run(func(_ context.Context, _ *UpRequest, out Emitter) {
+				started := make(chan struct{})
+				logging.Go(func() {
+					close(started)
+					for {
+						select {
+						case <-stop:
+							return
+						default:
+							out.Log("stdout", "still going")
+						}
+					}
+				})
+				<-started
+			}).
+			Return(&Result{}, nil)
+		srv := &server{provider: Plugin{Steps: map[string]Step{"widget": impl}}}
+		stream := &fakeStream{}
+
+		require.NoError(t, srv.Up(&pb.UpRequest{Step: "a", Type: "widget"}, stream))
+		close(stop)
+		logging.Wait()
+
+		assert.NotEmpty(t, stream.events)
+	})
 }
 
 // fakeStream collects the events that the server sends. The gRPC transport is

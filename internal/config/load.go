@@ -61,6 +61,19 @@ type File struct {
 	jsonOnce sync.Once
 	json     []byte
 	jsonErr  error
+
+	docOnce sync.Once
+	doc     *document
+	docErr  error
+
+	setupScope, envScope scopeCache
+}
+
+// scopeCache holds one scope's decoded entries.
+type scopeCache struct {
+	once    sync.Once
+	entries scopeEntries
+	err     error
 }
 
 // init panics at startup if the embedded schema.cue fails to compile.

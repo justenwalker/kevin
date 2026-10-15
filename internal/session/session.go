@@ -6,6 +6,8 @@ package session
 import (
 	"slices"
 	"time"
+
+	"github.com/justenwalker/kevin/internal/config"
 )
 
 // State is where a step is in its life.
@@ -66,12 +68,11 @@ type Step struct {
 	// on, not just rerun directly.
 	Idempotent bool
 
-	// Needs are the names of the steps this one depends on, i.e. this
-	// step's needs: list from kevin.cue - empty when it depends on
-	// nothing. The sidebar draws a line per same-scope entry; a
-	// "setup.<name>" entry gets a badge instead, since it names a step in a
-	// scope this console never renders.
-	Needs []string
+	// Needs are the steps this one depends on, i.e. this step's needs: list
+	// from kevin.cue - empty when it depends on nothing. The sidebar draws a
+	// line per same-scope entry; a setup entry gets a badge instead, since it
+	// names a step in a scope this console never renders.
+	Needs []config.Need
 
 	// Details are the rows this step's card shows.
 	Details []Detail

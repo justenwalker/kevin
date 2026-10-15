@@ -82,7 +82,7 @@ func (Step) Up(ctx context.Context, cfg config, req *plugin.UpRequest, out plugi
 
 	fwd := clusterrelay.ForwarderSpec{
 		Name: clusterrelay.ForwarderName(name), Network: req.Env.Network,
-		Project: req.Env.Project, Scope: req.Env.Scope.String(), Step: req.Step,
+		Project: req.Env.Project, Scope: req.Env.Scope, Step: req.Step,
 	}
 	setup, err := finishClusterSetup(ctx, rt, drv, cfg, req.Env, nodes, fwd, out)
 	if err != nil {

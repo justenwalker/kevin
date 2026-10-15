@@ -10,8 +10,7 @@ import (
 	"github.com/justenwalker/kevin/protos/pb"
 )
 
-// envToProto lowers env to its wire form. Any engine name other than
-// "podman" is docker, the zero value.
+// envToProto lowers env to its wire form.
 func envToProto(env step.Env) *pb.Environment {
 	engine := pb.Engine_ENGINE_DOCKER
 	if env.Engine == step.EnginePodman {

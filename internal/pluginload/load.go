@@ -20,9 +20,9 @@ var log = logging.New("pluginload")
 // process and validates no schema, so it needs no plugin to actually run.
 //
 // Fetch returns the distinct, non-builtin plugin names it resolved,
-// sorted.
-func Fetch(ctx context.Context, dir, name string, tags []string) ([]string, error) {
-	file, err := config.Load(dir, name, tags)
+// sorted. It reads opts.Dir, opts.Name, opts.Tags and opts.Cosign.
+func Fetch(ctx context.Context, opts Options) ([]string, error) {
+	file, err := config.Load(opts.Dir, opts.Name, opts.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -37,12 +37,16 @@ func Fetch(ctx context.Context, dir, name string, tags []string) ([]string, erro
 		return nil, err
 	}
 
+	cosignRunner := opts.Cosign
+	if cosignRunner == nil {
+		cosignRunner = command.Default
+	}
 	fetched := make([]string, 0, len(names))
 	for _, n := range names {
 		if n == config.Builtin {
 			continue
 		}
-		if _, err := resolveSpec(ctx, n, file.Dir(), specs, command.Default); err != nil {
+		if _, err := resolveSpec(ctx, n, file.Dir(), specs, cosignRunner); err != nil {
 			return fetched, err
 		}
 		fetched = append(fetched, n)

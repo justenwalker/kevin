@@ -7,6 +7,7 @@ import (
 	"github.com/justenwalker/kevin/internal/pluginhost"
 	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/relay"
+	"github.com/justenwalker/kevin/internal/runapi"
 	"github.com/justenwalker/kevin/internal/step"
 )
 
@@ -76,4 +77,21 @@ func stepPlugins(clients map[string]*pluginhost.Client) map[string]stepPlugin {
 		out[name] = c
 	}
 	return out
+}
+
+// egressView adapts the proxy to the route and egress view the MCP server
+// reads.
+type egressView struct{ proxy *proxy.Proxy }
+
+func (v egressView) Routes() []runapi.Route {
+	routes := v.proxy.Routes()
+	out := make([]runapi.Route, len(routes))
+	for i, r := range routes {
+		out[i] = runapi.Route{Host: r.Host, Upstream: r.Upstream, Relay: r.Relay, TLS: r.TLS}
+	}
+	return out
+}
+
+func (v egressView) EgressPolicy() runapi.EgressPolicy {
+	return runapi.EgressPolicy(v.proxy.EgressPolicy())
 }

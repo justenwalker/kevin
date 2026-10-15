@@ -347,7 +347,7 @@ func initCommand(opts *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.ran = true
-			names, err := pluginload.Fetch(cmd.Context(), opts.dir, opts.name, opts.tags)
+			names, err := pluginload.Fetch(cmd.Context(), pluginload.Options{Dir: opts.dir, Name: opts.name, Tags: opts.tags})
 			if err != nil {
 				return err
 			}

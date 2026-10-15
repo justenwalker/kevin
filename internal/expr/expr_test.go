@@ -2,6 +2,7 @@ package expr_test
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -550,5 +551,46 @@ func TestBareMarker(t *testing.T) {
 				assert.Equal(t, tt.wantExp, exprStr)
 			}
 		})
+	}
+}
+
+func TestTemplateFieldSensitive(t *testing.T) {
+	scopes := expr.Scopes{Needs: map[string]output.Map{
+		"db": {"password": output.Value{String: "hunter2", Sensitive: true}, "host": output.Value{String: "localhost"}},
+	}}
+	tpl, err := expr.Parse(json.RawMessage(`{"pass":"${needs.db.out.password}","host":"${needs.db.out.host}","key":"${vars.k}","plain":"x"}`))
+	require.NoError(t, err)
+
+	assert.True(t, tpl.FieldSensitive("pass", scopes, nil))
+	assert.False(t, tpl.FieldSensitive("host", scopes, nil))
+	assert.True(t, tpl.FieldSensitive("key", scopes, map[string]bool{"k": true}))
+	assert.False(t, tpl.FieldSensitive("plain", scopes, nil))
+	assert.False(t, tpl.FieldSensitive("missing", scopes, nil))
+	assert.True(t, tpl.Sensitive(scopes, nil), "the whole template is sensitive when any field is")
+}
+
+func TestTemplateConcurrentUse(t *testing.T) {
+	tpl, err := expr.Parse(json.RawMessage(`{"a":"${needs.db.out.host}","b":"${vars.k}"}`))
+	require.NoError(t, err)
+	scopes := expr.Scopes{
+		Needs: map[string]output.Map{"db": {"host": output.Value{String: "h"}}},
+		Vars:  map[string]any{"k": "v"},
+	}
+
+	rendered := make([]json.RawMessage, 16)
+	errs := make([]error, 16)
+	var wg sync.WaitGroup
+	for i := range rendered {
+		wg.Go(func() {
+			rendered[i], errs[i] = tpl.Render("s", scopes)
+			tpl.FieldSensitive("a", scopes, nil)
+			tpl.Refs()
+		})
+	}
+	wg.Wait()
+
+	for i := range rendered {
+		require.NoError(t, errs[i])
+		assert.JSONEq(t, `{"a":"h","b":"v"}`, string(rendered[i]))
 	}
 }

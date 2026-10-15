@@ -33,7 +33,7 @@ func (r *run) scopesFor(name string, deps, setupDeps map[string]output.Map) expr
 // "setup.<name>" needs entry, for either an Up or a Down request. The result
 // carries every default its step type's schema declares.
 func (r *run) renderWith(name string, step config.Step, deps, setupDeps map[string]output.Map) (json.RawMessage, error) {
-	tpl, err := expr.Parse(step.With)
+	tpl, err := step.WithTemplate()
 	if err != nil {
 		return nil, fmt.Errorf("%s: with: %w", name, err)
 	}

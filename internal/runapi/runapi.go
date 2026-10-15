@@ -6,6 +6,7 @@ package runapi
 import (
 	"time"
 
+	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/session"
 )
 
@@ -30,7 +31,7 @@ func StepSummaryOf(s session.Step) StepSummary {
 		Message:    s.Message,
 		Kind:       s.Kind,
 		Provider:   s.Provider,
-		Needs:      s.Needs,
+		Needs:      config.NeedStrings(s.Needs),
 		Idempotent: s.Idempotent,
 	}
 }
@@ -76,4 +77,33 @@ type RerunResult struct {
 	// Denied holds the proxy requests blocked while the rerun was in flight,
 	// oldest first.
 	Denied []DeniedRequest `json:"denied,omitempty"`
+}
+
+// Route is one hostname the proxy sends to a workload.
+type Route struct {
+	// Host is the hostname a client asks for.
+	Host string
+
+	// Upstream is the address the proxy forwards to.
+	Upstream string
+
+	// Relay is the SOCKS5 relay the proxy reaches Upstream through, or empty
+	// when it dials Upstream directly.
+	Relay string
+
+	// TLS is true when the upstream speaks TLS.
+	TLS bool
+}
+
+// EgressPolicy is which external hosts a step may reach.
+type EgressPolicy struct {
+	// Allow lists the exact hosts, sorted.
+	Allow []string
+
+	// Wildcards lists the leading-dot wildcard entries, sorted.
+	Wildcards []string
+
+	// Deny is true when the proxy blocks a host that no route and no allow
+	// entry covers.
+	Deny bool
 }

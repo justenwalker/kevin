@@ -214,7 +214,7 @@ cmd.Stderr = plugin.NewLineWriter(out, "stderr")
 return cmd.Run()
 ```
 
-`NewLineWriter` sends each complete line to `out.Log`.
+`NewLineWriter` sends each complete line to `out.Log`. The stream name is a free-form label. `stdout` and `stderr` are the names kevin's own steps use.
 
 ## Test the plugin
 

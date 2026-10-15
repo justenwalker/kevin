@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -15,16 +16,14 @@ import (
 // Plugins returns [ErrReservedNamespace] for a key whose namespace is
 // [IsReservedName], before any plugin process starts.
 func (f *File) Plugins() (map[string]PluginSpec, error) {
-	var out struct {
-		Plugins map[string]PluginSpec `json:"plugins"`
-	}
-	if err := f.decode(&out); err != nil {
+	doc, err := f.document()
+	if err != nil {
 		return nil, err
 	}
-	if err := f.validatePluginKeys(out.Plugins); err != nil {
+	if err := f.validatePluginKeys(doc.Plugins); err != nil {
 		return nil, err
 	}
-	return out.Plugins, nil
+	return maps.Clone(doc.Plugins), nil
 }
 
 // StepPlugins reports the distinct plugin name that a step in either scope
@@ -75,11 +74,17 @@ func (f *File) Config() (*Config, error) {
 		return nil, f.invalid(fmt.Errorf("%w: %w", ErrInvalid, err))
 	}
 
-	cfg := &Config{Dir: f.dir}
-	// The validateConcrete above already proved f.value decodes cleanly, so
-	// this cannot fail.
-	_ = f.decode(cfg)
-	if err := f.fillVariableTypes(cfg.Variables); err != nil {
+	doc, err := f.document()
+	if err != nil {
+		return nil, err
+	}
+	cfg := new(Config)
+	*cfg = doc.Config
+	cfg.Dir = f.dir
+	cfg.Plugins = maps.Clone(doc.Plugins)
+	cfg.Commands = maps.Clone(doc.Commands)
+	cfg.Variables = maps.Clone(doc.Variables)
+	if err = f.fillVariableTypes(cfg.Variables); err != nil {
 		return nil, err
 	}
 
@@ -91,11 +96,11 @@ func (f *File) Config() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg.Setup = setupEntries.Steps
-	cfg.Env = envEntries.Steps
+	cfg.Setup = maps.Clone(setupEntries.Steps)
+	cfg.Env = maps.Clone(envEntries.Steps)
 	cfg.groups = map[Scope]map[string]Group{
-		ScopeSetup: setupEntries.Groups,
-		ScopeEnv:   envEntries.Groups,
+		ScopeSetup: maps.Clone(setupEntries.Groups),
+		ScopeEnv:   maps.Clone(envEntries.Groups),
 	}
 
 	cfg.Name = SlugName(f.name)
@@ -106,6 +111,29 @@ func (f *File) Config() (*Config, error) {
 		cfg.Project += "-" + cfg.Name
 	}
 	return cfg, nil
+}
+
+// document is the whole environment, decoded once per File. Its scope blocks
+// stay raw: [File.decodeScope] turns each into steps and groups.
+type document struct {
+	Config
+
+	Setup map[string]json.RawMessage `json:"setup"`
+	Env   map[string]json.RawMessage `json:"env"`
+}
+
+// document decodes the whole environment once per File. Callers must not
+// change what it returns.
+func (f *File) document() (*document, error) {
+	f.docOnce.Do(func() {
+		doc := new(document)
+		if err := f.decode(doc); err != nil {
+			f.docErr = err
+			return
+		}
+		f.doc = doc
+	})
+	return f.doc, f.docErr
 }
 
 // decode unmarshals the CUE value's JSON encoding into into. The encoding is

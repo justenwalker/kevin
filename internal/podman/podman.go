@@ -14,7 +14,8 @@ import (
 // flavor is the podman [clirt.Dialect].
 type flavor struct{}
 
-// Dialect implements [clirt.Flavor].
+// Dialect implements [clirt.Flavor]. DisableIPv6 stays off because podman
+// creates IPv4-only networks unless --ipv6 is passed.
 func (flavor) Dialect() clirt.Dialect {
 	return clirt.Dialect{
 		Binary:           "podman",

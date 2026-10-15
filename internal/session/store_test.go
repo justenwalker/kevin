@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/justenwalker/kevin/internal/config"
 )
 
 func TestAddStep(t *testing.T) {
@@ -41,19 +43,19 @@ func TestAddStep(t *testing.T) {
 	t.Run("stores needs", func(t *testing.T) {
 		s := NewStore()
 		s.AddStep(Step{Name: "a"})
-		s.AddStep(Step{Name: "b", Needs: []string{"a"}})
+		s.AddStep(Step{Name: "b", Needs: []config.Need{{Step: "a"}}})
 
 		assert.Empty(t, s.Snapshot().Steps[0].Needs)
-		assert.Equal(t, []string{"a"}, s.Snapshot().Steps[1].Needs)
+		assert.Equal(t, []config.Need{{Step: "a"}}, s.Snapshot().Steps[1].Needs)
 	})
 
 	t.Run("copies needs so the caller cannot mutate it later", func(t *testing.T) {
 		s := NewStore()
-		needs := []string{"a"}
+		needs := []config.Need{{Step: "a"}}
 		s.AddStep(Step{Name: "b", Needs: needs})
 
-		needs[0] = "tampered"
-		assert.Equal(t, []string{"a"}, s.Snapshot().Steps[0].Needs)
+		needs[0] = config.Need{Step: "tampered"}
+		assert.Equal(t, []config.Need{{Step: "a"}}, s.Snapshot().Steps[0].Needs)
 	})
 
 	t.Run("sets the provider and icon", func(t *testing.T) {

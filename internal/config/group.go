@@ -10,6 +10,8 @@ import (
 
 	"cuelang.org/go/cue"
 	cueerrors "cuelang.org/go/cue/errors"
+
+	"github.com/justenwalker/kevin/internal/expr"
 )
 
 // GroupMemberSep joins a group's own name to a member's bare name for the
@@ -42,6 +44,21 @@ type Group struct {
 	Members []string // bare member names, sorted
 	Outputs map[string]string
 	Label   string
+
+	outputsTpl *expr.Template
+}
+
+// OutputsTemplate returns the parsed Outputs block. The returned template is
+// shared and safe for concurrent use.
+func (g Group) OutputsTemplate() (*expr.Template, error) {
+	if g.outputsTpl != nil {
+		return g.outputsTpl, nil
+	}
+	raw, err := json.Marshal(g.Outputs)
+	if err != nil {
+		return nil, fmt.Errorf("config: outputs: %w", err)
+	}
+	return expr.Parse(raw)
 }
 
 // rawGroupEntry is #StepGroup's JSON shape - decoded only once
@@ -96,21 +113,29 @@ type scopeEntries struct {
 // statically validates the group's own outputs block the same way an
 // ordinary step's with block gets validated - all before anything runs,
 // per ADR-0002.
+//
+// The result is cached per File: callers must not change its maps.
 func (f *File) decodeScope(scopeName Scope) (scopeEntries, error) {
-	// A whole-document decode, like every other File method uses (not
-	// decodePath scoped to just this field) - so an incomplete value
-	// elsewhere in the file (e.g. an unset plugins.<name>.cmd) still
-	// surfaces here as ErrInvalid, consistent with the rest of the package.
-	var out struct {
-		Setup map[string]json.RawMessage `json:"setup"`
-		Env   map[string]json.RawMessage `json:"env"`
+	c := &f.envScope
+	if scopeName == ScopeSetup {
+		c = &f.setupScope
 	}
-	if err := f.decode(&out); err != nil {
+	c.once.Do(func() { c.entries, c.err = f.buildScope(scopeName) })
+	return c.entries, c.err
+}
+
+func (f *File) buildScope(scopeName Scope) (scopeEntries, error) {
+	// The whole-document decode, not one scoped to just this field, so an
+	// incomplete value elsewhere in the file (e.g. an unset
+	// plugins.<name>.cmd) still surfaces here as ErrInvalid, consistent with
+	// the rest of the package.
+	doc, err := f.document()
+	if err != nil {
 		return scopeEntries{}, err
 	}
-	raw := out.Env
+	raw := doc.Env
 	if scopeName == ScopeSetup {
-		raw = out.Setup
+		raw = doc.Setup
 	}
 
 	scopePath := clipPath(cue.MakePath(cue.Str(scopeName.String())))
@@ -165,6 +190,7 @@ func (f *File) decodeStep(raw json.RawMessage, path cue.Path, label string) (Ste
 	var step Step
 	err := json.Unmarshal(raw, &step)
 	if err == nil {
+		step.tpl, step.tplErr = expr.Parse(step.With)
 		return step, nil
 	}
 	err = fmt.Errorf("config: %s: %w", label, err)
@@ -219,21 +245,27 @@ func (f *File) decodeGroup(scopeName Scope, name string, groupPath cue.Path, raw
 		entries.Paths[flat] = memberPath
 	}
 
+	var outputsTpl *expr.Template
 	if len(g.Outputs) > 0 {
 		outputsJSON, err := json.Marshal(g.Outputs)
 		if err != nil {
 			return fmt.Errorf("config: %s.%s.outputs: %w", scopeName, name, err)
 		}
-		if refErr := validateNeedsReferences(scopeName.String(), name, "outputs", memberNeeds(members), outputsJSON); refErr != nil {
+		outputsTpl, err = parseTemplate(scopeName.String(), name, "outputs", outputsJSON)
+		if err != nil {
+			return f.wrapAt(groupPath.Append(cue.Str("outputs")), err)
+		}
+		if refErr := validateNeedsReferences(scopeName.String(), name, "outputs", memberNeeds(members), outputsTpl); refErr != nil {
 			return f.wrapAt(groupPath.Append(cue.Str("outputs")), refErr)
 		}
 	}
 
 	entries.Groups[name] = Group{
-		Needs:   g.Needs,
-		Members: members,
-		Outputs: g.Outputs,
-		Label:   g.Label,
+		Needs:      g.Needs,
+		Members:    members,
+		Outputs:    g.Outputs,
+		Label:      g.Label,
+		outputsTpl: outputsTpl,
 	}
 	return nil
 }

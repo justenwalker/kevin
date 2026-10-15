@@ -41,20 +41,17 @@ func (f *File) Validate(schemas map[string]PluginSchemas) error {
 		return err
 	}
 
-	var out struct {
-		Commands  map[string]Command  `json:"commands"`
-		Variables map[string]Variable `json:"variables"`
+	doc, err := f.document()
+	if err != nil {
+		return err
 	}
-	// f.Plugins above already decoded f.value once and succeeded, so this
-	// decode of the same value cannot fail.
-	_ = f.decode(&out)
 
 	for _, scope := range []struct {
 		name    Scope
 		entries scopeEntries
 	}{{ScopeSetup, setupEntries}, {ScopeEnv, envEntries}} {
 		for step, spec := range scope.entries.Steps {
-			if err := f.validateStep(scope.name, step, scope.entries.Paths[step], spec, plugins, schemas, out.Variables); err != nil {
+			if err := f.validateStep(scope.name, step, scope.entries.Paths[step], spec, plugins, schemas, doc.Variables); err != nil {
 				return err
 			}
 		}
@@ -67,13 +64,13 @@ func (f *File) Validate(schemas map[string]PluginSchemas) error {
 		return err
 	}
 
-	for name, cmd := range out.Commands {
-		if err := f.validateCommand(name, cmd, envEntries.Steps, setupEntries.Steps, schemas, out.Variables); err != nil {
+	for name, cmd := range doc.Commands {
+		if err := f.validateCommand(name, cmd, envEntries.Steps, setupEntries.Steps, schemas, doc.Variables); err != nil {
 			return err
 		}
 	}
 
-	return f.validatePluginConfigs(plugins, schemas, out.Variables)
+	return f.validatePluginConfigs(plugins, schemas, doc.Variables)
 }
 
 // validatePluginKeys checks that every plugins key is not [IsReservedName]. The
@@ -142,13 +139,17 @@ func (f *File) validateStep(scopeName Scope, step string, path cue.Path, spec St
 		with = f.ctx.CompileString("{}")
 	}
 
-	if refErr := validateNeedsReferences(scopeName.String(), step, "with", spec.Needs, spec.With); refErr != nil {
+	tpl, tplErr := spec.WithTemplate()
+	if tplErr != nil {
+		return f.invalid(cueerrors.Wrapf(fmt.Errorf("config: %s.%s.with: %w", scopeName, step, tplErr), pos, ""))
+	}
+	if refErr := validateNeedsReferences(scopeName.String(), step, "with", spec.Needs, tpl); refErr != nil {
 		// pos (the step's "uses" field), not with.Pos(): a "with" value that
 		// exists only via the core schema's own optional "with?: {...}"
 		// declaration reports schema.cue's position, not the actual file's.
 		return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
 	}
-	if refErr := validateVarReferences(scopeName.String(), step, "with", variables, spec.With); refErr != nil {
+	if refErr := validateVarReferences(scopeName.String(), step, "with", variables, tpl); refErr != nil {
 		return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
 	}
 
@@ -204,6 +205,15 @@ func (f *File) validateWatch(scopeName Scope, step string, path cue.Path, watch 
 	return nil
 }
 
+// parseTemplate parses raw, naming the block in an error.
+func parseTemplate(scopeName, step, field string, raw json.RawMessage) (*expr.Template, error) {
+	tpl, err := expr.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("config: %s.%s.%s: %w", scopeName, step, field, err)
+	}
+	return tpl, nil
+}
+
 // validateNeedsReferences checks that every "needs.<step>..." and
 // "setup.<step>..." reference inside raw's "${...}" markers names a step
 // that needs actually declares - the same rule internal/expr's renderer
@@ -212,11 +222,7 @@ func (f *File) validateWatch(scopeName Scope, step string, path cue.Path, watch 
 // declares) already sit in the parsed file, no plugin process or Docker
 // resource required to check them against each other. field names the
 // block in an error message ("with" for a step, "run" for a command).
-func validateNeedsReferences(scopeName string, step, field string, needs []Need, raw json.RawMessage) error {
-	tpl, err := expr.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("config: %s.%s.%s: %w", scopeName, step, field, err)
-	}
+func validateNeedsReferences(scopeName string, step, field string, needs []Need, tpl *expr.Template) error {
 	needsRefs, setupRefs := tpl.Refs().Needs, tpl.Refs().Setup
 
 	declaredNeeds := make(map[string]struct{}, len(needs))
@@ -280,10 +286,14 @@ func (f *File) validateCommand(name string, cmd Command, env, setup map[string]S
 		}
 	}
 
-	if refErr := validateNeedsReferences("commands", name, "run", cmd.Needs, cmd.Run); refErr != nil {
+	tpl, err := parseTemplate("commands", name, "run", cmd.Run)
+	if err != nil {
+		return f.invalid(cueerrors.Wrapf(err, pos, ""))
+	}
+	if refErr := validateNeedsReferences("commands", name, "run", cmd.Needs, tpl); refErr != nil {
 		return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
 	}
-	if refErr := validateVarReferences("commands", name, "run", variables, cmd.Run); refErr != nil {
+	if refErr := validateVarReferences("commands", name, "run", variables, tpl); refErr != nil {
 		return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
 	}
 	return nil
@@ -314,10 +324,14 @@ func (f *File) validatePluginConfigs(plugins map[string]PluginSpec, schemas map[
 
 		pos := f.value.LookupPath(cue.MakePath(cue.Str("plugins"), cue.Str(name), cue.Str("config"))).Pos()
 
-		if refErr := validateNeedsReferences("plugins", name, "config", nil, spec.Config); refErr != nil {
+		tpl, tplErr := parseTemplate("plugins", name, "config", spec.Config)
+		if tplErr != nil {
+			return f.invalid(cueerrors.Wrapf(tplErr, pos, ""))
+		}
+		if refErr := validateNeedsReferences("plugins", name, "config", nil, tpl); refErr != nil {
 			return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
 		}
-		if refErr := validateVarReferences("plugins", name, "config", variables, spec.Config); refErr != nil {
+		if refErr := validateVarReferences("plugins", name, "config", variables, tpl); refErr != nil {
 			return f.invalid(cueerrors.Wrapf(refErr, pos, ""))
 		}
 

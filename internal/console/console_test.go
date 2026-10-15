@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/runapi"
 	"github.com/justenwalker/kevin/internal/session"
 )
@@ -147,7 +148,7 @@ func TestPage(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.AddStep(session.Step{Name: "a"})
-		store.AddStep(session.Step{Name: "b", Needs: []string{"a"}})
+		store.AddStep(session.Step{Name: "b", Needs: []config.Need{{Step: "a"}}})
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -161,9 +162,9 @@ func TestPage(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
 		store.AddStep(session.Step{Name: "a"})
-		store.AddStep(session.Step{Name: "b", Needs: []string{"a", "setup.cluster"}})
-		store.AddStep(session.Step{Name: "p", Kind: "probe", Needs: []string{"setup.cluster"}, Compact: true})
-		store.AddStep(session.Step{Name: "g", Kind: "group", Needs: []string{"setup.cluster"}, IsGroup: true})
+		store.AddStep(session.Step{Name: "b", Needs: []config.Need{{Step: "a"}, {Setup: true, Step: "cluster"}}})
+		store.AddStep(session.Step{Name: "p", Kind: "probe", Needs: []config.Need{{Setup: true, Step: "cluster"}}, Compact: true})
+		store.AddStep(session.Step{Name: "g", Kind: "group", Needs: []config.Need{{Setup: true, Step: "cluster"}}, IsGroup: true})
 
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/", nil))
@@ -178,7 +179,7 @@ func TestPage(t *testing.T) {
 	t.Run("a group nests its members, collapsed by default", func(t *testing.T) {
 		store := session.NewStore()
 		s := New(Config{Project: "demo", Network: "kevin-demo", Store: store})
-		store.AddStep(session.Step{Name: "db", Kind: "group", Needs: []string{"net"}, IsGroup: true})
+		store.AddStep(session.Step{Name: "db", Kind: "group", Needs: []config.Need{{Step: "net"}}, IsGroup: true})
 		store.AddStep(session.Step{Name: "db.primary", Provider: "echo", Group: "db"})
 
 		rec := httptest.NewRecorder()

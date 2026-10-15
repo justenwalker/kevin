@@ -4,6 +4,8 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+
+	"github.com/justenwalker/kevin/internal/expr"
 )
 
 // Builtin is the plugin name that resolves to kevin's builtin step types.
@@ -89,6 +91,19 @@ type Step struct {
 	// Watch lists the paths, relative to the project directory, whose
 	// changes rerun the step.
 	Watch []string `json:"watch"`
+
+	tpl    *expr.Template
+	tplErr error
+}
+
+// WithTemplate returns the parsed With block. A decoded step parsed it once;
+// a Step built by hand parses it here. The returned template is shared and
+// safe for concurrent use.
+func (s Step) WithTemplate() (*expr.Template, error) {
+	if s.tpl != nil || s.tplErr != nil {
+		return s.tpl, s.tplErr
+	}
+	return expr.Parse(s.With)
 }
 
 // Command is one entry of the commands block, run on demand by name.

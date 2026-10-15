@@ -3,6 +3,7 @@ package proxy_test
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -323,6 +324,28 @@ func TestSetStep(t *testing.T) {
 		assert.False(t, ok)
 		assert.False(t, p.EgressAllowed("y.test"))
 	})
+}
+
+func TestStepsConcurrentUse(t *testing.T) {
+	// Run with -race: the route and egress tables are rebuilt under the proxy's lock.
+	p, _ := startTestProxyWithClientAndEgressFiltering(t, nil, true)
+	var wg sync.WaitGroup
+	for i := range 8 {
+		step := fmt.Sprintf("step%d", i)
+		wg.Go(func() {
+			for range 50 {
+				p.SetStep(step, []proxy.Route{{Host: step + ".kevin.test", Upstream: "a:1"}}, []string{"*.x.test"})
+				_, _ = p.Lookup(step + ".kevin.test")
+				_ = p.Routes()
+				_ = p.EgressPolicy()
+				p.ClearStep(step)
+			}
+		})
+	}
+	wg.Wait()
+
+	assert.Empty(t, p.Routes())
+	assert.Empty(t, p.EgressPolicy().Wildcards)
 }
 
 func TestClearStep(t *testing.T) {

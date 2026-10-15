@@ -12,6 +12,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/relay"
+	"github.com/justenwalker/kevin/plugin"
 )
 
 // NodePort is the fixed port the SOCKS5 relay pod listens on for its TCP
@@ -60,7 +61,7 @@ type ForwarderSpec struct {
 
 	// Project, Scope, and Step label the container as owned by the step.
 	Project string
-	Scope   string
+	Scope   plugin.Scope
 	Step    string
 }
 
@@ -105,8 +106,8 @@ func StartForwarder(ctx context.Context, rt cri.Containers, spec ForwarderSpec) 
 		Labels: map[string]string{
 			cri.LabelProject: spec.Project,
 			cri.LabelRole:    Role,
-			cri.LabelScope:   cri.ScopeLabel(spec.Project, spec.Scope),
-			cri.LabelURN:     cri.URNLabel(spec.Project, spec.Scope, spec.Step),
+			cri.LabelScope:   cri.ScopeLabel(spec.Project, spec.Scope.String()),
+			cri.LabelURN:     cri.URNLabel(spec.Project, spec.Scope.String(), spec.Step),
 			targetLabel:      spec.Target,
 			poolLabel:        pool,
 		},

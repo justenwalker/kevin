@@ -2,6 +2,7 @@ package session
 
 import (
 	"bytes"
+	"slices"
 	"sync"
 )
 
@@ -94,7 +95,7 @@ func (s *Store) AddStep(spec Step) {
 	if _, ok := s.steps[spec.Name]; !ok {
 		s.steps[spec.Name] = &Step{
 			Name: spec.Name, Label: spec.Label, State: Pending, Kind: spec.Kind, Provider: spec.Provider,
-			Icon: validIcon(spec.Icon), Needs: append([]string(nil), spec.Needs...), Compact: spec.Compact,
+			Icon: validIcon(spec.Icon), Needs: slices.Clone(spec.Needs), Compact: spec.Compact,
 			Group: spec.Group, IsGroup: spec.IsGroup,
 		}
 		s.order = append(s.order, spec.Name)

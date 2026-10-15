@@ -33,11 +33,11 @@ func TestPluginIndexSuite(t *testing.T) {
 	suite.Run(t, new(PluginIndexSuite))
 }
 
-// isolatedHome is a "HOME=<fresh temp dir>" env entry for
+// isolatedState is a "KEVIN_USER_STATE_DIR=<fresh temp dir>" env entry for
 // runToCompletionWithEnv, so a test's ~/.kevin/plugin-index cache and
 // trust store never touch the real machine's own.
-func (s *PluginIndexSuite) isolatedHome() []string {
-	return []string{"HOME=" + s.T().TempDir()}
+func (s *PluginIndexSuite) isolatedState() []string {
+	return []string{"KEVIN_USER_STATE_DIR=" + s.T().TempDir()}
 }
 
 // gitFixture creates a local git repo at a fresh temp dir containing
@@ -128,7 +128,7 @@ func (k e2eSignerKey) signFile(t *testing.T, path string) {
 // TestAddListShowSearchRemove covers the read-only discovery commands
 // end to end against a real cloned fixture repo.
 func (s *PluginIndexSuite) TestAddListShowSearchRemove() {
-	env := s.isolatedHome()
+	env := s.isolatedState()
 	url := s.gitFixture(map[string]string{
 		"kevin-index.yaml":                 "layout: 1\n",
 		"plugins/demo/plugin.yaml":         "name: demo\nsummary: a demo plugin\n",
@@ -168,7 +168,7 @@ func (s *PluginIndexSuite) TestAddListShowSearchRemove() {
 // minisign signer, writes the plugins: entry into a real kevin.cue, and
 // the result still validates.
 func (s *PluginIndexSuite) TestInstallTrustsSignerAndWritesSnippet() {
-	env := s.isolatedHome()
+	env := s.isolatedState()
 	key := newE2ESignerKey(s.T())
 	url := s.gitFixture(map[string]string{
 		"kevin-index.yaml": "layout: 1\n",

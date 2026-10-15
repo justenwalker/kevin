@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/expr"
 	"github.com/justenwalker/kevin/internal/output"
 	"github.com/justenwalker/kevin/internal/session"
@@ -54,12 +55,16 @@ func (r *run) trackProgress(ctx context.Context, name string, estimate time.Dura
 // or when any of its "${needs.../setup.../vars...}" markers resolve to a
 // sensitive value in scopes or name a variable sensitiveVars marks. A
 // `with` block with no fields (a step that declared none) reports no rows.
-func inputRows(raw, rendered json.RawMessage, scopes expr.Scopes, schemaSensitive, sensitiveVars map[string]bool) ([]session.Detail, error) {
-	if len(raw) == 0 {
+func inputRows(step config.Step, rendered json.RawMessage, scopes expr.Scopes, schemaSensitive, sensitiveVars map[string]bool) ([]session.Detail, error) {
+	if len(step.With) == 0 {
 		return nil, nil
 	}
+	tpl, err := step.WithTemplate()
+	if err != nil {
+		return nil, fmt.Errorf("with: %w", err)
+	}
 	var rawFields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &rawFields); err != nil {
+	if err := json.Unmarshal(step.With, &rawFields); err != nil {
 		return nil, fmt.Errorf("with: decode: %w", err)
 	}
 	var renderedFields map[string]json.RawMessage
@@ -75,11 +80,7 @@ func inputRows(raw, rendered json.RawMessage, scopes expr.Scopes, schemaSensitiv
 
 	rows := make([]session.Detail, 0, len(names))
 	for _, field := range names {
-		fieldTpl, err := expr.Parse(rawFields[field])
-		if err != nil {
-			return nil, fmt.Errorf("with.%s: %w", field, err)
-		}
-		sensitive := schemaSensitive[field] || fieldTpl.Sensitive(scopes, sensitiveVars)
+		sensitive := schemaSensitive[field] || tpl.FieldSensitive(field, scopes, sensitiveVars)
 		rows = append(rows, session.Detail{
 			Label:     field,
 			Value:     scalarString(renderedFields[field]),

@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/justenwalker/kevin/internal/config"
 	"github.com/justenwalker/kevin/internal/mcpserver"
 	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/runapi"
 	"github.com/justenwalker/kevin/internal/session"
 )
@@ -29,19 +29,19 @@ type fakeView struct {
 
 func (f fakeView) Snapshot() session.View { return *f.v }
 
-// fakeProxy is a stub of the state a [*proxy.Proxy] would otherwise
+// fakeProxy is a stub of the proxy state the engine would otherwise
 // provide.
 type fakeProxy struct {
-	routes    []proxy.Route
+	routes    []runapi.Route
 	allow     []string
 	wildcards []string
 	deny      bool
 }
 
-func (f fakeProxy) Routes() []proxy.Route { return f.routes }
+func (f fakeProxy) Routes() []runapi.Route { return f.routes }
 
-func (f fakeProxy) EgressPolicy() proxy.EgressPolicy {
-	return proxy.EgressPolicy{Allow: f.allow, Wildcards: f.wildcards, Deny: f.deny}
+func (f fakeProxy) EgressPolicy() runapi.EgressPolicy {
+	return runapi.EgressPolicy{Allow: f.allow, Wildcards: f.wildcards, Deny: f.deny}
 }
 
 // defaultView is the fake session state most tests run against.
@@ -51,7 +51,7 @@ func defaultView() *session.View {
 		Steps: []session.Step{
 			{
 				Name: "api", State: session.Ready, Kind: "resource", Provider: "builtin",
-				Idempotent: true, Needs: []string{"network"},
+				Idempotent: true, Needs: []config.Need{{Step: "network"}},
 				Details: []session.Detail{
 					{Label: "url", Value: "http://api.kevin.home"},
 					{Label: "password", Value: "hunter2", Sensitive: true},
@@ -126,7 +126,7 @@ func newTestServerWithLogs(t *testing.T, view *session.View, logsPath string,
 	t.Helper()
 
 	px := fakeProxy{
-		routes:    []proxy.Route{{Host: "api.kevin.home", Upstream: "api:8080"}},
+		routes:    []runapi.Route{{Host: "api.kevin.home", Upstream: "api:8080"}},
 		allow:     []string{"api.github.com"},
 		wildcards: []string{".example.com"},
 		deny:      true,

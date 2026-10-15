@@ -11,7 +11,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/justenwalker/kevin/internal/output"
-	"github.com/justenwalker/kevin/internal/proxy"
 	"github.com/justenwalker/kevin/internal/runapi"
 	"github.com/justenwalker/kevin/internal/session"
 	"github.com/justenwalker/kevin/internal/version"
@@ -23,16 +22,15 @@ import (
 const Path = "/_mcp"
 
 // stepViewer is the read-only session state Server needs - satisfied by
-// [*console.Server].
+// [*session.Store].
 type stepViewer interface {
 	Snapshot() session.View
 }
 
-// egressViewer is the proxy state Server needs - satisfied by
-// [*proxy.Proxy].
+// egressViewer is the proxy state Server needs.
 type egressViewer interface {
-	Routes() []proxy.Route
-	EgressPolicy() proxy.EgressPolicy
+	Routes() []runapi.Route
+	EgressPolicy() runapi.EgressPolicy
 }
 
 // ToolDef describes one MCP tool a plugin contributes, already resolved

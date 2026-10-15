@@ -246,11 +246,11 @@ func stepsByGroup(steps []session.Step) map[string][]session.Step {
 
 // sameScopeNeeds returns the entries of needs the sidebar draws a line for -
 // crossScopeNeeds excluded.
-func sameScopeNeeds(needs []string) []string {
+func sameScopeNeeds(needs []config.Need) []string {
 	out := make([]string, 0, len(needs))
 	for _, n := range needs {
-		if !config.ParseNeed(n).Setup {
-			out = append(out, n)
+		if !n.Setup {
+			out = append(out, n.Step)
 		}
 	}
 	return out
@@ -261,11 +261,11 @@ func sameScopeNeeds(needs []string) []string {
 // line would draw an edge into a console the current scope never renders -
 // every step reading the same setup step gets a badge instead, so a setup
 // step with many readers doesn't converge into one cluttered hub.
-func crossScopeNeeds(needs []string) []string {
+func crossScopeNeeds(needs []config.Need) []string {
 	var out []string
 	for _, n := range needs {
-		if need := config.ParseNeed(n); need.Setup {
-			out = append(out, need.Step)
+		if n.Setup {
+			out = append(out, n.Step)
 		}
 	}
 	return out

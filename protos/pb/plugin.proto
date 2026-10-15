@@ -261,7 +261,8 @@ message Event {
 }
 
 message LogLine {
-  // Stream is "stdout" or "stderr".
+  // Stream is a free-form label for the log's source. kevin's own steps use
+  // "stdout" and "stderr"; a plugin may send any other name.
   string stream = 1;
   string text = 2;
   int64 unix_nano = 3;

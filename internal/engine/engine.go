@@ -305,7 +305,7 @@ func startRelay(ctx context.Context, rt cri.Containers, cfg *config.Config, star
 		Domain:        cfg.Domain,
 		ProxyAddr:     hostGateway + ":" + portOf(start.GatewayAddr),
 		Image:         relay.Ref(cfg.Relay.Image),
-		Scope:         start.Scope.String(),
+		Scope:         start.Scope,
 		Authority:     start.Authority,
 		FakeIPv4Range: cfg.Relay.Intercept.IPv4Range,
 		FakeIPv6Range: cfg.Relay.Intercept.IPv6Range,
@@ -744,7 +744,7 @@ func (r *run) newMux(cfg *config.Config, workspace string, p *proxy.Proxy, tools
 		Domain:   cfg.Domain,
 		LogsPath: filepath.Join(workspace, state.LogsFile),
 		View:     r.store,
-		Proxy:    p,
+		Proxy:    egressView{proxy: p},
 		Control:  r,
 		Tools:    tools,
 	})

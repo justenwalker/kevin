@@ -223,7 +223,7 @@ func (s *server) Up(req *pb.UpRequest, stream grpc.ServerStreamingServer[pb.Even
 		})
 	}
 
-	if err := stream.Send(&pb.Event{Event: &pb.Event_Result{Result: &pb.Result{
+	return out.send(&pb.Event{Event: &pb.Event_Result{Result: &pb.Result{
 		Outputs:      &pb.Outputs{Values: outputsToProto(result.Outputs)},
 		Routes:       routes,
 		ExposedPorts: exposedPorts,
@@ -231,10 +231,7 @@ func (s *server) Up(req *pb.UpRequest, stream grpc.ServerStreamingServer[pb.Even
 		Details:      details,
 		Containers:   containersToProto(result.Containers),
 		Faults:       faults,
-	}}}); err != nil {
-		return fmt.Errorf("plugin: send the result: %w", err)
-	}
-	return nil
+	}}})
 }
 
 func (s *server) Down(req *pb.DownRequest, stream grpc.ServerStreamingServer[pb.Event]) error {
@@ -474,10 +471,19 @@ type emitter struct {
 	stream grpc.ServerStreamingServer[pb.Event]
 }
 
-func (e *emitter) Log(stream, text string) {
+// send writes one event under the lock, so a step that keeps logging after
+// Up returns cannot interleave with the final result.
+func (e *emitter) send(ev *pb.Event) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	_ = e.stream.Send(&pb.Event{Event: &pb.Event_Log{Log: &pb.LogLine{
+	if err := e.stream.Send(ev); err != nil {
+		return fmt.Errorf("plugin: send an event: %w", err)
+	}
+	return nil
+}
+
+func (e *emitter) Log(stream, text string) {
+	_ = e.send(&pb.Event{Event: &pb.Event_Log{Log: &pb.LogLine{
 		Stream:   stream,
 		Text:     text,
 		UnixNano: time.Now().UnixNano(),
@@ -485,9 +491,7 @@ func (e *emitter) Log(stream, text string) {
 }
 
 func (e *emitter) Progress(label string, current, total int64) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	_ = e.stream.Send(&pb.Event{Event: &pb.Event_Progress{Progress: &pb.Progress{
+	_ = e.send(&pb.Event{Event: &pb.Event_Progress{Progress: &pb.Progress{
 		Label:   label,
 		Current: current,
 		Total:   total,

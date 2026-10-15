@@ -1239,7 +1239,8 @@ func (*Event_Result) isEvent_Event() {}
 
 type LogLine struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Stream is "stdout" or "stderr".
+	// Stream is a free-form label for the log's source. kevin's own steps use
+	// "stdout" and "stderr"; a plugin may send any other name.
 	Stream        string `protobuf:"bytes,1,opt,name=stream,proto3" json:"stream,omitempty"`
 	Text          string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
 	UnixNano      int64  `protobuf:"varint,3,opt,name=unix_nano,json=unixNano,proto3" json:"unix_nano,omitempty"`

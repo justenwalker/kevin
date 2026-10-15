@@ -11,6 +11,7 @@ import (
 
 	"github.com/justenwalker/kevin/internal/cri"
 	"github.com/justenwalker/kevin/internal/relay"
+	"github.com/justenwalker/kevin/plugin"
 )
 
 func TestPodManifest(t *testing.T) {
@@ -76,7 +77,7 @@ func (f *fakeRuntime) Run(_ context.Context, spec cri.RunSpec) (string, error) {
 func testSpec(target string) ForwarderSpec {
 	return ForwarderSpec{
 		Name: ForwarderName("c"), Image: "kevin-relay:dev", Network: "net",
-		Target: target, Project: "p", Scope: "env", Step: "cluster",
+		Target: target, Project: "p", Scope: plugin.ScopeEnv, Step: "cluster",
 	}
 }
 
